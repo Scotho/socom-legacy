@@ -4,7 +4,12 @@ import {
 } from '@s2u/scene';
 import { BODY_RADIUS, groundGrid, type GroundData } from '../mover';
 import { MAX_PLAYERS } from '../net/protocol';
+import { DOOR_GATE_WIRE_SLOTS } from '../net/codec';
 import type { Layout } from './layout';
+import { HOSTAGE_SLOTS } from '../../../match/src/extraction';
+import type { AiMaps } from '@s2u/scene';
+import { FORGE_PLACED_MAX_ADAPTATION, placedKindsPast } from '@s2u/creator-contracts';
+import { placedHostageFit } from './hostages';
 import { SPAWN_FLOOR_SLACK, spawnOnFloor, stepOfYaw } from './matchMap';
 
 /**
@@ -50,7 +55,7 @@ const SAME_PLACE = 0.01;
 export type MapIssueKind =
   | 'spawn-floor' | 'spawn-inside' | 'spawn-facing' | 'spawn-reach' | 'spawn-count' | 'spawn-none'
   | 'piece-float' | 'piece-buried' | 'piece-overlap' | 'missing' | 'budget' | 'bomb-missing' | 'extraction-missing' | 'escort-missing'
-  | 'objective-unused';
+  | 'objective-unused' | 'hostage-bound' | 'door-bound' | 'placed-bound';
 
 /**
  * The game types each kind of placed objective plays in (the owner, 2026-11-06; a browser adaptation, FG.R2): the bomb's
@@ -61,6 +66,12 @@ export type MapIssueKind =
 export const OBJECTIVE_TYPES = {
   bombStart: [1, 2], sealSite: [1, 2], terroristSite: [2], hostage: [3, 4], zone: [3, 4],
 } as const satisfies Record<string, readonly number[]>;
+
+/** The placed kinds' words, plural (`placed-bound`). */
+const PLACED_WORD: Readonly<Record<ReturnType<typeof placedKindsPast>[number]['kind'], string>> = {
+  hostages: 'hostages', extractionZones: 'extraction zones', tacPoints: 'tactical points', respawns: 'respawn points', flares: 'flares',
+  scenicViews: 'spectator views', turrets: 'turrets', doors: 'doors', gates: 'gates', barriers: 'barriers',
+};
 
 const TYPE_WORD: Readonly<Record<number, string>> = { 1: 'Breach', 2: 'Demolition', 3: 'Escort', 4: 'Extraction', 5: 'Suppression' };
 
@@ -240,11 +251,12 @@ const atOf = (m: readonly number[]): [number, number, number] => [m[12] ?? 0, m[
  * The layout's problems on `ground` (the composed hull). `pieces` is every placed piece; `polyCount` overrides the
  * polygon total the budget reads (the pieces' own lengths when omitted). `discSpawns` is the map base's slots: with
  * no marker placed, the count is theirs (the server plays them); a marker on a floor they cannot walk to is said.
+ * `baseExtraction.doors`: the base's own doors and gates (counted first against `DOOR_GATE_WIRE_SLOTS`); absent, none.
  * Pure.
  */
 export function checkMap(
   layout: Layout, ground: GroundData, pieces: readonly CheckedPiece[], polyCount?: number, discSpawns?: readonly DiscSpawn[],
-  baseExtraction: { hostages: number; zones: number; safety?: boolean; bomb?: { start: boolean; seal: boolean; terrorist: boolean } } = { hostages: 0, zones: 0 },
+  baseExtraction: { hostages: number; zones: number; safety?: boolean; ai?: AiMaps | null; doors?: number; bomb?: { start: boolean; seal: boolean; terrorist: boolean } } = { hostages: 0, zones: 0 },
 ): MapCheck {
   const grid = groundGrid(ground);
   const issues: MapIssue[] = [];
@@ -339,6 +351,29 @@ export function checkMap(
     if (vips !== 3) issues.push({ kind: 'escort-missing', text: `Escort needs three hostages (the VIPs): it has ${vips}. Place them with the Hostage tool.`, at: null });
     const safety = baseExtraction.safety === true || (layout.extractionZones ?? []).some((z) => z.name.toLowerCase() === 'safety');
     if (!safety) issues.push({ kind: 'escort-missing', text: 'Escort has no Safety zone: place one with the Zone tool.', at: null });
+  }
+
+  // Escort and Extraction number their hostages in the room's 16 body ids (`HOSTAGE_SLOTS`), the base's own first: the
+  // placed ones past them are left out of Play, counted where Play stands them (`./hostages` `placedHostageFit`, on the
+  // base's AI map): one with no cell under it takes no slot. A browser adaptation's warning, FG.R2.
+  if (OBJECTIVE_TYPES.hostage.some((t) => t === layout.objectives?.gameType)) {
+    const past = placedHostageFit(baseExtraction.ai ?? undefined, baseExtraction.hostages, layout.hostages ?? []).pastBound;
+    if (past > 0) issues.push({ kind: 'hostage-bound', text: `${past} hostage${past === 1 ? '' : 's'} past the room's ${HOSTAGE_SLOTS}: ${past === 1 ? 'it is' : 'they are'} left out of Play.`, at: null });
+  }
+
+  // FP-1a (Codex P1 on #745): each placed kind within the record's marker bound (`FORGE_PLACED_MAX_ADAPTATION`, 48): past
+  // it a lobby refuses the layout before composing (central `layoutWithinBounds`). Counts only.
+  for (const { kind, count } of placedKindsPast(layout)) {
+    issues.push({ kind: 'placed-bound', text: `${count} ${PLACED_WORD[kind]}: a layout holds at most ${FORGE_PLACED_MAX_ADAPTATION}; a lobby refuses it.`, at: null });
+  }
+
+  // FP-1a (Codex on #745): the snapshot carries `DOOR_GATE_WIRE_SLOTS` doors and gates in one u8-counted tail
+  // (`../net/codec`), the base's own first: past it a lobby refuses the layout (`match/src/forgeSimMap.ts`
+  // `ForgeDoorsPastWire`) and Play leaves the rest out (`./placedDoors`, `./placedAccess` `pastBound`). Every placed door
+  // and gate counts (one whose template is not on this disc would take no slot; Check does not read the templates).
+  const doorsPast = (baseExtraction.doors ?? 0) + (layout.doors?.length ?? 0) + (layout.gates?.length ?? 0) - DOOR_GATE_WIRE_SLOTS;
+  if (doorsPast > 0) {
+    issues.push({ kind: 'door-bound', text: `${doorsPast} door${doorsPast === 1 ? '' : 's'} or gate${doorsPast === 1 ? '' : 's'} past the room's ${DOOR_GATE_WIRE_SLOTS}: a lobby refuses the layout, and Play leaves ${doorsPast === 1 ? 'it' : 'them'} out.`, at: null });
   }
 
   // Objectives the layout's game type does not play (the owner, 2026-11-06): each placed one named, with its place for

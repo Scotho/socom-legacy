@@ -3,7 +3,9 @@ import type { CollisionOwner, Footprint, WorldPoly } from '@s2u/scene';
 import type { DoorSpec } from '../doors';
 import type { LoadedMap } from '../loadMap';
 import type { MapAction } from '../mapActions';
+import { under } from '../mapMeta';
 import { groundPolygons, packGround } from '../mover';
+import { DOOR_GATE_WIRE_SLOTS } from '../net/codec';
 import type { DoorMarker } from './layout';
 
 /**
@@ -33,7 +35,6 @@ export interface DoorTemplate {
   action: MapAction | null;
 }
 
-const beneath = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}=`);
 
 /** The door's hinge: its node's world origin (`local` then `parent`, row-vector; three's column-major order alike). */
 export function doorHinge(spec: Pick<DoorSpec, 'local' | 'parent'>): [number, number, number] {
@@ -46,7 +47,7 @@ export function doorTemplates(lib: LoadedMap, source: string): DoorTemplate[] {
   const polys = lib.ground ? groundPolygons(lib.ground) : [];
   return (lib.doors ?? []).map((spec) => {
     const pieces: DoorTemplate['pieces'] = [];
-    for (const prop of lib.props) (prop.paths ?? []).forEach((p, index) => { if (beneath(p, spec.path)) pieces.push({ prop, index }); });
+    for (const prop of lib.props) (prop.paths ?? []).forEach((p, index) => { if (under(p, spec.path)) pieces.push({ prop, index }); });
     const owners = spec.owners.flatMap((i) => {
       const owner = lib.ground?.owners[i];
       return owner ? [{ owner, polys: polys.slice(owner.first, owner.first + owner.count) }] : [];
@@ -129,21 +130,28 @@ export function doorModelMap(t: DoorTemplate): LoadedMap {
  * `map` with the layout's doors beside its own: each its template's copy, its leaf's polygons packed into the map's hull
  * after its own owners (every index the map's doors hold kept), its spec after the map's doors, its props drawn with the
  * map's, its action among the map's actions. One whose template is not found is left out and counted (`unplaced`).
+ * FP-1a (Codex on #745): the snapshot carries `DOOR_GATE_WIRE_SLOTS` doors and gates (`../net/codec`), the map's own
+ * first; a found one past them is left out and counted (`pastBound`) -- the room refuses a layout with any
+ * (`match/src/forgeSimMap.ts` `ForgeDoorsPastWire`), the page's Check says it (`./validate`, `door-bound`).
  */
 export function withPlacedDoors(map: LoadedMap, placed: readonly DoorMarker[] | undefined,
-  templateOf: (source: string, name: string) => DoorTemplate | null): { map: LoadedMap; unplaced: number } {
-  if (!placed?.length || !map.ground) return { map, unplaced: placed?.length && !map.ground ? placed.length : 0 };
+  templateOf: (source: string, name: string) => DoorTemplate | null): { map: LoadedMap; unplaced: number; pastBound: number } {
+  if (!placed?.length || !map.ground) return { map, unplaced: placed?.length && !map.ground ? placed.length : 0, pastBound: 0 };
   const polys = groundPolygons(map.ground);
   const owners: CollisionOwner[] = map.ground.owners.map((o) => ({ ...o }));
   const props = [...map.props];
   const doors = [...(map.doors ?? [])];
-  const actions = [...(map.actions ?? [])];
+  // The composed metadata's actions where the map has them (Play's objectives write the layout's bomb sites there,
+  // `./objectives` `applyForgeObjectives`), the copies' after them; `map.actions` and `meta.actions` the same list.
+  const actions = [...(map.meta?.actions ?? map.actions ?? [])];
   const textures = { ...map.textures }, textureFlags = { ...map.textureFlags };
   const textureMips = map.textureMips ? { ...map.textureMips } : undefined;
-  let unplaced = 0;
+  let unplaced = 0, pastBound = 0;
+  const gates = map.gates?.length ?? 0;
   placed.forEach((marker, i) => {
     const t = templateOf(marker.source, marker.name);
     if (!t) { unplaced++; return; }
+    if (doors.length + gates >= DOOR_GATE_WIRE_SLOTS) { pastBound++; return; }
     const foreign = t.lib.archive !== map.archive;
     if (foreign) {
       for (const { prop } of t.pieces) for (const part of prop.parts) {
@@ -162,9 +170,9 @@ export function withPlacedDoors(map: LoadedMap, placed: readonly DoorMarker[] | 
     if (copy.action) actions.push(copy.action);
   });
   const ground = packGround(map.ground.grid, polys, owners);
-  const meta = map.meta ? { ...map.meta, actions: [...map.meta.actions, ...actions.slice((map.actions ?? []).length)] } : map.meta;
+  const meta = map.meta ? { ...map.meta, actions } : map.meta;
   return {
     map: { ...map, ground, props, doors, actions, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ...(meta ? { meta } : {}) },
-    unplaced,
+    unplaced, pastBound,
   };
 }

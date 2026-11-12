@@ -24,6 +24,17 @@ overwrite or append to the header, or clients can choose their own address. With
 loopback (`FORGE_AGENT_BIND` other than `127.0.0.1`, `::1` or `localhost` is refused `TRUSTED_PROXIES_REQUIRE_LOOPBACK`),
 so the edge runs on the same host and no client reaches the gateway around it.
 
+`FORGE_AGENT_STATE_FILE` (`stateFile`, default unset) keeps logins across a restart or redeploy, so a player's agent does
+not have to authenticate again from its MCP client. Unset, the OAuth state is in memory only, as in development. Set,
+the gateway loads the file at start and writes it atomically (a temp file in the same directory renamed over, mode
+0600) at most once a second and on shutdown. It holds the registered OAuth clients and the live access tokens as their
+SHA-256 hashes with their expiry, principal and audience, within the same 512-entry and per-address limits; never a raw
+token, an authorization code, a consent or CSRF value. A revoked or expired token is gone from it; expired entries are
+dropped on load; a corrupt, unreadable or other-version file is logged by its error code only and the gateway starts
+empty. Pairings, targets, page tokens, invitations and sessions are never stored: a page pairs again after a restart.
+The file is still a credential store -- a stored hash plus the matching token held by an agent is a live login -- so
+keep it on the box, readable by the service's user alone, and never in a backup that leaves it.
+
 The browser-safe contract is `@s2u/forge-agent-protocol`. `createGateway(config)` returns the HTTP app/server,
 capability state, OAuth provider, `listen(port, host?)` and `close()`. Configuration supports injected clock,
 cryptographic random source, explicit operation metadata and RTC peer factory. The default factory uses real werift.

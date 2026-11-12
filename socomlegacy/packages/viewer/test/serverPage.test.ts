@@ -78,7 +78,7 @@ describe('the pages read the generated data', () => {
   });
   it('every page\u2019s nav links the server page, and its footer names the generated commit', () => {
     for (const page of [newsPage([], data), roadmapPage(undefined, data), archivePage(), serverPage(data, () => new Promise(() => {}))]) {
-      expect([...page.querySelectorAll('.project-nav a')].map((a) => a.textContent)).toEqual(['News', 'Roadmap', 'Journey', 'Archive', 'Server', 'Status']);
+      expect([...page.querySelectorAll('.project-nav a')].map((a) => a.textContent)).toEqual(['News', 'Roadmap', 'Journey', 'Archive', 'Server', 'Leaderboard', 'Status']);
       expect(page.querySelector('.project-generated')?.textContent).toContain(siteData.commit);
     }
   });

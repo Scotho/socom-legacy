@@ -3,8 +3,8 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {EXPERIMENTAL_DEFAULTS,EXPERIMENTAL_GROUPS,mountExperimentalGraphics} from '../src/experimentalGraphics';
-import {pictureExperimentalSettings} from '../src/picture';
+import {EXPERIMENTAL_DEFAULTS,EXPERIMENTAL_GROUPS,MODS_PACK_SETTINGS,mountExperimentalGraphics} from '../src/experimentalGraphics';
+import {MATCH_EXPERIMENTAL_OFF} from '../src/picture';
 import {mountDevPanel,type DevPanel,type DevPanelDeps} from '../src/devPanel';
 import {devOverlayDrawn} from '../src/devTools';
 import {Ui} from '../src/ui';
@@ -15,7 +15,7 @@ import {Ui} from '../src/ui';
  * the test room's Experimental panel in a few collapsed categories with short labels, each group's explanation behind
  * an info button (a `title` for the mouse, a toggle-tip that focus or a tap reveals), the static sections' help lines
  * the same way, and the developer panel's own drawings shown only while that panel is open. The HD keys, defaults and
- * ids are pinned beside it (ac's constraint for HD (GoE Soul) in every match).
+ * ids are pinned beside it (ac's constraint for HD (GoE SouL) in every match).
  */
 const here=dirname(fileURLToPath(import.meta.url));
 const html=readFileSync(resolve(here,'../setup/index.html'),'utf8');
@@ -63,9 +63,9 @@ describe('the measures, before and after (printed for the report)',()=>{
 
 describe('the Experimental panel: categories, short labels, tooltips',()=>{
   beforeEach(mount);
-  const CATS=[['exp-cat-textures','Textures & HD'],['exp-cat-resolution','Resolution'],['exp-cat-detail','Detail'],['exp-cat-colour','Light & colour'],['exp-cat-ui','HUD & menus']];
+  const CATS=[['exp-cat-resolution','Resolution'],['exp-cat-detail','Detail'],['exp-cat-colour','Light & colour'],['exp-cat-ui','HUD & menus']];
 
-  it('five categories, in order, each a disclosure closed by default, even after Experimental is chosen',()=>{
+  it('the categories (four since ML-6 removed Textures & HD), in order, each a disclosure closed by default, even after Experimental is chosen',()=>{
     choose();
     // GX-28's review: the product-track label, once, on the panel's own summary (the rows' "(adaptation)" suffixes folded into it)
     expect(exp().querySelector(':scope > summary')!.textContent).toBe('Experimental (adaptation)');
@@ -74,11 +74,11 @@ describe('the Experimental panel: categories, short labels, tooltips',()=>{
     for(const c of cats)expect(c.open,c.id).toBe(false);
   });
 
-  it('every group but the master switch and Reset sits in exactly one category; the HD controls in Textures & HD',()=>{
+  it('every group but the master switch and Reset sits in exactly one category; no HD or texture-pack control (ML-6: MODS\'s)',()=>{
     const homes=EXPERIMENTAL_GROUPS.map(g=>[g.id,document.getElementById('exp-group-'+g.id)?.closest('details.exp-cat')?.id??null]);
     for(const [id,cat] of homes)expect(cat===null,String(id)).toBe(id==='master'||id==='about');
-    for(const id of ['exp-hdPack','exp-hd-pack-status','exp-pack-import','exp-pack-file','exp-pack-import-status','exp-texturePack'])
-      expect(document.getElementById(id)?.closest('details.exp-cat')?.id,id).toBe('exp-cat-textures');
+    for(const id of ['exp-hdPack','exp-hd-pack-status','exp-pack-import','exp-pack-file','exp-pack-import-status','exp-texturePack','exp-cat-textures'])
+      expect(document.getElementById(id),id).toBeNull();
   });
 
   it('short labels: no switch, slider or summary over 24 characters',()=>{
@@ -105,11 +105,12 @@ describe('the Experimental panel: categories, short labels, tooltips',()=>{
 
   it('no explanation of before was dropped: each sentence the review found cut is in the tip of its row',()=>{
     const tip=(id:string)=>document.getElementById('exp-tip-'+id)!.textContent!;
-    expect(tip('menu')).toContain('does not affect the settings panel. At 1920 x 1080 physical pixels, all integer steps fit at 2x.');
+    // B206 ML-7: the HUD's and the menus' rows are one, UI sampling; the four filtering rows one, Texture filtering.
+    expect(tip('ui')).toContain('does not affect the settings panel. At 1920 x 1080 physical pixels, all integer steps fit at 2x.');
     expect(tip('detailAdjust')).toContain('Distance only changes how far the layers reach.');
     expect(tip('master')).toContain('Applies globally to maps and player models.');
-    expect(tip('worldAnisotropy')).toContain('Applied per eligible texture when enabled.');
-    expect(tip('hud')).toContain('Visible in Play with the HUD/reticle shown (Explore draws neither).');
+    expect(tip('textureFiltering')).toContain('Applied per eligible texture when enabled.');
+    expect(tip('ui')).toContain('Visible in Play with the HUD/reticle shown (Explore draws neither).');
   });
 
   it('names no walking: Explore has none (e2e/ui.spec.ts reads every title and aria-label on the page)',()=>{
@@ -118,7 +119,7 @@ describe('the Experimental panel: categories, short labels, tooltips',()=>{
       .map(e=>`${e.getAttribute('title')} ${e.getAttribute('aria-label')}`).join(' ');
     expect(text).not.toMatch(/\b(walk\w*|stance|crouch\w*|prone)\b/i);
     choose();
-    for(const g of ['hud','menu'])EXPERIMENTAL_GROUPS.find(x=>x.id===g)!.status!({...EXPERIMENTAL_DEFAULTS,enabled:true,hudSampling:true,menuSampling:true},{selected:true,check:()=>true,num:()=>1,choice:()=>''},panel);
+    for(const g of ['ui'])EXPERIMENTAL_GROUPS.find(x=>x.id===g)!.status!({...EXPERIMENTAL_DEFAULTS,enabled:true,hudSampling:true,menuSampling:true},{selected:true,check:()=>true,num:()=>1,choice:()=>''},panel);
     expect(panel.textContent).not.toMatch(/\b(walk\w*|stance|crouch\w*|prone)\b/i);
   });
 
@@ -167,13 +168,12 @@ describe('the tooltip: a title for the mouse, focus (a pad or the keyboard) or a
   });
 });
 
-describe('HD (GoE Soul) keeps every key, default and id (ac\'s constraint)',()=>{
-  it('the match\'s HD picture, the hdPack default and its group\'s off value are unchanged',()=>{
-    // c68031314 (HD lane, the owner 2026-11-01: "turn fxaa off in experimental and ground bias"): FXAA and textureBias off too.
-    expect(pictureExperimentalSettings('experimental')).toEqual({...EXPERIMENTAL_DEFAULTS,enabled:true,grade:false,detailAdjust:false,fxaa:false,textureBias:false,hdPack:true});
+describe('the HD keys stay with the HD picture gone (ac\'s constraint; B206 ML-6, ML.R14)',()=>{
+  it('the match\'s settings off, the hdPack default off, the pack keys carried off by the panel, the colour and detail switches by their ids',()=>{
+    expect(MATCH_EXPERIMENTAL_OFF).toEqual({...EXPERIMENTAL_DEFAULTS,enabled:false});
     expect(EXPERIMENTAL_DEFAULTS.hdPack).toBe(false);
-    expect(EXPERIMENTAL_GROUPS.find(g=>g.id==='hdPack')!.off).toEqual({hdPack:false});
-    for(const id of ['grade','detailAdjust','hdPack'])expect(EXPERIMENTAL_GROUPS.find(g=>g.id===id)!.switch,id).toBe(id);
+    expect(MODS_PACK_SETTINGS).toEqual({localTexturePack:null,hdPack:false});
+    for(const id of ['grade','detailAdjust'])expect(EXPERIMENTAL_GROUPS.find(g=>g.id===id)!.switch,id).toBe(id);
   });
 });
 

@@ -20,6 +20,7 @@ import { shortTurn, wrapYaw } from '../../../viewer/src/yaw';
 import { doorInReach } from '../../../viewer/src/doors';
 import { LADDER_STANDOFF, Traversal } from '../../../viewer/src/traversal';
 import { WEAPON_LINE_BOTS_READING } from '../../../viewer/src/weaponLine';
+import { LOWER_DELAY } from '../../../viewer/src/weaponRaise';
 import { BotFirePolicy, botFireFrames, chooseBotStance, chooseBotWeapon, chooseRole, framesInTicks, ROLE_ADAPTATION, type BotRole } from './roles';
 import { botLoadout } from './armory';
 import { firearmSlotPresent, type SimKits } from '../../../viewer/src/loadout';
@@ -99,6 +100,8 @@ interface Actor {
   seen: { id: number; at: Point }[];
   equipment: { kind: string; start: number; releaseAt: number; power: number; target: Point } | null; lastEquipment: number;
   throwHoldUntil: number;
+  /** ER-2: the tick its raise state is held up to after its target is lost (`botRaise`); -1, none. */
+  raiseUntil: number;
   lastDodge: number;
   search: { contact: Point; points: Point[]; visited: Point[]; lookUntil: number; facing: number } | null;
   behaviour: 'patrol' | 'engage' | 'investigate' | 'recover' | 'take-cover' | 'hold-cover' | 'peek' | 'reload' | 'flank' | 'cover-fire' | 'search';
@@ -159,7 +162,7 @@ const AIM_ADAPTATION = { degreesPerError: 0.075, settledFraction: 0.25, settleTi
   sampleErrorTicks: 0.3, pitchFraction: 0.4, reacquireFraction: 0.5, reacquireTicks: 150 };
 /**
  * OBF-14 (research 364 s9; reading, pending review): a bot's rifle is raised while it holds a target (`Room` `Player.raise`,
- * carried on its body's `Aiming` flag). The original's AI asks the rifle up when it engages: CSealCtrlAi's tick
+ * carried on its body's `BodyFlag.Raised` since protocol 14, ENEMY-RAISE ER-2, and on its `Aiming` flag beside it). The original's AI asks the rifle up when it engages: CSealCtrlAi's tick
  * (`FUN_0056de10`, vtable 0x6693f0 +0xc) -> D:L432502 `FUN_005cba20` -> D:L482998 `FUN_00563e10`, which with a target
  * (its handle `ai+0x67c` held and seen within 3.0 s, `FUN_0060a590`, D:L427779-427794) asks `FUN_005dfe30(body, 1)` (D:L427799);
  * `FUN_00563bd0` (from `FUN_0055d120` D:L424472, its caller's role not read here) asks it up as well and answers ready
@@ -167,11 +170,26 @@ const AIM_ADAPTATION = { degreesPerError: 0.075, settledFraction: 0.25, settleTi
  * here the raise starts at the contact, its 0.1 s in-time (`RAISE_TIMES`) inside every role's reaction
  * (`ROLE_ADAPTATION.reactionMs`, 235 ms and more), so no round waits on it and the fire's timing is unchanged.
  * Unread: the AI's own lower -- `FUN_00565b80`'s countdown (`ai+0x734` + `ai+0x738` x rand, D:L428558-428573) and when
- * its no-target branch keeps the rifle up (`uVar18`, 2 -- down -- by default, D:L427774-427778, D:L427795-427797) -- for which a copy here takes
- * its player's 5 s (`LOWER_DELAY`) after the target is lost. Settles: those read (the AI's construction of `+0x734..0x740`), or a capture
+ * its no-target branch keeps the rifle up (`uVar18`, 2 -- down -- by default, D:L427774-427778, D:L427795-427797) -- for which the
+ * bot's controller here holds the state its player's 5 s (`LOWER_DELAY`) after the target is lost (`botRaise`), and lowers it at once
+ * for a throw. ER-2: the hold moved from the copy (which took the 5 s off the `Aiming` flag through its own countdown) to the
+ * controller, the body's owner, as the original's copy replays its owner's state (`FUN_002be150` D:L162310-162312) and runs no
+ * countdown; the copies see the same rise and lower as before but for a throw, now down at the throw's start (was: at its release,
+ * the copy's inferred hand grenade). Settles: those read (the AI's construction of `+0x734..0x740`), or a capture
  * of a campaign AI's copy losing its contact.
  */
 export const BOT_RAISE_READING = 'up while it holds a target' as const;
+
+/**
+ * ER-2 (`BOT_RAISE_READING`): a bot controller's raise state for one tick -- up while engaged (a target held, no throw),
+ * then held `LOWER_DELAY` (the player's 5.0 s, `FUN_00598280` D:L454808-454809) after; a throw lowers it at once. `until`
+ * is the tick the hold runs to (-1, none).
+ */
+export function botRaise(o: { engaged: boolean; throwing: boolean; tick: number; until: number }): { raise: boolean; until: number } {
+  if (o.throwing) return { raise: false, until: -1 };
+  if (o.engaged) return { raise: true, until: o.tick + LOWER_DELAY.base * TICK_HZ };
+  return { raise: o.tick < o.until, until: o.until };
+}
 /** OT.R81 (BTL.R3): the port's invention, no original value -- a bot decision, not an unknown of the game's. Our own short contact/search pacing; F.E.A.R.'s public paper supplies principles, not values. Authored extension FBA.R5. */
 const SEARCH_ADAPTATION = { lostSightTicks: 45, dwellTicks: 60, scanDegrees: 90, seconds: 20,
   retainedAngles: 4, fallbackRadius: 90, fallbackCandidates: 12, fallbackPoints: 2, angleSpacing: 24 };
@@ -586,7 +604,7 @@ export class MatchBots {
           danger: null, dangerUntil: 0, pressureUntil: 0, pressureReadyAt: 0,
           tracked: null, trackTicks: 0, lastSeen: -1000, aimOffset: [0, 0], aimSampleAt: 0,
           search: null, heard: null, stick: [0, 0], tacticGoal: null,
-          equipment: null, lastEquipment: -1000, throwHoldUntil: 0, lastDodge: -1000,
+          equipment: null, lastEquipment: -1000, throwHoldUntil: 0, raiseUntil: -1, lastDodge: -1000,
           failedTactic: null,
           yieldUntil: 0, yieldFor: null, passing: null, trafficScale: 1, seen: [], planner: new BotPlan(), pathFailedUntil: 0 };
   }
@@ -1480,6 +1498,7 @@ export class MatchBots {
     b.alive = false; this.forget(b, 'body-or-death-reset'); b.firePolicy.reset();
     b.danger = null; b.dangerUntil = 0; b.pressureUntil = 0; b.pressureReadyAt = 0; b.tracked = null; b.trackTicks = 0;
     b.throwHoldUntil = 0;
+    b.raiseUntil = -1;                                             // ER-2: a life's raise ends with it
     b.lastDodge = -1000;
     b.search = null; b.recoverUntil = 0; b.equipment = null;
     b.heard = null; b.stick = [0, 0]; b.seen = [];
@@ -2262,7 +2281,10 @@ export class MatchBots {
       ];
       if (prof) { prof.caller = 'other'; prof.end('steer', tSteer); }
       const tCommand = prof ? prof.now() : 0n;
-      p.raise = b.target !== null && !b.equipment;                 // OBF-14: `BOT_RAISE_READING`; a throw takes the hand
+      // OBF-14: `BOT_RAISE_READING`; a throw takes the hand. ER-2: held 5.0 s after the target (`botRaise`), the copy's own
+      // countdown no more
+      const raised = botRaise({ engaged: b.target !== null, throwing: b.equipment !== null, tick, until: b.raiseUntil });
+      p.raise = raised.raise; b.raiseUntil = raised.until;
       const cmd: Command = { seq: p.sim.seq + 1, yaw, pitch, turn: turn * Math.PI / 180 * TICK_HZ, buttons, stance: desiredStance, weapon,
         forward, right };
       this.room.binary(b.id, encodeCommands({ viewTick: tick, commands: [cmd] }));

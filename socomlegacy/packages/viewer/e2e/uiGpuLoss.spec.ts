@@ -63,6 +63,24 @@ async function needLoseContext(page: Page): Promise<void> {
   test.skip(gate.act === 'skip', gate.act === 'skip' ? gate.reason : '');
 }
 
+/**
+ * GM-12a fold (shadow's release-head tail at d628ce86e, 2 of 2 red at the first `path` check, the surface 'software'
+ * before any loss): the surface links its programs asynchronously (`KHR_parallel_shader_compile`, `UiGpuSurfacePresenter`
+ * `poll`) and draws the software until they settle. A real GPU's link (ANGLE D3D11 on shadow's A4500) can outlast the
+ * three frames the case gave it, where the boxes' SwiftShader runs were green. Frames until the GPU path, at most `max`
+ * (the restore's own bound); the case then checks that it came. Was: three frames, then the GPU path required.
+ */
+async function untilGpu(page: Page, scale: number, max = 600): Promise<UiGpuLossFrame[]> {
+  const frames: UiGpuLossFrame[] = [];
+  while (frames.length < max) {
+    frames.push(...await h<UiGpuLossFrame[]>(page, 'run', 3, scale));
+    const last = frames.at(-1)!;
+    // Review F1: a surface that will never be ready (refused, dead, disposed) fails at once, its state named below.
+    if (last.path === 'gpu' || last.state === 'unavailable' || last.state === 'dead' || last.state === 'disposed') break;
+  }
+  return frames;
+}
+
 const neverBlack = (frames: UiGpuLossFrame[]): void => {
   for (const f of frames) expect(f.litPixels, `a ${f.path} frame in state ${f.state} is not black`).toBeGreaterThan(0);
 };
@@ -72,8 +90,8 @@ test.describe('GM-12a: the GPU surface\'s lifecycle and loss on a real context',
     test(`a forced loss at ${scale}x: the software at 1x, never black; the GPU back in place; the restore time recorded`, async ({ page }, info) => {
       await openLoss(page);
       await needLoseContext(page);
-      const before = await h<UiGpuLossFrame[]>(page, 'run', 3, scale);
-      expect(before.at(-1)!.path).toBe('gpu');
+      const before = await untilGpu(page, scale);
+      expect(before.at(-1)!.path, `the GPU path within 600 frames (${before.length} drawn, last state ${before.at(-1)!.state})`).toBe('gpu');
       expect([before.at(-1)!.width, before.at(-1)!.height]).toEqual([640 * scale, 448 * scale]);
       neverBlack(before);
       await h(page, 'lose');

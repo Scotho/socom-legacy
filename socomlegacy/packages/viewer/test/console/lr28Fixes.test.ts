@@ -134,7 +134,7 @@ describe('LR-28 fact 1: no part of Home\'s list takes the pointer over the rail\
   });
 });
 
-describe('LR-28 fact 2: the Settings rows list never overflows sideways, the slide-in kept', () => {
+describe('LR-28 fact 2: the Settings list clips overflow, slider tracks stay fixed, other rows keep their slide-in', () => {
   const keyframes = (name: string): string => new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?\\})\\s*\\}`).exec(PAGE)?.[1] ?? '';
   const rem = (v: string): number => { const m = /^(-?[\d.]+)rem$/.exec(v.trim()); if (!m) throw new Error(`not rem: ${v}`); return Number(m[1]); };
   const mount = (): { list: HTMLElement; row: HTMLElement; kid: HTMLElement } => {
@@ -147,6 +147,11 @@ describe('LR-28 fact 2: the Settings rows list never overflows sideways, the sli
       boot();
       const { list, row, kid } = mount();
       expect(cascaded(list, 'overflow-x', env, 'overflow')).toBe('hidden');
+      // Sliders must not move under a pointer during entry (unified controller precision regression).
+      expect(cascaded(row, 'animation', env)).toBe('none');
+      expect(cascaded(kid, 'animation', env)).toBe('none');
+      // Other row types retain their clipped entrance animation.
+      row.classList.replace('cx-r--slider', 'cx-r--step');
       // The row itself fades in place (its keyframes move nothing), its contents slide within it, clipped sideways.
       const rowAnim = cascaded(row, 'animation', env)!;
       expect(rowAnim).toBeTruthy();

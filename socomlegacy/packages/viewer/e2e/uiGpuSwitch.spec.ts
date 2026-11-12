@@ -1,14 +1,15 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { uiGpuLaunchOptions } from './uiGpuGl';
+import { uiGpuGlLeg, uiGpuLaunchOptions } from './uiGpuGl';
 import { FRONT_END } from './urls';
 import type { Hooked } from './frontEndWalk';
 
 /**
  * GM-12b (the GPU menus plan, row GM-12b: "taps land on the same frame points with either canvas shown; BRIGHTNESS
  * `filter` equal on both"; "Canvases and contexts"): the front end's two canvases on a real page -- `#front-end` (2D)
- * and `#front-end-gpu` (WebGL2, `../src/uiGpuFront.ts`), made only behind `?uiGpu=on`. A rendered browser run, written
+ * and `#front-end-gpu` (WebGL2, `../src/uiGpuFront.ts`), made behind `?uiGpu=on` and, since the flip (GM.R18), by every
+ * page's table (on a software adapter it stays in standby: L4, the 1x software). A rendered browser run, written
  * on the owner's host and **run on the box** (no browser runs on that host; GM-11b's seat runs it beside the loss,
  * harness and parity specs): from `socomlegacy/`, `E2E_PORT=5310 npx playwright test uiGpuSwitch.spec.ts`. It needs the
  * served tree (`npm run extract-maps`), as `menuflow.spec.ts` does, and skips without it (a skip, never a pass).
@@ -141,18 +142,20 @@ test.describe("GM-12b: #front-end-gpu beside #front-end (the switch's `?uiGpu=on
     await loseGpu(page, 'restoreContext');
   });
 
-  // GM-16b review F2: the dev server's page reads the development table (`front.hd` shadow), so "every player's"
-  // page -- the landed table, every cell off -- is reached here by the URL's `uiGpu=off`.
-  test('the switch off (every player): #front-end alone', async ({ page }) => {
+  // GM-16b review F2: the dev server's page reads the development table. Since the flip (GM.R18) both tables are every
+  // cell `on`, so the all-off page -- every player's before the flip -- is the rollback, the URL's `uiGpu=off`.
+  test('the switch off (the rollback, ?uiGpu=off): #front-end alone', async ({ page }) => {
     await page.goto(`${FRONT_END}?devmode&uiGpu=off`);
     await expect(page.locator('canvas#front-end')).toHaveCount(1);
     await page.waitForTimeout(3_000);
     await expect(page.locator('canvas#front-end-gpu')).toHaveCount(0);
   });
 
-  // GM-16b (review F2): the development table on the dev server -- `#front-end-gpu` made in standby (the software
-  // shown), and at 1x (scale 1 stays `off`) no WebGL context asked by the page's front end.
-  test('the development table (GM-16b): #front-end-gpu in standby and no WebGL context asked at 1x', async ({ page }) => {
+  // GM-16b (review F2), moved by the flip (GM.R18): the development table on the dev server is every cell `on`, so at 1x
+  // the front end asks its one WebGL2 context; on this run's software adapter (no `uiGpuAllowSoftwareAdapter`) the
+  // capability gate refuses it -- L4, the context let go, `#front-end-gpu` kept in standby, the 1x software shown.
+  test('the development table, the flip: on a software adapter #front-end-gpu in standby, its one context let go (L4)', async ({ page }) => {
+    test.skip(uiGpuGlLeg().requested !== 'swiftshader', 'the L4 leg needs the software adapter (SwiftShader); a hardware leg draws L0');
     await page.addInitScript(() => {
       const w = window as unknown as { __webglAsked: string[] };
       w.__webglAsked = [];
@@ -173,6 +176,11 @@ test.describe("GM-12b: #front-end-gpu beside #front-end (the switch's `?uiGpu=on
       asked: (window as unknown as { __webglAsked: string[] }).__webglAsked.filter((a) => a.startsWith('front-end-gpu:')),
       contexts: (window as unknown as { __uiGpu?: { contexts: number } }).__uiGpu?.contexts ?? -1,
     }));
-    expect(state).toEqual({ standby: true, asked: [], contexts: 0 });
+    expect(state.standby).toBe(true);
+    expect(state.asked.length).toBeLessThanOrEqual(1);                   // the capability check's one context, at most
+    expect(state.contexts).toBe(0);                                      // let go at L4
+    const front = () => page.evaluate(() => (window as unknown as { __uiGpu?: { surfaces: { front: { levels: { L0: number; L4: number } } } } }).__uiGpu?.surfaces.front.levels);
+    await expect.poll(async () => (await front())?.L4 ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);   // counted per surface (hostFor)
+    expect((await front())?.L0).toBe(0);
   });
 });

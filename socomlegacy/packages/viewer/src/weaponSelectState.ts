@@ -11,8 +11,10 @@ import {
  * logic, driven by the pad's just-pressed edges (no auto-repeat, §B3); `./weaponSelect` draws it.
  *
  * - **When** (§B2, `FUN_001f7ff0` L56648-56661, tick L89369-89374): in the match, dead, the camera on oneself, not a
- *   spectator: `Inventory` (R2) opens the slot list. Alive, the same button is the in-hand inventory, never this menu;
- *   the menu is never offered before the round or at a spawn. The late joiner's ghost opens it the same way.
+ *   spectator: `Inventory` (R2) opens the slot list -- and, the owner's adaptation, while following a teammate as well
+ *   (`SPECTATE_KIT_CHANGE_OWNER`, OT.R120; the original's tick stops there, D:L56659-56660). Alive, the same button is
+ *   the in-hand inventory, never this menu; the menu is never offered before the round or at a spawn. The late
+ *   joiner's ghost opens it the same way.
  * - **The slot list** (S2): five rows, primary, sidearm, equipment 1-3; Up/Down step to the previous/next slot that is
  *   not locked (`slotLocked`, `FUN_0023e910`), wrapping; Action opens the picker on that slot; Triangle, Start or
  *   `Inventory` close.
@@ -91,9 +93,25 @@ export function closedMenu(loadout: Loadout): MenuState {
   return { screen: 'closed', slot: 0, category: 'all', item: loadout[0], loadout, picks: [] };
 }
 
-/** Whether `Inventory` opens the menu now (`FUN_001f7ff0` L56648-56661): dead, the camera on oneself, no spectator. */
+/**
+ * SPECTATE_KIT_CHANGE_OWNER: the owner's adaptation (OT.R120), not the original's. The owner, Craig, 2026-11-11, on a
+ * player's request ("Make it so you can change guns while dead and spectating a team mate. Not so that you have to go
+ * back to your own body"), verbatim: "This is a feature request from machete that I approve with full authority.
+ * Spectating another player on your team should still allow you to bring up the weapon change menu." In the original
+ * the menu's tick runs only with the camera on oneself (`FUN_001f7ff0` D:L56659-56660, `iVar2 == iVar4`; watching
+ * a teammate, `FUN_001f9f20` D:L56579/D:L56595 hides it, research 94 §B2 and S6); here a dead player (or a ghost)
+ * watching a teammate opens it too. Nothing else moves: alive, a spectator or out of the match it stays shut; open,
+ * it holds the dead's cycle and the spectator camera (HUD mode 1, `DEAD_CYCLE_WHILE_MENU_READING`); the request and
+ * the room's rules are the same as from one's own body. `false` restores the original.
+ */
+export const SPECTATE_KIT_CHANGE_OWNER = true as const;
+
+/**
+ * Whether `Inventory` opens the menu now (`FUN_001f7ff0` L56648-56661): dead, the camera on oneself, no spectator --
+ * and, by SPECTATE_KIT_CHANGE_OWNER (the owner's adaptation), the camera on a teammate as well.
+ */
 export function canOpen(p: { inMatch: boolean; alive: boolean; cameraOnSelf: boolean; spectator: boolean }): boolean {
-  return p.inMatch && !p.alive && p.cameraOnSelf && !p.spectator;
+  return p.inMatch && !p.alive && (p.cameraOnSelf || SPECTATE_KIT_CHANGE_OWNER) && !p.spectator;
 }
 
 /** Whether an item is listed in the picker for this slot and category (`FUN_0023c390` with the category filter). */

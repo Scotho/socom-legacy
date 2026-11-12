@@ -87,6 +87,22 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
   const tipName = (): string | null => tip()?.querySelector('.fx-preview-name')?.textContent ?? null;
   const key = (code: string, k = code): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code, key: k, bubbles: true, cancelable: true })); };
 
+  it("FP-1b: the Environment's light rig editor edits a new empty map only -- hidden on a disc map, shown on a blank floor", async () => {
+    const api = await mounted();
+    const body = (): HTMLElement => document.querySelector<HTMLElement>('.fx-light-rig')!;
+    const top = (): HTMLElement => document.querySelector<HTMLElement>('.fx-light-rig__top')!;
+    expect(body().hidden, 'a disc map keeps its own').toBe(true);
+    expect(top().hidden).toBe(true);
+    const blank = await api.execute('layout.base', { base: { kind: 'blank', library: 'MP2' } }, api.read().revision);
+    expect(blank, JSON.stringify(blank)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(body().hidden).toBe(false));
+    expect(top().hidden).toBe(false);
+    expect(body().querySelector('[aria-label="Night vision lens alpha"]')).not.toBeNull();
+    const back = await api.execute('layout.base', { base: { kind: 'map', archive: 'MP2' } }, api.read().revision);
+    expect(back, JSON.stringify(back)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(body().hidden).toBe(true));
+  }, 90_000);
+
   it('D5 / D3: one asset list -- the archive select, filter row, view settings popup, previews and counts; the creator grid gone, its pack loading the Content tab\'s', async () => {
     await mounted();
     const left = document.querySelector<HTMLElement>('.fx-left')!;
@@ -219,7 +235,8 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(head.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
     expect(head.querySelector('.fx-inspect-name')!.textContent).toContain('crate');
-    // Pitch, roll and scale: the piece's own values shown; an edit is a stub -- no edit, the value put back.
+    // Pitch, roll and scale: the piece's own values kept in the fields (hidden while `FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION`,
+    // the FC-1 case below); an edit is a stub -- no edit, the value put back.
     await vi.waitFor(() => expect(inspectorField('Pitch').value).toBe('0'));
     expect([inspectorField('Roll').value, inspectorField('Scale X').value, inspectorField('Scale Y').value, inspectorField('Scale Z').value]).toEqual(['0', '1', '1', '1']);
     expect([inspectorField('Pitch'), inspectorField('Roll'), inspectorField('Scale X')].some((i) => i.disabled)).toBe(false);
@@ -241,6 +258,31 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(tree.querySelectorAll('[data-tree-branch="mapProps"] [data-user-prop].is-on')).toHaveLength(3);
     document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
     expect(document.querySelector('.fx-menu-list [data-forge-menu-row="frame-selection"]')?.classList.contains('is-off')).toBe(false);
+  }, 90_000);
+
+  it('FC-1: a placed piece\'s Inspector shows no Pitch, Roll or Scale; no Scale tool, R picks none, the rotate gizmo turns yaw only', async () => {
+    // The owner, 2026-11-07 ("hiding the pitch/roll/scale"; a browser adaptation, FG.R2): record v3 keeps a piece's yaw
+    // alone, so the stubs are hidden (`FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION`); Position and Yaw stay.
+    const api = await mounted();
+    const right = document.querySelector<HTMLElement>('.fx-right')!;
+    right.querySelector<HTMLButtonElement>('[data-forge-tab="object"]')!.click();
+    expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const inspector = right.querySelector<HTMLElement>('[data-forge-panel="inspector"]')!;
+    await vi.waitFor(() => expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
+    const shown = (e: Element | null): boolean => {
+      for (let n = e; n && n !== inspector; n = n.parentElement) if ((n as HTMLElement).hidden) return false;
+      return e !== null;
+    };
+    const field = (label: string): HTMLInputElement | null => inspector.querySelector<HTMLInputElement>(`input[data-label="${label}"]`);
+    for (const label of ['Pitch', 'Roll', 'Scale X', 'Scale Y', 'Scale Z']) expect(shown(field(label)), label).toBe(false);
+    expect(shown(inspector.querySelector('.fx-scale-fields')), 'the Scale row').toBe(false);
+    for (const label of ['X', 'Y', 'Z', 'Yaw']) expect(shown(field(label)), label).toBe(true);
+    const scaleTool = document.querySelector<HTMLButtonElement>('button.fx-tool[title^="Scale with the gizmo"]');
+    expect(scaleTool === null || scaleTool.hidden, 'the Scale tool').toBe(true);
+    key('KeyE', 'e');
+    expect(api.read().view.gizmo).toBe('rotate');
+    key('KeyR', 'r');
+    expect(api.read().view.gizmo, 'R picks no scale gizmo').toBe('rotate');
   }, 90_000);
 
   it('D1: a hovered tile shows the tooltip with its name; the pad\'s prop step shows it beside the picked tile at once; Escape hides it; the setting turns it off', async () => {
@@ -419,5 +461,79 @@ describe('FUI-22: the View panel\'s detail distance draws as a slider, not a swi
     expect(ruleOf('.fx-toggle input[type=checkbox]')).toMatch(/appearance:\s*none/);
     expect(ruleOf('.fx-toggle input[type=checkbox]')).toMatch(/width:\s*28px/);
     expect(ruleOf('.fx-detail-distance .fx-range')).toMatch(/flex:\s*1 1 auto/);
+  });
+});
+
+/**
+ * FP-2 (FP.R5; a browser adaptation, FG.R2 -- the game has no editor): Draw > Picture's RENDER SCALE row, built on the
+ * detail distance's shape (`buildDetailDistance`): a three-stop slider over the presets, its word, disabled under the PS2
+ * picture (which draws the console's 640 x 448), and moving it writes the page's one video setting (`../../src/videoSettings`
+ * `VIDEO_SETTINGS_KEY`, the launcher's and VIDEO OPTIONS') through the page's storage door.
+ */
+describe('FP-2: the Draw dropdown\'s render scale row on the mounted page', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    freshSavesDb();
+    history.replaceState(null, '', '/forge?floor');
+    localStorage.clear();
+    archiveEntries.length = 0;
+    archiveLoad.mockReset().mockRejectedValue(new Error('No disc supplied'));
+  });
+  afterEach(() => { window.dispatchEvent(new PageTransitionEvent('pagehide')); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it('a 3-stop slider after the detail distance, its word; disabled under PS2; moving it writes the keeper\'s key; a change elsewhere redraws it', async () => {
+    const { pageSettings } = await import('../../src/pageStore');
+    const { VIDEO_SETTINGS_KEY, videoSettingsKeeper } = await import('../../src/videoSettings');
+    const { mountForge } = await import('../../src/forge/page');
+    await mountForge(document, {});
+    const row = document.querySelector<HTMLLabelElement>('.fx-viewport-modes-list .fx-render-scale')!;
+    expect(row, 'the row in Draw').not.toBeNull();
+    expect(row.classList.contains('fx-viewport-mode')).toBe(true);
+    expect(row.classList.contains('fx-toggle')).toBe(true);
+    expect(row.previousElementSibling?.classList.contains('fx-detail-distance'), 'right after the detail distance').toBe(true);
+    const input = row.querySelector<HTMLInputElement>('input')!;
+    const word = (): string => row.querySelector('.fx-render-scale__value')?.textContent ?? '';
+    expect(row.textContent).toContain('Render scale');
+    expect([input.type, input.min, input.max, input.step]).toEqual(['range', '0', '2', '1']);
+    expect(input.classList.contains('fx-range')).toBe(true);
+    expect(input.value).toBe('1');                                                // nothing stored: Balanced
+    expect(word()).toBe('Balanced');
+    // moved: the keeper's key through the page's door (`pageSettings`)
+    const set = vi.spyOn(pageSettings, 'set');
+    input.value = '2';
+    input.dispatchEvent(new Event('input'));
+    expect(set).toHaveBeenCalledWith(VIDEO_SETTINGS_KEY, expect.any(String));
+    expect(JSON.parse(localStorage.getItem(VIDEO_SETTINGS_KEY)!)).toMatchObject({ renderScale: 'quality' });
+    expect(word()).toBe('Quality');
+    // a change from VIDEO OPTIONS (the page's shared keeper) redraws the row
+    videoSettingsKeeper().set({ renderScale: 'performance' });
+    expect(input.value).toBe('0');
+    expect(word()).toBe('Performance');
+    // under the PS2 picture: the console's frame, the row disabled, a move ignored
+    const ps2 = document.querySelector<HTMLInputElement>('input[aria-label="PS2 picture (640×448)"]')!;
+    ps2.checked = true;
+    ps2.dispatchEvent(new Event('change'));
+    expect(input.disabled).toBe(true);
+    expect(word()).toBe('640 x 448 (PS2)');
+    expect(row.title).toMatch(/PS2 picture draws the console's/);
+    input.value = '2';
+    input.dispatchEvent(new Event('input'));
+    expect(JSON.parse(localStorage.getItem(VIDEO_SETTINGS_KEY)!)).toMatchObject({ renderScale: 'performance' });
+    ps2.checked = false;
+    ps2.dispatchEvent(new Event('change'));
+    expect(input.disabled).toBe(false);
+    expect(word()).toBe('Performance');
+  }, 90_000);
+
+  it('the row\'s CSS: the detail distance\'s rules copied for fx-render-scale, the value span wide enough for the longest word', async () => {
+    expect(ruleOf('.fx-render-scale .fx-range')).toBe(ruleOf('.fx-detail-distance .fx-range'));
+    // FP-2 review 1: the value span holds the longest word ("Performance", 11 characters), so the slider keeps its width
+    // between stops; the detail distance's 3.5ch fits its own fixed-width numbers only.
+    expect(ruleOf('.fx-render-scale__value')).toMatch(/min-width:\s*11ch/);
+    expect(Math.max(...Object.values((await import('../../src/videoSettings')).RENDER_SCALE_WORDS).map((w) => w.length))).toBeLessThanOrEqual(11);
+    expect(ruleOf('.fx-viewport-mode.fx-render-scale')).toBe(ruleOf('.fx-viewport-mode.fx-detail-distance'));
+    expect(ruleOf('.fx-viewport-mode.fx-render-scale > span:first-child')).toBe(ruleOf('.fx-viewport-mode.fx-detail-distance > span:first-child'));
+    expect(ruleOf('.fx-render-scale .fx-range')).toMatch(/flex:\s*1 1 auto/);
   });
 });

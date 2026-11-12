@@ -1,35 +1,60 @@
 import type { UiFramePlan, UiPlanTriangle } from '../src/uiFramePlan';
-import { wrap } from '../src/uiRasterRules';
+import { T2_edge, T3_inside, T4_invW, T5_depth, T5_depthPasses, T2_third, T2_weight } from '../src/uiGpuTwin';
+import { modelDepthF32, modelEdgeF32, modelEdgeOwns, wrap } from '../src/uiRasterRules';
 
 /**
- * GM-15c (plan `docs/plans/2026-11-01-gpu-menus.md`, the GM-15 row's 15c and the Log 2026-11-05T02:00Z, R1 with GM-15b
- * review F1's correction; research 380 M3, §5): **the seam double-add count**, a test instrument (it changes nothing the
- * port draws). The software's depth (`drawModels`, `uiCompositorView.ts`, the depth buffer a `Float32Array`; the plan's
- * f64 executor the same, `drawTriangle` in `uiFramePlanCpu.ts`) tests a pixel's f64 `invW` against the f32 it stored:
- * `depth[i] > 0 && invW <= depth[i]` fails, so the triangle draws, where `invW` is above the stored f32 although its
- * own f32 equals it. A GPU (and the twin, T4/T5) compares f32 with f32 under GREATER, so the second draw fails there:
- * the software adds the texel twice where the GPU adds it once (GM-15b's pinned finding at `invW` 0.7, and GM-08's
- * coplanar faces). Since `Math.fround` is monotone and the store is an f32, the other direction cannot occur: an f64
- * `invW` at or under the store never has an f32 above it.
+ * R1's instrument (plan `docs/plans/2026-11-01-gpu-menus.md`: the GM-15 row's 15c, the Log 2026-11-05T02:00Z R1 with
+ * GM-15b review F1's correction, and GM-15d's ruling; research 380 M2, M3, §5), a test instrument: it changes nothing the
+ * port draws.
  *
- * This walks the plan's passes in order with the executor's decisions -- the same barycentrics at the integer point,
- * every edge inclusive (M2), the strict f64 test against the f32 store (M3), the perspective-correct weights (M4), the
- * texel's alpha by `sample`'s bilinear REPEAT at `(u W, (1 - v) H)` (M5) and no write at `al <= 0` (M6) -- and counts
- * every pixel a triangle **writes** where its f32 `invW` equals the stored depth while its f64 one is above it. Each
- * such write is classed by the triangle that stored the depth: `seam` when the two share exactly two vertices (an edge,
- * GM-15b's case), `coplanar` when they share all three (the same face drawn again: the roller's `_on`/`_off` labels,
- * GM-08's finding), `other` otherwise. A vertex is shared when its target-grid x, y and its `invW` are equal.
+ * **What it counts (GM-15d): the ties on which the software and the twin decide differently.** A tie is a pixel a
+ * triangle's edge function is exactly 0 at (the fill rule decides it: M2, `UI_MODEL_EDGE_RULE_READING`, the GS's
+ * top-left rule) or a write whose depth equals the stored one (the depth test decides it: M3,
+ * `UI_MODEL_DEPTH_FORMAT_READING`, GEQUAL against the f32 store). It walks the plan's passes in order twice over, side by
+ * side, each with its own depth buffer:
+ * - **the software** (the executor's decisions, `drawTriangle` in `uiFramePlanCpu.ts`, `drawModels` in
+ *   `uiCompositorView.ts`): `modelEdgeF32` and `modelEdgeOwns`, `modelDepthF32` tested `>=` the f32 store -- since
+ *   GM-15d's disc fold the GPU's f32 arithmetic (before it, f64 edges and invW with only the store rounded: the disc
+ *   run at 4d62d9c02 counted seam 1,479 / coplanar 53 / other 410 depth ties decided differently on the ARMORY);
+ * - **the twin** (`drawTriangleTwin`, `uiGpuTwin.ts`, so the GPU's programs): `T2_edge` and `T3_inside` in f32, T4's
+ *   f32 `invW` times the pass's `depthScale`, `T5_depthPasses`.
+ * Both take the software's alpha decision (M5's texel alpha by `sample`'s bilinear REPEAT at `(u W, (1 - v) H)`, M6's no
+ * write at `al <= 0`): the instrument judges coverage and depth, the two rules a tie meets, not the f32 texel.
+ * Each pixel where a tie is met on either side and the two decide differently (one writes, the other does not) is
+ * counted, classed by the triangle that last wrote the pixel (on the software's side, else the twin's): `seam` when the
+ * two share exactly two vertices (an edge), `coplanar` when they share all three (the same face drawn again: the
+ * roller's `_on`/`_off` labels), `other` otherwise (or no writer yet). A vertex is shared when its target-grid x, y and
+ * its `invW` are equal.
  *
- * Its decisions are held to the executor's frame by `uiGpuSeamCount.test.ts` (the seam lists: 0 at dyadic depths, every
- * seam pixel at 0.7). The colour is not computed: only whether, and over what, a triangle writes.
+ * **Before GM-15d** this file counted the software's double adds (its f64 `invW` passing an f32 store its own f32
+ * equalled, under inclusive edges and a strict `>`): seam 3,622 / coplanar 88,465 / other 814 on GM-04's corpus. That was
+ * the port's artefact (the R1 report, 2026-11-09), not the original's rule; under the GS's rules the software and the
+ * twin agree on every tie the cases reach, which `uiGpuSeamCount.test.ts` holds, and GM-17's R1 precondition is now
+ * "software and twin agree on every tie" (0 here over the corpus).
+ *
+ * What it does not see: a tie a 16-bit Z would make and f32 does not (`UI_MODEL_DEPTH_QUANTISE_READING`); a
+ * disagreement that is not at a tie (the f32 B class: a weight or a texel an ulp apart).
+ *
+ * **What its 0 means (GM-15d review F1).** Since GM-15d's disc fold the software side is a transcription of the
+ * executor's decisions in the same f32 helpers (`modelEdgeF32`, `modelEdgeOwns`, `modelDepthF32`) the twin's T2-T5
+ * mirror; it never runs `drawModels` or the executor. Its 0 is therefore a consistency check of the two transcriptions
+ * (the helpers against the twin's step functions), not an independent measure of what the drawers wrote. The
+ * independent evidence for GM-17's R1 precondition is the byte compares of the real paths: `uiFramePlan.disc` (the
+ * executor against `rasterizeUiDrawList`, 0 bytes) and `uiGpuTwin.disc` (the twin against the software, B within its
+ * record) over the whole corpus, and the fake-GL sample against the twin in the corpus test. An instrument fed by the
+ * real paths' writes (per-pixel write counts or a depth readback from `drawModels`) would need those paths to expose
+ * them; not done here.
  */
 
 export interface UiSeamDoubleAdds {
-  /** Writes over a stored depth equal in f32 and below in f64, by the stored triangle's relation to the writer. */
+  /** Pixels where a tie is met and the software and the twin decide differently, by the last writer's relation. */
   seam: number;
   coplanar: number;
   other: number;
-  /** Every model write the instrument made (a pixel drawn by a triangle), and the passes and triangles walked. */
+  /** Pixel evaluations where an edge function is exactly 0 on either side, and writes at an equal stored depth on either. */
+  edgeTies: number;
+  depthTies: number;
+  /** Every model write the software side made (a pixel drawn by a triangle), and the passes and triangles walked. */
   writes: number;
   passes: number;
   triangles: number;
@@ -53,15 +78,21 @@ function shared(s: UiPlanTriangle, t: UiPlanTriangle): number {
   return n;
 }
 
-/** The seam double-add count of one plan (a `gpu` or a `software` verdict alike: the triangles are planned either way). */
+const f = Math.fround;
+
+/** R1's count of one plan (a `gpu` or a `software` verdict alike: the triangles are planned either way). */
 export function seamDoubleAdds(plan: UiFramePlan): UiSeamDoubleAdds {
-  const out: UiSeamDoubleAdds = { seam: 0, coplanar: 0, other: 0, writes: 0, passes: 0, triangles: 0 };
+  const out: UiSeamDoubleAdds = { seam: 0, coplanar: 0, other: 0, edgeTies: 0, depthTies: 0, writes: 0, passes: 0, triangles: 0 };
   const { width: W, height: H } = plan.target;
-  let depth: Float32Array | null = null, writer: Int32Array | null = null;
+  let sw: Float32Array | null = null, tw: Float32Array | null = null, writer: Int32Array | null = null, twinWriter: Int32Array | null = null;
+  let depthScale = 1;
   for (const step of plan.steps) {
     if (step.kind === 'pass') {
       out.passes++;
-      if (depth) { depth.fill(0); writer!.fill(-1); } else { depth = new Float32Array(W * H); writer = new Int32Array(W * H).fill(-1); }
+      depthScale = plan.passes[step.pass]!.depthScale;
+      if (sw) { sw.fill(0); tw!.fill(0); writer!.fill(-1); twinWriter!.fill(-1); } else {
+        sw = new Float32Array(W * H); tw = new Float32Array(W * H); writer = new Int32Array(W * H).fill(-1); twinWriter = new Int32Array(W * H).fill(-1);
+      }
       continue;
     }
     if (step.kind !== 'triangles') continue;
@@ -70,30 +101,47 @@ export function seamDoubleAdds(plan: UiFramePlan): UiSeamDoubleAdds {
       const t = plan.triangles[ti]!, { a, b, c, box } = t;
       const tex = t.texture === null ? null : plan.textures[t.texture]!.image;
       const inv = 1 / t.area;
+      // The twin's numbers, as the GPU receives them (drawTriangleTwin).
+      const ax = f(a.x), ay = f(a.y), bx = f(b.x), by = f(b.y), cx = f(c.x), cy = f(c.y);
+      const aw = f(a.invW), bw = f(b.invW), cw = f(c.invW), finv = f(inv), fs = finv < 0 ? -1 : 1;
       for (let y = box.ys; y < box.ye; y++) {
         for (let x = box.xs; x < box.xe; x++) {
-          let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv;
-          let w1 = ((c.x - x) * (a.y - y) - (a.x - x) * (c.y - y)) * inv;
-          let w2 = 1 - w0 - w1;
-          if (w0 < 0 || w1 < 0 || w2 < 0) continue;                     // M2
+          const i = y * W + x;
+          // The software (drawModels, drawTriangle): M2 by the top-left rule and M3 GEQUAL, both in its f32 helpers.
+          const e0 = modelEdgeF32(bx, by, cx, cy, x, y), e1 = modelEdgeF32(cx, cy, ax, ay, x, y), e2 = modelEdgeF32(ax, ay, bx, by, x, y);
+          const swIn = modelEdgeOwns(e0, f(by - cy), f(cx - bx), fs) && modelEdgeOwns(e1, f(cy - ay), f(ax - cx), fs) && modelEdgeOwns(e2, f(ay - by), f(bx - ax), fs);
+          // The twin: T2 and T3 in f32.
+          const g0 = T2_edge(bx, by, cx, cy, x, y), g1 = T2_edge(cx, cy, ax, ay, x, y), g2 = T2_edge(ax, ay, bx, by, x, y);
+          const twIn = T3_inside(g0, g1, g2, ax, ay, bx, by, cx, cy, fs);
+          const edgeTie = e0 === 0 || e1 === 0 || e2 === 0 || g0 === 0 || g1 === 0 || g2 === 0;
+          if (edgeTie) out.edgeTies++;
+          if (!swIn && !twIn) continue;
+          // The alpha decision (M4-M6), the software's (f64 attributes) for both sides.
+          let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv, w1 = ((c.x - x) * (a.y - y) - (a.x - x) * (c.y - y)) * inv, w2 = 1 - w0 - w1;
           const invW = w0 * a.invW + w1 * b.invW + w2 * c.invW;
-          const i = y * W + x, stored = depth![i]!;
-          if (stored > 0 && invW <= stored) continue;                   // M3, f64 against the f32 store
-          w0 *= a.invW / invW; w1 *= b.invW / invW; w2 *= c.invW / invW; // M4
+          w0 *= a.invW / invW; w1 *= b.invW / invW; w2 *= c.invW / invW;
           const r3 = w0 * a.rgba[3] + w1 * b.rgba[3] + w2 * c.rgba[3];
           let al: number;
           if (tex) {
             const u = w0 * a.u + w1 * b.u + w2 * c.u, v = w0 * a.v + w1 * b.v + w2 * c.v;
-            al = (sampleAlpha(tex, u * tex.width, (1 - v) * tex.height) / 255) * (r3 / 128);   // M5
+            al = (sampleAlpha(tex, u * tex.width, (1 - v) * tex.height) / 255) * (r3 / 128);
           } else al = r3 / 128;
-          if (al <= 0) continue;                                        // M6
-          out.writes++;
-          if (stored > 0 && Math.fround(invW) === stored) {
-            const k = shared(plan.triangles[writer![i]!]!, t);
+          if (al <= 0) continue;
+          // The depths.
+          const z = modelDepthF32(e0, e1, finv, aw, bw, cw), swStored = sw![i]!;
+          const swWrites = swIn && z >= swStored;
+          const tw0 = T2_weight(bx, by, cx, cy, x, y, finv), tw1 = T2_weight(cx, cy, ax, ay, x, y, finv);
+          const tz = T5_depth(T4_invW(tw0, tw1, T2_third(tw0, tw1), aw, bw, cw), depthScale), twStored = tw![i]!;
+          const twWrites = twIn && T5_depthPasses(tz, twStored);
+          const depthTie = (swIn && swStored > 0 && z === swStored) || (twIn && twStored > 0 && tz === twStored);
+          if (depthTie) out.depthTies++;
+          if ((edgeTie || depthTie) && swWrites !== twWrites) {
+            const last = writer![i]! >= 0 ? writer![i]! : twinWriter![i]!;
+            const k = last >= 0 ? shared(plan.triangles[last]!, t) : 0;
             if (k === 3) out.coplanar++; else if (k === 2) out.seam++; else out.other++;
           }
-          depth![i] = invW;
-          writer![i] = ti;
+          if (swWrites) { out.writes++; sw![i] = z; writer![i] = ti; }
+          if (twWrites) { tw![i] = tz; twinWriter![i] = ti; }
         }
       }
     }

@@ -2,6 +2,7 @@ import { aiCellIndex, aiCellOf, aiCellY, HOSTAGE_FACING_READING, HOSTAGE_START_L
 import type { LoadedBody } from '../body';
 import type { LoadedMap } from '../loadMap';
 import type { HostageMarker } from './layout';
+import { HOSTAGE_SLOTS } from '../../../match/src/extraction';
 
 /**
  * The layout's placed hostages (`Layout.hostages`; a browser adaptation, FG.R2, no original): the Forge's own escortees,
@@ -23,22 +24,23 @@ export function hostagesPlayIn(gameType: number | undefined): boolean {
   return gameType === 3 || gameType === 4;
 }
 
+type HostageCell = { loc: { map: number; x: number; z: number }; y: number };
+
 /**
- * `map` with the placed hostages after its own escortees (the character `lent`, the map's first by default): each on the stored cell under its (x, z) whose floor is nearest
- * its height, across the AI map's sub-maps. One with no cell under it, or every one on a map with no escortee to copy,
- * is left out and counted (`unplaced`).
+ * Where the placed hostages stand on `ai` beside `own` escortees of the map's (a browser adaptation, FG.R2): each on the
+ * stored cell under its (x, z) whose floor is nearest its height, across the AI map's sub-maps. One with no cell under it
+ * (or every one, with no AI map) is off the grid (`offGrid`); one past the room's `HOSTAGE_SLOTS` (16), the map's own
+ * counted first, is past the bound (`pastBound`) -- a hostage's body id is `HOSTAGE_ID_BASE` + its index, a u8. One
+ * reading for Play (`withPlacedHostages`) and Check (`./validate` `checkMap`), so the two agree.
  */
-export function withPlacedHostages<T extends { ai?: AiMaps; escortees?: EscorteeStart[] }>(
-  map: T, placed: readonly HostageMarker[], lent: EscorteeStart | undefined = map.escortees?.[0],
-): { map: T; unplaced: number } {
-  // The character copied: the map's first escortee's, or one lent (a blank floor: its library's, `blankFloorOf` drops them).
-  const model = lent;
-  if (!placed.length) return { map, unplaced: 0 };
-  if (!model || !map.ai) return { map, unplaced: placed.length };
-  const added: EscorteeStart[] = [];
+export function placedHostageFit(ai: AiMaps | undefined, own: number, placed: readonly HostageMarker[]):
+  { fit: { h: HostageMarker; cell: HostageCell }[]; offGrid: number; pastBound: number } {
+  const fit: { h: HostageMarker; cell: HostageCell }[] = [];
+  let offGrid = 0, pastBound = 0;
+  const room = HOSTAGE_SLOTS - own;
   for (const h of placed) {
-    let best: { loc: { map: number; x: number; z: number }; y: number } | null = null;
-    for (const sub of map.ai.maps) {
+    let best: HostageCell | null = null;
+    for (const sub of ai?.maps ?? []) {
       const loc = aiCellOf(sub, h.p[0], h.p[2]);
       if (!loc) continue;
       const i = aiCellIndex(sub, loc.x, loc.z);
@@ -46,14 +48,53 @@ export function withPlacedHostages<T extends { ai?: AiMaps; escortees?: Escortee
       const y = aiCellY(sub, sub.cells[i]!);
       if (!best || Math.abs(y - h.p[1]) < Math.abs(best.y - h.p[1])) best = { loc, y };
     }
-    if (!best) continue;
-    added.push({
-      // Its own name and character where it names them (`HostageMarker`); else the match's name and the lent character.
-      name: h.name ?? `forge_hostage_${added.length + 1}`, character: h.character ?? model.character, loc: best.loc,
-      at: [h.p[0], best.y + HOSTAGE_START_LIFT_READING, h.p[2]], yaw: HOSTAGE_FACING_READING, team: model.team,
-    });
+    if (!best) offGrid++;
+    else if (fit.length >= room) pastBound++;
+    else fit.push({ h, cell: best });
   }
-  return { map: { ...map, escortees: [...(map.escortees ?? []), ...added] }, unplaced: placed.length - added.length };
+  return { fit, offGrid, pastBound };
+}
+
+/**
+ * `map` with the placed hostages after its own escortees (the character `lent`, the map's first by default), where
+ * `placedHostageFit` stands them. Each left out is counted (`unplaced`), and apart: off the AI grid (`offGrid`; every one
+ * on a map with no escortee to copy counts there, as the page has always said it) and past the room's 16 (`pastBound`).
+ */
+export function withPlacedHostages<T extends { ai?: AiMaps; escortees?: EscorteeStart[] }>(
+  map: T, placed: readonly HostageMarker[], lent: EscorteeStart | undefined = map.escortees?.[0],
+): { map: T; unplaced: number; offGrid: number; pastBound: number } {
+  // The character copied: the map's first escortee's, or one lent (a blank floor: its library's, `blankFloorOf` drops them).
+  const model = lent;
+  if (!placed.length) return { map, unplaced: 0, offGrid: 0, pastBound: 0 };
+  if (!model || !map.ai) return { map, unplaced: placed.length, offGrid: placed.length, pastBound: 0 };
+  const { fit, offGrid, pastBound } = placedHostageFit(map.ai, map.escortees?.length ?? 0, placed);
+  const added = fit.map(({ h, cell }, i): EscorteeStart => ({
+    // Its own name and character where it names them (`HostageMarker`); else the match's name and the lent character.
+    name: h.name ?? `forge_hostage_${i + 1}`, character: h.character ?? model.character, loc: cell.loc,
+    at: [h.p[0], cell.y + HOSTAGE_START_LIFT_READING, h.p[2]], yaw: HOSTAGE_FACING_READING, team: model.team,
+  }));
+  return { map: { ...map, escortees: [...(map.escortees ?? []), ...added] }, unplaced: offGrid + pastBound, offGrid, pastBound };
+}
+
+/**
+ * FP-1a fold F5: the placed hostages as a match wears them -- one that names a body from another map (`source`) whose
+ * character is not among `worn` (the characters the match holds a body for: the base's own and those lent,
+ * `withLentHostageBodies`) drops its source and character, so it wears the lent default as one naming none does
+ * (`withPlacedHostages`). One rule for the page's Play (`./page` `composeForMatch`, which strips so after its lending,
+ * written inline there) and the lobby's room (`match/src/forgeSimMap.ts`), so the character the room tells the pages
+ * (`HostageWire.character`) is one their composed map draws. Absent: absent.
+ */
+export function drawableHostages(placed: readonly HostageMarker[] | undefined, worn: ReadonlySet<string>): HostageMarker[] | undefined {
+  return placed?.map((h) => (h.source && !worn.has(h.character ?? '') ? (({ source: _s, character: _c, ...rest }) => rest)(h) : h));
+}
+
+/** Play's notice for the placed hostages left out (a browser adaptation, FG.R2): each case in its own words. */
+export function hostagesLeftNotes(offGrid: number, pastBound: number): string[] {
+  const n = (k: number): string => `${k} hostage${k === 1 ? '' : 's'}`;
+  return [
+    ...(offGrid ? [`${n(offGrid)} off the AI grid, left out`] : []),
+    ...(pastBound ? [`${n(pastBound)} past the room's ${HOSTAGE_SLOTS}, left out`] : []),
+  ];
 }
 
 /** What lending a hostage body reads and writes: a map's archive, its textures and its escortee bodies. */

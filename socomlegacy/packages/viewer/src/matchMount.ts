@@ -1,8 +1,9 @@
 import { playForgeAmbients } from './forge/forgeObjects';
 import { createForgeLighting, liftForgeFog, type ForgeLightingOptions } from './forge/lighting';
+import { FrameGuard } from './frameGuard';
 import { Scene, type Object3D } from 'three';
 import { freezeSceneMatrix } from './sceneMatrix';
-import { aiCellOf, probeFloor, probeGround, selectFloor, type Side } from '@s2u/scene';
+import { probeFloor, probeGround, selectFloor, type Side } from '@s2u/scene';
 import { BINOCULAR_CLIPS } from './binocularPose';
 import { frameCanvas } from './brightness';
 import { GameAudio, type AudioStats } from './audio';
@@ -13,19 +14,22 @@ import { ELF_DEFAULT_FOGCOL, fogForExtent, type FogSettings } from './fog';
 import { gameSeatOf, voiceReportSocket } from './connectHost';
 import type { GameLobbyHandOff } from './gameLobbyHost';
 import { mergeInput, noInput, PadWatch, padInput, type Input, type PadSource } from './gamepad';
-import { readGraphicsBackend } from './graphicsBackend';
+import { graphicsBackendOverride, readGraphicsBackend, type GraphicsBackendPreference } from './graphicsBackend';
+import { setWorldAnisotropy } from './experimentalWorldSampling';   // VS-6: the keeper's Texture filtering, live
 import { GpuTimer, gpuTimeAsked, type GpuStats, type TimestampRendererLike } from './gpuStats';   // CPS GPU time: the dev-only GPU timer (`?devmode&gputime`)
 import { devSwitches } from './source';            // CPS H9: the dev tools switch `./devTools` asks, for the hook's renderStats (not `./devTools`: it reaches the shell's fly gate, PAR-17)
 import { frameCountsOf, frameOverlaysCulledOf, frameOverlaysOf, renderStats, type FrameCounts, type RenderStats } from './renderStats';   // CPS H9: PRF-4's counts on the match's renderer, a development build's only; H10: the effect-light overlays
 import type { ForgePlayPort } from './forge/agent/play';
 import { HostagePage } from './hostagePage';
 import type { ViewerHook } from './hook';
-import { Hud, ownHudName, spectatorHudView, type HudView } from './hud';
+import { Hud, ownHudName, spectatorHudView, validClientCount, type HudView } from './hud';
 import { keepClearWatch } from './hudMessagePanel';
 import { sessionGameDetails } from './scoreboard';
 import { handRoundScreenBitmaps, type ArmoryBitmaps } from './roundScreens';
 import { HudVoiceElement, voiceHudFrame } from './hudVoice';
-import { TEAMMATE_NAMES_ORIGINAL_VALUE, teamTagInput, teamTags } from './hudTags';
+import { teamTagInput, teamTags } from './hudTags';
+import { readNameTags } from './nameTags';
+import { readRangeReadout } from './rangeReadout';
 import { NO_REGION, RegionCull, regionUnder } from './regionCull';
 import { DEFAULT_LIGHTING, type Lighting } from './lighting';
 import type { LoadedMap } from './loadMap';
@@ -35,7 +39,7 @@ import { pickupKitOf } from './net/pickupRules';
 import { finalCloseDialog, LOBBY_MATCH_EVENTS_ADAPTATION, missionMapPath, type MatchHandle } from './lobbyMatch';
 import { rankOf } from './mapOrder';
 import type { NetClient } from './net/client';
-import { pickSurfaces } from './net/hostageOrder';
+import { orderCellOf, pickSurfaces } from './net/hostageOrder';
 import { corpseShownS, DEATH_CLIPS, FLINCH_CLIPS } from './net/deaths';
 import { TURRET_CLIPS } from './net/emplacement';
 import type { Rules, ServerEvent, Team } from './net/protocol';
@@ -85,17 +89,29 @@ import type { EffectData } from './effectData';
 import { flinchPose, RemotePlayers } from './remotePlayers';
 import { mountCharShadow } from './charShadow';
 import { ratioTargetOf, shadowRendererOf, type MatchRenderer } from './matchRenderer';
-import { MATCH_CANVAS_CLASS, PICTURE_PS2_CLASS, VIDEO_PICTURE_DEFAULT, pictureExperimentalSettings, type VideoPicture } from './picture';
+import { MATCH_CANVAS_CLASS, MATCH_EXPERIMENTAL_OFF, PICTURE_PS2_CLASS, VIDEO_PICTURE_DEFAULT, type VideoPicture } from './picture';
 import { detailDistanceFor, detailDistanceKeeper } from './detailDistance';
 import { PS2_FRAME } from './renderer';
-import { hdTextures } from './hdTexturePack';
-import { HdServedPack } from './hdTexturePackServed';
+import { ApplyFrames, hdTextures, rendererUploader } from './hdTexturePack';
+import { HdServedPack, lazyHdPackDecoders } from './hdTexturePackServed';
 import { pageHdStore } from './hdTexturePackStore';
+import { PackApplier, pageTextureChoice, type GxSwitch, type HdSwitch, type TextureChoiceKeeper } from './packs/pagePacks';
+import { PackApplyOverlay } from './packApplyOverlay';
+import { gxApplyProgress, pageGxPacks, type TexturePackTarget } from './texturePackRuntime';
 import { warmMapEffects } from './matchWarm';
 import { AdaptiveRatio, pixelRatioCap, watchViewport, type ViewportWindow } from './matchViewport';
-import { renderCapFor, videoSettingsKeeper } from './videoSettings';
+import { renderCapForV2, VIDEO_SCHEMA, videoSettingsKeeper, videoSettingsKeeperV2, type FrameCap, type VideoSettingsV2 } from './videoSettings';
+import { frameCapGate } from './frameCap';
+import { colourFilter } from './colourFilter';
+import { autoAdaptiveOptions, firstMatchProbe } from './autoQuality';
+import { pageDeviceClass } from './deviceClass';
 import { pageFrameSampler } from './frameSampler';
+import { pageVideoReading } from './perfLine';   // VS-10 F3: the perf report's video reading, taken at the mount
 import { beaconMatchBegan, beaconMatchEnded } from './clientErrorBeacon';   // CLIENT_ERROR_BEACON_ADAPTATION: the match's own lifecycle for its reports
+import { pageMatchDiag } from './matchDiagPage';   // XBOX-DIAG: the loss's ring and the match's input, on the beacon
+import { hidePadHint, PadHint, showPadHint } from './padHint';   // XBOX-PAD-HINT: the Xbox browser's browsing controls named
+import { setInputPhase } from './inputSources';
+import { loadPhaseReached } from './loadMarks';
 import { wantsTouchControls } from './touch';
 import { resolveRules } from './rules';
 import { ScoreboardKeys } from './scoreboardKeys';
@@ -110,7 +126,7 @@ import { TraversalPage } from './traversalPage';
 import { craneScene } from './craneHook';
 import { drawnTurretParts, placementView } from './turretHook';
 import { withVictoryClips } from './victoryData';
-import { STEP_PROBE_LIFT_READING, WalkMode } from './walk';
+import { probeLiftOf, WalkMode } from './walk';
 import { WEAPON_CLIPS } from './weaponPose';
 import type { SourceRequest, ViewerRequest, ViewerResponse } from './worker';
 import { buildWorld, type WorldView } from './world';
@@ -220,6 +236,13 @@ export interface MatchMountOptions {
   assets: Promise<MatchAssets | null>;
   /** The renderer over the match's canvas; absent, `./renderer`'s (WebGPU, else WebGL2), loaded with the match. */
   renderer?: (canvas: HTMLCanvasElement) => Promise<MatchRenderer>;
+  /**
+   * B206 ML-3 / ML-4 (plan 2026-11-06-mods-loader; product track, ML.R2): the texture pack chosen in MODS, applied to this
+   * match's world behind the "Applying pack... n/N" overlay (`./packApplyOverlay`). Absent, the page's: its choice keeper
+   * (`./packs/pagePacks` `pageTextureChoice`), the MODS store's HD pack (store only, ML.R4) under the online guard (ML.R13)
+   * and the frame budget (ML.R10), the stored GX packs. A test hands its own.
+   */
+  texturePacks?: { choice?: TextureChoiceKeeper; hd?: () => HdSwitch; gx?: () => GxSwitch<TexturePackTarget> | null };
   /** OT.R79 (`./picture`): VIDEO MODE's picture, drawn and followed while the match runs; absent, MODERN (what the match drew before). */
   picture?: { get(): VideoPicture; observe(f: (picture: VideoPicture) => void): () => void };
   /** The window; absent, the target's document's. */
@@ -422,6 +445,18 @@ export interface MatchWindowHook {
   armory: ViewerHook['armory'];
   /** PAR-2: `/testroom`'s `openArmory()`: opens it as a seat's join does; whether it opened. */
   openArmory: ViewerHook['openArmory'];
+  /**
+   * FP-1a's FP.R13 spec (a test instrument, no original): the lever gates as the page draws them -- each gate's node,
+   * path and slide offset (`GatePage.stats`), the shape the test room's hook gives (`./hook` `gates?`, `./main`).
+   */
+  gates(): ReturnType<GatePage['stats']>;
+  /**
+   * FP-1a's FP.R13 spec (a test instrument, no original): each hostage as the room told the page (`NetPage.hostages`:
+   * the welcome's `hostages`, each `hostageState`) -- its body id, its name when told, where the page draws its body
+   * (`RemotePlayers.feet`) else where told, alive, the AI's top state and its leader as told (`HostageStateWire.ai`,
+   * `leader`: 9 follows that seat), and rescued when that state is 0x11.
+   */
+  escortees(): { id: number; name: string | null; at: number[] | null; alive: boolean; ai: number; leader: number | null; rescued: boolean }[];
   /** `/testroom`'s `weaponSelect().gate.alive` (`NetPage.gate`): a player, alive, not a ghost; no match, true. */
   alive(): boolean;
   /** `/testroom`'s `net().waiting` (`NetPage.waitingRoom`): a player in a room no round has started in; no match, true. */
@@ -484,12 +519,31 @@ function stemOf(path: string): string { return path.replace(/^.*\//, '').replace
 
 /** `./renderer`'s renderer (WebGPU, else WebGL2) over a canvas, loaded with the match (the mount's and the loader's default). */
 /**
+ * VS-6 (VS.R4, a browser adaptation, product track): the video keeper's next-match rows (antialias, graphics, power
+ * preference) read when the mount makes its renderer, so a change saved in the lobby applies at the next match and
+ * never to a running one, with no reload. `?renderer=` still wins (`readGraphicsBackend`'s order: the address, the
+ * saved choice, Automatic); a saved Xbox pick, which the keeper reads as Automatic, stays the Xbox preset here
+ * (WebGL2, antialias off) until VS-7's class takes it.
+ */
+export function matchRendererChoice(v: Pick<VideoSettingsV2, 'antialias' | 'graphics' | 'power'>, search: string): { graphics: GraphicsBackendPreference; antialias: boolean; power: VideoSettingsV2['power'] } {
+  const backend = readGraphicsBackend(search);
+  const graphics = backend === 'xbox' || graphicsBackendOverride(search) !== null ? backend : v.graphics;
+  return { graphics, antialias: graphics !== 'xbox' && v.antialias, power: v.power };
+}
+/** VS-6: the keeper's rows a renderer is made with (`apply: 'nextMatch'`, `./videoSettings`'s schema): a change drops a prepared match. */
+const NEXT_MATCH_ROWS = VIDEO_SCHEMA.filter((row) => row.apply === 'nextMatch').map((row) => row.key);
+const nextMatchOf = (v: VideoSettingsV2): string => NEXT_MATCH_ROWS.map((k) => String(v[k])).join('|');
+/**
  * The match's renderer. CPS GPU time (a dev-only instrument, `./gpuStats`): three's timestamps asked only in a development
  * build under the dev tools switch and `&gputime`, on the canvas's own window's query.
  */
+/** VS-6 review F2: the mount that last applied Texture filtering to the page's sampling; only its teardown clears it. */
+let anisotropyHolder: object | null = null;
 const pageRenderer = (c: HTMLCanvasElement): Promise<MatchRenderer> => {
   const win: { location?: { readonly search: string } } = c.ownerDocument.defaultView ?? {};
-  return import('./renderer').then((r) => r.createRenderer(c, { trackTimestamp: import.meta.env.DEV && gpuTimeAsked(win.location?.search ?? '') }));
+  const search = win.location?.search ?? '';
+  const choice = matchRendererChoice(videoSettingsKeeperV2().get(), search);   // VS-6: read now, at the mount
+  return import('./renderer').then((r) => r.createRenderer(c, { ...choice, trackTimestamp: import.meta.env.DEV && gpuTimeAsked(search) }));
 };
 /** The match's own canvas's placement (the design system owns colour and type): over the whole window. */
 function placeMatchCanvas(canvas: HTMLCanvasElement): void {
@@ -590,7 +644,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     feet: () => walk.feet(),
     aim: () => walk.fireAim(),
     sound: (name, at, volume) => { sound.audio.play(name, at, 'play', volume); },   // the command's flag-0x10 volume
-    move: (path, delta) => { view?.moveNode(path, delta); },
+    // The leaf drawn moved, and the world told: a scene sound at a node under it plays where it stands now (SCENE_SOUND_PLACE_READING).
+    move: (path, delta) => { view?.moveNode(path, delta); world?.world.nodeMoved(path, delta); },
     net: () => (net && net.client.state === 'open' ? net.client : null),
     press: () => traversal.actionPress(),          // LATER 362: the action button's chased press, the kick's pick
     // DOORS (research 92 section 2): `./main`'s own-press clip, line for line, on the mount's clips.
@@ -631,7 +686,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     aim: () => walk.fireAim(),
     bodies: (eye, dir, reach) => remote.aimBodies(eye, dir, reach),
     surfaces: (eye, far) => { const g = walk.grid(); return g ? pickSurfaces(g, eye, far, map?.grenade?.defaultMaterial ?? '') : []; },
-    cellOf: (feet) => { const sub = map?.ai?.maps[0]; return sub ? aiCellOf(sub, feet[0]!, feet[2]!) : null; },
+    cellOf: (feet) => orderCellOf(map?.ai, feet),
     order: (id, cmd) => net?.hostageOrder(id, cmd) ?? false,
   });
   const play = new Play();
@@ -657,6 +712,16 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
    */
   let spawned = false;
   let renderer: MatchRenderer | null = null;
+  // XBOX-DIAG (`./matchDiag`): the ring's source -- three's `renderer.info` read, never copied; off outside a match.
+  const matchDiag = pageMatchDiag();
+  const padHint = new PadHint();                       // XBOX-PAD-HINT: no pad for 10 s on an Xbox-marked page
+  const diagSource = {
+    info: () => renderer?.renderer.info,
+    scale: () => ratioTargetOf(renderer)?.pixelRatio() ?? null,
+    buffer: () => (canvas ? { w: canvas.width, h: canvas.height } : null),
+    phase: loadPhaseReached,
+    links: () => (renderer as { links?: { total?: number } } | null)?.links?.total ?? null,
+  };
   let endedDialog: number | null = null;
   let gone = false;
   let frameId = 0;
@@ -720,6 +785,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   play.onEvent(matchEffects.playEvent);
   traversal.setEffects(firearm.effects);             // PAR-10 (research 257 s3, 250 s9): `./main`'s -- the water's splash and ripples
   remote.setEffects(firearm.effects);                // research 86 s5.4: the others' wakes and splashes on the same effects (`./main`'s)
+  // FLASH-GLOW-BODIES (product track, a renderer warm-up): each of the others' bodies compiled at its spawn, the canvas's and
+  // the flash glow's render contexts both (`RemotePlayers.setPrepare`), never at a full lobby's first flashbang.
+  remote.setPrepare((objects, stale) => { void renderer?.prepare?.(objects, scene, fly.camera, { stale: () => gone || stale() })?.catch(() => { /* a stale warm-up is dropped */ }); });
   // ACT-1 (ruling ACT.R1, research 250 s1): sprint 27's action part (`./matchActions`, ONE-WIRE) -- `./main`'s `mountActions`
   // call with what this page lends it: the doors, the traversal, the throwables' C4, the others' bodies, and the bomb
   // drawn through the match's cues, HUD, bodies, effects and the throwables' world bomb (bomb-floor's Satchel). `drops`
@@ -851,9 +919,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const fit = (): void => {
     if (!renderer) return;
     // CPS-4a (CPS.R7, a browser adaptation): the render scale's ceiling for the canvas's box (`./videoSettings`), met at
-    // the ratio's next tick (`AdaptiveRatio.setCap`); the PS2 frame below draws its 640 x 448 whatever it is.
+    // the ratio's next tick (`AdaptiveRatio.setCap`); the PS2 frame below draws its 640 x 448 whatever it is. VS-7 review
+    // F2: the v2 percent and ceiling (`renderCapForV2`; Balanced's 100 / 1440 is `renderCapFor('balanced')` exactly).
     const width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight);
-    adaptiveRatio.setCap(renderCapFor(renderScale, globalThis.devicePixelRatio, wantsTouchControls(), width, height).ratioCap);
+    adaptiveRatio.setCap(renderCapForV2(renderPct, renderCeiling, globalThis.devicePixelRatio, wantsTouchControls(), width, height).ratioCap);
     if (picture === 'ps2') {
       // OT.R79's PS2 picture, `./main`'s (:1638-1642): the console's 640 x 448 frame, its projection from the map's own
       // half-angles, stretched onto the 4:3 box (`PICTURE_PS2_CLASS`).
@@ -872,6 +941,25 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // stored factor (2 by default), heard while the match runs.
   let picture: VideoPicture = o.picture?.get() ?? VIDEO_PICTURE_DEFAULT;
   let hdPack: HdServedPack | null = null, hdLogged = '';
+  // B206 ML-3 (ML.R5, R9, R11, R13): the texture pack chosen in MODS -- read at the mount and at each change notice, under
+  // every picture, never the picture's switch -- applied to this match's world; ML-4 (ML.R10): behind the overlay, its
+  // work spread over the frames (`ApplyFrames`), the room and this page's frame running on. The online guard is on: the
+  // front end's match is a room on a server, other players in it or free to join (the Forge's Play too).
+  const packFrames = new ApplyFrames();
+  const packLive = (): boolean => !!net && net.client.role === 'player' && walk.mode() === 'walk' && !walk.isDead() && !(o.blocked?.() ?? false);
+  const packOverlay = new PackApplyOverlay(canvas.ownerDocument, packLive, undefined, undefined, () => canvas.style.visibility !== 'hidden');
+  const packs = new PackApplier<TexturePackTarget>({
+    choice: o.texturePacks?.choice ?? pageTextureChoice(),
+    registry: hdTextures,
+    hd: o.texturePacks?.hd ?? (() => hdPack = new HdServedPack(undefined, (text) => {
+      const k = text.replace(/\d+/g, '#'); if (k !== hdLogged) { hdLogged = k; console.info(`[hd] ${text}`); }
+      packOverlay.update(hdPack?.progress() ?? null);
+    }, undefined, pageHdStore(),
+    // ML-4 (ML.R10) and GM-13d: the pack's decodes, keys and alpha rescale in the decode worker (`HdPackDecoders`).
+    lazyHdPackDecoders(() => import('./hdMenuTextures').then((m) => new m.HdMenuDecoder())),
+    { storeOnly: true, runtime: { opaqueGuard: () => true, frames: packFrames } })),
+    gx: o.texturePacks?.gx ?? (() => pageGxPacks((r) => { packOverlay.update(gxApplyProgress(r)); }, packFrames)),
+  });
   const detailDistance = detailDistanceKeeper();
   const applyDetailDistance = (): void => { view?.setDetailDistance(detailDistanceFor(picture, detailDistance.get())); };
   const offDetailDistance = detailDistance.observe(() => { if (!gone) applyDetailDistance(); });
@@ -882,36 +970,73 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // menu's readout, one key).
   const video = videoSettingsKeeper();
   const videoAtMount = video.get();
-  let renderScale = videoAtMount.renderScale;
+  const videoV2 = videoSettingsKeeperV2();
+  let filtering = videoV2.get().filtering, anisotropic = false;
+  const mountToken = {};
+  const applyFiltering = (): void => {
+    if (!renderer) return;                             // the device's maximum is known once the renderer is made
+    anisotropic = picture === 'modern' && filtering === 'anisotropic';   // review F3: Modern only (never PS2, nor a stored HD)
+    anisotropyHolder = mountToken;                     // review F2: the page's sampling is this mount's now
+    setWorldAnisotropy(anisotropic);
+  };
+  // VS-7 review F2: the percent and the ceiling read once at the mount (Automatic's resolved rows: a probe's result applies
+  // from the next match), then heard through the v2 keeper below.
+  let renderPct = videoV2.get().renderScalePct, renderCeiling = videoV2.get().ceiling;
+  // VS-10 F3 (a browser adaptation): the perf report's class, preset word and resolved rows read once here, beside the rows
+  // `fit()` draws, and handed to the teardown's report -- a probe that saves mid-match (from the next match) never relabels this one.
+  const videoAtStart = ((): ReturnType<typeof pageVideoReading> | null => { try { return pageVideoReading(); } catch { return null; } })();
   let shadowsOn = videoAtMount.shadows;
   const offVideo = video.observe((v) => {
     if (gone) return;
-    if (v.renderScale !== renderScale) { renderScale = v.renderScale; fit(); }
     if (v.shadows !== shadowsOn) { shadowsOn = v.shadows; view?.setShadows(shadowsOn); if (!shadowsOn) shadow.shadow.clear(); }
     if (fpsReadout && v.showFps !== fpsReadout.shown()) fpsReadout.toggle();   // IP3: the readout exists from the attach; made, it reads the stored setting
   });
+  // VS-5 (VS.R5, VS.R6; browser adaptations): the Shadows tier (Off is the switch above) and the Colour filter, now and live.
+  const applyTierAndFilter = (v: VideoSettingsV2): void => { if (v.shadows !== 'off') shadow.shadow.setTier(v.shadows); colourFilter(canvas, v.colourFilter); };
+  applyTierAndFilter(videoV2.get());
+  const offTierFilter = videoV2.observe((v) => { if (!gone) applyTierAndFilter(v); });   // VS-5 (the keeper is VS-6's above)
   const applyPicture = (): void => {
     const ps2 = picture === 'ps2';
     applyDetailDistance();
     canvas.classList.toggle(PICTURE_PS2_CLASS, ps2);
     hud.setPresentation(ps2 ? 'ps2' : 'native');
     renderer?.setPresentation?.(ps2 ? 'ps2' : 'native');
-    const experimental = pictureExperimentalSettings(picture);
-    renderer?.setExperimental?.(experimental);
-    // HD.R8: the HD pack under HD (GoE Soul). The texture registry collects from the first time the picture is chosen,
-    // so a world built after it is known in full; one built before keeps its originals until the next map. The pack
-    // is the one this browser imported, else the served one (fetched a texture at a time: MODERN and PS2 fetch nothing).
-    // The status logged once a state (off, loading, the pack's name, a refusal), not once a texture.
-    if (experimental.hdPack) { hdTextures.collect(); hdPack ??= new HdServedPack(undefined, (text) => { const k = text.replace(/\d+/g, '#'); if (k !== hdLogged) { hdLogged = k; console.info(`[hd] ${text}`); } }, undefined, pageHdStore()); }
-    void hdPack?.setEnabled(experimental.hdPack);
+    renderer?.setExperimental?.(MATCH_EXPERIMENTAL_OFF);
+    // B206 ML-3 / ML-6 (ML.R11, OT.R110): the HD pack follows the MODS choice (`packs` above), not the picture; the HD
+    // (GoE SouL) picture is removed, so the experimental renderer is off under both.
+    applyFiltering();                                  // VS-6: the keeper's Texture filtering under this picture
     fit();
   };
   const offPicture = o.picture?.observe((p) => { if (!gone) { picture = p; applyPicture(); } }) ?? ((): void => {});
   applyPicture();
+  // VS-6 (the spec's §4.2 Texture filtering, a browser adaptation): the keeper's `filtering`, live -- Anisotropic on under
+  // the Modern picture once the renderer has said its maximum, never under PS2 (`./experimentalWorldSampling`
+  // `setWorldAnisotropy`, the experiment's gate not asked); let go at the teardown if this match turned it on.
+  const offFiltering = videoV2.observe((v) => { if (!gone && v.filtering !== filtering) { filtering = v.filtering; applyFiltering(); } });
   // PAR-12 (research 255 s2): `./main`'s viewport and pixel ratio (`./matchViewport`) -- the window's resize, the phone
   // browser bar's and the rotation; the ratio capped for the device and traded for frames, not while the loading hold stands.
   const unwatchViewport = watchViewport(win, fit);
-  const adaptiveRatio = new AdaptiveRatio(pixelRatioCap(globalThis.devicePixelRatio, wantsTouchControls()));
+  const adaptiveRatio = new AdaptiveRatio(pixelRatioCap(globalThis.devicePixelRatio, wantsTouchControls()), autoAdaptiveOptions(videoV2.get().preset));   // VS-7: Automatic's floor is the device class's
+  // VS-7 (VS.R7, a browser adaptation): Automatic's first-match probe, null once saved or under a preset; VS-10 F2: it re-reads
+  // the preset before its save (`still`) and stops at a Restore defaults inside its window.
+  let autoProbe = firstMatchProbe(videoV2.get().preset, undefined, { still: () => videoV2.get().preset === 'auto' });
+  // VS-4 (VS.R2, a browser adaptation with no original; `./frameCap`): the frame cap's gate -- draws skipped between the
+  // cap's intervals, the simulation, the net's frame and the timed rules stepped every animation frame as before -- and
+  // the performance overlay's mode, both the v2 keeper's, heard while the match runs. The ratio's frame-time target
+  // follows the cap where VS-3's `setTarget` exists, for a cap below 60 only (review F2: a 120 cap on a 60 Hz display
+  // must not ask an 8.3 ms frame the display never gives); 0 is the ratio's default target.
+  const drawGate = frameCapGate(videoV2.get().frameCap);   // VS-4 (the keeper `videoV2` is VS-6's above, one per mount)
+  const capTarget = (cap: FrameCap): void => {
+    const ratio = adaptiveRatio as unknown as { setTarget?: (ms: number) => void };
+    if (typeof ratio.setTarget === 'function') ratio.setTarget(cap > 0 && cap < 60 ? 1000 / cap : 0);
+  };
+  capTarget(drawGate.cap());
+  const offVideoV2 = videoV2.observe((v) => {
+    if (gone) return;
+    if (v.frameCap !== drawGate.cap()) { drawGate.setCap(v.frameCap); capTarget(v.frameCap); }
+    if (v.renderScalePct !== renderPct || v.ceiling !== renderCeiling) { renderPct = v.renderScalePct; renderCeiling = v.ceiling; fit(); }   // VS-7 review F2
+    fpsReadout?.refresh();
+  });
 
   /** IP3: the assets `place` put up -- its hand-off lines (`gameLines`, `soundLines`) run at attach when it came first. */
   let placed: MatchAssets | null = null;
@@ -924,6 +1049,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
    * The map's sound in, `place`'s -- at attach for a prepare (IP3: nothing audible before it; the audio holds no bank, so
    * every play before is dropped unheard).
    */
+  /** SOUND_JIT_WARM_ADAPTATION: the first world frame drawn -- the load is over, no load lane is started after it. */
+  let loadOver = false;
   const soundLines = (a: MatchAssets): void => {
     sound.setData(a.sound?.data ?? null);              // `./main`'s worker answers: the map's banks, the round's cues, then the loops
     taunts.setData(a.sound?.data ?? null);             // TAUNTS: the vocals, the defaults, the captions (`./matchTaunts`)
@@ -931,6 +1058,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     hud.setLocCaptions(menuCaptions);                  // LkPaioX5 (b): the action caption's HudCLOC strings (the bomb's)
     chat.setData(a.sound?.data ?? null);               // TACTICAL ORDERS and MESSAGES: the records, the defaults (`./matchChat`)
     if (a.sound) sound.setLoops(a.sound.loops);
+    // SOUND_JIT_WARM_ADAPTATION (`./audio`): the warm set decoded and rendered once behind the loading screen, a callback
+    // at a time; the first world frame ends it (`endLoad`) and the frames' `pump` takes the rest.
+    if (!loadOver) sound.audio.warmDuringLoad((run) => { globalThis.setTimeout(run, 0); });
   };
   /** The side the seat's own lines last put on (`seatLines`); null before a map. */
   let seated: Side | null = null;
@@ -957,6 +1087,14 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     const m = map, seat = side();
     if (gone || !m || net || seat === seated) return;
     seatLines(m, seat);
+    // PRE-SPAWN-SIDE (PRE_SPAWN_STAND_SIDE_READING, research 222 s12; the review's finding): while the room has not spawned
+    // the seat, the walk and the camera stand at the new side's start, as `place` stood them at the old one's; once it has,
+    // the body is the room's and stays where it is.
+    if (!spawned && view) {
+      const stand = standOf(m, view, seat);
+      fly.lookFrom(stand.from, stand.to);
+      walk.setGround(m.ground, stand.feet, world?.grid ?? null);
+    }
     const r = renderer, v = ownBody.view();
     if (!r?.prepare || !v) return;
     void r.prepare([v.group], scene, fly.camera, { stale: () => gone || map !== m || ownBody.view() !== v }).catch(() => { /* a stale warm-up is dropped */ });
@@ -980,6 +1118,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // `buildWorld` starts it (`lighting.rig = m.lightRig` above), so this moves the brighten uniform and re-bakes nothing;
     // with no brighten named -- every match but the forge's -- the world is built and lit exactly as before.
     view = built;
+    packs.setWorld(built, m.textures);                // B206 ML-3: the MODS texture pack on the new world (ML.R8, R9)
     applyDetailDistance();                            // PF.R60: the picture's detail distance on the new world
     if (!shadowsOn) built.setShadows(false);           // CPS-4a: the player's Shadows off
     scene.add(built.group);
@@ -992,6 +1131,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // FORGE_OBJECT_PLACE_ADAPTATION: a Forge layout's ambient effects, from the map's start (`./forge/forgeObjects`).
     playForgeAmbients(firearm.effects, m.meta?.forgeAmbients);
     if (attached) soundLines(a);                       // IP3: a prepare's at its attach
+    else if (a.sound) sound.audio.stageWarm(a.sound.data, (run) => { globalThis.setTimeout(run, 0); });   // SOUND_JIT_WARM_ADAPTATION: staged, nothing installed; the attach's `setData` adopts it
     for (const add of [...built.revealWorld, ...built.revealProps]) { try { add(); } catch { /* one object's failure is not the world's */ } }
     const extent = built.box.min.distanceTo(built.box.max);
     fly.setClipPlanes(m.camera?.nearPlane ?? 4, Math.max(2000, extent * 1.6));
@@ -1010,7 +1150,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     traversal.setClips(shown);                         // ACT-1: `./main`'s -- the traversal's roots come from the clips
     remote.setClips(shown);
     setRemoteMap(remote, m, lighting, () => view);
-    const stand = standOf(m, built);
+    const stand = standOf(m, built, seat);                // PRE-SPAWN-SIDE: the seat's own start (PRE_SPAWN_STAND_SIDE_READING)
     fly.lookFrom(stand.from, stand.to);
     // MAP-02 (`./matchWorld`, MATCH-GAPS): the page's world on the walk's hull and grid, drawn by the view, zAnim's
     // opening state -- /testroom's `pageWorld` lines; a program's sound on the match's audio, its effect the firearm's.
@@ -1020,6 +1160,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       world = buildPageWorld(m, {
         setNodeActive: (path, on) => { view?.setNodeActive(path, on); },
         setNodeOpacity: (path, f) => { view?.setNodeOpacity(path, f); },   // PB-9b: `./main`'s, the bases' pulse
+        setNodeUvOffset: (path, u, v) => { view?.setNodeUvOffset(path, u, v); },   // LATER 782: the shore's scroll
         sound: (name, at, volume) => { sound.sceneSound(name, at, volume); },   // OBF-31: none under the round screens
         effect: (name, at) => { firearm.effects.play(name, { position: at, normal: [0, 1, 0] }); },
         log: (line) => { console.info(line); },
@@ -1053,7 +1194,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let joinNow: (() => void) | null = null;
   o.assets.then((a) => {
     if (gone) return;
-    // A map the Forge composed (`./forge/playObjectives` names its escort zones on it): its escort's fallback lines on.
+    // A Forge layout that places escort objects (`./forge/playObjectives` names its escort zones on the map only then):
+    // its escort's fallback lines on; any other map, a disc map played unchanged included, off (FP-1b, REVIEW-B 13).
     if (a) sound.roundAudio.round.forgeEscortLines = Array.isArray((a.map as { forgeEscortZones?: unknown }).forgeEscortZones);
     if (a) place(a);
     worldIn = true;
@@ -1063,6 +1205,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (gone) { r.renderer.dispose?.(); return; }
     renderer = r;
     markLoad('renderer');                              // IP3 (`./loadMarks`)
+    packFrames.setUploader(rendererUploader(r.renderer));   // after ML-9 (ML.R10): the pack's uploads timed in their frame
     refreshFog();
     applyPicture();                                    // OT.R79: the picture's presentation, then the fit
     const ratio = ratioTargetOf(r);
@@ -1122,6 +1265,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (!nav) return;
     pads.poll(nav);                                    // ACT-3: `./main`'s `pads.poll` (main.ts:1184) -- a pad gone cancels the hold
     const polled = gamePad.poll(nav);
+    matchDiag.pads(gamePad.input.devices, now, held);   // XBOX-DIAG: the pads the match's reader found, and the hold's frames
+    const hintChange = padHint.frame(now, gamePad.input.devices.length);   // XBOX-PAD-HINT: shown at 10 s with no pad, hidden at a pad
+    if (hintChange === 'show') { matchDiag.input.hintShown = true; showPadHint(doc, () => { padHint.dismiss(); }); } else if (hintChange === 'hide') hidePadHint(doc);
     touch.padConnected(readsPad(gamePad));            // MP-1 (FI.R4): hidden, on its root, while the pad read is a connected one
     if (normalInput) { const own = padInput(polled); humanHeld = { fire: own.fire || touch.input.fire, stance: own.stance || touch.input.stance }; }
     const pad = normalInput ? mergeInput(padInput(polled), agent) : padInput(polled);
@@ -1133,6 +1279,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // after the FIRE RATE swap, so they target actions (`./padExtras`), never while the hold or a menu holds the pad.
     const padMenu = held || armory.isOpen() || startMenu.isOpen() || taunts.isOpen() || exchange.isOpen() || throws.inventory.isOpen();
     Object.assign(pad, gamePad.extras(pad, padMenu));
+    matchDiag.gameInput(pad);                          // XBOX-DIAG: the game's lanes this frame, with input or not
     if (held || !flushed) {
       exchange.hold(new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]));   // `./main`'s: WEAPON EXCHANGE's edges against the pad as it is; MP-1 F2: the touch pad's too
       armoryPart.stick(polled, new Set(), false);    // AM-2's review F1: the stick armed through the hold, as the buttons' edges are -- no flick at the release
@@ -1195,10 +1342,15 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let lastOverlays: number | null = null;             // CPS H10 (a dev instrument): the effect-light overlays shown at the frame's tail
   let lastOverlaysCulled: number | null = null;       // CPS overlay cull (a dev instrument): of those, the ones the frame's render left out
   let gpuTimer: GpuTimer | null = null;                // CPS GPU time (a dev instrument): three's timestamps resolved at the frame's tail, the last kept
-  const frame = (now: number): void => {
-    frameId = 0;
-    if (gone) return;
+  // FRAME-LOOP-GUARD (LATER 859, `./frameGuard`; a browser adaptation): the frame's body is `step` -- true asks for the
+  // next frame -- run through the guard, so a throw inside it (shadow's X3: a failed WebGPU upload out of the render)
+  // costs that frame, not the match; after a few throwing frames in a row the Reload notice shows.
+  const step = (now: number): boolean => {
+    if (gone) return false;
+    packOverlay.refresh();                             // ML-4: the strip in live play, the panel otherwise (nothing when none shows)
     const dt = Math.min(frameTime.frame(now), 0.1);   // a backgrounded tab must not teleport the camera (PAR-24: the real seconds kept)
+    const drawFrame = drawGate.shouldDraw(now);        // VS-4: the frame cap's gate -- the draws below wait for it, nothing else
+    // (`hud.render` also runs `hud.step`: its clocks count real time from its last call, so a skipped frame loses none; only the screen reads that state)
     padFrame(dt, now);
     firearm.beforeMove();                              // the bob (states 1-3)
     fly.update(dt);
@@ -1244,14 +1396,15 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       });
     }
     remote.applyZoneGate(net && gateGrid ? (id) => regionCull.drawn(id) : null);
-    if (renderer) {
+    if (renderer && drawFrame) {
       if (shadowsOn) shadow.frame(shadowRendererOf(renderer), scene, ownBody.view()?.group ?? null);   // PAR-6: `./main`'s line before the world's render; CPS-4a: not while Shadows are off
       forgeLighting?.update([scene], o.forgeLighting!);
       renderer.render(scene, fly.camera);
     }
     // BLACK-GAP: frames rendered with the world in and its scene compiled (or no warm to wait for); the second's end is the gate.
     // IP3: the hand-off's counted from its attach (frames on the shown canvas); stage 1's (`readyDraws`) from the mount.
-    const worldDrawn = worldIn && !!renderer && (!map || !renderer.warm || sceneWarmedFor === map);
+    const worldDrawn = drawFrame && worldIn && !!renderer && (!map || !renderer.warm || sceneWarmedFor === map);   // VS-4: a drawn frame only
+    // (VS-4: under a cap `first-frame` and `tellReady` come an animation frame or so later -- they mean "drawn twice")
     if (!firstDrawn && attached && worldDrawn) worldDraws++;
     if (!readyTold && worldDrawn) readyDraws++;
     const firstWorldFrame = !firstDrawn && worldDraws >= 2;
@@ -1261,7 +1414,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (renderer) {
       const scoreboard = (walking || spectating !== null) && (padMerged.scoreboard || scoreboardKeys.held());   // research 87 §12: SELECT held; PAR-48: a spectator's too
       firearm.aimReticle(dt);
-      firearm.showReticle(renderer.renderer, walking, false, scoreboard, spawned);   // no tactical map mounted; PAR-94 B2: none before the seat's spawn
+      if (drawFrame) firearm.showReticle(renderer.renderer, walking, false, scoreboard, spawned);   // no tactical map mounted; PAR-94 B2: none before the seat's spawn; VS-4: drawn with the frame
       hud.setScoreboard(scoreboard);
       // PAR-94 B2: no HUD before the room's spawn of the seat (was: `hud.setVisible(walking)`, the default kit drawn from the mount).
       hud.setVisible(walking && spawned);
@@ -1288,25 +1441,34 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         }) : null;
         hud.setVoice(vf?.view ?? null);
         hud.setTalkMarks(vf?.marks ?? []);
+        hud.setInfoNumber(page ? validClientCount(page.rows, hud.spectatorCount()) : null, page?.client.sessionMaster === true);   // HUD-ALIVE B: the consoles' count, "%d" / "%dm"
         hud.setCommandMenu(attached && taunts.isOpen());   // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623); IP3: none before attach
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
         hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(map?.ai, map?.forgeZoneMarks) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
-      hud.render(renderer.renderer);
+      if (drawFrame) hud.render(renderer.renderer);   // VS-4: the frame cap's gate
     }
     // PAR-2: `./main`'s -- the ARMORY's scripts stepped, pulled out 5 s before the next round (popup 47), drawn over everything.
-    armoryPart.frame(dt, renderer?.renderer ?? null);
+    if (drawFrame) armoryPart.frame(dt, renderer?.renderer ?? null); else armoryPart.frame(dt, null);   // VS-4: its scripts every frame, its draw with the frame's
     if (import.meta.env.DEV && devStats && renderer?.renderer.info) lastDraws = frameCountsOf(renderer.renderer.info);   // CPS H9: after the frame's last render (the armory's), its counts copied
     if (import.meta.env.DEV && devStats) lastOverlays = frameOverlaysOf(firearm.effects.lights); if (import.meta.env.DEV && devStats) lastOverlaysCulled = frameOverlaysCulledOf(firearm.effects.lights);   // CPS H10: the overlays the frame drew from (a state: `./renderStats`); the overlay cull: of those, the ones its render left out
     if (import.meta.env.DEV && devStats && renderer) (gpuTimer ??= new GpuTimer(renderer.renderer as unknown as TimestampRendererLike)).frame();   // CPS GPU time: the frame's passes resolved, never awaited
+    matchDiag.frame(now);                              // XBOX-DIAG: the ring's sample every 2 s, the input report at 45 s
     if (adaptiveRatio.frame(dt, now, ratioTargetOf(renderer), (o.blocked?.() ?? false) || picture === 'ps2')) fpsReadout?.tick();   // PAR-12: `./main`'s frame tail; the PS2 frame's size is the point; cq41E0VR's readout on its tick
     pageFrameSampler().frame(frameTime.real() * 1000, 'match', renderer, canvas, map, net);   // CPS-5 (a browser adaptation): the performance line's sampler, the frame's real ms
-    if (firstWorldFrame) { firstDrawn = true; markLoad('first-frame'); o.firstFrame?.(); }   // BLACK-GAP (`./loadingHold`): the front end's loading screen let go
+    if (autoProbe && videoV2.get().preset !== 'auto') { autoProbe.dispose(); autoProbe = null; }   // VS-10 F2: Automatic left -- the probe fed nothing more
+    if (autoProbe && firstDrawn && worldDrawn && picture !== 'ps2' && !(o.blocked?.() ?? false)) autoProbe.frame(frameTime.real() * 1000, (ratioTargetOf(renderer)?.pixelRatio() ?? 0) >= adaptiveRatio.ratioCap());   // VS-7: drawn frames only, after the first world frame -- `worldDrawn` waits for the scene's warm (`warmEffects`) only, not `warmThrows` / `warmShadow` (review F1)
+    if (firstWorldFrame) { firstDrawn = true; markLoad('first-frame'); loadOver = true; sound.audio.endLoad(); o.firstFrame?.(); }   // BLACK-GAP (`./loadingHold`): the front end's loading screen let go
     if (readyDraws >= 2) tellReady(true);             // IP3: stage 1's end -- the same gate, "prepared" as `firstFrame` means drawn
-    if (gone || (!attached && readyTold)) return;      // IP3: a prepared match's frames stopped until its attach
-    frameId = win.requestAnimationFrame(frame);
+    if (gone || (!attached && readyTold)) return false;   // IP3: a prepared match's frames stopped until its attach
+    return true;
+  };
+  const frameGuard = new FrameGuard();
+  const frame = (now: number): void => {
+    frameId = 0;
+    if (frameGuard.frame(() => step(now), () => !gone && (attached || !readyTold))) frameId = win.requestAnimationFrame(frame);
   };
   frameId = win.requestAnimationFrame(frame);
 
@@ -1335,13 +1497,22 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const teardown = (): void => {
     normalInput?.end('The private match ended');
     gone = true;
-    beaconMatchEnded();                                // CLIENT_ERROR_BEACON_ADAPTATION: no elapsed outside a match
+    beaconMatchEnded({ seats: net?.rows.length ?? null, map: map?.archive ?? null, scaleAtEnd: ratioTargetOf(renderer)?.pixelRatio() ?? null, video: videoAtStart });   // CLIENT_ERROR_BEACON_ADAPTATION: no elapsed outside a match; VS-8: the match's perf report; VS-10 F3: the mount's video
+    if (attached) { matchDiag.end(globalThis.performance?.now() ?? 0); setInputPhase('menu'); }   // XBOX-DIAG: the input report if it never went; the menus' counts again (review F5: never a prepared match's that never attached)
+    if (attached) { padHint.end(); hidePadHint(doc); }   // XBOX-PAD-HINT: never past its match (the notice is the page's: never a prepared match's teardown)
     tellReady(false);                                  // IP3: a prepare still waiting on this mount ends with it
     offHeard();
     offPicture();                                      // OT.R79: the picture no longer followed
-    void hdPack?.setEnabled(false); hdPack = null;     // HD.R8: the HD pack's originals back before the world goes
+    void packs.dispose(); hdPack = null;               // B206 ML-3: the pack's originals back before the world goes
+    packOverlay.dispose();                             // ML-4: the overlay off the page with the match
     offDetailDistance();                               // PF.R60: nor the detail distance
     offVideo();                                        // CPS-4a: nor the video settings
+    offFiltering();                                    // VS-6: nor Texture filtering, and the page's sampling let go
+    if (anisotropic && anisotropyHolder === mountToken) { anisotropyHolder = null; setWorldAnisotropy(false); }   // review F2: only the holder clears it
+    offVideoV2();                                      // VS-4: nor the frame cap and the overlay's mode
+    offTierFilter();                                   // VS-5: nor the tier and the colour filter
+    colourFilter(canvas, 'off');                       // VS-5 review F2: a caller's canvas keeps no matrix after the match
+    autoProbe?.dispose();                              // VS-7 review F1: the probe's page-hidden listener let go
     canvas.classList.remove(PICTURE_PS2_CLASS, MATCH_CANVAS_CLASS);   // the canvas's own classes only: the body's are never touched
     if (import.meta.env.DEV && attached) {             // IP3: the hook is the attached match's
       delete (win as unknown as Record<string, unknown>)[MATCH_WINDOW_HOOK];
@@ -1395,6 +1566,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       }
     }
     renderer = null;
+    packFrames.setUploader(null);
     net = null;
     if (own) canvas.remove();
   };
@@ -1423,9 +1595,11 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (o.normalInput && !normalInput) o.normalInput.end('Only a private loopback match accepts this input port');
     walk.bindKey(win as unknown as EventTarget);
     // NU-9 (c) T4 (research 329 §1.8): TEAMMATE NAMES read once at the mount, as the HUD's set-up reads it (D:L77558-77559); absent, the golden's 1
-    // LATER 671 (OT.R101; a browser adaptation): its "original" setting, 2, keeps the original's tags; else the adaptation's
+    // LATER 671 (OT.R101; a browser adaptation), SS-2 (H422 answered (a)): the card's 0 / 1 on or off; the look, original
+    // or the adaptation's, this browser's Name tags (`./nameTags`), read at the mount too
     const teamNames = o.gameVars?.valve('DISPLAY_MP_TEAM_NAMES') ?? 1;
-    hud.setTeammateNames(teamNames !== 0, teamNames === TEAMMATE_NAMES_ORIGINAL_VALUE);
+    hud.setTeammateNames(teamNames !== 0, readNameTags() === 'original');
+    hud.setRangeReadout(readRangeReadout() === 'on');   // HUD-ALIVE C (OT.R117, a browser adaptation): this browser's range readout, read at the mount
     // PAR-3 (research 255 s3): `./main`'s `armoryData` line -- the round screens' two bitmaps out of the page's ARMORY read
     // (the lobby's), kept by the HUD across the map's own set.
     // PAR-2: and the seat ARMORY's data, `./main`'s `armoryData` (a seat waiting for it opens it then; no read, none).
@@ -1441,7 +1615,11 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       aborting: () => matchAbort.aborting(),
     });
     // cq41E0VR: the SHOW FPS readout, with the menu whose row toggles it (IP3: at attach, beside the touch layer's parent).
-    const fps = fpsReadout = mountFpsReadout(own ? into : doc.body, { smoothedMs: () => adaptiveRatio.smoothedMs(), store: pageSettings, zIndex: Number(canvas.style.zIndex || 1000) + 1 });
+    const fps = fpsReadout = mountFpsReadout(own ? into : doc.body, {
+      // VS-4 review F1: the drawn rate -- under a cap the cap's interval where the display is faster, the display's otherwise.
+      smoothedMs: () => Math.max(adaptiveRatio.smoothedMs(), drawGate.cap() > 0 ? 1000 / drawGate.cap() : 0), store: pageSettings, zIndex: Number(canvas.style.zIndex || 1000) + 1,
+      overlay: () => videoV2.get().overlay, rttMs: () => (net && net.client.rtt > 0 ? net.client.rtt : null),   // VS-4: the overlay's mode, the ping
+    });
     // MATCH-01 (research 266 §8): the in-round START menu (`./startMenu`), `/testroom`'s too; its rows' captions the map's HudCLOC.
     const startMenu = new StartMenu({
       options: o.startMenuOptions ?? localStartMenuOptions(),
@@ -1573,7 +1751,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         pose: () => fly.pose(),                          // `./main`'s `pose`
         floorUnder: (x, z, y, from = y) => {             // `./main`'s `floorUnder`: the walk's floor pick (FUN_005b5d40)
           const grid = walk.grid();
-          return grid ? (selectFloor(probeGround(grid, x, z), from + STEP_PROBE_LIFT_READING, y)?.y ?? null) : null;
+          return grid ? (selectFloor(probeGround(grid, x, z), from + probeLiftOf('stand'), y)?.y ?? null) : null;
         },
         doors: () => doors.stats(),                      // `./main`'s `doors`
         traversal: () => traversal.stats(),              // `./main`'s `traversal`
@@ -1606,6 +1784,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
             }),
           };
         },
+        gates: () => gates.stats(),                      // FP.R13: `./main`'s `gates` (a test instrument)
+        escortees: () => [...(net?.hostages().values() ?? [])].map((h) => ({   // FP.R13: the room's hostages as told
+          id: h.id, name: 'name' in h ? h.name : null, at: remote.feet(h.id) ?? ('at' in h ? [...h.at] : null), alive: h.alive, ai: h.ai, leader: h.leader, rescued: h.ai === 0x11,
+        })),
         alive: () => (net ? net.gate().alive : true),    // `./main`'s `weaponSelect().gate.alive` (its `exchangeGate`: no match, alive)
         waiting: () => net?.waitingRoom() ?? true,       // `./main`'s `net().waiting`; no NetPage yet, still waiting
         // ACT-2 (research 250 s3): `./main`'s W0-gate reads (`./turretHook`) -- the placements and the held one, the drawn parts.
@@ -1624,7 +1806,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     }) : null;
     adopt({ normalInput, taunts, startMenu, voice, touch, keepClear, touchTaps, offTip, playOptions, lanes, typed });
     attached = true;                                   // the hand-off's parts in: the frame and `padFrame` reach them from here
+    applyTierAndFilter(videoV2.get());                 // VS-5 review F3: the page's one map at this mount's tier (another's teardown resets it)
     beaconMatchBegan();                                // CLIENT_ERROR_BEACON_ADAPTATION: a report's matchElapsedMs counts from here
+    setInputPhase('match'); matchDiag.begin(globalThis.performance?.now() ?? 0, diagSource);   // XBOX-DIAG: from the same instant
+    padHint.begin(globalThis.performance?.now() ?? 0, matchDiag.xboxConsole);   // XBOX-PAD-HINT: its 10 s from the same mount
     if (placed) { gameLines(placed.map); soundLines(placed); }   // `place`'s hand-off lines, when the world came first
     reseat();                                          // the hand-off's client's side, should the lobby's last read differ
 
@@ -1775,10 +1960,11 @@ export interface MatchLoaderOptions {
   /** IP3: the document `prepare` makes its canvas in (on its body); absent, the page's. */
   doc?: Document;
   /**
-   * IP3 (the review's F3): the picture asks for the HD pack (`./picture` `pictureExperimentalSettings(..).hdPack`). The
+   * IP3 (the review's F3): the page asks for the HD pack collected before the world (until B206 ML-6, the HD picture). The
    * mount's `applyPicture` collects the pack's textures (`hdTextures.collect()`) before its `place` builds the world, and
    * a world the prepare built came before any collect -- so under it `prepare` does nothing and `mount` takes no prepared
-   * match (it builds its own, as before IP3). Absent, never.
+   * match (it builds its own, as before IP3). Absent, never -- the front end gives none since ML-6 (a pack chosen in
+   * MODS is registered from the map's decodes after the world, ML-3).
    */
   hdPack?: () => boolean;
   /**
@@ -1800,7 +1986,7 @@ export interface MatchLoaderOptions {
  * load the loading screen started is the one the match mounts on.
  */
 export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker = () => new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }) as unknown as MatchWorker, options: MatchLoaderOptions = {}): MatchLoader {
-  const releaseWorkerAfterLoad = options.releaseWorkerAfterLoad ?? readGraphicsBackend() === 'xbox';
+  const releaseWorkerAfterLoad = options.releaseWorkerAfterLoad ?? (readGraphicsBackend() === 'xbox' || pageDeviceClass() === 'xbox');   // VS-7 review F3: the Xbox class too
   let worker: MatchWorker | null = null;
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
@@ -1935,6 +2121,23 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
    * keeper's copy, is the gone mount's and does nothing.
    */
   const offPicture = options.picture?.observe(() => { if ((prepared || preparing) && options.hdPack?.()) drop(); }) ?? ((): void => {});
+  /**
+   * VS-6 (VS.R4, a browser adaptation): a next-match row (antialias, graphics, power preference) changed while a match is
+   * prepared or being prepared lets it go -- its renderer was made with the old choice -- and prepares the same mission
+   * again, its renderer made with the new one (`pageRenderer` reads the keeper at the mount). A running match is no job
+   * of the loader's (taken by its mount), so its renderer is left alone; the next mount reads the new value.
+   */
+  const nextMatchKeeper = videoSettingsKeeperV2();
+  let nextMatch = nextMatchOf(nextMatchKeeper.get());
+  const offNextMatch = nextMatchKeeper.observe((v) => {
+    const now = nextMatchOf(v);
+    if (now === nextMatch) return;
+    nextMatch = now;
+    const mission = (prepared ?? preparing)?.mission;
+    if (mission === undefined) return;
+    drop();
+    void prepare(mission);
+  });
   const takes = (o: Omit<MatchMountOptions, 'assets'>): PrepareJob | null => {
     const job = [prepared, preparing].find((j) => j?.mission === o.handOff.mission && j.mount !== null) ?? null;
     if (!job || options.hdPack?.()) return null;
@@ -1965,7 +2168,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
       if (job.audio) o.audio?.release();               // the hand-off's audio unused: the prepared match plays on its own
       return m.attach(target, o);
     },
-    dispose: () => { offPicture(); drop(); worker?.terminate(); worker = null; for (const done of waiting.values()) done(null); waiting.clear(); sounds.clear(); kept = null; },
+    dispose: () => { offPicture(); offNextMatch(); drop(); worker?.terminate(); worker = null; for (const done of waiting.values()) done(null); waiting.clear(); sounds.clear(); kept = null; },
   };
 }
 

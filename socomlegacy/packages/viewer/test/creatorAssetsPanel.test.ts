@@ -384,6 +384,16 @@ describe('assets shell registrant with a mock editor (actual page integration ow
     expect(packs.import).not.toHaveBeenCalled(); expect(packs.apply).not.toHaveBeenCalled();
     expect(f.host.textContent).toContain('not installed'); f.instance.dispose(); r.instance.dispose();
   });
+  it('names the blocked case it is in: a hidden panel in Build asks for Content, another surface for Build (LATER 799)', () => {
+    const packs = { stage: vi.fn(), import: vi.fn(), apply: vi.fn() }, r = rig({ packs }), f = r.files();
+    const status = () => f.host.querySelector('[data-file-dropzone] [role=status]')!.textContent;
+    expect(status()).toBe('Choose files to make them available to your agent.');
+    f.instance.visibility?.(false); expect(status()).toBe('Open Content to add local files.');
+    f.instance.visibility?.(true); expect(status()).toBe('Choose files to make them available to your agent.');
+    r.mode('walk'); f.instance.update?.(); expect(status()).toBe('Return to Build to add local files.');
+    f.instance.visibility?.(false); expect(status()).toBe('Return to Build to add local files.');
+    expect(packs.stage).not.toHaveBeenCalled(); f.instance.dispose(); r.instance.dispose();
+  });
   it('cancels shared staging when its owning shell panel is hidden', async () => {
     let signal!: AbortSignal;
     const stage = vi.fn((_files: readonly LocalFile[], options?: { signal?: AbortSignal }) => new Promise<LocalPackSummary[]>((_resolve, reject) => {

@@ -16,8 +16,9 @@ import {
  *
  * - **The gate** (§B2, `FUN_001f7ff0` L56648-56661, tick L89369-89374): the menu opens only in the match (the page's own
  *   room or a server: `&nomatch`'s free walk has none), dead (a ghost too), the camera on oneself, not a spectator
- *   (`canOpen`). The ways in are the pad's R2 (`Inventory`, the Default config), the PC key `I`
- *   (`WEAPON_SELECT_KEY_READING`) and the touch button shown while the prompt is (`WEAPON_SELECT_TOUCH_READING`).
+ *   (`canOpen`) -- or on a teammate, the owner's adaptation (`SPECTATE_KIT_CHANGE_OWNER`, OT.R120). The ways in are
+ *   the pad's R2 (`Inventory`, the Default config), the PC key `I` (`WEAPON_SELECT_KEY_READING`) and the touch button
+ *   shown while the prompt is (`WEAPON_SELECT_TOUCH_READING`).
  * - **Inside** (§B3): the keys per `menuInputOfKey` (`WEAPON_SELECT_MENU_KEYS_READING`), the pad per `menuInputOfPad`,
  *   each a just-pressed edge. While the menu is open the controller's HUD mode is 1 (`FUN_00597740(ctrl, 1, 0)`
  *   L88370): the respawn press and the spectator camera's buttons do nothing (`FUN_00592560` L451673-451675,

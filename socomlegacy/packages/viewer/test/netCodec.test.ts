@@ -110,7 +110,7 @@ describe('the snapshot frame (M3; protocol 11, NET-WIRE)', () => {
     // bodyOf / snapshotOf: the server's held item and slot to the wire and back to the animator's extras.
     const sim = snapshotOf(back.bodies[2]!);
     expect([sim.weapon, sim.item]).toEqual([0, 62]);
-    expect(PROTOCOL_VERSION).toBe(13);                           // PLANT-AIM's bump (the plant needs the page's pick; 12 SEP-POP's); this part unchanged
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules); 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
   });
 
   it('a spectator\'s snapshot has no own state (and no environment unless one is named)', () => {
@@ -131,7 +131,7 @@ describe('the snapshot frame (M3; protocol 11, NET-WIRE)', () => {
   });
 
   it('protocol 11: the environment rides only a snapshot that names it (the room sends it when its revision changed), after the doors', () => {
-    expect(PROTOCOL_VERSION).toBe(13);                           // PLANT-AIM's bump (the plant needs the page's pick; 12 SEP-POP's); this part unchanged
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules); 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     const doors = [{ valve: 1, phase: 255 }, { valve: 0, phase: 7 }];
     const env = { revision: 70_000, epoch: 3, states: [{ id: 2, active: true }, { id: 513, active: false }] };
     const bare = encodeSnapshot({ tick: 5, own: null, bodies: [body(1)], doors });
@@ -328,7 +328,7 @@ describe('a body from the mover and back (M3/M5)', () => {
   // Blend carries, the type and its reverse (`FUN_00588bc0` D:L446408-446416). Appended after `proneCover`, as PF.R38's:
   // no codec field, width or byte changes and no protocol bump; an older page indexes past its table and draws no action.
   it("PAR-84: appends rifleToLauncher (code 21) and pistolToLauncher (22) after proneCover; both round-trip, reversed or not, and the frame's other fields keep their bytes (protocol 11 kept)", () => {
-    expect(PROTOCOL_VERSION).toBe(13);                           // PLANT-AIM's bump (the plant needs the page's pick; 12 SEP-POP's); this part unchanged
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules); 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(ACTION_CODES.slice(0, 20)).toEqual([
       'jump', 'launch', 'fall', 'land', 'landHard', 'standToCrouch', 'crouchToProne', 'standToProne',
       'hit', 'hitStomach', 'landDeath', 'getUp', 'swapStand', 'swapCrouch', 'swapProne',
@@ -364,7 +364,7 @@ describe('a body from the mover and back (M3/M5)', () => {
   // no Push Blend: another page drops it, `remoteBodyAction`) and `swapRifleClaim` (every console, `FUN_0059f0c0`
   // D:L458199-458206). Appended after `pistolToLauncher`, as PF.R38's and PAR-84's: protocol 11 kept, no byte moves.
   it("NU-5: appends swapRifleExchange (code 23) and swapRifleClaim (24) after pistolToLauncher; every earlier code keeps its index; both round-trip in the action field (protocol 11 kept)", () => {
-    expect(PROTOCOL_VERSION).toBe(13);                           // PLANT-AIM's bump (the plant needs the page's pick; 12 SEP-POP's); this part unchanged
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules); 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(ACTION_CODES.slice(0, 22)).toEqual([
       'jump', 'launch', 'fall', 'land', 'landHard', 'standToCrouch', 'crouchToProne', 'standToProne',
       'hit', 'hitStomach', 'landDeath', 'getUp', 'swapStand', 'swapCrouch', 'swapProne',
@@ -415,5 +415,48 @@ describe('a body from the mover and back (M3/M5)', () => {
       expect(b.action, name).toBeGreaterThan(older.length);
       expect(older[b.action - 1]).toBeUndefined();
     }
+  });
+});
+
+/**
+ * ENEMY-RAISE ER-2 (SCOPE.md s3.4 test 13; reading, pending review): the owner's raise state on the wire, the original's one
+ * field (`FUN_002bd640` packs `FUN_005e0010` into byte +0x7e, D:L161978; `FUN_002be150` replays it, D:L162310-162312).
+ * Page to room: the command's last byte's bit 7 (`Command.raised`), the weapon narrowed to its three bits below (its
+ * codes 0 and 1); room to pages: `BodyFlag.Raised`, bit 16 of the u32. A per-tick binary field bumps the version (PF.R33):
+ * protocol 14, a 13 peer refused at the hello (`Room.hello`); a 13 command never set bit 7, so a 13 recording reads
+ * through the live decoders with no raise.
+ */
+describe('ER-2: protocol 14 -- the command\'s raise bit and BodyFlag.Raised', () => {
+  it('RED 13: protocol 14; the command\'s bit 7 round-trips beside the weapon, and a 13 command (bit 7 clear) reads as not raised', () => {
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules, the frames 14's); 14 ER-2's (the raise bit), 13 PLANT-AIM's, 12 SEP-POP's
+    for (const weapon of [0, 1]) for (const raised of [false, true]) {
+      const cmd: Command = { seq: 3, forward: 0, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: Button.Trigger, stance: 2, weapon, separate: true, raised };
+      const bytes = encodeCommands({ viewTick: 1, commands: [cmd] });
+      expect(bytes.byteLength).toBe(6 + 15);                     // no byte added
+      expect(bytes[bytes.byteLength - 1]).toBe(2 | 0x08 | (weapon << 4) | (raised ? 0x80 : 0));
+      const back = decodeCommands(bytes).commands[0]!;
+      expect([back.weapon, back.stance, back.separate, back.raised === true]).toEqual([weapon, 2, true, raised]);
+    }
+    // A protocol-13 command's bytes (stance | separate << 3 | weapon << 4, bit 7 never set): weapon 1, no raise.
+    const old = encodeCommands({ viewTick: 1, commands: [{ seq: 1, forward: 0, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 1, weapon: 1 }] });
+    expect(old[old.byteLength - 1]).toBe(0x11);
+    const read = decodeCommands(old).commands[0]!;
+    expect([read.weapon, read.raised === true]).toEqual([1, false]);
+  });
+
+  it('RED 13: BodyFlag.Raised is bit 16, clear of every flag and the hold code; a body carries it to the copy\'s snapshot', () => {
+    expect(BodyFlag.Raised).toBe(1 << 16);
+    for (const f of Object.values(BodyFlag)) if (f !== BodyFlag.Raised) expect(f & BodyFlag.Raised).toBe(0);
+    for (const clip of HOLD_CODES) expect(bodyHoldBits(clip) & BodyFlag.Raised).toBe(0);
+    const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
+    const s = moverSnapshot(new Walker(buildGrid(params, [], [], [], [])), null, 0, 0.25);
+    for (const raised of [true, false]) {
+      const extras = { alive: true, weapon: 0 as const, aiming: false, trigger: false, boost: false, raised };
+      const b = decodeSnapshot(encodeSnapshot({ tick: 1, own: null, bodies: [bodyOf(3, s, extras)] })).bodies[0]!;
+      expect([(b.flags & BodyFlag.Raised) !== 0, snapshotOf(b).raised]).toEqual([raised, raised]);
+    }
+    // A room before 14 never sets it: the body reads as down (a 13 recording's copy keeps the inference, `RemotePlayers`).
+    const old = decodeSnapshot(encodeSnapshot({ tick: 1, own: null, bodies: [bodyOf(3, s, { alive: true, weapon: 0, aiming: true, trigger: false, boost: false })] })).bodies[0]!;
+    expect(snapshotOf(old).raised).toBe(false);
   });
 });

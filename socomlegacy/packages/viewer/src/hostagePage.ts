@@ -59,11 +59,11 @@ export interface HostagePageDeps {
   feet(id: number): readonly number[] | null;
   /** The page's aim: the eye and the far point (`WalkMode.fireAim`), or null. */
   aim(): { eye: readonly number[]; far: readonly number[] } | null;
-  /** Every body the ray meets on its capsules (the others' and the hostages': `./net/hitVolumes` `rayBody`), with its distance. */
+  /** Every body the ray meets on its bone boxes (the others' and the hostages': `./net/hitVolumes` `rayBody`), with its distance. */
   bodies(eye: V3, dir: V3, reach: number): readonly PickBody[];
   /** The hull's surfaces along the ray with their materials (`./net/hostageOrder` `pickSurfaces`). */
   surfaces(eye: V3, far: V3): readonly PickSurface[];
-  /** A point's AI-map cell on sub-map 0 (`@s2u/scene` `aiCellOf`), null off the grid. */
+  /** A point's AI-map cell for the order's range (`./net/hostageOrder` `orderCellOf`: the located sub-map's own), null off every stored cell. */
   cellOf(feet: readonly number[]): AiLoc | null;
   /** The send (`NetPage.hostageOrder`). */
   order(hostage: number, cmd: HostageCommand): boolean;

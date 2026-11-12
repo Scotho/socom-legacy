@@ -36,9 +36,9 @@ and the acceptance's cross-correlation of the page's output, both owed (§7).
 The block's goal is the movie's PCM played in sync with its pictures at the original's level. Built: the decode (the
 sound package), the original's audio path as a byte-count model with its start rule and the priming, the sync rule, and
 the page's player (schedule from picture 0, the gesture join, the ring's tail, the stop, the underrun count) with the
-reader that feeds it. Not built: a PS2 ADPCM path (no disc track is ADPCM, research 109 R109.4); the volume mapping of
-0x366 (an unknown, `MOVIE_AUDIO_GAIN_PLACEHOLDER`); the front end's use of it (the front end's movie host still plays
-the black stand-in, `frontEnd.ts`; the connection is the real-time harness's `sound` option, §5).
+reader that feeds it. The front end has used the movie player since MOVIE-WIRE (§5).
+The 0x366 volume mapping and live Dialog control are now read and connected (§9).
+A PS2 ADPCM path is not built (no disc track is ADPCM, research 109 R109.4).
 
 ## 2. The track (`moviePcm.ts`)
 
@@ -181,7 +181,7 @@ console frame does, and the sound runs on, as the SPU does. What the page does n
   INTRO_2's 128 s in a browser is owed to the capture (§7).
 - **A track still reading at picture 0**: a piece scheduled before the track's timeline came is cut to the moved frames
   when it comes, and a track that never fills the ring falls silent (`finish`); no opener movie has such a track.
-- **The output**: `webAudioMovieOut(ctx, destination, gain)` -- a gain (`MOVIE_AUDIO_GAIN_PLACEHOLDER`) into a
+- **The output**: `webAudioMovieOut(ctx, destination, gain)` -- a gain (`MOVIE_AUDIO_GAIN_READING`, section 9) into a
   destination node, a buffer source a piece, started at its time and offset. The page's own output
   (`packages/viewer/src/audio.ts`, `GameAudio`'s `WebAudioOut`) does not expose its `AudioContext`; giving the movie
   sound that context (so the existing unlock and the master volume apply) is one getter in that hot file, owed to the
@@ -222,7 +222,8 @@ heard (headless); the cross-correlation and the level of §7 are still owed, as 
 
 ## 7. Unknowns, and what is owed
 
-- **The level**: how 989snd maps the open's volume 0x366 to the output (`MOVIE_AUDIO_GAIN_PLACEHOLDER`). The PC
+- **The level**: the original mapping is now read (section 9, `MOVIE_AUDIO_GAIN_READING`), replacing
+  `MOVIE_AUDIO_GAIN_PLACEHOLDER`; the console output comparison remains owed. The PC
   project's row: the movie audio "~20 dB under the console", mostly its capture session's volume, then a median -3.9 dB
   on the title ring. Settled by PLAT-36's `PS2X_AUDIO_TRACE` and the block's +-1 dB check against a recomp
   `PS2X_AUDIO_DUMP` and a PCSX2 loopback.
@@ -252,5 +253,65 @@ heard (headless); the cross-correlation and the level of §7 are still owed, as 
 | name | stands for | searched / reading | status |
 |---|---|---|---|
 | `MOVIE_PCM_LAYOUT_READING` | how a track's two channels are laid out | the disc's bytes, three tracks by default and all 69 under `PSS_ALL=1` (§2); the game copies them unchanged. Reading: blocks of 0x200 bytes a channel, channel 0 then 1 | in code since 2026-10-02: `packages/sound/src/moviePcm.ts` |
-| `MOVIE_AUDIO_GAIN_PLACEHOLDER` | the gain the page gives the track's samples | the open's volume 0x366 (D:L208361); 989snd's mapping not read; the PC project's level row (§7). Placeholder: 1, the PCM at its own level | in code since 2026-10-02: `packages/fmv/src/movieAudio.ts` |
+| `MOVIE_AUDIO_GAIN_PLACEHOLDER` | retired unity movie gain | replaced by the source reading below, 2026-11-07 | retired |
+| `MOVIE_AUDIO_GAIN_READING` | movie PCM before the shared listening master | section 9: corrected IRX full-master BVOL 23258; port voice normalization gives 23258 / (2 * 32766) | reading (PR #718; re-read at the source 2026-11-09, §9.1; the fresh review PASS WITH FINDINGS, high, `agent-mail/evidence/bugs-2026-11-09/REVIEW-chris-audio-46cb8ea1f.md`), `packages/fmv/src/movieAudio.ts`; console capture still owed |
 | `MOVIE_AUDIO_START_LATENCY_READING` | the seconds from the frame showing picture 0 to the sound's first sample | the start in the same call as picture 0's upload (D:L208733-208751); the IOP's and the SPU's delay not read. Reading: 0 | in code since 2026-10-02: `packages/fmv/src/movieAudio.ts` |
+
+## 9. Live movie volume, 2026-11-07 (reading)
+
+The main menu's MENULOOP soundtrack is movie PCM, not a MUS_ stream. The movie open
+`FUN_0033f1e0(..., 0x366, 0, 2, 2)` (D:L208361) puts it in group 2. The Dialog tuner
+sets groups 2 and 6 (EE calls at 0x389e10 and 0x389e50; research 233 section 1), while
+Music sets group 1. The front end now applies Dialog before the first scheduled PCM
+and refreshes the same output gain each frame, including while Home Settings is open.
+Muted queued samples remain intact so raising the slider restores ongoing playback.
+
+A fresh reading of the disc's `989SND.IRX` corrects research 186's movie pan coefficient:
+PCM open stores its fifth argument at 0xa600 into group global 0x1c3e0. PCM start reads
+it at 0xaa50 and applies `snd_AdjustVolToGroup` (0x19b7c); a group change refreshes it
+through 0xae2c. PCM's pan function 0x198c8 indexes the fixed table 0x1c8d0, whose center
+entry 90 is (16383,16383). The voice table's 11584 coefficient does not apply here.
+At the open's volume, vol7 = floor(0x366 * 127 / 1024) = 107 and base = 107 * 258 = 27606.
+With the option master `trunc(f32(value * 1024))`, scaled = trunc(base * master / 1024)
+and BVOL = trunc(scaled squared / 32766); full-master BVOL is 23258. Mode 2 writes
+BVOL unshifted. `movieDialogGain` uses BVOL / 23258 relative to `MOVIE_AUDIO_GAIN_READING`.
+
+The hardware scaling is independently checked in official PCSX2 at commit
+`695e26713be06daf8b9d05978602946b82008716`:
+[BVOL register](https://github.com/PCSX2/pcsx2/blob/695e26713be06daf8b9d05978602946b82008716/pcsx2/SPU2/spu2sys.cpp#L1270),
+[voice register doubling](https://github.com/PCSX2/pcsx2/blob/695e26713be06daf8b9d05978602946b82008716/pcsx2/SPU2/ADSR.cpp#L110),
+[Q15 mixing](https://github.com/PCSX2/pcsx2/blob/695e26713be06daf8b9d05978602946b82008716/pcsx2/SPU2/Mixer.cpp#L155).
+PCM BVOL enters Q15 mixing directly; a fixed voice register enters doubled. The port
+normalizes voice registers by 32766, so matching that convention gives PCM gain
+23258 / (2 * 32766), about 0.35491, before the same listening master. This replaces
+unity, reducing the overly loud movie soundtrack by about 9 dB without changing the
+saved slider defaults. The divisor is not 32767: that is the maximum positive Q15
+coefficient, not the mixer divisor. This is a source reading; console output capture
+and absolute calibration remain owed. No claim of the old 0.1774 level is retained.
+
+Evidence: direct original EE/IRX source reading independently re-read by the settings
+audit reviewer; transcription tests and rendered browser output checks are recorded
+in the in-game-settings plan. No physical controller or console-audio comparison.
+
+### 9.1 The citations, re-read at the source (2026-11-09)
+
+PR #718's merge into `agent/chris-audio` (the v0.4.17 head) re-read every step above at the source, by a seat that
+did not write it; the controller's fresh review followed (PASS WITH FINDINGS, high, `agent-mail/evidence/bugs-2026-11-09/REVIEW-chris-audio-46cb8ea1f.md`; the merge da26c3e2b), so the level is **reading**. `I:L`
+is a line of the IRX's decompilation (`C:/Projects/socom_pc/game/analysis/989SND.IRX.decomp.c`), `D:L` the EE's as
+above. Names and numbers only; no decompiled text.
+
+| step | source | what it says |
+|---|---|---|
+| the open's arguments | `FUN_0033f1e0(.., 0, 0x366, 0, 2, 2)` D:L208361 (RPC 0x3b, `FUN_0033f1e0` D:L239929) | volume 0x366, pan 0, group 2, mode 2 |
+| the 7-bit volume and the group | IRX `FUN_0000a318` (the PCM open) I:L6610, I:L6612 | vol7 = 0x366 x 0x7f >> 10 = 107; the group global (0x1c3e0) = the fifth argument, 2 |
+| the start | IRX `FUN_0000a9ac` I:L6772, I:L6826-6829 | the pan stage on (vol7, pan), then mode 2 (not 3) writes `FUN_00019b7c`'s value to both BVOL registers (register OR 0xf80 and OR 0x1080) unshifted; mode 3's voice pair is written `>> 1` |
+| a group change | IRX `FUN_0000ae2c` (from I:L6841) | re-applies `FUN_00019b7c` at the stored group to a sounding PCM: a Dialog change re-levels the movie live |
+| the pan stage | IRX `FUN_000198c8` I:L15182 | vol7 x 0x102 = 27606, times the fixed table at 0x1c8d0, over 0x3fff |
+| the pan table | the disc's `RUN/IRX/SOUND/989SND.IRX`, its one load segment at file offset 0xa0, entry 90 (pan 0) at 0x1c8d0 + 90 x 4 | (16383, 16383): 27606 unchanged; entries 0, 45, 135 read (16383, 0), (16383, 8190), (8190, 16383) -- a linear table, not the voice table's 11584 centre |
+| the group stage | IRX `FUN_00019b7c` I:L15274-15300 | clamp at 0x7ffe, times the group's modifier >> 10, then square over 0x7ffe: at the full Dialog master 27606^2 / 32766 = 23258. The modifier (I:L15287) is the group's volume (0x1cdf4) times its duck factor (0x1ce74) >> 16, so 23258 holds only while group 2's duck factor is 0x10000 -- the next row |
+| the duck stage | IRX `FUN_00019e30` I:L15365-15468 (run every fourth tick, I:L9408-9409); setter `FUN_0001a0a0` I:L15473-15524; the disc's `989SND.IRX` (load segment at file offset 0xa0, file size 0x1cf04, memory size 0x243e4) | the factors are reset to 0x10000 (I:L15400) and lowered only by the four duck entries at 0x24384 (stride 0x18; I:L15404-15446), each lowering the groups of its mask while its trigger group sounds. The one writer of the entries is `FUN_0001a0a0`, whose one caller is `FUN_000015d4` (I:L1258-1268), entry 0x60 of the RPC table 0x1b070 (the disc's bytes at 0xa0 + 0x1b070 + 0x60 x 4 hold 0x15d4; dispatched by `FUN_00001730` I:L1322-1328 and, batched, `FUN_00001634` I:L1287-1317 as entry 0x4d). The ELF binds that server once (`FUN_001a6aa8(.., 0x123456, ..)` D:L241052) and sends to it only through `FUN_0033fca0` (D:L240355; commands 0, 1, 0xa, 0xc, 0x2a, 0x35, 0x36, 0x3b-0x3e, 0x40, 0x4c) and the batch `FUN_0033f8b0` (D:L240252; commands 6, 8, 9, 0xb, 0xe, 0x10-0x19, 0x1b, 0x1e, 0x21, 0x22, 0x2c, 0x34, 0x38, 0x4c, 0x4e, 0x50, 100, 0x67), every call's command a literal: never 0x60. A scan of the desktop's extracted overlay `ftscore.bin` (source inspection, not a repository reader) finds its 34 calls of the two senders set a0 to the same set, none 0x60. The entries sit in the module's zero-filled tail (0x24384 is past the file size), so all four keep mask 0 and lower nothing: **no duck ever acts, on group 2 or any group, during a movie or otherwise**, and the initial factors on the disc are 0x10000 for all 15 groups (0xa0 + 0x1ce74). Reading (the fresh review, REVIEW-chris-audio-46cb8ea1f.md) |
+| the master | `GROUP_MASTER_READING` (`@s2u/sound` `musicStream.ts`; research 233 §1): DIALOG_VOLUME is the master of groups 2 and 6, `trunc(f32(value x 1024))` (`streamGroupMaster`), under group 16's 0x400 | `movieDialogGain` = trunc(trunc(27606 x master / 1024)^2 / 32766) / 23258 |
+| the port's scale | `@s2u/sound` `render.ts` `voiceLevel` (the voice's register, `>> 1`) over 0x7ffe (`musicStream.ts` `pairGains`); PCSX2's voice register doubled, BVOL not (the links above); the IRX's own evidence beside it: the same start `FUN_0000a9ac` writes one group-stage value `FUN_00019b7c` to mode 3's voice pair `>> 1` (I:L6790-6795; the second voice's right I:L6814-6815) and to mode 2's BVOL pair unshifted (I:L6826-6829) -- the library halving a voice register where it does not halve BVOL is what an SPU that doubles the voice register and not BVOL asks for, so both modes sound at one level (an inference from the code, not a measurement); the console capture below is what would prove the factor 2 | a voice's port gain is half its SPU amplitude, so BVOL's is BVOL / (2 x 32766): `MOVIE_AUDIO_GAIN_READING` 0.35491, -9.0 dB under unity |
+
+What would settle it as proven: a console capture of the title ring (MENULOOP) at the default Dialog master, its RMS
+over a matched segment against the page's output at the same master, within +-1 dB (§7's check).

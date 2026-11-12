@@ -80,6 +80,8 @@ describe('OPT-11 BRIGHTNESS (research 358): CBrightnessTuner and the full-screen
     expect(src('matchMount.ts')).toMatch(/frameCanvas\(canvas\)/);
     expect(src('loadingPanel.ts')).toMatch(/frameCanvas\(this\.canvas\)/);
     expect(src('main.ts')).toMatch(/frameCanvas\(canvas\)/);
-    expect(src('main.ts').match(/setBrightness\(brightnessOfVars\(cardTuners\)\)/g)?.length).toBe(2);
+    // RB-16 (RB-3's inline reads moved): the card's BRIGHTNESS at the read and at each map change, `./playerSettings` `pageCardReads`
+    expect(src('main.ts')).toContain('const cardReads = pageCardReads(');
+    expect(src('playerSettings.ts').match(/setBrightness\(brightnessOfVars\(tuners\)\)/g)?.length).toBe(2);
   });
 });

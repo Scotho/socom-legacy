@@ -20,7 +20,9 @@ const built = existsSync(resolve(dist, 'index.html'));
 describe.skipIf(!built)('the built viewer (dist/viewer)', () => {
   const woff2 = () => readdirSync(pub).filter((f) => f.endsWith('.woff2')).sort();
   it('holds every woff2 of shared/fonts under fonts/, byte-identical, with the licences', () => {
-    expect(woff2()).toHaveLength(3);
+    // four faces: the design system's three, and LCM.R15 (b)'s static Oswald 700 (fontsource 5.3.0, under OFL-oswald.txt)
+    // that central's cards draw with, since resvg draws the variable Oswald at 400 only; shipFontLicences copies it too
+    expect(woff2()).toHaveLength(4);
     for (const f of woff2()) {
       const out = resolve(dist, 'fonts', f);
       expect(existsSync(out), out).toBe(true);
@@ -32,7 +34,7 @@ describe.skipIf(!built)('the built viewer (dist/viewer)', () => {
     const assets = resolve(dist, 'assets');
     const css = readdirSync(assets).filter((f) => f.endsWith('.css')).map((f) => readFileSync(resolve(assets, f), 'utf-8')).join('\n');
     const urls = [...css.matchAll(/url\(["']?([^"')]+\.woff2)["']?\)/g)].map((m) => m[1]!);
-    expect(urls.length).toBe(3);
+    expect(urls.length).toBe(3);   // the design system's fonts.css names three; the static Oswald 700 is central's, in no CSS
     for (const u of urls) {
       // `/socomlegacy/assets/x-hash.woff2`, `/assets/...` or `./x-hash.woff2`: the path after the base is what dist serves
       const rel = u.replace(/^.*?\/(assets|fonts)\//, '$1/').replace(/^\.\//, 'assets/');

@@ -1,5 +1,5 @@
 {
-  "commit": "316314c11",
+  "commit": "26f833fac",
   "sprints": [
     {
       "number": 6,
@@ -243,6 +243,11 @@
     }
   ],
   "inFlight": [
+    {
+      "title": "The mega sprint (MEGA; the main controller's seat 99, c3 the stand-in, the shadow PC; plan; simulation + product)",
+      "state": "landed",
+      "summary": "opened 2026-11-09T05:10Z on the owner's word (MEGA.R1), landed 2026-11-10 as v0.4.18 (PR #781, the merge commit 6343231f0f, the tag on it); integration branch agent/mega (cut from agent/v0417 2916dc88f; main merged in after v0.4.17), each…"
+    },
     {
       "title": "Web sprint 19, the second half (WATCH GAME and leaving a game) -- CLOSED 2026-10-14: every row merged on agent/online, each after a fresh review, and on main through checkpoints 14-16 (PR #209, PR #211 and the checkpoint 16 landing PR of 2026-10-14): adopted 2026-10-14 on the merge controller's word (W19.R1, W19.R8-R12)",
       "state": "landed",
@@ -1131,6 +1136,16 @@
       "title": "The parity pack -- plan"
     },
     {
+      "id": "2026-11-04-fps-fidelity",
+      "date": "2026-11-04",
+      "title": "FPS improvements with unchanged presentation and gameplay"
+    },
+    {
+      "id": "2026-11-04-fps-hitreg-audit",
+      "date": "2026-11-04",
+      "title": "FPS and hit-registration audit"
+    },
+    {
       "id": "2026-11-04-gate-diet",
       "date": "2026-11-04",
       "title": "The gate diet -- plan"
@@ -1151,9 +1166,29 @@
       "title": "The client error beacon -- plan"
     },
     {
+      "id": "2026-11-05-fps-manager-handoff",
+      "date": "2026-11-05",
+      "title": "FPS and hit-registration: manager handoff"
+    },
+    {
+      "id": "2026-11-05-fps-preserving-followup",
+      "date": "2026-11-05",
+      "title": "FPS follow-up: full-quality static-world culling and animation scratch"
+    },
+    {
       "id": "2026-11-05-netcode-wave",
       "date": "2026-11-05",
       "title": "The netcode wave: rubber banding at high ping, and late shots lost at the room -- plan"
+    },
+    {
+      "id": "2026-11-05-sandstorm-aggressive-cut-experiment",
+      "date": "2026-11-05",
+      "title": "Sandstorm: combined aggressive-cut experiment"
+    },
+    {
+      "id": "2026-11-06-in-game-settings",
+      "date": "2026-11-06",
+      "title": "In-game settings and volume controls"
     },
     {
       "id": "2026-11-06-modding-wiki",
@@ -1166,9 +1201,74 @@
       "title": "The MODS loader (B206) -- plan"
     },
     {
+      "id": "2026-11-07-forge-path",
+      "date": "2026-11-07",
+      "title": "The Forge path (FP) -- plan"
+    },
+    {
+      "id": "2026-11-07-match-stats-tracking",
+      "date": "2026-11-07",
+      "title": "The match stats API, finished, and match tracking (MS) -- plan"
+    },
+    {
+      "id": "2026-11-07-operator-announcement",
+      "date": "2026-11-07",
+      "title": "The operator announcement toast (OA) -- plan"
+    },
+    {
       "id": "2026-11-07-operator-lobby",
       "date": "2026-11-07",
       "title": "The operator's lobby on any disc map (OPL) -- plan"
+    },
+    {
+      "id": "2026-11-07-v0413-maps-and-destruction",
+      "date": "2026-11-07",
+      "title": "v0.4.13 -- Blizzard and The Ruins in CREATE GAME, Blizzard's destructibles, the readiness findings -- plan"
+    },
+    {
+      "id": "2026-11-07-video-settings-page",
+      "date": "2026-11-07",
+      "title": "The video settings page (VS) -- plan"
+    },
+    {
+      "id": "2026-11-08-desert-glory-fish-hook",
+      "date": "2026-11-08",
+      "title": "Desert Glory and Fish Hook in CREATE GAME (v0.4.17/18) -- plan"
+    },
+    {
+      "id": "2026-11-08-replay-batch",
+      "date": "2026-11-08",
+      "title": "The replay batch (RB) -- plan"
+    },
+    {
+      "id": "2026-11-08-unified-controller-settings",
+      "date": "2026-11-08",
+      "title": "Unified controller settings -- plan"
+    },
+    {
+      "id": "2026-11-09-agent-experience",
+      "date": "2026-11-09",
+      "title": "Agent experience (AX) -- plan"
+    },
+    {
+      "id": "2026-11-09-live-cards-and-match-pages",
+      "date": "2026-11-09",
+      "title": "The LIVE cards redone, the match history channel and the match page (LCM) -- plan"
+    },
+    {
+      "id": "2026-11-09-mega-sprint",
+      "date": "2026-11-09",
+      "title": "The mega sprint (MEGA) -- plan"
+    },
+    {
+      "id": "2026-11-09-shadow-pc",
+      "date": "2026-11-09",
+      "title": "The shadow PC (SPC) -- plan"
+    },
+    {
+      "id": "2026-11-11-v0419-release",
+      "date": "2026-11-11",
+      "title": "v0.4.19 -- the release batch after mega -- plan"
     }
   ],
   "issues": {
@@ -1256,6 +1356,46 @@
     }
   },
   "news": [
+    {
+      "date": "2026-11-11",
+      "id": "2026-11-11-v0419-release",
+      "title": "v0.4.19 -- the release batch after mega",
+      "summary": "release v0.4.19 on the owner's word in his morning of 2026-11-12: the first batch after mega -- the mega playtest's fixes, the night's player reports, the reviewed LATER heads, and the emergencies central's log review found -- gated once o…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-11-v0419-release.md, ## Log, 2026-11-11"
+    },
+    {
+      "date": "2026-11-09",
+      "id": "2026-11-07-match-stats-tracking",
+      "title": "The match stats API, finished, and match tracking (MS)",
+      "summary": "anyone reads a player's career numbers, today's top ten, one match (who, where, each round, each kill with its weapon and hit part, the objectives), a player's recent matches and weapon breakdown, and watches any replay -- from public JSON…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-07-match-stats-tracking.md, ## Log, 2026-11-09"
+    },
+    {
+      "date": "2026-11-09",
+      "id": "2026-11-07-operator-announcement",
+      "title": "The operator announcement toast (OA)",
+      "summary": "an operator types one command on central's box and every player it names -- everyone, or one game by its number -- sees a closable panel in the lobby, the briefing room, the loading hold and a round, with no host, link or room change.",
+      "state": "closed",
+      "source": "docs/plans/2026-11-07-operator-announcement.md, ## Log, 2026-11-09"
+    },
+    {
+      "date": "2026-11-08",
+      "id": "2026-11-07-forge-path",
+      "title": "The Forge path (FP)",
+      "summary": "Crispy's Forge whole on main with our fixes behind it; a dropped bundle a map in the Forge and the test room under Custom Maps, saying whether it is ready; the pack format ruled before it spreads; the paused creator sprint judged and re-cu…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-07-forge-path.md, ## Log, 2026-11-08"
+    },
+    {
+      "date": "2026-11-08",
+      "id": "2026-11-07-video-settings-page",
+      "title": "The video settings page (VS)",
+      "summary": "one VIDEO description drawn the same on the launcher, the in-match overlay and the original's VIDEO OPTIONS screen, with Automatic as the default, Custom for the knobs, every live row applied on save, and the three rows that cannot apply l…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-07-video-settings-page.md, ## Log, 2026-11-08"
+    },
     {
       "date": "2026-10-31",
       "id": "2026-10-31-hd-texture-pack-parity",

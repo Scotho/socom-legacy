@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { FsAssetSource } from '@s2u/archive/node';
 import { CardSlots, PERSONA_FILE_PATH, PERSONA_SAVE_DIR, personaFileSize, type CardStorage } from '@s2u/card';
 import { UI_VALVE_OPS } from '@s2u/scene';
-import { findNode, OPTION_VALVES, OptionGlobals, RadioStripWidget, stickTunersOfPreset, ValveStore, VALVE_TYPE, VIDEO_PICTURE_HD_OFFERED, VIDEO_ROWS, widgetPad, type PadButtonName, type VideoPicture } from '@s2u/ui';
+import { findNode, OPTION_VALVES, OptionGlobals, RadioStripWidget, stickTunersOfPreset, ValveStore, VALVE_TYPE, VIDEO_ROWS, widgetPad, type PadButtonName, type VideoPicture } from '@s2u/ui';
 import { FrontEndSession, readFrontEndDisc } from '../src/frontEnd';
 import { videoSettingsKeeper } from '../src/videoSettings';
 import { globalValvesOf, loadOptionValves, optionValvesOf, playOptionsOf, restoreValveModule, valveModule, VALVE_MODULE } from '../src/originalOptions';
@@ -513,17 +513,15 @@ describe.skipIf(!HAVE_DISC)('OPTIONS on the dev disc, over a front-end session (
     chosen.length = 0;
     const mode = s.opener.valves.find('video_mode')?.value;
     focus('video_mode');
-    // HD-HOLD (the owner, 2026-11-01: "Hide/disable the HD pack ... just don't allow people to turn it on"): while
-    // VIDEO_PICTURE_HD_OFFERED is false the strip draws MODERN and PS2 only; flipping it back expects the third box again.
+    // B206 ML-6 (ML.R11, R12; OT.R110): the strip draws MODERN and PS2 only -- the HD (GoE SouL) box is removed.
     const drawn = (name: string): boolean => {
       type D = { name: string; children: D[] };
       const find = (n: D): boolean => n.name === name || n.children.some(find);
       return find(s.machine.shell()!.screen.root as unknown as D);
     };
     expect(drawn('PicturePS2')).toBe(true);
-    expect(drawn('PictureExperimental')).toBe(VIDEO_PICTURE_HD_OFFERED);
-    const boxes = ([['PicturePS2', 'ps2'], ['PictureExperimental', 'experimental'], ['PictureModern', 'modern']] as const)
-      .filter(([box]) => VIDEO_PICTURE_HD_OFFERED || box !== 'PictureExperimental');
+    expect(drawn('PictureExperimental')).toBe(false);
+    const boxes = ([['PicturePS2', 'ps2'], ['PictureModern', 'modern']] as const);
     for (const [box, want] of boxes) {
       expect(s.input.tap(...place(box)), box).toBe('video_mode');
       frames(30);

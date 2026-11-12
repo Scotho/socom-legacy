@@ -42,13 +42,37 @@ describe('the small commands, from their bytes', () => {
   it('CALL_ANIMATION names its animation in the byte at +7', () => {
     expect(decodeEffectOp(cmd(ZCMD.CALL_ANIMATION, [1, 0, 0, 2, ...new Array(12).fill(0)]), names)).toEqual({ op: 'call', anim: 'shell_eject' });
   });
+  it('CALL_ANIMATION flag 4 hands the callee the node at +9 as its caller, flag 8 the node at +10 as its place (research 386 §3.3)', () => {
+    // `FUN_0025d5c0` D:L107605-107613 (+9, a type-3 context: the callee's NODE_CALLER) and D:L107620-107629 (+10, its
+    // world position): Blizzard's `outhouse1` calls `toilet_flypart1` with flags 0x0d and part1 (node 5) at both.
+    expect(decodeEffectOp(cmd(ZCMD.CALL_ANIMATION, [0x0d, 0, 0, 2, 0, 5, 5, ...new Array(9).fill(0)]), names))
+      .toEqual({ op: 'call', anim: 'shell_eject', caller: 5, place: 5 });
+    expect(decodeEffectOp(cmd(ZCMD.CALL_ANIMATION, [0x04, 0, 0, 2, 0, 0xfa, 7, ...new Array(9).fill(0)]), names))
+      .toEqual({ op: 'call', anim: 'shell_eject', caller: -6 });
+  });
   it("EXECUTE_ACTION (87, set 0) names the action's valve in the u16 at +4; DESTRUCTION_SOURCE (29) its node in the i8 at +4", () => {
     // research 174 s3: 8 bytes, the name index at +4 (Desert Glory's access1: `57 00 20 00 03 00 00 00`, set_access1).
     const exec = cmd(ZCMD.EXECUTE_ACTION, [3, 0, 0, 0]);
     expect(decodeEffectOp(exec, ['NA', 'access1', 'di_good', 'set_access1'])).toEqual({ op: 'executeAction', anim: 'set_access1' });
-    // Frostfire's breakapane: `1d 00 42 01 f9 04 ...`, the i8 at +4 is NODE_ROOT (-7); the payload beyond is not decoded.
+    // Frostfire's breakapane: `1d 00 42 01 f9 04 ...`, the i8 at +4 is NODE_ROOT (-7); short of 80 bytes, the node alone.
     expect(decodeEffectOp(cmd(ZCMD.DESTRUCTION_SOURCE, [0xf9, 4, 0, 0, ...new Array(12).fill(0)]), names)).toEqual({ op: 'destruction', node: -7 });
     expect(ZANIM_COMMAND_NAMES[ZCMD.DESTRUCTION_SOURCE]).toBe('DESTRUCTION_SOURCE');
+  });
+  it("DESTRUCTION_SOURCE's 80 bytes: every field FUN_002678f0 hands FUN_00322580, at its offset (LATER 850)", () => {
+    // FUN_002678f0 (D:L113383-113421; its registers at 0x2678f0-0x2679c4): +4 the node, +5 the texture's name index,
+    // +6 the mode; +8 the colour (the pointer cmd+8); f12 +0x18, f13 +0x4c; the velocity's pairs interleaved -- one end
+    // (+0x1c, +0x24, +0x2c), the other (+0x20, +0x28, +0x30); +0x34/+0x38 the life, +0x3c the descriptor's +0x2c,
+    // +0x40..+0x48 its +0x30. The values are Fish Hook's and Frostfire's breakapane (identical past the names).
+    const payload = [0xf9, 4, 0, 0, ...[40, 40, 43, 0.5].flatMap(f32), ...f32(13), ...[4, -4, 1, -1, 4, -4].flatMap(f32),
+      ...[2, 3, 0].flatMap(f32), ...[0, -98, 0].flatMap(f32), ...f32(1)];
+    expect(payload.length + 4).toBe(0x50);
+    expect(decodeEffectOp(cmd(ZCMD.DESTRUCTION_SOURCE, payload), ['NA', 'wglass', 'breakapane', '.GLS_BRK_MD', 'window01.tif'])).toEqual({
+      op: 'destruction', node: -7,
+      debris: {
+        texture: 'window01.tif', mode: 0, colour: [40, 40, 43, 0.5], size: 13,
+        velocityFrom: [4, 1, 4], velocityTo: [-4, -1, -4], life: [2, 3], drag: 0, acceleration: [0, -98, 0], visual9c: 1,
+      },
+    });
   });
   it('SOUND names its sound in the u16 at +6 (research 81 §6)', () => {
     expect(decodeEffectOp(cmd(ZCMD.SOUND, [0x82, 0, 4, 0, ...new Array(24).fill(0)]), names)).toMatchObject({ op: 'sound', sound: '.JUMP_WHOOSH' });
@@ -84,6 +108,22 @@ describe('the small commands, from their bytes', () => {
   it('WAIT: seconds (the f32 at +8), or frames with flag 0x10', () => {
     expect(decodeEffectOp(cmd(ZCMD.WAIT, [9, 0, 0, 0, ...f32(0.25)]), names)).toEqual({ op: 'wait', seconds: 0.25, range: 0, frames: null });
     expect(decodeEffectOp(cmd(ZCMD.WAIT, [0x10, 0, 0, 0, ...u32(1)]), names)).toEqual({ op: 'wait', seconds: 0, range: 0, frames: 1 });
+  });
+  it("SOUND's flag 4: the offset at +0x14, the place's start (FUN_002659c0 D:L112423-112426); none without the flag", () => {
+    // mp6_battlesounds' distant guns: flags 0x86 at node 1 (the skydome), offset (300, 0, 1000).
+    const payload = (flags: number): number[] => [flags, 0, 4, 0, ...new Array(8).fill(0), 1, 0, 0, 0, ...f32(300), ...f32(0), ...f32(1000)];
+    expect(decodeEffectOp(cmd(ZCMD.SOUND, payload(0x86)), names)).toEqual({ op: 'sound', sound: '.JUMP_WHOOSH', node: 1, volume: 1, flags: 0x86, newPlay: true, offset: [300, 0, 1000] });
+    expect(decodeEffectOp(cmd(ZCMD.SOUND, payload(0x82)), names)).toEqual({ op: 'sound', sound: '.JUMP_WHOOSH', node: 1, volume: 1, flags: 0x82, newPlay: true });
+  });
+  it("WAIT's random form (flag 0x20, FUN_0025ed50 D:L108436-108447): the base at +12 and the range at +16, +16/+20 with 0x10", () => {
+    // MP71's seagull_squak1..4 as the disc holds them (flags 0x29): +8 4 (the author's copy of the base), +12 4, +16 9 --
+    // the original waits 4 + 9 x U[0,1) s, so 4-13 s. Was: the range read at +12, a 4-8 s wait.
+    expect(decodeEffectOp(cmd(ZCMD.WAIT, [0x29, 0, 0, 0, ...f32(4), ...f32(4), ...f32(9)]), names)).toEqual({ op: 'wait', seconds: 4, range: 9, frames: null });
+    // +8 not the base: the begin overwrites +8 with base + range x rand, so +8's own value is never read.
+    expect(decodeEffectOp(cmd(ZCMD.WAIT, [0x29, 0, 0, 0, ...f32(7), ...f32(1), ...f32(2)]), names)).toEqual({ op: 'wait', seconds: 1, range: 2, frames: null });
+    // With 0x10 the pair moves a word on (iVar2 = 2): +16 the base, +20 the range; the frames stay the i32 at +8.
+    expect(decodeEffectOp(cmd(ZCMD.WAIT, [0x30, 0, 0, 0, ...u32(3), ...f32(0), ...f32(0.5), ...f32(1.5)]), names))
+      .toEqual({ op: 'wait', seconds: 0.5, range: 1.5, frames: 3 });
   });
   it('OBJECT_ROTATE_STATE: node +6, reference +7, flags +4, euler +8', () => {
     const op = decodeEffectOp(cmd(ZCMD.OBJECT_ROTATE_STATE, [1, 0, 3, 0, ...f32(Math.PI / 4), ...f32(0), ...f32(0)]), names);

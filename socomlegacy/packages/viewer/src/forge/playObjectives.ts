@@ -10,6 +10,8 @@ type TacZone = { minX: number; minZ: number; maxX: number; maxZ: number; kind: n
  * FORGE_ESCORT_ZONE_MARK_ADAPTATION (the owner, 2026-11-06; a browser adaptation, FG.R2): the original's extraction marks
  * are made at the map's load for its kind-1 zones (`EXTRACTION_MARK_READING`), so an escort map's Safety, kind 5 until
  * SEALcheck's promotion, has none; a layout's placed escort zone wears one from the round's start (`forgeZoneMarks`).
+ * H424 (a): the owner's to answer; the default meanwhile (FP.R6) -- a Forge layout's own Play only, set only where the
+ * layout places an escort zone in Escort, never on a disc map played unchanged (`test/forge/ownEnvironment.test.ts`).
  */
 export const FORGE_ESCORT_ZONE_MARK_ADAPTATION = 'a placed escort zone marked from the start';
 
@@ -23,14 +25,19 @@ export const FORGE_ESCORT_ZONE_MARK_ADAPTATION = 'a placed escort zone marked fr
  */
 export function playObjectives<T extends ObjectiveMap & { ai?: AiMaps; escortees?: EscorteeStart[]; tac?: { zones: TacZone[] } | null; forgeZoneMarks?: [number, number, number][] }>(
   map: T, layout: Pick<Layout, 'objectives' | 'hostages' | 'extractionZones'>, lent: EscorteeStart | undefined, blocked: string | null = null,
-): { map: T; why: string | null; hostagesLeft: number; zonesLeft: number } {
+): { map: T; why: string | null; hostagesLeft: number; hostagesOffGrid: number; hostagesPastBound: number; zonesLeft: number } {
   const type = layout.objectives?.gameType;
-  const hostaged = hostagesPlayIn(type) && layout.hostages?.length ? withPlacedHostages(map, layout.hostages, lent) : { map, unplaced: 0 };
+  const hostaged = hostagesPlayIn(type) && layout.hostages?.length ? withPlacedHostages(map, layout.hostages, lent) : { map, unplaced: 0, offGrid: 0, pastBound: 0 };
   const zoned = (type === 3 || type === 4) && layout.extractionZones?.length
     ? withPlacedZones(hostaged.map, layout.extractionZones, type === 3 ? ESCORT_ZONE_KIND : EXTRACT_ZONE_KIND) : { map: hostaged.map, unplaced: 0, centres: [] };
   // FORGE_ESCORT_ZONE_MARK_ADAPTATION: in Escort a placed zone wears the compass's X from the start (Extraction's are
   // kind 1 and marked as the disc's are, `extractionPoints`).
-  const named: T = { ...zoned.map, forgeEscortZones: (layout.extractionZones ?? []).map((z) => z.name), ...(type === 3 && zoned.centres.length ? { forgeZoneMarks: zoned.centres } : {}) };
+  // The escort zones' names only where the layout places hostages or zones (FP-1b, REVIEW-B 13): they switch on the Forge
+  // escort's fallback lines (`../matchMount` `forgeEscortLines`), so a layout placing neither plays its map's own escort.
+  const placesEscort = !!(layout.extractionZones?.length || layout.hostages?.length);
+  const named: T = { ...zoned.map, ...(placesEscort ? { forgeEscortZones: (layout.extractionZones ?? []).map((z) => z.name) } : {}),
+    ...(type === 3 && zoned.centres.length ? { forgeZoneMarks: zoned.centres } : {}) };
   const why = type === undefined ? null : blocked ?? forgeTypeUnplayable(type, layout.objectives, named);
-  return { map: why === null ? applyForgeObjectives(named, layout.objectives) : named, why, hostagesLeft: hostaged.unplaced, zonesLeft: zoned.unplaced };
+  return { map: why === null ? applyForgeObjectives(named, layout.objectives) : named, why, hostagesLeft: hostaged.unplaced,
+    hostagesOffGrid: hostaged.offGrid, hostagesPastBound: hostaged.pastBound, zonesLeft: zoned.unplaced };
 }

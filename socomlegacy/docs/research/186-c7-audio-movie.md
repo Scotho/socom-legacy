@@ -15,6 +15,11 @@ online lane's peer questions were answered first because another session was wai
 labelled "Extra scope for C8"; they are answered below and the coordinator may want to move them to C8's report. The
 C7 ledger follows in section 2.
 
+> Correction (2026-11-07): the historical movie-gain claim 23 below used the voice
+> pan table for PCM. The direct IRX reread in research 137 section 9 finds center
+> 16383 and BVOL 23258, not 11584 and 11627. The 0.1774 recommendation and its old
+> CONFIRMED verdict are superseded; absolute output calibration remains open.
+
 ## 1. Peer questions (online lane, ruling OT.R27: player-visible behaviour only)
 
 Evidence used: the r0001 decompilation (`D:L`), ELF reads (`scratch/C7/elf.py`, `find_word.py`, `fn_of.py`), the

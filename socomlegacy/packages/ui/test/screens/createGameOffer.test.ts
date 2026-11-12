@@ -12,15 +12,21 @@ import { createGameRig, HAVE, WORLD } from './createGameRig';
  * `FUN_00274940`'s own rules are untouched (D:L121473-121555: respawn's SUPPRESSION filter, the archive present); Medley
  * and Random stay out (`PLAY_LIST_FIRST_RELEASE_READING`: the page answers no `SetMPMissionSeq`), whatever the offer.
  * OT.R58 (the owner 2026-10-16: "limit create match map list to 4 maps (frostfire/crossroads/vig/nightfire)"): the
- * server's offer narrows the four, never widens them -- CREATE GAME lists only FIRST_RELEASE_MAPS on every host.
+ * server's offer narrows the four, never widens them -- CREATE GAME lists only FIRST_RELEASE_MAPS on every host. V13-2
+ * (OT.R58 amended by the owner 2026-11-07, V13.R1): six -- BLIZZARD (MP1) and THE RUINS (MP12) join, DEMOLITION both.
+ * DF-14 (OT.R58 amended a second time 2026-11-08, DF.R1): eight -- FISH HOOK (MP71) and DESERT GLORY (MP6) join, EXTRACTION
+ * both; the map outside the offer these cases name is MP10 (BLOOD LAKE, EXTRACTION) or MP52 (THE MIXER, ESCORT).
  */
 
 const cmd = (fn: string, arg = 'NA'): ZAnimUiCommand => ({ anim: 'init_cg_screen', sequence: 'NA', nodeIndex: 0, node: null, opcodeByte: 0, fn, arg, loc: 0, bytes: new Uint8Array(16) });
 
 const MISSIONS: MissionRecord[] = [
   { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 52, name: 'THE MIXER', type: 3, multiplayer: true },
-  { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true },
+  { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
+  { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 1, name: 'BLIZZARD', type: 2, multiplayer: true },
+  { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true },
   { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true }, { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true },
+  { number: 10, name: 'BLOOD LAKE', type: 4, multiplayer: true }, { number: 12, name: 'THE RUINS', type: 2, multiplayer: true },
 ];
 
 /** GetAvailableMPMissions' rows under an offer (`offered`; absent: the option not handed in). */
@@ -34,36 +40,38 @@ function rows(offered?: () => readonly number[] | null, o: { present?: (n: numbe
   return playListNumbers(uiVars.find('ROWS')?.value);
 }
 
-describe('CREATE GAME lists the four, narrowed by the server\'s offer when it names one, never widened (OT.R58)', () => {
-  it('no offer handed in, or the server naming none (null): the four, in missionlist.rdr\'s order -- the release unchanged', () => {
-    expect(rows()).toEqual([51, 72, 2, 7]);
-    expect(rows(() => null)).toEqual([51, 72, 2, 7]);
+describe('CREATE GAME lists the eight (V13-2, V13-3, DF-14), narrowed by the server\'s offer when it names one, never widened (OT.R58)', () => {
+  it('no offer handed in, or the server naming none (null): the eight, in missionlist.rdr\'s order -- the release unchanged', () => {
+    expect(rows()).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    expect(rows(() => null)).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
   });
 
-  it('the server\'s offer: the four among it, in missionlist.rdr\'s order (not the answer\'s); a map outside the four (MP6, MP52) never listed', () => {
-    expect(rows(() => [72, 2, 6])).toEqual([72, 2]);
-    expect(rows(() => [6, 52, 51, 72, 2, 7])).toEqual([51, 72, 2, 7]);
+  it('the server\'s offer: the eight among it, in missionlist.rdr\'s order (not the answer\'s); a map outside the eight (MP10, MP52) never listed', () => {
+    expect(rows(() => [72, 2, 10])).toEqual([72, 2]);
+    expect(rows(() => [10, 52, 51, 72, 2, 7])).toEqual([51, 72, 2, 7]);
+    expect(rows(() => [12, 10, 1, 52])).toEqual([1, 12]);             // V13-2, V13-3: BLIZZARD and THE RUINS served are listed
+    expect(rows(() => [6, 10, 71, 52])).toEqual([71, 6]);             // DF-14: FISH HOOK and DESERT GLORY served are listed
   });
 
   it('an offer of none, or of none of the four, lists none; Medley and Random are never listed; a mission whose archive is absent stays out', () => {
     expect(rows(() => [])).toEqual([]);
-    expect(rows(() => [6, 52])).toEqual([]);
-    expect(rows(() => [254, 255, 6, 2])).toEqual([2]);
-    expect(rows(() => [72, 2, 6], { present: (n) => n !== 2 })).toEqual([72]);
+    expect(rows(() => [10, 52])).toEqual([]);
+    expect(rows(() => [254, 255, 10, 2])).toEqual([2]);
+    expect(rows(() => [72, 2, 10], { present: (n) => n !== 2 })).toEqual([72]);
   });
 
   it('the offer is read at each GetAvailableMPMissions: an answer that lands later is the one listed', () => {
     let offer: readonly number[] | null = null;
-    expect(rows(() => offer)).toEqual([51, 72, 2, 7]);
-    offer = [7, 6];
+    expect(rows(() => offer)).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    offer = [7, 10];
     expect(rows(() => offer)).toEqual([7]);
   });
 
   it('BAM.R4 / P537 (an adaptation: a developer\'s test server): only the server\'s CREATE_GAME_ALL_MAPS word (allMaps true) lists its whole offer; false or absent, the four as above', () => {
-    expect(rows(() => [72, 2, 6], { allMaps: () => true })).toEqual([72, 2, 6]);
-    expect(rows(() => [6, 52], { allMaps: () => true })).toEqual([52, 6]);
-    expect(rows(() => [72, 2, 6], { allMaps: () => false })).toEqual([72, 2]);
-    expect(rows(() => null, { allMaps: () => true })).toEqual([51, 72, 2, 7]);
+    expect(rows(() => [72, 2, 10], { allMaps: () => true })).toEqual([72, 2, 10]);
+    expect(rows(() => [10, 52], { allMaps: () => true })).toEqual([52, 10]);
+    expect(rows(() => [72, 2, 10], { allMaps: () => false })).toEqual([72, 2]);
+    expect(rows(() => null, { allMaps: () => true })).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
   });
 });
 

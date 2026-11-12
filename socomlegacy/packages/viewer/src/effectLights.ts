@@ -348,12 +348,14 @@ export class EffectLights {
   /**
    * `overlays`: the overlays shown now (before the cull); `culled`: of those, the ones the last render's projection left
    * out (`reaches`), since the last `refresh` (each `update`) -- so `overlays - culled` is what a frame's render drew.
+   * `warming`: the pre-warm runs (`warmMeshes` to `warmDone`); a light begun meanwhile shows its overlays at `warmDone`.
    */
-  stats(): { live: number; started: number; overlays: number; culled: number; pooled: number; ranges: [number, number][]; at: Vec3[] } {
+  stats(): { live: number; started: number; overlays: number; culled: number; pooled: number; warming: boolean; ranges: [number, number][]; at: Vec3[] } {
     let culled = 0;
     if (!this.warming) for (const o of this.shown) if (this.judged.get(o) === false) culled++;
     return {
       live: this.live.length, started: this.started, overlays: this.warming ? 0 : this.shown.size, culled, pooled: this.pairs.size * 2,
+      warming: this.warming,
       ranges: this.live.map((p) => [this.slots[p.slot]!.rMin.value as number, this.slots[p.slot]!.rMax.value as number]),
       at: this.live.map((p) => [p.at.x, p.at.y, p.at.z]),
     };

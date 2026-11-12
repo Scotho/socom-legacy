@@ -17,10 +17,18 @@ import { CompileQueue, firstOfEachKind } from './compileQueue';
 import { LinkLog, type PipelineBackend } from './linkLog';
 import { positionGeometry, texture as textureNode, uniform, uv, vec2, vec4 } from 'three/tsl';
 import { webgpuAnswers, type GpuLike } from './adapterWait';
-import { asksForWebGPU, readGraphicsBackend } from './graphicsBackend';
+import { asksForWebGPU, graphicsBackendOverride, readGraphicsBackend, type GraphicsBackendPreference } from './graphicsBackend';
+import { classGraphics, pageDeviceClass } from './deviceClass';
 import { watchGraphicsErrors, watchGraphicsLost } from './graphicsLost';
+import { armGraphicsDemotion } from './graphicsDemotion';
 import { glowGain, glowHalfSize } from './flash';
 import { GlowFrame, mainPassOf, type RendererLike } from './glowTarget';
+import { skipFreedCompiles, type FreedAttachmentsBackend } from './freedAttachments';
+import { holdDestroysToSubmit, type HeldDestroysBackend } from './heldDestroys';
+import { guardOrphanAttributeDestroys, type OrphanAttributesBackend } from './orphanAttributes';
+import { restoreRenderStateOnThrow, type RenderDepthRenderer } from './renderDepth';
+import { GLOW_FRAME_WINDOW_ADAPTATION, glowScale, glowScaleLine, glowScaleOverride, readGlowScale, softwareAdapterOf, type AdapterBackend } from './glowScale';
+import { pageFrameSampler } from './frameSampler';
 import { bindVisualPostSeam, createPostSlot, type VisualPostPass } from './visualPostSeam';
 import { trueColourScaleRow } from './trueColourScale';
 
@@ -74,6 +82,11 @@ export interface ViewerRenderer {
    * frame from the next `render` on, until set to 0. The HUD's passes, drawn after, are not glowed.
    */
   setGlow(glow: { passes: number; fix: number }): void;
+  /**
+   * FLASH-GLOW-BODIES (a test instrument, product track): how many `prepare` glow jobs the PS2 picture holds for the next
+   * switch to native (`glowSkipped`).
+   */
+  glowOwed?(): number;
   /** Local test-room experiment, disabled in every ordinary picture mode. */
   setExperimental(settings: ExperimentalSettings): void;
   /**
@@ -136,6 +149,8 @@ interface PrepareJob extends PrepareOptions {
   draw: Object3D;
   scene: Scene;
   camera: Camera;
+  /** FLASH-GLOW-BODIES: compiled under the glow target's twin rather than for the canvas. */
+  glow?: boolean;
 }
 
 /** What three draws: a mesh, a line, points or a sprite. */
@@ -161,18 +176,53 @@ const BACKGROUND = 0x14161a;
  * the passes (`./gpuStats`); only the match asks for it, only on a development build under `?devmode&gputime`. Absent or
  * false, three is constructed as before (its own default).
  */
-export interface RendererOptions { trackTimestamp?: boolean }
+export interface RendererOptions {
+  trackTimestamp?: boolean;
+  /**
+   * VS-6 (VS.R4, a browser adaptation, product track): the renderer's backend choice, its canvas antialiasing and its
+   * power preference, handed in by the caller -- the match passes the video keeper's at its mount (`./matchMount`'s
+   * `pageRenderer`), so a change applies at the next match with no reload. `createRenderer` reads nothing of them from
+   * storage itself; absent, today's: `graphics` `readGraphicsBackend()`, `antialias` `graphics !== 'xbox'`, `power`
+   * the browser's default (the test room's and the Forge's renderers as before).
+   */
+  graphics?: GraphicsBackendPreference;
+  antialias?: boolean;
+  power?: RendererPower;
+}
+/** VS-6: the context's `powerPreference` (dual-GPU laptops); `default` asks nothing of the browser. */
+export type RendererPower = 'default' | 'high-performance' | 'low-power';
+
+/**
+ * VS-6: the power preference as three takes it. WebGPU reads `powerPreference` at its adapter request; three's WebGL2
+ * backend never passes it to `getContext`, so under WebGL2 the context is made here with three's own attributes
+ * (`WebGLBackend.init`: antialias from the samples -- `antialias` under the linear output set below -- alpha always on,
+ * depth, no stencil) and the preference beside them, and handed to three. `default`: nothing asked, three as before.
+ */
+type PowerParameters = Pick<NonNullable<ConstructorParameters<typeof WebGPURenderer>[0]>, 'powerPreference' | 'context'>;
+function powerParameters(canvas: HTMLCanvasElement, power: RendererPower | undefined, webgpu: boolean, antialias: boolean): PowerParameters {
+  if (power === undefined || power === 'default') return {};
+  if (webgpu) return { powerPreference: power };
+  const context = canvas.getContext?.('webgl2', { antialias, alpha: true, depth: true, stencil: false, powerPreference: power }) ?? null;
+  // three's typings name only WebGPU's canvas context; its WebGL2 backend takes a WebGL2 one under the same key.
+  return context ? { powerPreference: power, context: context as unknown as NonNullable<PowerParameters['context']> } : { powerPreference: power };
+}
 
 export async function createRenderer(canvas: HTMLCanvasElement, options: RendererOptions = {}): Promise<ViewerRenderer> {
-  // Only a choice that asks for WebGPU requests an adapter; Compatibility, Xbox and (WEBGL2-DEFAULT, LATER 708) Automatic
-  // bypass WebGPU entirely (browser adaptation).
-  const graphics = readGraphicsBackend();
+  // Only a choice that asks for WebGPU requests an adapter -- Automatic (WEBGPU-DEFAULT, WG-7, LATER 708; the owner's word
+  // 2026-11-09, MEGA.R8) and WebGPU; WebGL2 and Xbox bypass WebGPU entirely (browser adaptation).
+  const chosen = options.graphics ?? readGraphicsBackend();
+  // S2 (the controller's level-3 review of mega; VS-7's Xbox class, a browser adaptation, `./deviceClass` `classGraphics`):
+  // a resolved Automatic on the Xbox class draws on WebGL2 under every preset and in the test room and the Forge, unless
+  // the address named it; the class (its probe made once a page, its context let go) is read only for Automatic.
+  const graphics = chosen === 'auto' ? classGraphics(chosen, pageDeviceClass(), graphicsBackendOverride() !== null) : chosen;
+  const antialias = options.antialias ?? chosen !== 'xbox';
   const webgpu = asksForWebGPU(graphics) && await webgpuAnswers((globalThis.navigator as Navigator & { gpu?: GpuLike } | undefined)?.gpu);
   // An opaque WebGPU canvas; the WebGL2 fallback ignores it (three's WebGLBackend forces alpha on), so
   // the real fix is that no world draw writes alpha (`blendFactorsFor`, `world.ts`).
-  const renderer = new WebGPURenderer({ canvas, antialias: graphics !== 'xbox', forceWebGL: !webgpu, alpha: false, trackTimestamp: options.trackTimestamp === true });
+  const renderer = new WebGPURenderer({ canvas, antialias, forceWebGL: !webgpu, alpha: false, trackTimestamp: options.trackTimestamp === true, ...powerParameters(canvas, options.power, webgpu, antialias) });
   watchGraphicsLost(renderer);                          // PR #631: a lost context or device names its reason on the page (browser adaptation)
   watchGraphicsErrors(renderer);                        // 2026-11-05: an uncaptured GPU error kept, counted and named on the page (the same adaptation)
+  if (webgpu) armGraphicsDemotion();                    // WG-7, W5: a WebGPU error sets Automatic to WebGL2 for the next load (the same adaptation)
   // The GS wrote its 8-bit result straight to the framebuffer, so the shader's product goes out
   // unconverted; the textures are read the same way (`world.ts`, `makeTexture`). Set this before init:
   // three chooses the WebGL context's immutable antialias flag from currentSamples. With its default
@@ -183,6 +233,19 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   setWorldSamplingMaximum(renderer.getMaxAnisotropy?.() ?? 1);
   const links = new LinkLog();
   links.watch(renderer.backend as unknown as PipelineBackend);
+  // WEBGPU-DEPTHFMT (a renderer adaptation, `./freedAttachments`): a compile's pipeline whose target was resized or
+  // disposed after it was queued is not built (WebGPU refused it: no attachment format); a draw builds its own. WebGPU
+  // only, after init (the backend three settled on), over the link log's watch (a skipped pipeline links nothing).
+  skipFreedCompiles(renderer.backend as unknown as FreedAttachmentsBackend);
+  // WEBGPU-HELD-DESTROY (LATER 856, a renderer adaptation, `./heldDestroys`): a uniform buffer three frees while a pass
+  // is open is destroyed right after that pass's submit, not before it (WebGPU refused the frame: red #17). WebGPU only.
+  holdDestroysToSubmit(renderer.backend as unknown as HeldDestroysBackend);
+  // XBOX-SRAKMD (2) (a renderer adaptation, `./orphanAttributes`): an attribute whose upload made no GPU buffer (the
+  // device lost under it) is let go without three's unguarded `buffer.destroy()`, which threw in the match's close.
+  guardOrphanAttributeDestroys(renderer.backend as unknown as OrphanAttributesBackend);
+  // RENDER-DEPTH-RESTORE (LATER 859, a renderer adaptation, `./renderDepth`): a throw inside a render puts the renderer's
+  // depth and per-call state back, so later frames keep their render objects (three r186 has no try/finally there).
+  restoreRenderStateOnThrow(renderer as unknown as RenderDepthRenderer);
   let ratio = Math.min(globalThis.devicePixelRatio, 2);
   let mode: Presentation = 'native';
   let cssWidth = 1;
@@ -253,6 +316,25 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   const glowTexel = uniform(new Vector2(1, 1));
   const glowFrame = new GlowFrame(mainPassOf(renderer as unknown as RendererLike));
   const glowTarget = glowFrame.object;
+  // GLOW-STEPDOWN (`GLOW_TARGET_SCALE_ADAPTATION`, a browser adaptation, product track): the native glow target at half
+  // the drawing buffer on a weak GPU -- a software adapter (read once, here) or slow recent frames -- or by the setting or
+  // `?glowscale=`; decided at each flash's acquisition (`glowTargetScale`), said once a flash at debug level. The look on
+  // a GPU that draws the glow, and every game value, unchanged (`./glowScale`).
+  const softwareAdapter = softwareAdapterOf(renderer.backend as unknown as AdapterBackend);
+  const glowTargetScale = (): number => {
+    const d = glowScale({
+      setting: readGlowScale(), override: glowScaleOverride(), softwareAdapter,
+      recentFrames: pageFrameSampler().sampler.recent(GLOW_FRAME_WINDOW_ADAPTATION),
+    });
+    console.debug(glowScaleLine(d));
+    return d.scale;
+  };
+  // FLASH-GLOW-BODIES (product track, a renderer warm-up): the 1 x 1 twin of the glow target the warm and `prepare`
+  // compile the world under (`warmGlowWorld`, `prepare`'s glow jobs), made at its first use and kept for the renderer's life --
+  // a body, its weapon, a tracer is prepared all match long -- freed with the renderer. Its attachments are the glow
+  // target's, so three gives it the same render context (`RenderContexts.get`: the key holds no size).
+  let glowTwinTarget: RenderTarget | null = null;
+  const glowTwin = (): RenderTarget => (glowTwinTarget ??= glowFrame.twin());
   const half = new RenderTarget(1, 1, { samples: 0, depthBuffer: false });
   half.texture.minFilter = LinearFilter;
   half.texture.magFilter = LinearFilter;
@@ -325,6 +407,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     experimentResources = null;
     fxaaResources?.release(); fxaaResources = null;
     glowFrame.release(); half.dispose(); transientHalf = false; frame.dispose();
+    glowTwinTarget?.dispose(); glowTwinTarget = null;
     for (const material of screenMaterials) material.dispose();
     screenMaterials.clear(); copy.dispose(); copyGeometry.dispose();
     await disposeRenderer();
@@ -379,7 +462,10 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   const scratch = new Group();
   const queue = new CompileQueue(PREPARE_LANES);
   const compileOne = (job: PrepareJob): Promise<void> => {
-    const { draw, scene, camera, screen, target, override } = job;
+    // WEBGPU-DEPTHFMT: a job that comes up after the renderer's dispose (a match's teardown) starts no compile -- its
+    // work is for a renderer that never draws again, and three's compile would remake the freed targets' textures.
+    if (disposed) return Promise.resolve();
+    const { draw, scene, camera, screen, target, override, glow } = job;
     // Shown and unculled for the call, its children hidden (each is a job of its own): compileAsync gathers its list
     // synchronously, before its first await, so the flags are back before any frame can draw a hidden object. The
     // render context is fixed there too: the PS2 picture's target for the world, the canvas for the HUD's passes.
@@ -390,7 +476,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     for (const c of kids) c.visible = false;
     const previous = renderer.getRenderTarget();
     const previousOverride = scene.overrideMaterial;
-    renderer.setRenderTarget(target ?? (mode === 'ps2' && !screen ? frame : null));
+    renderer.setRenderTarget(glow ? glowTwin() : target ?? (mode === 'ps2' && !screen ? frame : null));
     if (override) scene.overrideMaterial = override;
     try {
       return renderer.compileAsync(draw, camera, scene);
@@ -452,20 +538,25 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     }
     if (mode !== 'ps2' && !glowing) { renderer.render(scene, camera); return; }
     const previous = renderer.getRenderTarget();
+    // RENDER-FINALLY (a renderer adaptation): the caller's target goes back in a finally, as the path above does, so a
+    // throwing render never leaves `frame` or the glow target set for the next frame's blit; the error still goes on.
     if (mode === 'ps2') {
-      renderer.setRenderTarget(frame);
-      renderer.render(scene, camera);
-      if (glowing) glowOver(frame, downPs2);
-      renderer.setRenderTarget(previous);
+      try {
+        renderer.setRenderTarget(frame);
+        renderer.render(scene, camera);
+        if (glowing) glowOver(frame, downPs2);
+      } finally { renderer.setRenderTarget(previous); }
       renderer.render(blitScene, blitCamera);
       return;
     }
     renderer.getDrawingBufferSize(drawingSize);
-    const target = glowFrame.acquire(drawingSize.x, drawingSize.y);   // the flash's first size, to its end
-    renderer.setRenderTarget(target);
-    renderer.render(scene, camera);
-    glowOver(target, downNative);
-    renderer.setRenderTarget(previous);
+    // The flash's first size, to its end; its scale decided once, at the flash's first glowing frame (GLOW-STEPDOWN).
+    const target = glowFrame.acquire(drawingSize.x, drawingSize.y, glowFrame.held() ? 1 : glowTargetScale());
+    try {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      glowOver(target, downNative);
+    } finally { renderer.setRenderTarget(previous); }
     renderer.render(glowBlit, blitCamera);
   };
   /**
@@ -482,12 +573,13 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
    * draws the world into the glow target and the glow's additive pass (`up`) onto it (`drawFrame`, `glowOver`), and
    * three r186 keys a render object on its render context -- the target's attachments, not its size
    * (`RenderContexts.get`) -- so a world warmed only for the canvas built every mesh's render objects and bindings
-   * inside that frame (seat 70's finding, the flashbang freeze). Both compiled under a 1 x 1 twin of the glow target,
-   * freed once those compiles settle; never the fading twins' stand-ins, which are never drawn there (the review's
-   * finding 1). Each compile caught: a failure costs only a later build, never the map's warm.
+   * inside that frame (seat 70's finding, the flashbang freeze). Both compiled under the 1 x 1 twin of the glow target
+   * (`glowTwin`, kept for the renderer's life since FLASH-GLOW-BODIES); never the fading twins' stand-ins, which are
+   * never drawn there (the review's finding 1). Each compile caught: a failure costs only a later build, never the map's
+   * warm.
    */
   const warmGlowWorld = (scene: Scene, camera: Camera): Promise<unknown>[] => {
-    const twin = glowFrame.twin();
+    const twin = glowTwin();
     const previous = renderer.getRenderTarget();
     let jobs: Promise<unknown>[];
     try {
@@ -499,7 +591,6 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     } finally {
       renderer.setRenderTarget(previous);
     }
-    void Promise.all(jobs).then(() => { twin.dispose(); });   // each caught: settles, the twin freed
     return jobs;
   };
   /**
@@ -507,6 +598,29 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
    * to native compiles it then, once a warm (fire-and-forget, caught: no frame waits on it).
    */
   let glowOwed: { scene: Scene; camera: Camera } | null = null;
+  /**
+   * FLASH-GLOW-BODIES, the review's F2: `prepare`'s glow jobs met in the PS2 picture (whose world draws into `frame`, never
+   * the glow target), owed to the next switch to native -- a body that joined while the player watched the PS2 picture
+   * would otherwise reach a native flash uncompiled. Cleared by a map's warm (the next map's draws are its own).
+   */
+  let glowSkipped: PrepareJob[] = [];
+  /**
+   * `jobs` kept in `glowSkipped`, the stale ones dropped there and then (the fold's F1): a rebuilt body, a kit's new models,
+   * a body gone -- `RemotePlayers.setPrepare` pushes a whole body each time -- would otherwise hold every disposed
+   * body's objects until the map ends in a long PS2-picture match.
+   */
+  const skip = (jobs: readonly PrepareJob[]): void => {
+    glowSkipped = glowSkipped.filter((j) => !j.stale?.());
+    for (const j of jobs) if (!j.stale?.()) glowSkipped.push(j);
+  };
+  /** `jobs` on the queue's tail, each run under the glow twin, or kept in `glowSkipped` while the picture is PS2. */
+  const glowJobs = (jobs: readonly PrepareJob[]): Promise<void> => {
+    if (mode === 'ps2') { skip(jobs); return Promise.resolve(); }
+    return queue.add(jobs.map((job) => ({
+      lanes: job.lanes, stale: job.stale,
+      run: () => { if (mode !== 'ps2') return compileOne(job); skip([job]); return Promise.resolve(); },
+    })), { tail: true });
+  };
   const viewer: ViewerRenderer = {
     renderer,
     backend,
@@ -590,43 +704,47 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
       mode = m;
       apply();
       if (mode !== 'ps2' && glowOwed) { const { scene, camera } = glowOwed; glowOwed = null; void warmGlowWorld(scene, camera); }
+      if (mode !== 'ps2' && glowSkipped.length > 0) { const owed = glowSkipped; glowSkipped = []; void glowJobs(owed); }
     },
     presentation: () => mode,
+    glowOwed: () => glowSkipped.length,
     warm: async (scene, camera, extras = []) => {
       const previous = renderer.getRenderTarget();
       if (mode === 'ps2') renderer.setRenderTarget(frame);
-      // Everything in the scene, the live objects in their own scene -- a program is specific to more than the
-      // material and the geometry, and a stand-in in a scene of its own linked a different one (the SEAL's gear, the
-      // jungle's trees). Shown for the call and the frustum test off: compileAsync gathers its list synchronously
-      // before its first await, so the flags are put back before any frame can draw a hidden object.
-      const live = shown(scene, () => renderer.compileAsync(scene, camera));
-      // What is not in the scene at all -- the fading twins (`extras`) -- through stand-ins in a scene of their own.
-      const proxies = new Scene();
-      proxies.fog = scene.fog;
-      proxies.fogNode = scene.fogNode;
-      const add = (o: Object3D): void => {
-        let proxy: Object3D | null = null;
-        if (o instanceof SkinnedMesh) {
-          const m = new SkinnedMesh(o.geometry, o.material);
-          m.bind(o.skeleton, o.bindMatrix);
-          proxy = m;
-        } else if (o instanceof InstancedMesh) {
-          const m = new InstancedMesh(o.geometry, o.material, o.count);
-          m.instanceMatrix = o.instanceMatrix;
-          proxy = m;
-        } else if (o instanceof Mesh) proxy = new Mesh(o.geometry, o.material);
-        else if (o instanceof LineSegments) proxy = new LineSegments(o.geometry, o.material);
-        if (!proxy) return;
-        o.updateWorldMatrix(true, false);
-        proxy.matrixAutoUpdate = false;
-        proxy.matrix.copy(o.matrixWorld);
-        proxy.matrixWorld.copy(o.matrixWorld);
-        proxy.frustumCulled = false;
-        proxies.add(proxy);
-      };
-      for (const e of extras) e.traverse(add);
-      let stand: Promise<void>;
+      // RENDER-FINALLY (a renderer adaptation): the finally covers everything after the PS2 frame is set, so a throw here
+      // never leaves it set for the next frame; the error still goes on.
+      let live: Promise<void>, stand: Promise<void>;
       try {
+        // Everything in the scene, the live objects in their own scene -- a program is specific to more than the
+        // material and the geometry, and a stand-in in a scene of its own linked a different one (the SEAL's gear, the
+        // jungle's trees). Shown for the call and the frustum test off: compileAsync gathers its list synchronously
+        // before its first await, so the flags are put back before any frame can draw a hidden object.
+        live = shown(scene, () => renderer.compileAsync(scene, camera));
+        // What is not in the scene at all -- the fading twins (`extras`) -- through stand-ins in a scene of their own.
+        const proxies = new Scene();
+        proxies.fog = scene.fog;
+        proxies.fogNode = scene.fogNode;
+        const add = (o: Object3D): void => {
+          let proxy: Object3D | null = null;
+          if (o instanceof SkinnedMesh) {
+            const m = new SkinnedMesh(o.geometry, o.material);
+            m.bind(o.skeleton, o.bindMatrix);
+            proxy = m;
+          } else if (o instanceof InstancedMesh) {
+            const m = new InstancedMesh(o.geometry, o.material, o.count);
+            m.instanceMatrix = o.instanceMatrix;
+            proxy = m;
+          } else if (o instanceof Mesh) proxy = new Mesh(o.geometry, o.material);
+          else if (o instanceof LineSegments) proxy = new LineSegments(o.geometry, o.material);
+          if (!proxy) return;
+          o.updateWorldMatrix(true, false);
+          proxy.matrixAutoUpdate = false;
+          proxy.matrix.copy(o.matrixWorld);
+          proxy.matrixWorld.copy(o.matrixWorld);
+          proxy.frustumCulled = false;
+          proxies.add(proxy);
+        };
+        for (const e of extras) e.traverse(add);
         stand = renderer.compileAsync(proxies, camera);
       } finally {
         renderer.setRenderTarget(previous);
@@ -634,6 +752,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
       // L3lsGcIs fix 1: the glow context's warm (`warmGlowWorld`), in the native picture; the PS2 picture's world draws
       // into `frame`, its own, and owes it to the first switch to native (the review's finding 3).
       glowOwed = mode === 'ps2' ? { scene, camera } : null;
+      glowSkipped = [];
       const glowJobs = mode === 'ps2' ? [] : warmGlowWorld(scene, camera);
       await Promise.all([live, stand, ...glowJobs, ...warmGlow()]);
     },
@@ -645,10 +764,29 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
         o.traverse((c) => { if (DRAWN(c)) draws.push(c); });
       }
       // One draw of each kind first: the SEAL's two dozen parts are a handful of programs.
-      return queue.add(firstOfEachKind(draws, kindOf).map((draw) => {
+      const ordered = firstOfEachKind(draws, kindOf);
+      const jobs = ordered.map((draw) => {
         const job: PrepareJob = { ...options, draw, scene, camera };
         return { lanes: options.lanes, stale: options.stale, run: () => compileOne(job) };
-      })).then(() => { for (const o of parked) if (o.parent === scratch) scratch.remove(o); });   // as they came
+      });
+      // FLASH-GLOW-BODIES (product track, a renderer warm-up; no pixel and no game timing changed): a world draw in the
+      // native picture is drawn into the glow target while a flash runs, a render context three keys apart from the
+      // canvas's (`warmGlowWorld`), and what is prepared -- a body, its weapon and tag, a tracer, a throwable -- appears
+      // after the map's warm: a full lobby's first flash built every one of their render objects inside one frame (the
+      // owner, 2026-11-08: "a 1-2s full freeze on full lobbies"). So each is compiled under the glow target's twin too,
+      // as a job on the queue's low-priority tail (`CompileQueue.add`'s `tail`, the review's F1): it runs only while no
+      // canvas job waits -- this call's, a later call's (the shadow map's and the HUD's in `warmWalk`, the next body's in
+      // a join wave) -- within the same lanes, so the canvas's order and its cap are as before. Not awaited: the call
+      // resolves with its canvas jobs, so no warm-up or load waits longer; a parked object stays parked until both
+      // settle. In the PS2 picture (at the call or when the job comes up) the job is kept in `glowSkipped` and queued
+      // when the picture goes native (the review's F2). Never the HUD's passes (the canvas), the shadow map's (its own
+      // target, `override`): neither draws into the glow target. A failure costs only a later build (the queue catches it).
+      const canvas = queue.add(jobs);
+      const glow = !options.screen && !options.target && !options.override
+        ? glowJobs(ordered.map((draw): PrepareJob => ({ ...options, draw, scene, camera, glow: true })))
+        : Promise.resolve();
+      void Promise.all([canvas, glow]).then(() => { for (const o of parked) if (o.parent === scratch) scratch.remove(o); });   // as they came
+      return canvas;
     },
     setClearColor: ([r, g, b]) => {
       // setRGB on the working space, not setHex: FOGCOL is a raw register value and must not be decoded.

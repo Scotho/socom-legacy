@@ -164,7 +164,7 @@ unaffected except that the game samples them on a 33.4 ms frame. `STANCE_CHANGE_
 | NET_PICKUP_MSG_TYPE_PLACEHOLDER | note-only | RESOLVED | PROVEN | 0x440e48 = ID word of packet 'Wep PU' (r0004 0x44d868), set at registration; no constant to port |
 | ROUND_START_PROJECTILES_READING | READING | PARTIAL | BELIEVED | round start FUN_00223680 is CMPExitState's method, no projectile clear in it; clear only at level load/teardown; link untraced |
 | OWN_BLOOD_READING | READING | NOT-A-GAP | - | room's authority; original plays at once |
-| REMOTE_RELOAD_SOUND_READING | READING | PARTIAL | BELIEVED | kit+0x820 set only by pad (local) and fire-step auto reload; manual reload not sent; port may over-play |
+| REMOTE_RELOAD_SOUND_READING | READING | PARTIAL | BELIEVED | kit+0x820 set only by pad (local) and fire-step auto reload; manual reload not sent; port may over-play -- 2026-11-09: the owner saw the original show others' reloads (an observation, not a capture): a sender exists, its wire unread (research 91 s22.2) |
 | FRIENDLY_FIRE_ENFORCEMENT_PLACEHOLDER | note-only | RESOLVED | STRONG | FF off: CZSealBody::OnWeaponHit (FUN_005ac670) drops a hit whose live owner shares a team bit with the victim (not self) before damage/knock/blast queue; covers bullets, launched rounds, blasts; departed owner bypasses |
 | NET_DAMAGE_CLAMP_PLACEHOLDER | note-only | RESOLVED | PROVEN | hit packet 0x40: damage int clamp 0..255, piercing*20 int clamp 0..255 (0.05 steps), part 0..15; remote victim applies truncated integer |
 | STUN_EFFECT_PLACEHOLDER | note-only | PARTIAL | BELIEVED | no reader of ammo+0x10 Stun found (4 searches); stun timers use fixed per-item values; likely unused data |
@@ -692,7 +692,7 @@ the original's analogous mechanism stated.
 | NET_PICKUP_MSG_TYPE_PLACEHOLDER | RESOLVED (identity) / NOT-A-GAP (value) | PROVEN | the word is the 'Wep PU' packet's ID slot (r0001 0x440e48 = r0004 0x44d868), filled at run time by the packet registration; no constant to port |
 | ROUND_START_PROJECTILES_READING | PARTIAL | BELIEVED | the round-start method (`FUN_00223680`) belongs to `CMPExitState` and re-places the players; the projectile manager's clear is in the level's load/teardown; that the next round passes through it is still read from research 91, not traced |
 | OWN_BLOOD_READING | NOT-A-GAP | -- | the room's authority; the original's shooter plays its own round at once (capture would measure it) |
-| REMOTE_RELOAD_SOUND_READING | PARTIAL | BELIEVED | the reload timer `kit+0x820` has three writers: the local pad (`FUN_00594cf0`) and the kit's fire step `FUN_005c5340` twice (the empty-magazine reload); a peer hears a reload only where its copy of the actor runs one -- an automatic reload in the replayed fire path is the candidate, a manual one is not sent |
+| REMOTE_RELOAD_SOUND_READING | PARTIAL | BELIEVED | the reload timer `kit+0x820` has three writers: the local pad (`FUN_00594cf0`) and the kit's fire step `FUN_005c5340` twice (the empty-magazine reload); a peer hears a reload only where its copy of the actor runs one -- an automatic reload in the replayed fire path is the candidate, a manual one is not sent -- 2026-11-09: the owner saw the original show another player's reload (a playtest observation, not a capture), so a sender exists; its wire is unread (the two-console capture, research 206 item 18) |
 
 #### STANCE_CHANGE_TICKS_PLACEHOLDER (`packages/viewer/src/net/shotCone.ts:53`)
 - **What it stands for.** Ticks after a posture change during which the server lets the posed root stand anywhere
@@ -797,6 +797,12 @@ the original's analogous mechanism stated.
   player's fire step on its copy (the replicated round's path, untraced); a manual reload has no sender (no packet in
   the registry below carries it). The port's "every page hears every reload" may be more than the original.
 - **Owed evidence.** Two consoles: player A reloads by hand with a full magazine minus one; does B hear it?
+- **Update (2026-11-09, REMOTE-RELOAD; research 91 section 22.2).** The owner watched the original show another
+  player's reload (Craig, 2026-11-09 ~20:55Z: "the original does show reloads" -- a playtest observation of the
+  original running, not a capture). That answers "a manual reload has no sender" in favour of a sender existing (the
+  motion and the sound start in `FUN_005c2a90`'s one step, D:L477479, D:L477484); what the wire carries is still
+  unread, and the two-console capture (research 206 item 18) settles it. The port now draws the clip too
+  (`REMOTE_RELOAD_MOTION_READING`).
 
 #### The NOT-A-GAP rows, one line each
 - CONE_WINDOW / CONE_SLACK_PX / ROOT_POSE_SLACK (`net/shotCone.ts:44`, `:46`, `:51`), ROUND_SPEED_SLACK (`room.ts:245`),
@@ -1172,6 +1178,10 @@ headshot and `CHRSND_DEATH` otherwise, from `character.rdr`'s `sounds` list (as 
 ### 8.16 HIT_VOLUMES_PLACEHOLDER — NOT-A-GAP (fallback only; `net/hitVolumes.ts` L20, L158-167).
 
 ### 8.17 SPINELO_RADIUS_PLACEHOLDER (`net/hitVolumes.ts` L33)
+
+**Retired 2026-11-10** (BONE-BOXES; research 217 §3.6b, research 398): the hit volumes are the bones' boxes, one a bone
+(`FUN_0058b960` D:L447559-447593), so there is no radius; `spinelo`'s bbox is all zero on the SEAL, a box nothing enters.
+The answer below is kept as it was written.
 
 **Answer.** PARTIAL, BELIEVED. The game has no capsules. FUN_003c8920 takes the struck polygon's node, walked up its
 parent chain (`+100`, D:L319391-319397). FUN_005abbc0 maps that node by the handle table. `spinelo` (`+0x2fc`) is a BODY

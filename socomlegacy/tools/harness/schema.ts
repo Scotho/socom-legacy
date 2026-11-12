@@ -133,7 +133,7 @@ export const FROSTFIRE_BOX: readonly FieldDef[] = [
   R('*(the hit record FUN_005b5d40 returns)+4, copied to actor+0x404 (FUN_005b0420 D:L467127-467141)', 'floorUnder at the feet', { kind: 'abs', limit: 0.1, unit: 'u' },
     'research 366 section 2 (re-read 2026-10-26): FUN_005b5d40 (D:L470165) returns a pointer to the chosen 32-byte hit, or 0 (D:L470298): the highest at or below the probe plus the window, else the lowest (D:L470233-470240). Tolerance 0.1 u.', true, 'f32', 'floor.y'),
   R('the altitude window FUN_005b0420 passes (1.0, D:L467055)', 'no port read of that window (the probe lift is a different quantity)', EXACT,
-    'research 366 section 2 (re-read 2026-10-26): FUN_005b0420 (D:L467030) passes 1.0 at D:L467055, used at D:L470233; a second path (FUN_0054edf0 to FUN_005b4f30, D:L417178-417179, D:L469708) passes a computed value, so 1.0 holds on that path only. STEP_PROBE_LIFT_READING is not that argument: the line is skipped.', true, 'f32', 'floor.window'),
+    'research 366 section 2 (re-read 2026-10-26): FUN_005b0420 (D:L467030) passes 1.0 at D:L467055, used at D:L470233; a second path (FUN_0054edf0 to FUN_005b4f30, D:L417178-417179, D:L469708) passes a computed value, so 1.0 holds on that path only. The probe lift (probeLiftOf, LATER 785) is not that argument: the line is skipped.', true, 'f32', 'floor.window'),
 ];
 
 /** The recomp's revisions this harness knows: the r0001 disc and PSRewired's r0004 capsule over it. */

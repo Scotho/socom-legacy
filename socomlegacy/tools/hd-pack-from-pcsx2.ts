@@ -3,6 +3,7 @@ import {join,relative,resolve} from 'node:path';
 import {discTextureRecords} from './discTextureRecords';
 import {buildHdManifest,resolveFiles,type ImageTier,type PackFile} from './hdPack';
 import {resolvePlacements,type PlacedFile,type PlacementsFile} from './hdPlacements';
+import {hdThunderstoreFlags,writeHdThunderstoreZip} from './hdPackThunderstore';
 
 /**
  * OT.R92 (HD-5): builds the test room's HD pack from a PCSX2 replacement folder and the disc. The pack is third-party
@@ -14,13 +15,17 @@ import {resolvePlacements,type PlacedFile,type PlacementsFile} from './hdPlaceme
  * service's HDD image), so their textures bind too. `--placements` (HD.R9, `tools/data/hd-placements.json`): the files
  * placed on a part of a texture, each placed only once its name is re-derived at its placement (`./hdPlacements`); a
  * placed file leaves the whole-texture tiers and the below-bar list, a refused one is listed below the bar with why.
+ * `--thunderstore <out.zip>` (B206 ML-5, ML.R16): then the owner's Thunderstore upload zip of the built pack, checked
+ *   (`./hdPackThunderstore`; `--ts-name`, `--ts-version`, `--ts-description`, `--website`, `--icon`, `--credit`; see
+ *   `thunderstore-wrap.ts`). Written where it is told, outside the repository; the owner uploads it, players never build it.
  */
 const args=process.argv.slice(2),flag=(n:string)=>{const i=args.indexOf(n);if(i<0)return undefined;const v=args[i+1];args.splice(i,2);return v;};
 const imageTiersFile=flag('--image-tiers'),placementsFile=flag('--placements'),name=flag('--name')??'SOCOM II HD Textures',game=flag('--game')??'SCUS-97275';
 const extraRoots:string[]=[];for(let r=flag('--extra-root');r!==undefined;r=flag('--extra-root'))extraRoots.push(r);
 const out=resolve(flag('--out')??join(import.meta.dirname,'..','public','experimental-packs','hd'));
+const thunderstore=flag('--thunderstore'),tsOptions=hdThunderstoreFlags(args);
 const [disc,rep]=args;
-if(!disc||!rep){console.error('usage: hd-pack-from-pcsx2.ts <disc root> <replacements dir> [--image-tiers <json>] [--name <n>] [--game <serial>] [--out <dir>]');process.exit(2);}
+if(!disc||!rep){console.error('usage: hd-pack-from-pcsx2.ts <disc root> <replacements dir> [--image-tiers <json>] [--name <n>] [--game <serial>] [--out <dir>] [--thunderstore <out.zip>]');process.exit(2);}
 
 const walk=(d:string):string[]=>readdirSync(d).flatMap(n=>{const p=join(d,n);return statSync(p).isDirectory()?walk(p):[p];});
 const paths=new Map(walk(rep).map(p=>[relative(rep,p).replace(/\\/g,'/').split('/').at(-1)!,p]));
@@ -60,3 +65,7 @@ for(const p of placed)placedFiles[p.kind]=(placedFiles[p.kind]??0)+1;
 for(const e of built.manifest.entries)if(e.placementKind)placedEntries[e.placementKind]=(placedEntries[e.placementKind]??0)+1;
 console.log(JSON.stringify({id:built.id,files:files.length,bound:bound.size,tiers,placedFiles,placedEntries,belowBar:built.below.length,entries:built.manifest.entries.length,
   payloads:built.payloads.size,payloadBytesDecoded:built.manifest.totalBytes,dir}));
+if(thunderstore){
+  const w=await writeHdThunderstoreZip(resolve(thunderstore),out,tsOptions);
+  console.log(JSON.stringify({thunderstore:resolve(thunderstore),name:w.manifest.name,version:w.manifest.version_number,entries:w.entries,bytes:w.bytes,textures:w.textures}));
+}

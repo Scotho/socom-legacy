@@ -215,6 +215,8 @@ Three `snow_window01..03` roots each own two polygons. Their health blocks at0x4
 
 Additional authored atmosphere: snow fall, cold breath, inside/outside wind, lens programs. Stale `valves.rdr` names such as generator/other doors have no matching live use action in this audit; they do not establish a usable generator mechanic.
 
+*2026-11-07: what the game does with `outhouse1/2` and `snow_window01..03` is read in [research 386](386-blizzards-destructibles.md) (the "context node -7" above is `NODE_ROOT`, the window's own root, 386 §2); the proposal below stands as a proposal.*
+
 **Plan/tests [proposal]:** retain six existing doors; add two damage-bound outhouse state groups and three glass groups after the common damage/reset work. Test door1/2 open and closed before destruction, a late door command after destruction, simultaneous damage, secondary blast attribution, glass hit on each separate pane, join after destruction and next-round restoration. Validate snow/inside audio and NVG on the night map independently of the objective.
 
 ## 6. Night Stalker — MP7

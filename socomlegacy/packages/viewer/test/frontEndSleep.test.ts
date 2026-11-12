@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { MovieEndMessage, MovieFrame, MovieStreamHandle } from '@s2u/fmv';
 import { UI_TICK_SECONDS, type DialogDesign } from '@s2u/ui';
 import { FrontEndSession, type FrontEndDisc } from '../src/frontEnd';
 import { frontEndMovies, type MovieWorkerHandle } from '../src/frontEndMovies';
 import { menuRasterWanted, movieWorkerSleeps } from '../src/frontEndSleep';
+import { pageDeviceClass, resetPageRendererProbeForTest } from '../src/deviceClass';
 import type { UiCanvasTarget } from '../src/uiCompositorView';
 
 /**
@@ -35,6 +36,27 @@ describe('movieWorkerSleeps (Xbox preset only; H397 leaves it: a worker asleep i
   it('is the Xbox preset alone', () => {
     expect(movieWorkerSleeps('xbox')).toBe(true);
     for (const g of ['auto', 'webgl2', 'webgpu', '', 'a preset not yet named']) expect(movieWorkerSleeps(g)).toBe(false);
+  });
+});
+
+/** VS-10 F1: a page the Xbox class by certain signals (VS.R1) -- the console's agent and ANGLE's D3D11 string -- with no pick saved. */
+const asXboxPage = (): (() => void) => {
+  const gl = { getExtension: () => null, getParameter: () => 'ANGLE (AMD, AMD Custom GPU 0405 Direct3D11 vs_5_0 ps_5_0, D3D11)', RENDERER: 0x1f01 };
+  vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox One) Edg/130.0.2849.56' });
+  vi.stubGlobal('document', { createElement: () => ({ getContext: () => gl }) });
+  resetPageRendererProbeForTest();
+  return () => { vi.unstubAllGlobals(); resetPageRendererProbeForTest(); };
+};
+
+describe('VS-10 F1 (the spec §4.4 item 2): the Xbox class sleeps the movie worker beside the saved pick', () => {
+  it('the saved pick auto on a page classed xbox: the worker sleeps; the standard class: it does not', () => {
+    const undo = asXboxPage();
+    try {
+      expect(pageDeviceClass()).toBe('xbox');
+      expect(movieWorkerSleeps('auto')).toBe(true);
+    } finally { undo(); }
+    expect(pageDeviceClass()).toBe('standard');
+    expect(movieWorkerSleeps('auto')).toBe(false);
   });
 });
 
@@ -177,14 +199,16 @@ describe('the page\'s wiring (frontEnd.ts)', () => {
   const src = readFileSync(new URL('../src/frontEnd.ts', import.meta.url), 'utf8');
 
   it('the loop keeps advancing and asks menuRasterWanted before the render', () => {
-    const loop = src.slice(src.indexOf('const loop = (now: number): void => {'));
-    const body = loop.slice(0, loop.indexOf('frameId = win.requestAnimationFrame(loop);'));
+    const loop = src.slice(src.indexOf('const step = (now: number): boolean => {'));
+    const body = loop.slice(0, loop.indexOf('const frontGuard = new FrameGuard();'));
     // GM-02: the advance's tick count is kept in `ticks` (the instrument reads it); GM-12b: the GPU path's word (GM.R17).
     expect(body).toMatch(/const ticks = s\.advance\(now\);[\s\S]*?if \(ticks > 0 && drawsMenuFrame\(s, hd\.scale, gpu\) && menuRasterWanted\(matchUp, matchGraphics\)\)/);
   });
 
   it('leave raises the flag and sleeps the movie worker under the Xbox preset; returned lowers the flag', () => {
-    const leave = src.split('\n').filter((l) => /^\s*leave: \(\) => \{ matchSound\.leave\(\);/.test(l));
+    // QUAD-CACHE-RELEASE put the quad caches' release first on the line: the match's leave hook is the one line that also
+    // lets the match sound go, wherever on it.
+    const leave = src.split('\n').filter((l) => /^\s*leave: \(\) => \{[^\n]*\bmatchSound\.leave\(\);/.test(l));
     expect(leave).toHaveLength(1);
     expect(leave[0]).toContain('matchUp = true;');
     expect(leave[0]).toContain('matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep();');

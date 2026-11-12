@@ -27,7 +27,7 @@ import {
   handReticleType, Perception, perceptionLook, perceptionMagnification, Reticle, reticleClimbing, reticleShown, reticleTargetState,
   type HudRenderer, type PerceptionLook, type ReticleTarget,
 } from './reticle';
-import { EYE_HEIGHT } from './mover';
+import { enemyCount, escorteeWord, seatWord } from './reticle';   // ENEMY-RAISE ER-1: the controller's ctrl+0xc0
 import { FONT_TEXT_01 } from './hudFont';
 import { crosshairPick, pickSurfaces } from './net/hostageOrder';
 import { lensStep, scopeBitmaps, showScopeNodes, thermalFitted, viewLens, type ViewLens } from './sights';
@@ -45,6 +45,7 @@ import { TURRET_MOUNT_ASK_WINDOW_READING } from './turretPage';
 import { lookContextOf } from './net/lookGate';
 import { RAISE_TIMES, ZERO_RAISE_TIMES } from './weaponRaise';
 import { deathRumble, hurtRumble, padActuator, Rumble, rumbleOutput, ScopePulse, shotRumble } from './rumble';
+import { ThreatMarks, type ThreatTeam } from './threatMarks';
 
 /**
  * ONE-WIRE (web research 222; ONL-18d's firearm, research 166 §8): the match's firearm, the one both pages mount --
@@ -115,6 +116,14 @@ export interface FirearmHands {
   resumed?(r: { pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1 }): void;
   /** The trigger pressed or let go, before the firearm's: true when another owner took it (the turret, the launcher, a throwable). */
   trigger(down: boolean): boolean;
+  /**
+   * TRIGGER-SWAP (2026-11-09; reading, pending review): a trigger these hands took (a throwable's, the launcher's), still
+   * held, handed to the firearm: null while they still own it (an item up, the launcher up or still coming down), else the
+   * kit pull count `kit+0x818` their item raised in the hold (`Fire.pull`'s `carried`). The original's trigger is the
+   * pad's level whatever is in the hand (`FUN_00594cf0` D:L453543-453567), which the slot change leaves (`FUN_005c4b10`).
+   * Absent: never handed over (a held trigger waits for its next press, as before).
+   */
+  heldPulls?(): number | null;
   /** A round mode's round leaving (M4): flown on the page (`GrenadeThrower.launchRound`) and its zAnim heard. */
   launched(record: KitRound['record'], from: [number, number, number], velocity: [number, number, number]): void;
   /**
@@ -153,6 +162,21 @@ export interface FirearmHands {
 }
 
 /**
+ * LATER 792 (research 211 §10.7; reading, pending review): the controller's trigger edge `+0x118` at which the kit's swap
+ * gate refuses -- 1, held. `FUN_005a8cb0`'s last clause takes the body's controller (`body+0xc0`, set with its back
+ * pointer by `FUN_002a26f0` D:L146774-146781) and passes only when there is none or its edge is not 1 (D:L463174-463181);
+ * every swap passes the gate -- L1 and L2 (`FUN_00594cf0` D:L453290, D:L453302) and the inventory's (D:L72691, D:L72830).
+ * The edge is read where the page steps it, the rifle's raise (`Play.triggerEdge`, `./weaponRaise` `WeaponRaise`:
+ * `FUN_00594cf0` D:L453543-453567, a press 2 on its own update and 1 after; a hand grenade with one left in its slot
+ * remaps a press 2 -> 3 -> 0, D:L453633-453661, and its wind-up leaves the edge there, D:L453507-453518), and the swap's
+ * test runs before that update's step in `FUN_00594cf0` (D:L453288-453312 before D:L453543), so it reads the edge the
+ * last update left. Measured (research 326 §7.3, `agent/last-grenade` 58cbcf94d; r0004, 3/3 a leg; upload pending): with
+ * R1 held L1 was not taken from the empty MARK141 nor from the pistol, and with R1 up it was taken from both; under the
+ * re-armed wind-up (the edge 0) it was taken. That the edge clause is what refuses stays the code's reading.
+ */
+export const SWAP_HELD_EDGE_READING = 1;
+
+/**
  * PAR-56: `FUN_005bc300` (D:L473775-473806): the fire-mode row is hidden for the hand's item of the classes
  * (`FUN_003d1a60`, `@s2u/scene` `itemClass`) 121 grenade, 151 explosive, 190 gear, 201 armour and 230 -- the
  * MGL FRAG TURRET's (D:L473799-473803) -- and shown for every other, PKM's and LMG's turret class 205 among them.
@@ -187,7 +211,7 @@ export interface MatchFirearmDeps {
    * The others: a body under the reticle is the aim point (INT-NET-2); another's round's muzzle. NU-3b C4: the bodies the
    * eye's pick ray meets, a player's side and feet -- the reticle's target (`FUN_005aa690`); absent, no target.
    */
-  remote: Pick<RemotePlayers, 'aimDistance' | 'weaponFrame'> & Partial<Pick<RemotePlayers, 'aimBodies' | 'teamOf' | 'feet'>>;
+  remote: Pick<RemotePlayers, 'aimDistance' | 'weaponFrame'> & Partial<Pick<RemotePlayers, 'aimBodies' | 'aimRecords' | 'teamOf' | 'feet' | 'neckAt'>>;
   hud: Hud;
   loadouts: PlayerLoadout;
   view(): WorldView | null;
@@ -252,7 +276,7 @@ export interface MatchFirearm {
   heldRounds(): readonly { slot: number; id: number; rounds: number }[];
   /** The fire mode's name (`FIRE_MODE_NAMES`). */
   fireModeName(): string;
-  /** The page's half of `FUN_005a8cb0`: walking, not reloading, no throw held or thrown. */
+  /** The page's half of `FUN_005a8cb0`: walking, not reloading, no throw held or thrown, the trigger's edge not 1 (LATER 792). */
   kitFree(): boolean;
   /** `FUN_00594cf0`'s four tests for a shoulder press on `slot` (research 201 §1). */
   shoulderGate(slot: number): boolean;
@@ -288,6 +312,8 @@ export interface MatchFirearm {
   beforeNet(): void;
   /** ... the fire's rate, reload and held rounds (none mounted on a turret, nor off the walk; the tracer's frame always) ... */
   fireFrame(dt: number, walking: boolean): void;
+  /** TRIGGER-SWAP fold: a throwable or the launcher up over a held firearm trigger -- let go, the hold owed back. */
+  suspendTrigger?(): void;
   /** ... the effects' runs, casings and particles ... */
   effectsFrame(dt: number, camera: PerspectiveCamera): void;
   /** ... after the world's draw: the reticle placed, sized and coloured ... */
@@ -325,6 +351,14 @@ export interface MatchFirearm {
   shotRumble(rumble: WeaponRumble | undefined): void;
   roundEffects: NonNullable<import('./netPage').NetPageDeps['roundEffects']>;
   roundImpact: NonNullable<import('./netPage').NetPageDeps['roundImpact']>;
+  /** THREAT-MARKS (`./threatMarks`): the actor's threat state and the HUD's eight alphas, stepped in `aimReticle`. */
+  readonly threat: ThreatMarks;
+  /**
+   * THREAT-MARKS (research 321 section 2.6): another player's throw at its release (`./matchNet` wraps `remoteGrenade`) --
+   * the item's projectile record by name (a hand grenade's, a launched round's: `KitTable.throwables` / `rounds`), its
+   * `Sound_Radius` x 10 the reach (`FUN_003cda30`; `ThrowableRecord.soundRadius` is the raw value), `owner` the thrower.
+   */
+  threatThrow(kind: string, from: readonly [number, number, number], owner?: number): void;
   /**
    * MAP-10b (research 215 s7): this page's own round from the turret it holds, drawn as its firearm's are -- the round's
    * path and marks and the tracer (`Fire.drawRound`, the tracer's rule on the turret's weapon id and `count`), the
@@ -345,6 +379,19 @@ export interface MatchFirearm {
 
 export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   const { scene, fly, walk, play, remote, hud, loadouts, hands, sound } = d;
+  /**
+   * THREAT-MARKS (`./threatMarks`; research 321 section 2.6): the page's own actor's marks. A release lights them by
+   * `FUN_005c5340`'s threat block against the page's body -- its side (the client's team; none, a spectator's:
+   * THREAT_SPECTATE_READING), alive (`WalkMode.isDead`; THREAT_ALIVE_BIT_READING), its feet and the look's yaw
+   * (THREAT_BODY_ORIGIN_READING) -- and the shooter's side by the room's seats (`teamOf`).
+   */
+  const threat = new ThreatMarks();
+  const threatRelease = (from: readonly [number, number, number], owner: number | undefined, reach: number): void => {
+    const net = d.net();
+    const localTeam: ThreatTeam | null = net?.client.role === 'player' ? net.client.team : null;
+    const shooterTeam: ThreatTeam | null = owner === undefined ? null : remote.teamOf?.(owner) ?? null;
+    threat.release({ from, shooterTeam, localTeam, alive: !walk.isDead(), localPos: walk.feet(), localYawDeg: fly.pose().yaw, reach });
+  };
   /**
    * OBF-31 (`./matchSound` `ROUND_SCREENS_STOP_ALL_READING`): a round screen up -- MPExitState alone is ticked
    * (`FUN_002ce9e0` D:L171877-171888, `FUN_00223680` D:L75899-75958), so the page's trigger and reload are not: no press
@@ -369,8 +416,10 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     startBody: () => walk.startBody?.() ?? null,                              // LATER 366 (OT.R80): the room's start lines
     muzzle: () => play.muzzle(), reloadSeconds:(family, reloadTime) => play.reloadSeconds(family ?? null, reloadTime ?? 0),   // WEAPON: the rifle in hand (`./play`)
     targetDistance: (eye, ray, reach) => remote.aimDistance(eye, ray, reach),   // INT-NET-2: a body under the reticle is the aim point
-    // P12 (SW-2): every body on the round's line, each a surface the round goes on past (`./fire` `BODY_PENETRATION`).
-    ...(remote.aimBodies ? { bodyDistances: (from: Vec3, ray: Vec3, reach: number) => remote.aimBodies!(from, ray, reach).map((b) => b.distance) } : {}),
+    // P12 (SW-2): every body on the round's line, each a surface the round goes on past (`./fire` `BODY_PENETRATION`);
+    // BONE-BOXES (research 398 s1): every bone box it enters, as the room's walk cuts its range at each (`aimRecords`).
+    ...(remote.aimRecords ? { bodyDistances: (from: Vec3, ray: Vec3, reach: number) => remote.aimRecords!(from, ray, reach) }
+      : remote.aimBodies ? { bodyDistances: (from: Vec3, ray: Vec3, reach: number) => remote.aimBodies!(from, ray, reach).map((b) => b.distance) } : {}),
     // AD-1 (research 232 section 8): the eye's aim ray's cap, the camera's +0xec -- the map's MID with the view's extension.
     aimCap: () => cameraAimCap(d.map()?.camera?.mid, zoom.renderView().farExtra),
     launchPoint: () => play.launchPoint(),                                    // M4: a round mode's `firepoint_203`
@@ -389,6 +438,8 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     // D:L476423-476438; `RAISE_ENVELOPE_STEP_READING`). Mounted the turret takes the trigger (`TurretTrigger`'s latch).
     raiseRefused: (): boolean => play.weaponStats().raise.weight < 1,
     inHand: (): boolean => !hands?.itemUp() && !hands?.launcherUp(),   // LATER 179's review (F1): the dry branch reads the hand's item (D:L476574-476590)
+    itemUp: (): boolean => hands?.itemUp() ?? false,                   // GRENADE-RELOAD (research 361 §5): R is the item's slot, not the firearm's
+    launcherUp: (): boolean => hands?.launcherUp() ?? false,           // GRENADE-RELOAD fold (research 361 §5): R is the round's slot, not the firearm's
     reloadRefused: (): boolean => reloadRefused(zoom.state()),
     reloadTaken: (): boolean => hands?.reload?.() ?? false,                  // TURRET-AMMO: mounted, R is the turret's (every binding's)
     // PF-18 (research 218 §2): no reload in the page's own flinch; PF-19 (218 §3): nor inside `Prone cover`.
@@ -598,8 +649,13 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   const fireModes: Record<Firearm, number> = { rifle: defaultFireMode(kitRecs[0], kitRounds.held()), pistol: defaultFireMode(kitRecs[1]) };
   /** The walk's tick count the zoom last marked its tick at (`Zoom.markTick`). */
   let zoomTicks = -1;
-  /** The page's half of `FUN_005a8cb0`: walking, not reloading, not while a throw is held or thrown. */
-  const kitFree = (): boolean => walk.mode() === 'walk' && !fire.state().magazine.reloading && !(hands?.busy() ?? false);
+  /**
+   * The page's half of `FUN_005a8cb0`: walking, not reloading, not while a throw is held or thrown -- and (LATER 792,
+   * `SWAP_HELD_EDGE_READING`) not while the controller's trigger edge reads 1, held (D:L463174-463181): from a firearm,
+   * an emptied throwable, the launcher or a placing with R1 held, no slot is taken until it is let go.
+   */
+  const kitFree = (): boolean => walk.mode() === 'walk' && !fire.state().magazine.reloading && !(hands?.busy() ?? false)
+    && play.triggerEdge() !== SWAP_HELD_EDGE_READING;
   /**
    * NU-3a's fold F1: the selected slot `+0x824` -- a swap's target from its press (`FUN_005c4b10` D:L478842), else the firearm
    * in the hand -- whose record the kit's tick runs (`FUN_005c2670` D:L477280) and whose set the reticle asks (`FUN_005be300`
@@ -649,12 +705,17 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       showFireMode();
       play.setItem(item);
     },
-    // FUN_005c4b10: the trigger lets go; the new slot `+0x824` is the zoom's record at once (`switchZoom`). A view of 4
+    // FUN_005c4b10: the new slot `+0x824` is the zoom's record at once (`switchZoom`). A view of 4
     // and up may be on screen and it stays, as the original's (research 201 s2 A31: the switch drops no scope; 211 s2).
     // PARITY-1 D02: the swap's command ends the still clip's life (an after-shot's: the swap is refused under a reload), as
     // the room's `aim` clears `reloadLife` with the after-shot lock (`room.ts` 2171); `setWeapon` ends it without a `reloadEnd`.
     // NU-3a's fold F1: the bloom's record too (`FUN_005c2670` reads `+0x824`, D:L477280; the room's `aim` at the same press).
-    started: (to) => { fire.release(); switchZoom(to); accuracy.setWeapon(kitRecord(to)); stillReload.end(); },
+    // TRIGGER-SWAP fold (research 211 §10; reading, pending review): no let-go -- `FUN_005c4b10` (D:L478779-478936) leaves
+    // the trigger (+0x118) and the pull count (+0x818), zeroing only +0x810 (D:L478836-478839, D:L478926-478929) and the
+    // throw's power (`FUN_00592d40`, D:L478915); `Fire.setWeapon` keeps the count and the rate's timer, so a held trigger
+    // fires the drawn firearm once its swap and raise allow. Was: `fire.release()` here (SWAP_HELD_TRIGGER_READING).
+    // LATER 792: a swap starts under a pressed trigger only at its edge 2 -- held (1), `kitFree` refuses the swap itself.
+    started: (to) => { switchZoom(to); accuracy.setWeapon(kitRecord(to)); stillReload.end(); },
   });
   showFireMode();
   /**
@@ -730,6 +791,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     // `FUN_00598b90` D:L455158, and at a respawn), its perception list emptied (`PERCEPTION_RECORD_LIFE_READING`).
     perception.clear();
     lastFeet.clear();
+    enemiesIdentified = 0;                               // ER-1: an emptied list counts none (`FUN_005c9b30`)
     // FUN_00599b60 -> FUN_00553ea0 D:L419886-419889: a spawn re-inits the view -- third person, 1.0 -- a living body's at a
     // classic round's start too (FUN_00223680 L75913-75931), whatever scope the last round ended in (`Zoom.respawn`).
     zoom.respawn(record);
@@ -758,8 +820,38 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
    * (D:L453634; `FUN_00594cf0` runs mounted, D:L453073), so the body's raise hears it (`play.setWeaponInput`).
    */
   let mountedTrigger = false;
+  /**
+   * TRIGGER-SWAP (Craig's report, 2026-11-09; reading, pending review): a press the hands took (a throwable's, the
+   * launcher's) and not let go since -- the firearm takes it on the first frame they hand it over (`heldPulls`, in
+   * `fireFrame`), no new press asked. The original's trigger is the pad's level, stepped every frame whatever is in the
+   * hand (`FUN_00594cf0` D:L453543-453567: the controller's +0x118, 2 pressed, 1 held, 3 let go, 0 up), and the firearm's
+   * kit frame fires on 1 or 2 (`FUN_005c0ae0` D:L476420) once its own gates lift (the raise, NoFire, the rate); the slot
+   * change does not touch it (`FUN_005c4b10` D:L478779-478936 zeroes the throw's power, `FUN_00592d40` D:L478915 ->
+   * D:L451961-451965, and +0x810, not +0x118 nor the pull count +0x818). Was: the firearm heard only the edge, so a press
+   * the grenade had taken was never its own and R1 had to be let go and pressed again.
+   */
+  let triggerOwed = false;
+  /** ENEMY-RAISE ER-1: the enemies the body's perception has marked, the HUD frame's last pass (`perceive`). */
+  let enemiesIdentified = 0;
+  /**
+   * TRIGGER-SWAP fold: the firearm's own pull count of a hold an item took up over (`suspendTrigger`), added to the hands'
+   * at the hand-over -- the count is the kit's, which the slot change leaves (`FUN_005c4b10`).
+   */
+  let owedPulls = 0;
+  /**
+   * TRIGGER-SWAP fold (research 211 §10; reading, pending review): a throwable or the launcher taken up over a held firearm
+   * trigger (`./matchThrow`'s equip). The firearm lets go -- no round of it leaves with another item up -- but the trigger
+   * and the count stay the kit's (`FUN_005c4b10`), so the hold is owed back with the firearm's count (`owedPulls`) once
+   * the hands hand it over. Not held: a plain let-go, as before.
+   */
+  const suspendTrigger = (): void => {
+    if (fire.triggerHeld()) { triggerOwed = true; owedPulls = fire.pulls(); }
+    fire.release();
+  };
   /** The trigger, pressed or let go: nothing while the input is held, nothing for the dead; another owner's first. */
   const trigger = (down: boolean): void => {
+    // TRIGGER-SWAP: a let-go ends what was owed, whoever had it -- and the firearm's hold, should another owner take the edge
+    if (!down) { triggerOwed = false; owedPulls = 0; if (fire.triggerHeld()) fire.release(); }
     if (down && d.blocked()) return;                    // the loading screen's hold, the ARMORY (web sprint 5 S3)
     if (down && walk.isDead()) return;                  // the dead fire nothing and pull no pin (`FUN_00592560`)
     // OBF-31: under the round screens the trigger is not ticked -- neither the hands' (a throw, a rocket) nor the firearm's
@@ -770,6 +862,10 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       // while the trigger is up and at its release (`FUN_005c0ae0` D:L476380-476382, D:L476399-476400, via `FUN_005c0fd0` D:L476569); the port resets on the press and the release, as
       // `fire.setGun`'s `trigger` does -- the same for any round, since a round always follows a press.
       if (hands.mounted()) { accuracy.trigger(); mountedTrigger = down; }
+      // TRIGGER-SWAP: a throwable's, the launcher's or (the fold) the turret's press is owed to the firearm while held --
+      // the turret a kit slot (`FUN_005463c0` D:L412214-412218 -> `FUN_005c4b10`), its rounds handed with it (`heldPulls`).
+      // Was: the turret's owed to nobody (MOUNT_HELD_TRIGGER_DISMOUNT_READING).
+      if (down) { triggerOwed = true; owedPulls = 0; }
       return;
     }
     if (down) fire.pull();
@@ -796,7 +892,20 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   let lensOn: ViewLens = null;
   // WEAPON: the trigger raises the rifle (`./weaponRaise`), a reload plays its clip; `fire.subscribe` is also the sound's
   // hook (`FireEvent`: every round, every reload's start and end), and the room's -- only through `NetPage`.
-  play.setWeaponInput(() => ({ trigger: fire.triggerHeld() || mountedTrigger, aiming: walk.view() === 'scope' }));
+  // RAISE-HELD-FIRE (m02d; `HELD_TRIGGER_ITEM_RAISE_READING`, reading, pending review): and a held trigger owed back
+  // (`triggerOwed`) -- the raise hears the pad's level, which the slot change leaves (`FUN_00594cf0` D:L453543-453567,
+  // `FUN_005c4b10`), so with a grenade taken up under it the edge stays 1 and asks the rifle up (D:L453612-453613).
+  // ENEMY-RAISE ER-1 (research 321 s4.1.1 point 7; reading, pending review): and the count of enemies the body's perception
+  // has marked (`enemiesIdentified`, the controller's `ctrl+0xc0` from `FUN_005c9b30` D:L482090-482132), which holds the
+  // rifle up as the scope does (`FUN_00594cf0` D:L453088-453092; was: the scope alone, `AIM_HOLDS_RAISE`), and the gate
+  // (`DAT_003df1b0` 0, D:L453067-453070) from the round screens (`./weaponRaise` `RAISE_GATE_READING`).
+  play.setWeaponInput(() => ({
+    trigger: fire.triggerHeld() || mountedTrigger || triggerOwed, aiming: walk.view() === 'scope', enemies: enemiesIdentified, gated: screens(),
+  }));
+  // ENEMY-RAISE ER-2 (protocol 14; reading, pending review): the owning page computes the raise state and each command
+  // carries it (`Command.raised` -> the room's `BodyFlag.Raised` -> the others' copies), the result of every term above,
+  // as the original's owner packs its body's `FUN_005e0010` into byte +0x7e every frame (`FUN_002bd640` D:L161978).
+  walk.setRaiseSource?.(() => play.raisedUp());
   // PARITY-1 D02 (research 251 s6): the still reload's clip on the page's command clock, asked by the walk's jump -- the
   // room's `reloadLife` from the command its `reload` names (`NetPage`: the last one sent at `reloadStart`).
   const stillReload = new StillReloadLife();
@@ -958,7 +1067,9 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
    * frame for every body the page knows -- the room's seats but its own, its hostages and the body under the reticle --
    * as the human's controller steps its records (`FUN_005ca9f0`, `FUN_005c9b30`): the look (`perceptionLook`) from the
    * camera's eye and forward at the view's magnification (its target), the reach under the map's MID; the speed across the ground from
-   * the body's drawn feet a frame apart; the sight `PERCEPTION_SIGHT_PLACEHOLDER`'s, asked only of a body the passes take;
+   * the body's drawn feet a frame apart; the sight (`PERCEPTION_SIGHT_READING`) from the page's own posed `head` node
+   * (`Play.nodeWorld`, slot +0x34 `FUN_005a31c0`) to the target's posed `neck` node (`RemotePlayers.neckAt`, slot +0x38
+   * `FUN_005a3160`), the cone tested at that same neck (`FUN_005cc120` D:L483236-483237), asked only of a body the passes take;
    * one query a body a frame (`PERCEPTION_QUERY_PLACEHOLDER`). No time passed, no pass. The records are emptied at the
    * page's own spawn (`spawnKit`: the observer's rebuild, `PERCEPTION_RECORD_LIFE_READING`) and kept across another
    * body's death and respawn; a seat gone from the room loses its record (`Perception.keepOnly`, the page's bookkeeping).
@@ -968,8 +1079,12 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   const lastFeet = new Map<number, [number, number, number]>();
   const camEye = new Vector3(), camForward = new Vector3();
   const perceive = (dt: number, picked: number | null): void => {
-    const net = d.net(), own = walk.feet(), a = walk.fireAim();
-    if (!net || !own || !a || !(dt > 0)) return;
+    // SIGHT-POINTS (LATER 793): the sight's start is the page's own body's posed head node (`FUN_005a31c0`
+    // D:L460165-460171, body+0x308); a page whose body is not built has none, and so no body to run the passes.
+    // The aim stays the gate it was (off the walk none: no pass); it is no longer the sight's start.
+    const net = d.net(), own = walk.feet(), head = net && own && walk.fireAim() ? d.play.nodeWorld('head') : null;
+    if (!net || !own || !head) { enemiesIdentified = 0; return; }   // ER-1: no room or no body, no count
+    if (!(dt > 0)) return;                                          // no time passed: no pass, the count as it was
     const living = new Map<number, boolean>();
     for (const r of net.rows) if (r.id !== net.client.id) living.set(r.id, r.alive !== false);
     for (const [id, h] of net.hostages?.() ?? []) living.set(id, h.alive !== false);
@@ -991,23 +1106,54 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     // AD-3's review F1: the body's +0x204 (FUN_005c9520 D:L481801-481806) is the view state's magnification at once
     // (`Zoom.target`), not the one on screen easing toward it (was: `zoom.magnification()`).
     const magnification = perceptionMagnification(zoom.state(), zoom.target());
+    // ENEMY-RAISE ER-1b (research 321 s7.7): the passes in the original's order -- the enqueue pass's rejections and the
+    // inactive clears first, then the count from the marks as they then stand, then the completed queries (below).
+    const queries: [number, PerceptionLook][] = [];
     for (const [id, alive] of living) {
-      const feet = remote.feet?.(id) ?? null;
-      if (!feet || !alive) { perception.step(id, 'inactive', dt); lastFeet.delete(id); continue; }
+      // SIGHT-POINTS (LATER 793; research 321 s4.1.1 point 8, s7.5; reading, pending review): the target's point is its
+      // posed neck node -- slot +0x38 `FUN_005a3160` (D:L460155-460161, body+0x30c, named at `FUN_00553ea0`
+      // D:L419620-419623) -- both the cone's test point and the sight's end (`FUN_005cc120` D:L483236-483237, D:L483282).
+      // A body the page does not draw has no node to read: not active, as a body gone. Was: the feet + `EYE_HEIGHT`.
+      const feet = remote.feet?.(id) ?? null, target = feet && alive ? remote.neckAt?.(id) ?? null : null;
+      if (!feet || !alive || !target) { perception.step(id, 'inactive', dt); lastFeet.delete(id); continue; }
       const prev = lastFeet.get(id);
       lastFeet.set(id, feet);
-      const target: [number, number, number] = [feet[0], feet[1] + EYE_HEIGHT, feet[2]];
       let look: PerceptionLook = perceptionLook({
         alive, distance: Math.hypot(feet[0] - own[0], feet[1] - own[1], feet[2] - own[2]),
         apex: [camEye.x, camEye.y, camEye.z], forward: [camForward.x, camForward.y, camForward.z], target, magnification, mid,
         speedSquared: prev ? ((feet[0] - prev[0]) ** 2 + (feet[2] - prev[2]) ** 2) / (dt * dt) : 0, seen: true,
       });
+      // The sight: the observer's head to the target's neck (`FUN_0060bc40` D:L516713-516729 submits the job's two points),
+      // its visibility over 0 by `PERCEPTION_SIGHT_READING`'s surfaces.
       if (look === 'seen' && grid) {
-        const distance = Math.hypot(target[0] - a.eye[0], target[1] - a.eye[1], target[2] - a.eye[2]);
-        if (crosshairPick([{ id, distance }], pickSurfaces(grid, a.eye, target, material)).picked !== id) look = 'unseen';
+        const distance = Math.hypot(target[0] - head[0], target[1] - head[1], target[2] - head[2]);
+        if (crosshairPick([{ id, distance }], pickSurfaces(grid, head, target, material)).picked !== id) look = 'unseen';
       }
-      perception.step(id, look, dt);
+      if (look === 'seen' || look === 'unseen') queries.push([id, look]);
+      else perception.step(id, look, dt);
     }
+    // ENEMY-RAISE ER-1: the controller's count (`FUN_005c9b30` D:L482090-482132; `./reticle` `enemyCount`): marked, active
+    // (the room's alive flag) and sharing no team bit with the page's seat -- a seat by its side, an escortee by the round's
+    // type (ESCORT's VIP, else a hostage; `ENEMY_COUNT_FILTER_READING`). The page's frame order (the HUD frame after the
+    // body's, so the raise reads the last frame's count) is within SCOPE.md U3's one frame.
+    // ER-1b (research 321 s7.7; the order proven for the measured conditions, its mechanism a reading, pending review): the
+    // count is taken BEFORE this frame's completed queries are stepped. The dispatcher zeroes `ctrl+0xc0` (D:L482090) and,
+    // per record, adds one for a mark bit 0x200 already set (D:L482130-482132) before it takes that record's completed
+    // query, re-decides `+0x18 >= 1` and sets or clears the mark through slot +0xac (D:L482204-482220) -- so a threshold
+    // mark or clear is counted one pass later. A rejection clears the mark earlier in the frame, in the enqueue pass
+    // (`FUN_00594cf0` D:L453085-453086 -> `FUN_005ca9f0` D:L482555-482566, its query dropped), and a target no longer
+    // active is not counted and is cleared (D:L482115-482129, D:L482176): both stepped above, so they drop mark and count
+    // on the same frame. The PINE rows of r0004 (9 ungapped threshold crossings, the count a row after the mark; every
+    // rejection on the same row) measure it. Was: the count after the whole step, a frame early after a threshold mark or
+    // clear.
+    const mine = net.client.role === 'player' ? net.client.team : null;
+    const hostages = net.hostages?.() ?? null, gameType = net.gameType?.() ?? null;
+    enemiesIdentified = mine === null ? 0 : enemyCount(perception, seatWord(mine), (id) => {
+      if (hostages?.has(id)) return escorteeWord(gameType);
+      const team = remote.teamOf?.(id) ?? null;
+      return team === null ? null : seatWord(team);
+    }, (id) => living.get(id) ?? false);
+    for (const [id, look] of queries) perception.step(id, look, dt);
   };
 
   return {
@@ -1136,6 +1282,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       if (!mounted) mountedTrigger = false;
       play.setRaiseTimes(mounted || hands?.itemUp() ? ZERO_RAISE_TIMES : RAISE_TIMES);
     },
+    suspendTrigger,
     // DEAD: the dead's controller (`FUN_00592560` L451642-451730) takes the respawn press alone -- a held trigger lets go.
     beforeNet: () => { if (walk.isDead() && fire.triggerHeld()) fire.release(); },
     fireFrame: (dt, walking) => {
@@ -1148,11 +1295,23 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       // nothing of the rifle's stands frozen here through the mount -- its reload or after-shot was cut or carried then.
       const mounted = hands?.mounted() ?? false;
       if (mounted && fire.triggerHeld()) fire.release();
-      if (!mounted) fire.update(dt);                   // W2.5: the reload, the rate, a held trigger's rounds, the tracer's one frame
+      // TRIGGER-SWAP (`triggerOwed`): a press the hands took, still held, is the firearm's once they hand it over -- as a
+      // press landing now, with the pull count their item raised in the hold (`Fire.pull`'s `carried`); not out of the
+      // walk, under the round screens, behind a screen holding the input, nor for the dead (each lets it go).
+      if (!walking || screens() || d.blocked() || walk.isDead()) { triggerOwed = false; owedPulls = 0; }
+      if (triggerOwed && !mounted && !fire.triggerHeld()) {
+        const carried = hands ? hands.heldPulls?.() ?? null : 0;
+        if (carried !== null) { const n = owedPulls + carried; triggerOwed = false; owedPulls = 0; fire.pull(n); }
+      }
+      if (!mounted) fire.update(dt);                  // W2.5: the reload, the rate, a held trigger's rounds, the tracer's one frame
       else { fire.mountWait(dt); fire.tracerFrame(); } // PAR-54: mounted, the turret's tracer still goes after its frame; LATER 526 R1: the refused take's wait runs
     },
     effectsFrame: (dt, camera) => { effects.update(dt, camera); },   // EFFECTS: the zAnim effect runs, the casings, the particles
     aimReticle: (dt) => {
+      // THREAT-MARKS: the HUD's per-frame pass (`FUN_00216de0`, from the HUD update `FUN_00216770` D:L70325, before
+      // ChangeReticule and the draw), its breadths and alphas to the reticle's eight quads.
+      threat.frame(dt);
+      reticle.setThreat(threat.values());
       const aim = walk.aim();
       if (!aim) return;
       // The reticle on the aim point (FUN_00297410's, 1000 ahead along the look): the frame's centre at rest.
@@ -1234,7 +1393,11 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     showReticle: (renderer, walking, tacMap, scoreboard, spawned) => {
       // No reticle while dead -- the death camera to the spawn (`FUN_00216770` L70413: ChangeReticule -1; `reticleShown`).
       // PAR-94 B2: none before the room's spawn of the page either (the HUD's actor gate, `FUN_001f7ff0` D:L56631).
-      reticle.setVisible(reticleShown({ walking, spawned, dead: walk.isDead(), tacMap, scoreboard, screenUp: d.net()?.screenUp() ?? false }));
+      const screenUp = d.net()?.screenUp() ?? false;
+      reticle.setVisible(reticleShown({ walking, spawned, dead: walk.isDead(), tacMap, scoreboard, screenUp }));
+      // THREAT-MARKS (THREAT_DEAD_FADE_READING): the marks' gate is the reticle's but the death, which hides quads 0-3 only;
+      // under the tactical map, the scoreboard and a round screen, hidden with the reticle (THREAT_SCREENS_HIDE_READING).
+      reticle.setThreatGate(reticleShown({ walking, spawned, dead: false, tacMap, scoreboard, screenUp }), walk.isDead());
       reticle.render(renderer);
     },
     feedHud: (walking, extra = {}) => {
@@ -1272,6 +1435,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     clearMap: (map) => {
       reticle.setBitmaps(map.reticle, map.hud?.[FONT_TEXT_01.texture] ?? null);   // NU-3b C4: the target's name's font
       fire.reset();                                   // a new map: no marks, full magazines
+      threat.reset();                                 // THREAT-MARKS: the actor's zeroing at the match's load (THREAT_RESET_READING)
       effects.setData(null);                          // EFFECTS: the old map's effects go; the new map's follow it
       effects.setAlphaPass(null);                     // LATER 593: the old world's alpha pass goes with it
       fire.setMarks(null);
@@ -1340,6 +1504,22 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       // round's end past a body (`tracerTo`, P12b), else `to` (research 81 s13). The page's own rounds never come here.
       const feet = walk.feet();
       if (feet) sound?.roundPast?.(e.from, e.tracerTo ?? e.to, feet);
+      // THREAT-MARKS (research 321 section 2.6): every enemy round the room sends is a release (`FUN_005be9a0` D:L475604 ->
+      // `FUN_005c5340`'s threat block, one per pellet, from the muzzle: the room's `from`) -- gated by the fired record's
+      // stored `Sound_Radius` (`WeaponRecord.soundRadius`, `+0x30`; the shot's item by id, as `NetPage`'s `recordOf`; an
+      // item with no record lights nothing, `FUN_005c3740` returning none) and the 1100 cap. Whichever way it is aimed.
+      const table = d.map()?.arsenal?.table ?? loadouts.tables();
+      const record = table?.records.get(e.weapon.id) ?? table?.turretRecords?.get(e.weapon.id) ?? null;
+      if (record) threatRelease(e.from, id, record.soundRadius ?? 0);
+    },
+    threat,
+    threatThrow: (kind, from, owner) => {
+      // THREAT-MARKS: the thrown or launched item's projectile record, by its name (the room's `grenade.kind`); its raw
+      // `Sound_Radius` x `UNITS_PER_METRE` is `+0x30` (`FUN_003cda30` D:L322484-322488). No record: nothing lit.
+      const table = d.map()?.arsenal?.table ?? loadouts.tables();
+      const item = table?.arsenal.byName.get(kind);
+      const record = item === undefined ? undefined : table?.throwables?.get(item.id)?.record ?? table?.rounds.get(item.id)?.record;
+      if (record) threatRelease(from, owner, record.soundRadius * UNITS_PER_METRE);
     },
     roundImpact: (e) => { if (!pageHidden()) effects.onRound(e, null, false); },   // INT-NET-2: the own round's blood, the room's body hit (a hidden tab's: none, `onVisibility`)
     turretCone: () => {
@@ -1395,6 +1575,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       reticle.setBitmaps(null);                         // its textures and materials freed (`Reticle.clear`)
       if (lensOn) { setLensRows(null); setNightVision(null); lensOn = null; }   // the page-wide lens let go
       play.setWeaponInput(() => ({ trigger: false, aiming: false }));
+      walk.setRaiseSource?.(null);                     // ER-2: no page, no raise sent
       heldKit = { rifle: null, pistol: null };
     },
   };

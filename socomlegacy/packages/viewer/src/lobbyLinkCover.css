@@ -1,0 +1,7 @@
+/* OT.R121's cover (`./lobbyLinkCover.ts`; product track, a browser adaptation's own element): one page element over
+   the front end's canvases while a lobby link's login path runs behind it. Its look as the cover shipped it; in a sheet,
+   not in a script's inline style (the viewer chrome's rule, `test/chrome_classes.test.ts`). */
+#lobby-link-cover {
+  position: fixed; inset: 0; z-index: 2147483000; background: #000; color: #ccc;
+  display: flex; align-items: center; justify-content: center; font: 16px sans-serif; letter-spacing: 0.04em;
+}

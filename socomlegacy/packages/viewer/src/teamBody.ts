@@ -3,7 +3,8 @@ import type { LoadedBody } from './body';
 import type { Stance } from './mover';
 import type { Team } from './net/protocol';
 import { bodySkeleton } from './play';
-import { ESCORTEE_IDLE_CLIPS, IDLE_CLIPS } from './simMap';
+import { ESCORTEE_IDLE_CLIPS, IDLE_CLIPS, type LeanClips } from './simMap';
+import { leanClip } from './traversal';
 
 /**
  * A player's body by side (2026-09-30, the owner's play test of e373be70: the page's own Terrorist wore the SEAL) and,
@@ -98,7 +99,8 @@ export class OwnBody<V> {
 }
 
 /** A side's hit body for the room (`@s2u/match` `Room` `HitBody`): a skeleton and its three stance idles. */
-export interface HitBodyOfPage { skeleton: Skeleton; idles: Record<Stance, MotionClip | null> }
+/** LEAN-HIT: `leans`, the six lean clips (`./simMap` `SimSkeleton.leans`), absent for a hostage (it never peeks). */
+export interface HitBodyOfPage { skeleton: Skeleton; idles: Record<Stance, MotionClip | null>; leans?: LeanClips }
 
 /**
  * The in-page room's hit bodies (`./net/loopback`), from the page's own bodies and clips -- each side's types, as the
@@ -113,11 +115,14 @@ export function hitBodiesOfPage(map: MapBodies, clips: { clips: readonly MotionC
   const idles = { stand: idle(IDLE_CLIPS.stand), crouch: idle(IDLE_CLIPS.crouch), prone: idle(IDLE_CLIPS.prone) };
   // HX-2: the hostages at the No_weapon set's idles, as the server's `TypeSkeletons.escortees` (no prone: the bind pose)
   const civ = { stand: idle(ESCORTEE_IDLE_CLIPS.stand), crouch: idle(ESCORTEE_IDLE_CLIPS.crouch), prone: idle(ESCORTEE_IDLE_CLIPS.prone) };
+  // LEAN-HIT (issue #752): the sides' lean clips, as the server's `SimSkeleton.leans` (`./traversal` `leanClip`)
+  const lean = (k: Stance): { l: MotionClip | null; r: MotionClip | null } => ({ l: idle(leanClip(k, -1)), r: idle(leanClip(k, 1)) });
+  const leans: LeanClips = { stand: lean('stand'), crouch: lean('crouch'), prone: lean('prone') };
   const made = new Map<LoadedBody, HitBodyOfPage>();
   const of = (b: LoadedBody | null | undefined, at = idles): HitBodyOfPage | null => {
     if (!b) return null;
     let h = made.get(b);
-    if (!h) { h = { skeleton: bodySkeleton(b), idles: at }; made.set(b, h); }
+    if (!h) { h = at === idles ? { skeleton: bodySkeleton(b), idles: at, leans } : { skeleton: bodySkeleton(b), idles: at }; made.set(b, h); }
     return h;
   };
   const side = (types: readonly (LoadedBody | null)[] | undefined, first: LoadedBody | null | undefined): (HitBodyOfPage | null)[] =>

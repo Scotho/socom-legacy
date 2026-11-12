@@ -20,7 +20,7 @@ import { expectedPresses, fewestPresses, labelHolds } from './pressSearch';
 const FIXTURES = process.env.S2U_TEST_FIXTURES ? resolve(process.env.S2U_TEST_FIXTURES) : resolve(import.meta.dirname, '../../../../../test-fixtures');
 /** How many kits a side is held to the search over (the closure's first, breadth first). */
 const KITS_PER_SIDE = 600;
-const MISSIONS = ['MP2', 'MP7', 'MP51', 'MP72'].filter((m) => existsSync(resolve(FIXTURES, `RUN/${m}.ZDB`)));
+const MISSIONS = ['MP2', 'MP6', 'MP7', 'MP51', 'MP72'].filter((m) => existsSync(resolve(FIXTURES, `RUN/${m}.ZDB`)));   // DF-11: MP6 (Desert Glory's release; its fixture is committed)
 const present = MISSIONS.length > 0 && ['RUN/UIZANIM.ZAR', 'RUN/UI/READERC.ZAR', 'RUN/LOCALE/STATES/UIMNLOC.ZAR', 'RUN/ZWEAPON.ZAR']
   .every((p) => existsSync(resolve(FIXTURES, p)));
 
@@ -82,15 +82,19 @@ describe.skipIf(!present)(`the loadout editor on the fixture tree's maps${presen
 /**
  * MU2-4: the editor's missions on the disc's own mission table (`RUN/READERC.ZAR :: missionlist.rdr`, read by the
  * opened image's `readMissionList`, `../../createGameHost` `missionsFromReaderc`): CREATE GAME's rows, in the table's
- * order and by its names -- the release's four as `createGameCommands.test.ts` (packages/ui) reads them off the disc,
- * VIGILANCE, CROSSROADS, FROSTFIRE, NIGHT STALKER -- and a served offer's maps in the same order, Medley and Random out.
+ * order and by its names -- the release's eight as `createGameCommands.test.ts` (packages/ui) reads them off the disc,
+ * VIGILANCE, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT GLORY, NIGHT STALKER, THE RUINS (V13-2, V13-3, DF-14) -- and
+ * a served offer's maps in the same order, Medley and Random out.
  */
 const TABLE_PRESENT = existsSync(resolve(FIXTURES, 'RUN/READERC.ZAR'));
 describe.skipIf(!TABLE_PRESENT)(`the loadout editor's missions on the fixture tree's missionlist.rdr${TABLE_PRESENT ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
-  it('the release\'s four in CREATE GAME\'s order and names; a served offer in the table\'s order', async () => {
+  it('the release\'s eight in CREATE GAME\'s order and names; a served offer in the table\'s order', async () => {
     const table = await readMissionList(new FsAssetSource(FIXTURES));
     expect(table.filter((m) => m.multiplayer)).toHaveLength(22);
-    expect(missionRowsOf(table, null).map((r) => [r.mission, r.name])).toEqual([['MP51', 'VIGILANCE'], ['MP72', 'CROSSROADS'], ['MP2', 'FROSTFIRE'], ['MP7', 'NIGHT STALKER']]);
+    expect(missionRowsOf(table, null).map((r) => [r.mission, r.name])).toEqual([
+      ['MP51', 'Vigilance'], ['MP71', 'Fish Hook'], ['MP72', 'Crossroads'], ['MP1', 'Blizzard'], ['MP2', 'Frostfire'],
+      ['MP6', 'Desert Glory'], ['MP7', 'Night Stalker'], ['MP12', 'The Ruins'],
+    ]);
     const every = table.filter((m) => m.multiplayer).map((m) => m.number);
     expect(missionRowsOf(table, [...every].reverse().concat([0xfe, 0xff])).map((r) => r.number)).toEqual(every);
     expect(missionRowsOf(table, [7, 2]).map((r) => r.mission)).toEqual(['MP2', 'MP7']);

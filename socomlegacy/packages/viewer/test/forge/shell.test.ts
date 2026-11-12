@@ -618,8 +618,9 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     expect(api.read().ready).toBe(true);
     // FUI-22 (D5): the Local files panel (the creator's pack loading) joins the right dock last, so six draw the tabs
     // even before the agent's dock is handed in. View controls live in the viewport dropdown, not a World panel.
-    // The Environment panel (World: the map's light rig, fog, night and shadows, read only) between Rules and Settings.
-    expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Environment', 'Settings', 'Starter experiences', 'Local files']);
+    // The Environment panel (World: the map's light rig, fog, night and shadows) between Rules and Settings, its summary
+    // "Light rig" (OT.R112: the contributor's title, `../../src/forge/panels/environmentPanel`).
+    expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Light rig', 'Settings', 'Starter experiences', 'Local files']);
     const panels = [...document.querySelectorAll<HTMLDetailsElement>('.fx-right > details.fx-panel')];
     // The Object tab shows at mount; Environment and Settings sit in World's (closed until it shows), Rules starts folded.
     expect(panels.map((d) => d.open)).toEqual([true, true, false, false, false, false, false]);
@@ -652,7 +653,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
       menuSection: () => [{ id: 'panel-agent', label: 'Connect your agent' }],
       mount: (host, ctx) => { expect(ctx.forge.status().mode).toBe('forge-editor'); host.append(document.createElement('section')); return { dispose: () => undefined }; } };
     const shell = await mountForge(document, { panels: [Promise.resolve(late)] });
-    await vi.waitFor(() => expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Environment', 'Settings', 'Connect your agent', 'Starter experiences', 'Local files']));
+    await vi.waitFor(() => expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Light rig', 'Settings', 'Connect your agent', 'Starter experiences', 'Local files']));
     expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="agent"]')!.open).toBe(false);
     // FUI.R5: the panels draw the tabs, Object open (the e2e specs' Outliner and Inspector together; Settings under World).
     expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
@@ -672,7 +673,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Object', 'World', 'Content']);
   }, 90_000);
 
-  it('A4 fix-up: in tabs (the agent dock handed in), every dock control the e2e specs drive sits in an open panel -- Settings opens with Edit', async () => {
+  it('A4 fix-up: in tabs (the agent dock handed in), every dock control the e2e specs drive sits in an open panel -- Settings shows with World', async () => {
     const { mountForge } = await import('../../src/forge/page');
     const late: ForgePanel = { id: 'agent', title: 'Connect your agent', dock: 'right', order: 50, defaultOpen: false, padLegend: [], tab: 'Agent',
       mount: (host) => { host.append(document.createElement('section')); return { dispose: () => undefined }; } };

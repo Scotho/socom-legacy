@@ -335,7 +335,7 @@ slid. The game plays `seal_run_90r/l` at full stick (1.18x), `seal_rstrafe_fast`
   state 8), no SEAL clip carrying `NoHeadlooks`.
 - **The raise weight** (`FUN_00286b80(actor+0x1160)`, the WEAPON workstream's `./weaponRaise`) now reaches the
   animator (`MoverSnapshot.aimWeight`): the twist runs only over 0 (439192) and is scaled by it; with the rifle down --
-  5 s after the trigger -- the upper body no longer takes the pitch, and the head look runs. The launcher anim set
+  5 s after the trigger, or after the last enemy the perception marked (research 321 s4.1.1 point 7) -- the upper body no longer takes the pitch, and the head look runs. The launcher anim set
   (`DAT_0044d408`) forces 1 (not the SEAL's).
 - **The jump's rule** (`FUN_0057e1b0`): the top action's entry must play a **looped** motion
   (`FUN_005551a0(entry+0x28, 0x40)`; bit 0x40 is the motion's looped bit, set by `FUN_0028dc90` from `+0x49` bit 6).
@@ -718,6 +718,298 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
 - **The head look**: the controller's `FUN_005e0010` test (forward at priority 3) is not read; the rotator's clamp
   (`FUN_005ae040`) is left out -- no request reaches behind the shoulder.
 - **Not applied**: the eyes and lids (no nodes); the bots' modes (§6b).
+- **`AIR_SEGMENT_DIRECTION_READING`** (`mover.ts`, `'velocity'`; Craig's loose jump batch, 2026-11-08; reading,
+  pending review): the airborne body's records lie along the tick's move with the body's vertical speed in it on every
+  60 Hz tick (`fall`), where the 30 Hz height step (PF-03) left half the ticks with a level `dy` and laid the records flat
+  and low. The original's one tick a game frame always carries the fall in its displacement (`FUN_0054d9a0`
+  D:L416501-416530), normalised in three axes for the records (`FUN_0054aa30` D:L415134-415166). Capture comparison
+  (r0004 jump-near-wall, M51 g19733; `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/jump-near-wall/RESULTS.md`):
+  pressed 17.43 out (the port's run-up presses at 16.66) the port clears the 14-tall face in one arc: the hard landing
+  (type 11) about 1.08 s after the press against the capture's 1067 ms, apex +16.18 against +15.77, 50.78 past the face
+  against 49.09 (pinned in `weaponLine.test.ts`'s JUMP-AIR cases); before, it met the face on a level tick and climbed it. Moves the pins of
+  `bridgeWedge.test.ts` (the crossing-frame fin and rim, the MP2 walk hash, the Crossroads slot case x 1672, which now
+  lands in the slot -- as LATER 620 reads the original -- and walks out in 7 of 8 headings), `segmentBridgeWedge.test.ts`
+  (its fin, held at -2.5 from the first tick; the playtest fall landing at 57.55, farther back before the fin) and
+  `segmentBody.test.ts`'s step-up during a fall (feet 7 and over land on the rim; feet 6 from 2.1 short only) --
+  re-pinned 2026-11-08 with these reasons in each test. Owed: a capture of a fall past a rim.
+- **`AIR_STEP_UP_READING`** (`traversal.ts`, `'not-in-launch'`; the same batch; **proven** for the running jump's launch
+  at one face by the capture-scored spec, the code's cause unread): the automatic step-up (class 4, 5 < h <= 10) does
+  not start in the launch; the press's jump-grab is unchanged. The capture's 6.95 case swept the whole band with the
+  contact set (`+0x10ac` every airborne frame) and CLIMB offered and never stepped up (types 8, 10, 2), though
+  `FUN_00593500` D:L452279-452290 -> `FUN_0059d980` -> `FUN_005b3ce0` D:L469263-469276 -> `FUN_005b2620` ->
+  `FUN_00580b70` would push it; what refuses it is unread (upstream; perhaps the stored contact's life in the air,
+  `FUN_005483d0` D:L413618-413671). Scoped to the launch (review 1 F3): a walk-off fall, a dive, a knock and the bots
+  keep the step-up, unevidenced either way. Pinned by `weaponLine.test.ts`'s two JUMP-AIR cases (red with `'any'`:
+  the port steps up mid-air and lands on the top). Owed: the refusal read, or a trace of an airborne approach.
+- **`AIR_PROBE_LIFT_READING`** -- retired 2026-11-09 by PROBE-ORIGIN (below; was `mover.ts`, `'r0004-floor'`; the same batch; **proven** for the launch: a memory trace
+  of r0004 compared value for value over 2034 frames to 0.0001, held by `jumpAir.test.ts`'s pin of the traced 11.480 and
+  the r0004 code read below; review 2 N2): in the running jump's launch the airborne floor pick's origin sits 11.48 over the feet
+  (`PROBE_LIFT_FLOOR_STAND_R0004`), not the port's former step lift 5.5. `FUN_005b0840` (D:L467221-467228) adds the
+  skeleton root's posed height (the translation row of the matrix at `vtbl[0x88]() + 0xc`; socom_pc research 23 s1.2);
+  r0004's twin (0x5b6620) floors it by posture (0x5b67f8-0x5b6844: 11.48, `0x4137ae14`, standing; 5.0 crouched; else
+  0), so the lift is max(the root, the floor); r0001 has no floor (D:L467252-467257). The launch's root is 10.57 on
+  every key (`RUNNING_JUMP_ROOT`, pinned against the disc in `jumpAir.test.ts`), under the floor. The trace (PCSX2 r0004
+  slot 5, 3 trials, `agent-mail/evidence/jump-air/ORIGIN-TRACE.md`; the harness column on `agent/eph-origin`) read
+  11.480 in every launch frame, 11.480 standing, walking and running, 5.504 crouched, up to 15.06 in the standing jump
+  (its clip's root over the floor), and the rule fits all 2034 frames to 0.0001. *History:* this batch's first text
+  took the root alone (10.57) and called the spawn image's 5.5 decayed (review 1 F2: it is the crouched player's root,
+  `STANCE` 5.504); the trace refuted the 10.57. The window reaches the feet + 12.48. The rule holds for every state, but
+  JUMP-AIR takes it in the launch alone: the ground and the other airborne states keep 5.5, a named departure, LATER
+  785. Crossroads' cart1 (top 56.0) to tent_beige's edge (76.9, 19.4 away) is out of reach under 5.5 (highest feet
+  67.5, window 74.0; 0 of 156 swept runs) and within reach under the launch's lift -- a geometry sweep, no capture
+  (`agent-mail/evidence/jump-air/probes/zzProbeCart.test.ts`: 25 of 156 swept runs land on the tent at 11.48; 19 of 156
+  at the first text's 10.57); whether
+  the console makes the jump is not captured. The M51 captures' pins hold under it. Pinned by `jumpAir.test.ts` (the
+  lift 11.48; a plank 20 over the feet taken in the launch, not in `fall`; red with `'step'`).
+- **PROBE-ORIGIN: the floor probe's origin for the ground and every airborne pick** (LATER 785; 2026-11-09,
+  `agent/probe-origin`, Craig's word in seat redotcom-99, "Own batch in mega"; simulation track; reading (the movement seat's review, four rounds, final PASS high, per the merge dc4ac5222)
+  for the code, the posture 0 and 1 values **proven** by the r0004 memory trace). The rule, r0004's twin of
+  `FUN_005b0840` (0x5b6620) at 0x5b67f8-0x5b6844: the probe's origin over the feet is max(the skeleton root's posed
+  height on the previous frame, C(posture)), C = 11.48 (`0x4137ae14`) when posture (`actor+0x174`) is 0, 5.0 when 1,
+  else 0; r0001 has no floor (D:L467252-467257) and r0004 is the spec (OT.R97). The trace
+  (`agent-mail/evidence/jump-air/ORIGIN-TRACE.md`, PCSX2 r0004 slot 5, 3 trials, the trials identical; the rule fits all
+  2034 frames to 0.0001) reads 11.480 standing still, walking and running and in the running jump's launch (root 10.05
+  -> 10.57, under the floor), 5.504 crouched (posture 1, the crouch root over 5.0), up to 15.059 in the standing jump
+  (its clip's root, one frame lagged) and 5.508-10.863 through stand -> crouch. The port (`mover.ts`
+  `PROBE_LIFT_FLOOR_R0004` `{ stand: 11.48, crouch: 5.0, prone: 0 }`, `probeLiftOf(posture, root)`, `Walker.probeLift`)
+  takes it at every pick the mover makes -- the ground step, the spawn (`place`), the slide, the tilt's normal, the
+  push-out, the fall and the airborne sub-step -- and the page's and the room's picks for a standing body
+  (`probeLiftOf('stand')`: the spawns, `floorUnder`, the drops' settle, the turret's steer and hold; a remote body's tilt
+  by its drawn stance, `REMOTE_PROBE_STANCE_READING`; the climb's settle by the walker's posture). The mover runs on the room with no posed skeleton,
+  so the root term is the mover's own: standing on the ground under the floor (the trace), so 11.48; crouched
+  `STANCE.crouch.rootY` 5.504; the launch `RUNNING_JUMP_ROOT` 10.57 under the floor, so 11.48 (as JUMP-AIR). A standing
+  body's window now reaches the feet + 12.48 where the port's former 5.5 reached 6.5: it takes a floor polygon up to
+  12.48 over its feet that no wall face stops (a top with no face toward it, a stair's side edge), and a standing spawn's
+  record lifted a unit takes a top up to 13.48 over it. The root's one frame of lag matters only where the root term
+  changes, which with the terms below is only at a stance transition and a crouch run's start, so the port carries no lag
+  of its own. *The key (fold of review 1 F2):* the floor is keyed on the stance word `actor+0x174`, the port's `stance_`
+  (OBF-23's label, `mover.ts` `PlaySnapshot.stanceState`; a crouch run keeps the word at 1, D:L444175-444187), not the
+  drawn `posture_`; the build's first text keyed it on `posture_`, which lifted a crouch run by 11.48. A crouch run (word 1
+  on the standing run's body) lifts by max(`CROUCH_RUN_PROBE_ROOT_READING` 10.02, 5.0) = 10.02. *What moved on the maps*
+  (the implementer's all-maps spawn sweep, a dev-disc probe kept as a scratch file: every start and respawn record of the
+  22 multiplayer maps, 4,591 records (an earlier report gave 6,029: a mis-added total, not a double count -- the same
+  probe's per-map lines, 16 maps of 96 and MP2 572, MP5 433, MP51 393, MP64 476, MP8 722, MP81 459, sum to 4,591), placed as the room places them -- the record lifted a unit, then the pick -- under
+  the base 6.5 window and the new 13.48, and each that moves stepped 2 s as a standing walker): FOUR records are
+  affected -- 3 place differently, only one of them onto a near-vertical face (normal y under `MAX_SLOPE_COS` 0.643) or an
+  invisible material, and MP8 respawn 0/326 places the same but rests elsewhere
+  (`MP8_RESPAWN_326_READING`, below; note only). *Method:* a sweep of LATER 785's effect compares placements AND rests -- a standing walker placed as the room
+  places the record and stepped 240 ticks (still stick) on each build -- so a changed rest is not missed. The rest
+  comparison over all 4,591 records (the base mover, 447cec264's, against the merged head ee68361ab; a dev-disc probe kept
+  as a scratch file, 2026-11-09) finds 4 rests that differ by more than 0.5, exactly these four: MP64 respawn 0/181
+  (88.23), MP8 respawns 0/300 (12.83), 0/326 (93.11) and 0/330 (13.40); no record that moved on base rests in place now.
+  MP8 respawns 300 and 330 (59.37 -> 72.19, 61.13 -> 74.53) snap onto `di_crates_land27` (mat 19 WOOD_THICK, normal y
+  0.975), 12.82 and 13.40 over the record, and rest there: the original snaps too (`FUN_005b5d40` D:L470198-470240 filters
+  by material and owner only). MP64 respawn 181 is `MP64_RESPAWN_181_READING` (below; note only). MP51's bot graph loses 4 directed
+  edges (`navigationGraphIdentity.test.ts`, re-pinned). Pinned by `probeOrigin.test.ts` (the values, a standing
+  floor taken at 12.4 and not 12.6, crouched 6.502 and not 6.51, prone 3.1 and not 3.25, a standing fall onto a plank 12
+  over its feet, a crouch run taking 10.9 and not 11.5, the air's stance roots, a transition's target value) and
+  `jumpAir.test.ts`.
+- **`MP64_RESPAWN_181_READING`** (*note only*: no constant holds it; PROBE-ORIGIN, the controller's word): MP64 respawn
+  181's record (1386.04, 9.32, 2435), under water at 9.32, is placed by the standing lift on `inv_di` at 18.16 (mat 3
+  INVISIBLE_DI, normal y 0.067), 8.84 over it, inside the window the record + 13.48. The code keeps the face as read: the
+  floor query's polygon test is 0x2dd130, which runs the VU0 microprogram vcallms 0x70 (the seat's source read:
+  FUN_002dd130 loads three polygon rows by _lqc2 and calls _vcallms(0x70); no function entry for 0x2dd150 in the
+  decompilation), so CDIPoly::GetIntersect is VU0 microcode outside the decompilation and the source cannot say whether
+  the original hits a near-vertical polygon there. In the port a body placed there is pushed off the face in its first
+  tick (r0004's near-vertical push, 0x554180-0x554354: 4.19 units) and, since LATER 833 (2026-11-10: the push is a
+  displacement, never a velocity, research 217 s2.8, reading), carries no speed: a bare walker, still, moves a further
+  2.30 units across in its second tick (airborne, velocity 0, at the face's height; that move's mechanism is not traced),
+  then falls straight down to the floor under the record, first grounded after its 18th tick, and rests at
+  (1391.30, 9.321, 2438.80), about 6.5 from the record, 6.42 under the water line (pinned by `probeOrigin.test.ts`; the
+  room's rest is not re-measured). Before LATER 833 the push's 4.19 units were carried as a 251 u/s take-off and the
+  body flew about 89 units to (1474.96, 15.105, 2438.84), 0.47 under the line (the room's (1472.73, 14.88, 2437.30),
+  about 0.66 under) -- the launch LATER 833 removed. The respawn ends wet either way, and the rest now differs from the
+  alternative, where r0004's GetIntersect skips near-vertical faces and the spawn stands in the water at 9.32, by those
+  6.5 units across. The
+  exchange fixture (`e2e/weaponExchangePlacement.ts`, a product-track fixture adaptation) settles a walker on a candidate
+  and refuses one that does not stay or rests wet, so it refuses respawn 181. Settled by an r0004 respawn capture at MP64 respawn 181 (filed for the two-client session
+  beside run 8), or the VU0 microprogram (vcallms 0x70 at 0x2dd130) disassembled.
+- **`MP8_RESPAWN_326_READING`** (*note only*: no constant holds it; PROBE-ORIGIN, the controller's word): MP8 respawn
+  0/326's record (1065.85, 102.86, 484.24) stands on a near-vertical floor, `land35/g3341` (mat 19, normal y 0.054); on both
+  builds the body is placed there at 102.86, slides and takes r0004's near-vertical push (0x554180-0x554354), and leaves it
+  in the air. Under the standing window (the feet + 12.48) the air pick takes `land35/g3343` (mat 0, normal y 0.611, the
+  same terrain chunk's steep face beside the record's) and the body rests on it at (1067.64, 111.92, 479.97), grounded and
+  dry. That face's normal y 0.611 is under `MAX_SLOPE_COS` 0.643, but the body rests on it because the face's column span
+  under the feet is 0.16, under `SLIDE_SPAN_MIN` 4 (`steepSlide.ts`, `slideEligible`; 0x54f3c8, research 201 s3), by
+  `SLIDE_SPAN_MEASURE_READING` `'column'`. Under `'vertices'` the polygon's extent is 10.52 and the body would slide, so
+  this rest also rests on that reading (`FUN_002dbfb0`'s two points), beside the VU0 question. Under the former +6.5 it fell to `land36/g3344` (mat 0, normal y 0.982, the ground below) at
+  (1066.56, 18.83, 478.52), grounded and dry: a 93-unit difference. Whether the original's floor query hits the
+  near-vertical record floor (VU0 GetIntersect, vcallms 0x70 at 0x2dd130, unread) and where its body ends are unknown; the
+  push's carried speed is unmeasured. Settled by an r0004 respawn capture at MP8 respawn 0/326, filed for the two-client
+  session beside run 8 and MP64 181. Pinned by `probeOrigin.test.ts`.
+- **PLANT-PROBE: B194's plant sweep under LATER 785** (a plain note, no reading: the name first filed for it,
+  MP9_SEAL_BASE_TOP_READING, was retired at the fresh review, 2026-11-09 -- nothing unread is left). The sweep
+  (`central/test/bombPlantSweep.parity.test.ts`) walks the room's own mover, whose floor probe is `FUN_005b0840`'s (queued
+  by the body tick `FUN_005506a0`, D:L417826); the base mover with the old 5.5 reproduces the old table exactly (a scratch
+  comparison). Only walks that start inside an object's footprint changed: the sweep places each 6 out at tent+5, and
+  MP9's plant node is inside its SEAL base (103 of 120 targets under `seal_base/tnt_shack_group/healthy/basedi`). From
+  inside, the one-sided side walls are never met, so the standing window takes the top: 27 MP9 walks end on basedi's top
+  (mat 19, 30.11, 12.28 over the shack floor 17.83; spots 58 -> 36), 2 of MP1's on the comshack stove
+  (`alaska4d_stove01`, mat 25, 272.73, 10.26 over the floor; the hand's ground fails the feet test, D:L477005, for 23
+  plants) and 3 more of MP1's end airborne, all started inside. A body walking in from outside meets the side walls in the
+  port (basedi 13 wall faces, the stove 12, all `isWallSurface`; the fresh review). The open part is the sweep's starts
+  inside solids, older than LATER 785: LATER 812. *The outside callers, audited* (source inspection, 2026-11-09; cites
+  corrected at the review): the room's spawn (`Walker.place` from the record + 1, `FUN_002b8100` D:L158793) and the
+  turret's steer and hold (`FUN_0059afd0` D:L456328+, the height the body's probe left, called from `FUN_005483d0`
+  D:L413943-413946) take the height the body's own probe gives -- the probe-take stage `FUN_00550570` (`FUN_005b0800`,
+  then `FUN_005b0420` at D:L417771) and the queue in `FUN_005506a0` (`FUN_005b0840`, D:L417826); the climb's settle reads
+  `+0x2e4` as the climb tick leaves it, and the copy `+0x2e4 = +0x404` is in `FUN_005af930` (D:L466784), called from
+  `FUN_00550ef0` (D:L418169) -- `FUN_00589aa0`'s own range (D:L446582-446648) shows no probe call; that `+0x404` is the
+  probe record's hit is the port's earlier reading (research 86 s6.3), not re-read here. The remote tilt is the same pick
+  on the remote's body (`REMOTE_PROBE_STANCE_READING`); `floorUnder` (a page instrument) and the drops' settle
+  (`DROP_SETTLE_ADAPTATION`) have no original. The only other ground query through `FUN_005b5d40` is the slide's downward
+  search `FUN_005b4f30` (D:L469684-469710, from `FUN_0054edf0` D:L417179), which the port stands in for with `move`'s
+  snap and does not route through the lift.
+  *LATER 812, done 2026-11-10* (`agent/plant-starts`; a test instrument, pending review): the sweep now starts each
+  walk where a placed body stays (`displaced`: its ground step's floor pick over 2 above the feet, or moved in still ticks;
+  else the next start around the spot). Found on the way: the AI grid is 2D and blind to solid boxes (`locate` FUN_0052dc70,
+  `traversable` FUN_0052c5c0 call all 73 basedi and 7 stove starts walkable). Re-pinned at d4d43c097 from the runner's dev-disc run (B194 and the
+  LATER 812 case green, 2/2); MP9's 5 starts inside basedi under a top beyond the window stay and are kept (LATER 812's row).
+- **`REMOTE_PROBE_STANCE_READING`** (`remotePlayers.ts`, `'drawn'`; PROBE-ORIGIN, review 2): a remote body's tilt pick
+  keys the lift on the snapshot's drawn stance, since the stance word does not reach a remote body (`snapshotOf`,
+  `net/body.ts` `bodyOf` carry the drawn stance and the Crouched flag only). A remote crouch-runner lifts by 11.48 where
+  the local mover takes 10.02; it moves only the drawn tilt's floor normal. Owed: the stance word on the wire.
+- **`CROUCH_RUN_PROBE_ROOT_READING`** (`mover.ts`, 10.02; PROBE-ORIGIN fold): the crouch run's root term, the lowest run
+  root the origin trace reads (case (a), action 2 frames: 10.02-10.79), under max() with the crouched floor 5.0, so 10.02.
+  The run root moves through its frames. Owed: the run clip's `skel_root` y per frame carried to the mover, one tick
+  lagged.
+- **`PROBE_LIFT_PRONE_READING`** (`mover.ts`, `PRONE_ROOT` 2.168; PROBE-ORIGIN): the prone body's root term, the prone
+  stance's root over r0004's prone floor 0, so the prone lift is 2.168 and its window the feet + 3.168. Untraced: the
+  origin trace has no prone row. Owed: a prone case of the same r0004 trace (`probe.ts --origin`, a sixth case script).
+- **`STANDING_JUMP_PROBE_ROOT_READING`** (`mover.ts`, `'floor'`; PROBE-ORIGIN): the standing jump (`seal_jump`, the feet
+  on the floor) lifts by the standing floor, 11.48. The trace reads its clip's root rising over the floor to 15.059 (one
+  frame lagged; ORIGIN-TRACE.md case (d)), but the mover carries no clip's root height (`actionRoots` keeps x and z; the
+  room has no posed skeleton), and a new animation path in the mover was out of the batch's scope. Owed: `seal_jump`'s
+  `skel_root` y per frame (a disc-pinned table) under max(), one tick lagged.
+- **`AIR_PROBE_ROOT_READING`** (`mover.ts`, `'stance-root'`; PROBE-ORIGIN, re-worded at the fold of review 1 F3): every
+  airborne state but the running jump's launch (a walk-off fall, a dive, the jump after its launch) keeps the stance's
+  ground root under max() -- standing under the floor, 11.48; crouched 5.504; prone 2.168 -- though the air clips' own
+  roots are not carried; only the launch was traced airborne (case (a)). Owed: a trace of a walk-off fall and a dive
+  (`probe.ts --origin`).
+- **`PROBE_LIFT_TRANSITION_READING`** (`mover.ts`, `'target'`; PROBE-ORIGIN): a stance transition (`standToCrouch`,
+  `crouchToProne`, `standToProne`, either way) lifts by the target stance's value from its first tick (the stance word
+  the mover wrote at the press, `stance_`). Owed: the root's own curve (the trace's 5.508-10.863 through stand -> crouch, case (e)) carried
+  per frame, one tick lagged.
+- **`JUMP_AIM_ROOT_BODIES_READING`** (`net/shotCone.ts`, `'crouched'`; JUMP-AIM-ROOT, 2026-11-11; reading, pending
+  review): which bodies' aim frames in the room stand on the posed root (`aimRoot`): a crouched body -- in the jump
+  action and, since the fold (the controller's blend-out ruling, 2026-11-11), whenever its posed root stands above the
+  crouch root 5.504, so the ease back to the crouch idle after the clip is covered (the capture below). Its reach: the
+  crouch walk's root (5.50-9.33 on the fixture disc's clips) and a stance change into the crouch (stand -> crouch from
+  11.484) stand on the posed root too, as the page's camera does; a still crouch does not move (the crouch idles pose
+  at 5.5039, 5.0313 and 4.7070, never above 5.504; its grid pinned unchanged). The page's start body
+  (`WalkMode.startBody`, OT.R80) takes the same rule on its own `Play` animator's root. The standing jump keeps the
+  stance's measured root 11.484, which `ROOT_POSE_SLACK_PLACEHOLDER` (4) was sized to cover (`seal_jump`'s
+  10.51-15.08), so its verdicts are the base's (pinned by `test/jumpAimRoot.test.ts`'s grids). Owed: the room's root
+  slack re-sized against the posed root on every body (the slack is the port's own tolerance; no original).
+- **`JUMP_AIM_ROOT_CLOCK_READING`** (match `room.ts`, `'last-tick'`; JUMP-AIM-ROOT): the instant of that root -- the
+  room's `HitPoser` as the last tick's `remember` posed it, one tick behind the command (a burst's commands share one);
+  the crouched jump's posed root moves at most 0.52 u a tick (the A = B walk). Owed: a capture of the page's eye against
+  the room's root through a crouched jump, or the pose stepped per command.
+
+**JUMP-AIM-ROOT (2026-11-11; reading, pending review).** The ghost-bullet report on live v0.4.18 (game 4180, MP6, room
+seat 3; agent-mail `evidence/ghost-bullets/`): a crouched, still body pressed jump, and its rounds at ticks 23117,
+23126 and 23133 were refused `cone: eye` (the claimed eye 5.2-9.4 u over the room's locus) and 23142 `cone: cone`,
+each dropped silently (LATER 876). The original plays `seal_jump` from a crouch with the stance kept (§0) and its
+camera reads the posed root (`FUN_0029a950` through `FUN_002869d0`, §0, §2.5); the page's camera rides its animator's
+posed root (`play.ts` `setPosedRoot`, `walk.ts`), so the page's eye rose with the clip's root while the room's aim frame
+stood on the crouch's measured root 5.504 with `ROOT_POSE_SLACK_PLACEHOLDER`'s 4 u (`net/shotCone.ts` `rigOf`, the
+frame's `moveRoot` null outside a traversal move). The room now carries the clip's root at the action's clock, as this
+section's "the clip's skel_root y per frame carried to the mover" asks for the probe: not by a table sampled in the
+mover but by the root the room already poses -- HIT-POSE's `HitPoser` (research 217 §3.6), the page's own `Animator` on
+the room's snapshot of the body, whose root is the clips' blended root by the page's own rule (the cross-fade from the
+crouch idle over the jump's `BlendTime`, `FUN_00287620`; `animator.ts`); `HitPoser.rootY`, read by `Room.aimRootOf` for
+`Room.aim`'s frame, `startBody` and `orderOrigin`'s fallback (the same body at the same instant). Chosen over sampling
+`seal_jump` in the room because the blend would be a second copy of the animator's rule, and the pose costs nothing more
+(the poser steps every body each tick already). The eye is bounded as before: the root is the clips' (at most
+`seal_jump`'s top, 15.08), plus the same slack, and only while the jump action plays on a crouched body. Unit tests (the
+fixture disc's MP2, `MOTION_P.ZAR`, `READERC.ZAR`; match `test/jumpAimRoot.test.ts`, viewer `test/aimRoot.test.ts`): the
+four recorded claims fired at the room's commands of the recorded jump clock are refused `eye` at the base and taken at
+the head (frame roots 10.603, 11.869, 14.974, 14.275 at 0.350, 0.500, 0.633, 0.750 s; the page copy's 10.629, 12.388,
+15.061, 13.797 a tick later); the room's root equals the page copy's posed root of the tick before over 58 jump commands
+(difference 0); a claim 12 u over the eye at 15.08 stays `eye`; the standing jump's, the still crouch's and the still
+stand's verdict grids are the base's. Still a reading: the two constants above. The jump's end that popped the
+recorded body to stand (LATER 873) and the `STANDING_JUMP_PROBE_ROOT_READING` probe lift (which this does not touch:
+the mover still carries no clip root) are unchanged.
+
+**JUMP-AIM-ROOT FOLD: the capture of the original (2026-11-11; the root's rise and fall from a crouch and the rounds
+mid-clip proven; the rest reading, pending review).** Shadow's capture (PCSX2 r0004, PINE reads, one client offline,
+3 trials, identical; the EPH scripts `tools/eph/scripts/ghost-*.txt` on `agent/ghost-bullet` 075c154f4; the
+evidence in the gate-runner's `shadow/out/2026-11-11/ghost-bullet/` folder, `probe1/probe.csv`): a SEAL crouched and
+still ~1.5 s presses Square once with R1 held. What it shows, **proven** (measured on the original running, compared
+value for value below):
+- **X while crouched and still plays the Jump clip with the stance kept**: actionId 18 (the crouch idle) -> 178
+  (`Jump`) at the first frame after the press, back to 18 at frame 30 (~1.0 s); stanceRequest 1 and posture 1
+  throughout; no pop to stand and no get-up clip; the feet never leave the floor (airborne 0, the height unchanged).
+  So the end of LATER 873's recorded jump (a pop to stand) is not the original's for a still player.
+- **The posed root (actor+0x2e8's node y) rises with `seal_jump`'s root and eases back to the crouch idle's after the
+  clip**: 5.504 -> 15.059 (frame 18) -> 11.258 (the clip's end) -> 5.504 (frame 44, ~1.5 s); from frame 9 (~0.33 s)
+  the standing jump's capture (10.797 -> 15.059 -> 11.258) reads the same root frame for frame -- the cross-fade from
+  the idle over by then.
+- **Rounds fire mid-clip**: the taps case (`ghost-crouch-jump-taps.txt`, `probe2/`: R1 pulsed at +300, +600 and +900
+  ms after the press, the rise, the peak and the way down) fired three rounds, the magazine 30 -> 27 (shadow's read of
+  the case's frames, 3/3); the original refuses no round for the jump.
+Not measured: the camera eye itself (cam+0xd8; r0004's camera pointer is not known) and where the rounds land -- the
+eye following the posed root stays the reading of §0 and §2.5 (`FUN_0029a950` through `FUN_002869d0`).
+
+**15.08 against the capture's peak.** The summary relayed with the capture gave 14.812 "at ~+600 ms" as the peak; the
+probe's per-frame rows give **15.059** at frame 18 in every trial (14.812 is frame 17): the summary's series was
+sub-sampled (its reader prints a frame only when the state changes or the clock's ms mod 100 is under 34, which skipped
+frame 18). 15.059 against `seal_jump`'s key 12, 15.08 (§0): the frame sampling between keys, not the blend -- frame 18
+is the game's frame (18 + 1)/30 = 0.633 s into the clip, key 12 sits at 12 x 0.993/19 = 0.627 s (20 keys over the
+clip's 0.993 s, §0), so the frame is 0.006 s on toward key 13's 14.94 (15.08 - 0.14 x 0.006/0.052 = 15.064); the
+cross-fade from the crouch idle (`FUN_00287620`'s `BlendTime`) is over by frame 9 (the crouched and standing captures
+agree from there). The room's root at the same instant is 15.061.
+
+**The room against the capture** (match `test/jumpAimRoot.test.ts`, the fixture `CAPTURE_CROUCH_JUMP_ROOT`; unit-test
+evidence on the fixture disc's clips beside a capture of the original). Capture frame k (trials 2 and 3; trial 1 read
+the same curve one frame later) is the game's frame (k + 1)/30 s into the clip (its first frame's playPhase is one
+frame of the clip); the room's jump clock reads 1/60 s at the press's tick, so frame k is the room's tick 2k + 2 after
+it. The tolerance: the room's root (`Room.aimRootOf`) at frame k's tick within the capture's frames k - 1 .. k + 1
+(one capture frame either way: the capture's own timing is known to a frame, trial 1 against 2 and 3) plus 0.01 u (the
+probe writes three decimals); the peak within 0.01 of 15.059; the jump's end within two ticks of frame 30's. Nothing is
+tuned to it. Sample by sample (the room's at tick 2k + 2):
+
+| frame (ms into the clip) | capture | room | room - capture | frame | capture | room | room - capture | frame | capture | room | room - capture |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 (33) | 5.613 | 5.531 | -0.082 | 15 (533) | 13.408 | 13.393 | -0.015 | 30 (1033) | 11.207 | 11.207 | +0.000 |
+| 1 (67) | 5.940 | 5.749 | -0.191 | 16 (567) | 14.341 | 14.325 | -0.016 | 31 (1067) | 11.053 | 11.053 | +0.000 |
+| 2 (100) | 6.487 | 6.186 | -0.301 | 17 (600) | 14.812 | 14.806 | -0.006 | 32 (1100) | 10.797 | 10.797 | +0.000 |
+| 3 (133) | 7.255 | 6.842 | -0.413 | 18 (633) | 15.059 | 15.061 | +0.002 | 33 (1133) | 10.438 | 10.439 | +0.001 |
+| 4 (167) | 8.235 | 7.719 | -0.516 | 19 (667) | 14.970 | 14.971 | +0.001 | 34 (1167) | 9.977 | 9.979 | +0.002 |
+| 5 (200) | 9.133 | 8.707 | -0.426 | 20 (700) | 14.687 | 14.695 | +0.008 | 35 (1200) | 9.413 | 9.417 | +0.004 |
+| 6 (233) | 9.816 | 9.499 | -0.317 | 21 (733) | 14.254 | 14.275 | +0.021 | 36 (1233) | 8.747 | 8.752 | +0.005 |
+| 7 (267) | 10.282 | 10.076 | -0.206 | 22 (767) | 13.296 | 13.319 | +0.023 | 37 (1267) | 8.004 | 8.010 | +0.006 |
+| 8 (300) | 10.532 | 10.437 | -0.095 | 23 (800) | 12.318 | 12.342 | +0.024 | 38 (1300) | 7.340 | 7.345 | +0.005 |
+| 9 (333) | 10.604 | 10.603 | -0.001 | 24 (833) | 11.320 | 11.345 | +0.025 | 39 (1333) | 6.777 | 6.783 | +0.006 |
+| 10 (367) | 10.655 | 10.654 | -0.001 | 25 (867) | 11.254 | 11.254 | +0.000 | 40 (1367) | 6.318 | 6.322 | +0.004 |
+| 11 (400) | 10.733 | 10.732 | -0.001 | 26 (900) | 11.249 | 11.249 | +0.000 | 41 (1400) | 5.960 | 5.964 | +0.004 |
+| 12 (433) | 10.981 | 10.975 | -0.006 | 27 (933) | 11.256 | 11.256 | +0.000 | 42 (1433) | 5.706 | 5.708 | +0.002 |
+| 13 (467) | 11.420 | 11.414 | -0.006 | 28 (967) | 11.258 | 11.258 | +0.000 | 43 (1467) | 5.554 | 5.555 | +0.001 |
+| 14 (500) | 12.404 | 12.388 | -0.016 | 29 (1000) | 11.258 | 11.258 | +0.000 | 44 (1500) | 5.504 | 5.504 | +0.000 |
+
+Read: the clip (frames 9-24) within 0.025 u; the ease-down after the clip (frames 25-44) within 0.006 u, the room's
+animator easing from `seal_jump` to `seal_crouch` as the original does; the cross-fade in from the crouch idle (frames
+0-8) **one 60 Hz tick behind** the capture's -- the room's root at tick 2k + 3 is the capture's frame k there (5.613,
+5.940, 6.487, 7.253, 8.230, 9.130, 9.815, 10.284, 10.539), the largest gap 0.516 u at frame 4, inside the one-frame
+tolerance and under `ROOT_POSE_SLACK_PLACEHOLDER`. Whether the original's cross-fade starts on the press's own frame
+(`FUN_0028dc90`'s blend fields written before the frame's pose) or the port's a tick late is not read; owed with the
+cross-fade's first frame read there, or a capture at 60 reads a second. The room's jump action ends at tick 60, the
+capture's at frame 30 (tick 62).
+
+**The blend-out** (the controller's ruling on the capture): a crouched body's aim frame stands on the posed root
+whenever that root stands above the crouch root, not only in the jump action, so the ~0.5 s ease-down after the clip
+(5.7 u at its start) is covered (`aimRoot`; `JUMP_AIM_ROOT_BODIES_READING` above, its reach named there). Claims from
+the camera at the capture's post-clip roots (frames 30-34: 11.207, 11.053, 10.797, 10.438, 9.977) are taken at the
+fold's head (the frame roots 11.207, 11.053, 10.797, 10.439, 9.979); at the first build's (3d34f03572), whose frame
+stood on the crouch root once the action ended, the first three are refused `eye` and the last two fall inside the
+slack (the seat-box runs jf-3 and jf-5b). The anti-cheat bound is the clips' own root plus the same slack: a claim 12 u over the eye at 15.08 stays
+`eye`. A still crouch is unchanged (its idles never pose above 5.504; its grid pinned); a traversal move's root still
+wins (its grid pinned at the first build's and the fold's heads). The page's start body (`WalkMode.startBody`, the
+start lines `Fire.ray` measures, OT.R80 -- the first build's review, finding 3) now takes the same rule on its own
+`Play` animator's root (`setPosedRoot`, the camera's), as the room's `startBody` on its `HitPoser`'s: viewer
+`test/walkStartBodyRoot.test.ts`, match `test/jumpAimRoot.test.ts`. Still readings: the eye on the posed root (§0), the
+two constants above, the cross-fade's first tick; LATER 873 (the port's pop at the jump's end, now known a defect) and
+LATER 874 (the fourth recorded claim's `cone` refusal) stay open.
 
 ## 8. The numbers the tests pin
 

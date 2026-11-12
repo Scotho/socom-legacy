@@ -1,4 +1,4 @@
-export type PageId = 'news' | 'roadmap' | 'journey' | 'archive' | 'server' | 'status';
+export type PageId = 'news' | 'roadmap' | 'journey' | 'archive' | 'server' | 'status' | 'agent';
 
 export interface SourceLink {
   label: string;

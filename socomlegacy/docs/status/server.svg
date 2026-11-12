@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="284" viewBox="0 0 760 284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Server: 95% toward r0001 multiplayer compatibility">
-<title>Server: 48 done, 5 partial, 0 to do</title>
+<title>Server: 49 done, 5 partial, 0 to do</title>
 <rect x="0.5" y="0.5" width="759" height="283" rx="10" fill="#1a1a19" stroke="#33332f"/>
 <text x="24" y="46" font-size="20" font-weight="700" fill="#f2f2ee">Server</text>
 <text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">95%</text>
@@ -14,7 +14,7 @@
 <circle cx="319" cy="102" r="5" fill="#0ca30c"><title>SVC-05 Server texts: universe, policy, announcement — done</title></circle>
 <circle cx="334" cy="102" r="5" fill="#0ca30c"><title>SVC-24 ARMORY loadouts kept on the account — done</title></circle>
 <text x="24" y="123" font-size="13" fill="#f2f2ee">Rooms, games &amp; the bridge</text>
-<text x="736" y="123" font-size="12" fill="#a3a39c" text-anchor="end">8/8 · 100%</text>
+<text x="736" y="123" font-size="12" fill="#a3a39c" text-anchor="end">9/9 · 100%</text>
 <circle cx="259" cy="119" r="5" fill="#0ca30c"><title>SVC-06 Rooms and the game list: nine pairs, filters, map allowlist — done</title></circle>
 <circle cx="274" cy="119" r="5" fill="#0ca30c"><title>SVC-07a The bridge to the match's start — done</title></circle>
 <circle cx="289" cy="119" r="5" fill="#0ca30c"><title>SVC-07b The host role handed on before launch — done</title></circle>
@@ -22,7 +22,8 @@
 <circle cx="319" cy="119" r="5" fill="#0ca30c"><title>SVC-07c Each seat told its new rating and medal — done</title></circle>
 <circle cx="334" cy="119" r="5" fill="#0ca30c"><title>SVC-14a Each room's eligible ranks on the list — done</title></circle>
 <circle cx="349" cy="119" r="5" fill="#0ca30c"><title>SVC-15 Find player, the room's player list (0xdc), presence — done</title></circle>
-<circle cx="364" cy="119" r="5" fill="#0ca30c"><title>MAPS-4 The fourth default map, GET /maps — done</title></circle>
+<circle cx="364" cy="119" r="5" fill="#0ca30c"><title>MAPS-4 The default maps in CREATE GAME (six, OT.R58 amended), GET /maps — done</title></circle>
+<circle cx="379" cy="119" r="5" fill="#0ca30c"><title>SVC-07d A completed match moves on to the play list's next map — done</title></circle>
 <text x="24" y="140" font-size="13" fill="#f2f2ee">Stats, ladder &amp; ranks</text>
 <text x="736" y="140" font-size="12" fill="#a3a39c" text-anchor="end">9.5/10 · 95%</text>
 <circle cx="259" cy="136" r="5" fill="#0ca30c"><title>SVC-12a Per-match stats arithmetic — done</title></circle>
@@ -63,7 +64,7 @@
 <circle cx="274" cy="204" r="5" fill="#0ca30c"><title>SVC-23a The ladder's limits and the void — done</title></circle>
 <circle cx="289" cy="204" r="5" fill="#0ca30c"><title>SVC-23b Cheat signals and flags — done</title></circle>
 <circle cx="304" cy="204" r="5" fill="#0ca30c"><title>SVC-23c Flood limits — done</title></circle>
-<circle cx="319" cy="204" r="5" fill="#0ca30c"><title>SVC-23d The team's vote kick at the round's end — done</title></circle>
+<circle cx="319" cy="204" r="5" fill="#0ca30c"><title>SVC-23d The team's vote kick, at the deciding vote (r0004, R4B-08) — done</title></circle>
 <circle cx="334" cy="204" r="5" fill="#0ca30c"><title>SVC-23e The -972 rejoin refusal; spectators' VOTE ALL — done</title></circle>
 <circle cx="349" cy="204" r="5" fill="#0ca30c"><title>SVC-23f..h VOTE ALL's page half, the void past a restore, the bots' hit share — done</title></circle>
 <circle cx="364" cy="204" r="5" fill="#0ca30c"><title>HARD-SEAT, HARD-ROUND, the last resort, the origin gate, file modes — done</title></circle>
@@ -75,11 +76,11 @@
 <circle cx="304" cy="221" r="5" fill="#0ca30c"><title>RECONNECT-GHOST A quick reconnect keeps its body alive (OT.R59, an adaptation) — done</title></circle>
 <g><title>WATCH GAME's server side — partial</title><circle cx="319" cy="221" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M319,216 A5,5 0 0 0 319,226 Z" fill="#fab219"/></g>
 <line x1="24" y1="246" x2="736" y2="246" stroke="#33332f"/>
-<circle cx="29" cy="262" r="5" fill="#0ca30c"><title>done 48</title></circle>
-<text x="39" y="266" font-size="12" fill="#a3a39c">done 48</text>
+<circle cx="29" cy="262" r="5" fill="#0ca30c"><title>done 49</title></circle>
+<text x="39" y="266" font-size="12" fill="#a3a39c">done 49</text>
 <g><title>partial 5</title><circle cx="108" cy="262" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,257 A5,5 0 0 0 108,267 Z" fill="#fab219"/></g>
 <text x="118" y="266" font-size="12" fill="#a3a39c">partial 5</text>
 <circle cx="201" cy="262" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 0</title></circle>
 <text x="211" y="266" font-size="12" fill="#a3a39c">to do 0</text>
-<text x="736" y="266" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-10-24</text>
+<text x="736" y="266" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-11-09</text>
 </svg>

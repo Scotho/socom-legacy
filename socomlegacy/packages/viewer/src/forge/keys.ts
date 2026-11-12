@@ -91,6 +91,20 @@ export function forgeToolKeyLabel(tool: string): string | null {
   return i < DIGITS.length ? digit : `Shift+${digit}`;
 }
 
+/**
+ * The help card's tool rows (FP-1b; a browser adaptation, FG.R2): Q and the Select tool, then the plain number keys' tools
+ * and the Shift ones', each named by `nameOf` beside its key -- read from `FORGE_TOOL_ORDER` and `forgeToolKeyLabel`, so
+ * the card says what the keys do, never a list written beside them.
+ */
+export function forgeToolKeyHelp(nameOf: (tool: ForgeToolKey) => string): [string, string][] {
+  const keyed = FORGE_TOOL_ORDER.flatMap((t) => { const k = forgeToolKeyLabel(t); return k ? [{ t, k }] : []; });
+  const rows: [string, string][] = [['Q', `Tool: ${nameOf('select')}`]];
+  for (const group of [keyed.filter((x) => !x.k.startsWith('Shift+')), keyed.filter((x) => x.k.startsWith('Shift+'))]) {
+    if (group.length) rows.push([`${group[0]!.k} … ${group[group.length - 1]!.k}`, `Tools: ${group.map((x) => `${x.k} ${nameOf(x.t)}`).join(', ')}`]);
+  }
+  return rows;
+}
+
 /** The tool a key chooses (`forgeToolKeyLabel`'s inverse), or null. */
 function toolOfKey(e: ForgeKeyEvent): ForgeToolKey | null {
   if (e.code === 'KeyQ' && !e.shiftKey) return 'select';

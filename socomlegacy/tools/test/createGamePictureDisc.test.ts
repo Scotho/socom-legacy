@@ -10,6 +10,7 @@ import { rasterizeUiDrawList } from '../../packages/viewer/src/uiCompositorView'
 import { createGameRig } from '../../packages/ui/test/screens/createGameRig';
 import { rgbaToRgb, rgbToRgba, type Rgb } from '../captureImage';
 import { encodePng } from '../png';
+import { CREATE_GAME_ROWS } from '../../packages/viewer/e2e/createGameRows';
 
 /**
  * The PLAY LIST's picture on the page (web research 164 R164.6; the owner's report of 2026-10-06, "the lobby creation
@@ -28,10 +29,11 @@ const HAVE_DISC = DISC !== '' && ['RUN/UI/READERC.ZAR', 'RUN/UI/UICG_TXR.ZED', '
 /** `CGPic<n>`'s box in the frame: XPOS 25, YPOS 245, SIZE 258 x 130 (the layout's). */
 const PICTURE = [25, 245, 283, 375] as const;
 /**
- * The default maps (OT.R16's three, OT.R45's Night Stalker the fourth) by their AVAILABLE_MISSIONS row: the list holds
- * only them, in `missionlist.rdr`'s order (research 164 R164.3).
+ * The default maps (OT.R16's three, OT.R45's Night Stalker the fourth, OT.R58 as amended by #723: The Ruins the fifth,
+ * V13-2, and Blizzard the sixth, V13-3; Fish Hook and Desert Glory the seventh and eighth, DF-14) by their AVAILABLE_MISSIONS row: the list holds only them, in `missionlist.rdr`'s order (research 164 R164.3)
+ * -- derived from `@s2u/ui` `FIRST_RELEASE_MAPS` (`packages/viewer/e2e/createGameRows.ts`), so it cannot drift.
  */
-const MAPS = [[0, 51, 'vigilance'], [1, 72, 'crossroads'], [2, 2, 'frostfire'], [3, 7, 'nightstalker']] as const;
+const MAPS = CREATE_GAME_ROWS.map((m) => [m.row, m.number, m.slug] as const);
 
 /** The mean absolute difference of two frames over the picture's box, 0..255. */
 function boxDiff(a: Rgb, b: Rgb): number {
@@ -41,8 +43,17 @@ function boxDiff(a: Rgb, b: Rgb): number {
   return sum / n;
 }
 
+describe('CREATE GAME\'s PLAY LIST rows, as the picture checks walk them (no disc: the one list and map-archives.json)', () => {
+  it('eight rows in missionlist.rdr\'s order (research 192 G16): VIGILANCE, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT GLORY, NIGHT STALKER, THE RUINS (OT.R58 as amended by #723 and DF-14)', () => {
+    expect(CREATE_GAME_ROWS.map((m) => [m.row, m.number, m.name])).toEqual([
+      [0, 51, 'VIGILANCE'], [1, 71, 'FISH HOOK'], [2, 72, 'CROSSROADS'], [3, 1, 'BLIZZARD'], [4, 2, 'FROSTFIRE'], [5, 6, 'DESERT GLORY'],
+      [6, 7, 'NIGHT STALKER'], [7, 12, 'THE RUINS'],
+    ]);
+  });
+});
+
 describe.skipIf(!HAVE_DISC)(`CREATE GAME's map picture drawn with the page's banks${HAVE_DISC ? '' : ' (no SOCOM_DISC / SOCOM_PC_ROOT)'}`, () => {
-  it('each of Vigilance, Crossroads, Frostfire and Night Stalker focused in the PLAY LIST draws its mp<n>MissPic.tif in the picture box; nothing undrawn', async () => {
+  it('each offered map (CREATE_GAME_ROWS, the eight; CGPic6 and CGPic71 with DF-14) focused in the PLAY LIST draws its mp<n>MissPic.tif in the picture box; nothing undrawn', async () => {
     const src = new FsAssetSource(DISC);
     const fz = Zar.parse(new Uint8Array(readFileSync(resolve(DISC, FONTS_RDR.archive))));
     const faces = readTextFaces(parseRdr(fz.data(fz.find(FONTS_RDR.member)!)));
@@ -73,7 +84,7 @@ describe.skipIf(!HAVE_DISC)(`CREATE GAME's map picture drawn with the page's ban
     }
   }, 240_000);
 
-  it('the four rows (OT.R16, OT.R45: the owner\'s four-map list) are drawn in the list\'s own colour: CROSSROADS\'s, FROSTFIRE\'s and NIGHT STALKER\'s names unfocused, as bright as text', async () => {
+  it('the offered rows (OT.R16, OT.R45, OT.R58 as amended by #723: FIRST_RELEASE_MAPS) are drawn in the list\'s own colour: every name but row 0\'s unfocused, as bright as text', async () => {
     const src = new FsAssetSource(DISC);
     const fz = Zar.parse(new Uint8Array(readFileSync(resolve(DISC, FONTS_RDR.archive))));
     const faces = readTextFaces(parseRdr(fz.data(fz.find(FONTS_RDR.member)!)));
@@ -85,28 +96,45 @@ describe.skipIf(!HAVE_DISC)(`CREATE GAME's map picture drawn with the page's ban
     r.go('SelectGames');
     r.press('CROSS', 10);
     r.run(30);                                                                            // the focus on row 0 (VIGILANCE), the rest unfocused
-    const items = r.last();
-    const frame = rgbaToRgb(640, 448, rasterizeUiDrawList(items, banks.textures).frame.data);
-    // The list's cells in row order (number, name per row); a name cell's own glyphs (not the shadow's) bound its box.
-    const cells = items.filter((it) => it.kind === 'glyphs' && it.node === 'AVAILABLE_MISSIONS');
-    const brightest = (row: number): number => {
-      const it = cells[row * 2 + 1];
-      if (!it || it.kind !== 'glyphs') return -1;
-      let best = 0;
-      for (const q of it.quads.filter((g) => !g.shadow)) {
-        for (let y = Math.max(0, Math.floor(q.top)); y < Math.min(frame.height, Math.ceil(q.bottom)); y++) {
-          for (let x = Math.max(0, Math.floor(q.left)); x < Math.min(frame.width, Math.ceil(q.right)); x++) {
-            const i = (y * frame.width + x) * 3;
-            best = Math.max(best, (frame.data[i]! + frame.data[i + 1]! + frame.data[i + 2]!) / 3);
+    /**
+     * Each unfocused row's brightest name pixel in the frame drawn now: the list draws only the rows its window holds,
+     * from its top row (`ListboxWidget.top`, +0xb8), so the cells (number, name per row; a name cell's own glyphs, not
+     * the shadow's, bound its box) are indexed from that row.
+     */
+    const unfocused = (): Map<number, number> => {
+      const items = r.last();
+      const frame = rgbaToRgb(640, 448, rasterizeUiDrawList(items, banks.textures).frame.data);
+      const cells = items.filter((it) => it.kind === 'glyphs' && it.node === 'AVAILABLE_MISSIONS');
+      const { top, focus } = r.list('AVAILABLE_MISSIONS');
+      const out = new Map<number, number>();
+      for (let k = 1; k < cells.length; k += 2) {
+        const it = cells[k]!, row = top + (k - 1) / 2;
+        if (it.kind !== 'glyphs' || row === focus) continue;
+        let best = 0;
+        for (const q of it.quads.filter((g) => !g.shadow)) {
+          for (let y = Math.max(0, Math.floor(q.top)); y < Math.min(frame.height, Math.ceil(q.bottom)); y++) {
+            for (let x = Math.max(0, Math.floor(q.left)); x < Math.min(frame.width, Math.ceil(q.right)); x++) {
+              const i = (y * frame.width + x) * 3;
+              best = Math.max(best, (frame.data[i]! + frame.data[i + 1]! + frame.data[i + 2]!) / 3);
+            }
           }
         }
+        out.set(row, best);
       }
-      return best;
+      return out;
     };
-    expect(r.list('AVAILABLE_MISSIONS').items.map((it) => `${it.captions[1]} ${it.selectable}`)).toEqual(['VIGILANCE true', 'CROSSROADS true', 'FROSTFIRE true', 'NIGHT STALKER true']);
-    const crossroads = brightest(1), frostfire = brightest(2), nightStalker = brightest(3);
-    expect(crossroads, `CROSSROADS ${crossroads}`).toBeGreaterThan(120);              // no row in a disabled grey (until 2026-10-07 the rows not offered were)
-    expect(frostfire, `FROSTFIRE ${frostfire}`).toBeGreaterThan(120);
-    expect(nightStalker, `NIGHT STALKER ${nightStalker}`).toBeGreaterThan(120);
+    expect(r.list('AVAILABLE_MISSIONS').items.map((it) => `${it.captions[1]} ${it.selectable}`)).toEqual(CREATE_GAME_ROWS.map((m) => `${m.name} true`));
+    const seen = unfocused();
+    // DF-14: eight rows outrun the window at the opening, so the list is walked to its last row and back one -- the window
+    // scrolled to hold it, unfocused -- and those rows read too. Every offered row but row 0 is read unfocused at least once.
+    const last = CREATE_GAME_ROWS.length - 1;
+    for (let k = 0; k < last + 2 && r.list('AVAILABLE_MISSIONS').focus < last; k++) r.press('DOWN', 3);
+    r.press('UP', 3);
+    r.run(30);
+    for (const [row, b] of unfocused()) if (!seen.has(row)) seen.set(row, b);
+    for (const m of CREATE_GAME_ROWS.slice(1)) {
+      const b = seen.get(m.row) ?? -1;
+      expect(b, `${m.name} ${b}`).toBeGreaterThan(120);                                 // no row in a disabled grey (until 2026-10-07 the rows not offered were)
+    }
   }, 240_000);
 });

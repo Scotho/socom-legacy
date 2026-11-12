@@ -49,6 +49,12 @@ const storedName = async (): Promise<string | null> => {
   const { text } = await readStoredList('autosave');
   return text ? (JSON.parse(text) as { name?: string }).name ?? null : null;
 };
+/** OT.R112: the current base is named on the forge menu's "New layout" row (`optionLabel(baseSel)`), as pageContent's pins read it. */
+const menuBaseLabel = (): string => {
+  document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();          // (re)drawn: an open menu keeps its rows
+  return document.querySelector('.fx-menu li[data-forge-menu-row="base"] .fx-menu-value')?.textContent ?? '';
+};
+const closeMenu = (): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); };
 const statusLine = (): string => document.querySelector('.fx-status-msg')?.textContent ?? '';
 /** Past the page's 300 ms autosave window, twice over. */
 const pastTheAutosave = (): Promise<void> => new Promise((r) => setTimeout(r, 700));
@@ -135,27 +141,30 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     await vi.waitFor(async () => expect(await storedName()).toBe('Fresh'), { timeout: 3000 });
   }, 90_000);
 
-  it('on an authored map the base select shows it, so choosing the blank floor asks before a new layout', async () => {
+  // OT.R112 (the Forge's UI is its contributor's): no base select on the toolbar (the owner, 2026-11-06, daed4f539) --
+  // the base is named on the forge menu's "New layout" row and another is chosen from New's own card, which asks it
+  // (a base list, Cancel, Next) before any new layout. The authored map is no row of that list: never chosen there.
+  it('on an authored map the menu names it, so the blank floor is chosen from New\'s card before a new layout', async () => {
     const content: ForgeContentSource = {
       asset: () => null, member: () => null,
       map: (ref) => (ref.pack.id === MAP_PACK.id && ref.assetId === 'yard' ? JSON.parse(JSON.stringify(minimalMapJson())) as unknown : null),
     };
     await shareOnTheYard();
     const api = await mount({ content });
-    await vi.waitFor(() => expect(api.status().map).toBe(`content:${MAP_PACK.id}@${MAP_PACK.version}/yard`));
-    const sel = document.querySelector<HTMLSelectElement>('select[title^="The base"]')!;
-    const shown = sel.options[sel.selectedIndex];
-    expect(shown?.textContent).toContain('Yard');
-    expect(shown?.disabled).toBe(true);                                // never chosen: the select starts no layout on it
-    const ask = document.querySelector<HTMLElement>('.fx-base-ask')!;
-    expect(ask.hidden).toBe(true);
+    const own = `content:${MAP_PACK.id}@${MAP_PACK.version}/yard`;
+    await vi.waitFor(() => expect(api.status().map).toBe(own));
+    expect(menuBaseLabel()).toContain('Yard');
+    closeMenu();
+    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    await vi.waitFor(() => expect(document.querySelector('.fx-card select[aria-label="New layout"]')).not.toBeNull());
+    const sel = document.querySelector<HTMLSelectElement>('.fx-card select[aria-label="New layout"]')!;
+    expect([...sel.options].map((o) => o.value)).not.toContain(own);
+    expect(api.status().map).toBe(own);                                // the card asks: nothing changed yet
     sel.value = 'blank';
-    sel.dispatchEvent(new Event('change'));
-    expect(ask.hidden).toBe(false);
-    ask.querySelector<HTMLButtonElement>('button.fx-primary')!.click();
+    sel.closest('.fx-card')!.querySelector<HTMLButtonElement>('button.fx-primary')!.click();   // Next
     await vi.waitFor(() => expect(api.status().map).toMatch(/^blank:/));
-    expect(sel.value).toBe('blank');
-    expect([...sel.options].some((o) => o.disabled && o.textContent?.includes('Yard'))).toBe(false);
+    expect(menuBaseLabel()).not.toContain('Yard');
+    closeMenu();
   }, 90_000);
 
   // R7-6 (round 6's finding): the boot asks whether it holds the base (`holdsContentBase`) and then loads it

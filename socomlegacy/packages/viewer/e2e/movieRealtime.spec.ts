@@ -43,6 +43,18 @@ test('the opener\'s movies play in real time in the page: every picture once, in
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
   await page.goto(TEST_ROOM_PAST_SHEET);                                // the disc page: no served tree, no map, no match
+  // RC1-MOVIE-BOOT (a spec correction): the test room's `./main` is a dynamic import after `load` (OT.R12,
+  // `src/pageEntry.ts`), one long evaluation of its module graph on the page's main thread. Started at once, SONY448 met
+  // it: one stall of 220 ms on main 8882b74b5 (1 late tick, the budget's 1) and of 257 ms on mega 088766214 (2: red),
+  // the decode, the read and the queue alike in both (`PLAT19C`). The movies wait for the boot to reach the disc offer
+  // (`__viewer.discPage()`, as `iso.spec.ts` reads it: after `./main`'s evaluation, the renderer's making and its frame
+  // loop's start -- `__viewer` alone is set mid-boot, the review's F1) and for two frames after: this spec times the
+  // player, not the test room's boot. Its own bound, so a boot that never gets there fails here, named, not at the test's.
+  // The opener's movies play on the front end, which never loads `./main` (`pageEntry`'s loaders), so no player meets
+  // this stall. Was: the movies started at the load.
+  await page.waitForFunction(() => (window as unknown as { __viewer?: { discPage?: () => boolean } }).__viewer?.discPage?.() === true,
+    undefined, { timeout: 60_000 });
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
   await page.evaluate(() => {
     const input = document.createElement('input');
     input.type = 'file';

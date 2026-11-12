@@ -193,6 +193,17 @@ const YAW_EPS = 360 / 65536, PITCH_EPS = 0.01;
 
 const clampTo = (v: number, lim: number): number => (v > lim ? lim : v < -lim ? -lim : v);
 
+/**
+ * RB-2 (the replay batch; OT.R114, RB.R4, RB.R6 -- a BROWSER ADAPTATION, no original: the original's host checks no look,
+ * and the law below is itself the room's adaptation, CTL.R2): which gate a mover runs. `'law'` (the default, and every
+ * server room's): the look held to `LOOK_RATE_MAX_ADAPTATION` as above. `'free'`: the page's own offline room alone
+ * (`LoopbackMatch`, `RoomOptions.lookRate`, match `room.ts` `roomLookGateMode`), where keyboard and mouse are allowed --
+ * every command's look laid as given, no clamp and no slack bank (the bank is counted in ticks of an allowance an open
+ * gate has none of), the turn derived from the look as the law's is; a new mover's first command and a held move's yaw
+ * as the law takes them. Only a mode, never a rate: no number a page sends widens the law.
+ */
+export type LookGateMode = 'law' | 'free';
+
 export class LookGate {
   /** Commands whose yaw or pitch was held (the room's `look: turn` / `look: pitch` drops count them). */
   clamps = 0;
@@ -214,6 +225,9 @@ export class LookGate {
   /** Ticks the room ran no command for, which the next command's look turned through (`cover`). */
   private covered = 0;
 
+  /** RB-2 (`LookGateMode`): the law (the default), or the page's own room's open gate. */
+  constructor(readonly mode: LookGateMode = 'law') {}
+
   /**
    * NET-LOOK's review (finding 3): `n` ticks the page ran whose commands the room never runs (a dropped backlog, commands
    * lost past the gap wait). The next command may turn as far as those ticks and its own allow -- still the law over
@@ -225,7 +239,7 @@ export class LookGate {
 
   /** A copy of the gate's whole state (NET-WIRE: the facing's replay starts from the gate as it stood after a command). */
   clone(): LookGate {
-    const g = new LookGate();
+    const g = new LookGate(this.mode);
     g.clamps = this.clamps; g.grace = this.grace; g.snapYaw = this.snapYaw; g.skippedN = this.skippedN; g.bankYaw = this.bankYaw; g.bankPitch = this.bankPitch;
     g.prevScale = this.prevScale; g.prevLimits = this.prevLimits; g.covered = this.covered;
     g.recent.push(...this.recent);
@@ -266,6 +280,7 @@ export class LookGate {
     const a1 = lookAllowance(wide, ctx, kickingView(cmd.buttons));
     const ticks = 1 + this.covered;
     this.covered = 0;
+    if (this.mode === 'free') return this.stepFree(ref, cmd, held, limits, ticks);
     const a = { yaw: a1.yaw * ticks, pitch: a1.pitch * ticks };
     if (this.grace > 0) {
       if (this.snapYaw === null) this.snapYaw = ref.yaw;
@@ -312,14 +327,39 @@ export class LookGate {
     if (clampedYaw || clampedPitch) this.clamps++;
     for (let k = 0; k < ticks; k++) this.recent.push(dYaw / ticks);
     while (this.recent.length > LOOK_SLACK_TICKS_PLACEHOLDER) this.recent.shift();
-    let sum = 0;
-    for (const d of this.recent) sum += d;
-    const turn = sum / LOOK_SLACK_TICKS_PLACEHOLDER / DEG / TICK;
+    const turn = this.meanTurn();
     return {
       yaw: held || !clampedYaw ? cmd.yaw : wrapYaw(ref.yaw + dYaw),
       pitch: clampedPitch ? ref.pitch + dPitch : cmd.pitch,
       turn: turn + 0, clampedYaw, clampedPitch,
     };
+  }
+
+  /** The derived turn, rad/s: the mean of the last ticks' yaw moves (`LOOK_SLACK_TICKS_PLACEHOLDER`). */
+  private meanTurn(): number {
+    let sum = 0;
+    for (const d of this.recent) sum += d;
+    return sum / LOOK_SLACK_TICKS_PLACEHOLDER / DEG / TICK;
+  }
+
+  /**
+   * RB-2 (`LookGateMode` 'free'): the command's look as given -- nothing clamped, nothing banked -- and its turn derived
+   * over the ticks it covers, as the law's. A new mover's grace and a turret's mount end on their first command, laid
+   * as given with no turn (the law's armed snap); a held move's yaw goes through and the mover does not turn.
+   */
+  private stepFree(ref: { yaw: number; pitch: number }, cmd: Pick<Command, 'yaw' | 'pitch' | 'buttons'>, held: boolean,
+    limits: readonly [number, number] | null, ticks: number): Looked {
+    this.prevLimits = limits;
+    if (this.grace > 0) {
+      this.grace = 0;
+      this.snapYaw = null;
+      this.recent.length = 0;
+      return { yaw: cmd.yaw, pitch: cmd.pitch, turn: 0, clampedYaw: false, clampedPitch: false };
+    }
+    const dYaw = held ? 0 : shortTurn(ref.yaw, cmd.yaw);
+    for (let k = 0; k < ticks; k++) this.recent.push(dYaw / ticks);
+    while (this.recent.length > LOOK_SLACK_TICKS_PLACEHOLDER) this.recent.shift();
+    return { yaw: cmd.yaw, pitch: cmd.pitch, turn: this.meanTurn() + 0, clampedYaw: false, clampedPitch: false };
   }
 }
 

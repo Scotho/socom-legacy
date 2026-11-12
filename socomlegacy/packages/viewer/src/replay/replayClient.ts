@@ -1,6 +1,6 @@
 import type { GameType, HullCast, ThrowableRecord } from '@s2u/scene';
 import { seekIndex, type ReplayPlayer, type ReplayRecord } from '../../../match/src/replay/format';
-import { applySnapshotWorld, JOIN_SILENT_READING, revisionNewer, type NetClient, type NetState, type NetWalk } from '../net/client';
+import { applySceneDeath, applySnapshotWorld, JOIN_SILENT_READING, revisionNewer, type NetClient, type NetState, type NetWalk } from '../net/client';
 import { SeatToldBoard } from '../net/seatTold';
 import { SeatClanBoard } from '../net/seatClans';
 import type { VoiceDown } from '../net/voiceWire';
@@ -167,6 +167,8 @@ export class ReplayClient implements NetClientSurface {
   seatName: string | null = null;
   /** Recorded server metadata only; legacy recordings remain unrestricted (REPLAY_ADAPTATION). */
   eqLimit = 0;
+  /** HUD-ALIVE B (`../hud` `INFO_SESSION_MASTER_READING`): a replay watcher is never the session master -- the count's "%d". */
+  sessionMaster = false;
   state: NetState = 'connecting';
   closeCode: number | null = null;
   /** LATER 62 (`NetClient.url`): a replay opens no socket, so no URL -- the close report names no route for it (`../net/closeReport`). */
@@ -359,12 +361,14 @@ export class ReplayClient implements NetClientSurface {
   held(): boolean { return this.holding; }
   /**
    * RV2-02: the hold ends and the recording plays, once -- a client never held, or already released, is left as it is;
-   * released before the segment opens, it plays at the open.
+   * released before the segment opens, it plays at the open. `play` false (CPS.R9 (e), the page's `pause` beside the
+   * loading hold, `./mount`): the hold ends and the clock stays as it stands, paused, so a paused seek is not played on
+   * from (released before the open, the open plays and the page's pause at `ready` stops it, as without a hold).
    */
-  release(): void {
+  release(play: boolean = true): void {
     if (!this.holding) return;
     this.holding = false;
-    if (this.state === 'open') this.clock?.play();
+    if (play && this.state === 'open') this.clock?.play();
   }
   speed(rate: number): number { return this.clock ? this.clock.speed(rate) : rate; }
   faster(): number { return this.clock?.faster() ?? 1; }
@@ -485,13 +489,22 @@ export class ReplayClient implements NetClientSurface {
 
   // ---- the roster ----
 
-  /** The roster in force at `tick`: the last `players` record at or before it (empty before any). */
+  /**
+   * The roster in force at `tick`: the last `players` record at or before it (empty before any), with the recorded `joined`
+   * of a member it holds after it applied -- REPLAY-TEAM-SWAP (2026-11-09): a recording made before the room wrote a roster
+   * record at SWITCH TEAMS or the side swap holds only their `left` then `joined`, so the side is the `joined`'s. A `left`
+   * alone changes nothing here (a departure writes its own roster record), and a member the record does not hold is not added.
+   */
   private rosterAt(tick: number): ReplayPlayer[] {
     let out: ReplayPlayer[] = [];
     for (const r of this.records) {
       if (r.kind === 'header') continue;
       if (r.tick > tick) break;
       if (r.kind === 'players') out = r.players;
+      else if (r.kind === 'event' && r.event.type === 'joined') {
+        const { id, team } = r.event;
+        if (out.some((p) => p.id === id && p.team !== team)) out = out.map((p) => (p.id === id ? { ...p, team } : p));
+      }
     }
     return out;
   }
@@ -647,6 +660,9 @@ export class ReplayClient implements NetClientSurface {
 
   private emit(ev: ServerEvent): void {
     if (ev.type === 'welcome' || ev.type === 'gameLobby') this.eqLimit = equipmentLimit(ev.eqLimit);
+    // V13-3c (`SCENE_DEATH_ON_WIRE_READING`): a told death of the round played, laid on the page's world as the live
+    // client lays it (a transient: a seek past it does not replay it -- the target's state still tells those it turns off).
+    if (ev.type === 'sceneDeath' && this.epoch === (ev.epoch & 0xffff)) { const w = this.worldNow(); if (w) applySceneDeath(ev, w, false); }
     if (ev.type === 'doorUse' && (ev.pick === 0 || ev.pick === 1)) { this.doorPicks.push({ door: ev.door, pick: ev.pick }); if (this.doorPicks.length > 64) this.doorPicks.shift(); }   // LATER 362
     for (const l of [...this.listeners]) l(ev);
   }

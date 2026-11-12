@@ -9,6 +9,7 @@ import { under, type MapInitial, type MapInstance } from '../mapMeta';
 import { accessShapes, gateShapes, type GuideShapes } from './interactOverlay';
 import { groundPolygons, packGround } from '../mover';
 import { placeRefs, type SceneDestructible, type SceneProgram } from '../sceneHealth';
+import { DOOR_GATE_WIRE_SLOTS } from '../net/codec';
 
 /**
  * The layout's placed gates and C4 barriers (the owner, 2026-11-06; a browser adaptation, FG.R2, no original): each a
@@ -30,6 +31,9 @@ import { placeRefs, type SceneDestructible, type SceneProgram } from '../sceneHe
  * the owner's 2026-11-06 choice); a placed switch (`SwitchMarker`) is a copy of its gate's own disc lever, plate and
  * prop, running that gate's own lever program renamed onto the copies.
  */
+
+/** The lever prompt's height above the gate's lowest point, at most (a browser adaptation, FG.R2; H424 (b)). */
+export const FORGE_GATE_LEVER_HEIGHT_ADAPTATION = 10;
 
 /** One access object of a library map, with what a copy carries. */
 export interface AccessTemplate {
@@ -525,18 +529,24 @@ export interface AccessMarker { kind: 'gate' | 'barrier'; source: string; name: 
  * `map` with the layout's gates and barriers beside its own: each its template's copy (above), its nodes, actions,
  * programs and destructibles after the map's (every index the map's own hold kept), its polygons packed into the hull
  * after the map's owners, its gate after the map's gates. One whose template is not found is left out and counted.
+ * FP-1a (Codex on #745): a gate rides the snapshot's door tail after the doors (`DOOR_GATE_WIRE_SLOTS`, `../net/codec`);
+ * a found gate past it is left out whole and counted (`pastBound`), as `./placedDoors` `withPlacedDoors` counts a door;
+ * a barrier takes no slot.
  */
 export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[] | undefined,
   templateOf: (m: AccessMarker) => AccessTemplate | null, switches: readonly SwitchPlacement[] = [],
   lookOf: (id: SwitchLookId) => SwitchLook | null = () => null,
-  pieceOwner: (i: number) => string | null = (i) => `forge/piece_${i}`, triggers: readonly PieceTrigger[] = []): { map: LoadedMap; unplaced: number } {
-  if (!placed?.length && !switches.length && !triggers.length) return { map, unplaced: 0 };
-  if (!map.ground || !map.meta) return { map, unplaced: (placed?.length ?? 0) + switches.length + triggers.length };
+  pieceOwner: (i: number) => string | null = (i) => `forge/piece_${i}`, triggers: readonly PieceTrigger[] = []): { map: LoadedMap; unplaced: number; pastBound: number } {
+  if (!placed?.length && !switches.length && !triggers.length) return { map, unplaced: 0, pastBound: 0 };
+  if (!map.ground || !map.meta) return { map, unplaced: (placed?.length ?? 0) + switches.length + triggers.length, pastBound: 0 };
   const polys = groundPolygons(map.ground);
   const owners: CollisionOwner[] = map.ground.owners.map((o) => ({ ...o }));
   const props = [...map.props];
   const gates = [...(map.gates ?? [])];
-  const actions = [...(map.actions ?? map.meta.actions)];
+  // The composed metadata's actions (Play's objectives write the layout's bomb sites there first, `./objectives`
+  // `applyForgeObjectives`; the room's bomb reads them there, match `BombAuthority.of`), never the base's stale
+  // `map.actions`; the copies' after them, and `map.actions` the same list.
+  const actions = [...map.meta.actions];
   const instances = [...map.meta.instances];
   const instanceByPath = new Map(map.meta.instanceByPath);
   const initial = [...map.meta.initial];
@@ -550,7 +560,8 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
   const placedGates: ({ name: string; t: AccessTemplate; renames: Renames; spec: number } | null)[] = [];
   /** Each placed damage trigger in its order: its copy's name and its death action's valve (a script's `run barrier`). */
   const placedBarriers: ({ name: string; valve: string | null } | null)[] = [];
-  let unplaced = 0;
+  let unplaced = 0, pastBound = 0;
+  const doors = map.doors?.length ?? 0;
   /** A template's textures, under `<archive>/<name>` for a foreign library's (as the props are drawn). */
   const takeTexturesOf = (lib: LoadedMap, pieces: readonly { prop: LoadedMap['props'][number] }[]): void => {
     if (lib.archive === map.archive) return;
@@ -566,6 +577,9 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
   for (const marker of placed ?? []) {
     const t = templateOf(marker);
     if (!t || t.kind !== marker.kind) { unplaced++; (marker.kind === 'gate' ? placedGates : placedBarriers).push(null); continue; }
+    // FP-1a (main): a gate past the snapshot's door tail (`DOOR_GATE_WIRE_SLOTS`) left out whole and counted; its place in
+    // `placedGates` held, so a switch naming a later gate still finds its own.
+    if (t.gate && doors + gates.length >= DOOR_GATE_WIRE_SLOTS) { pastBound++; placedGates.push(null); continue; }
     const name = placedAccessName(marker.kind, counts[marker.kind]++);
     const rootPath = `worldmodel/${name}`;
     const rename = (p: string): string => (under(p, t.root) ? `${rootPath}${p.slice(t.root.length)}` : p);
@@ -802,7 +816,7 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
   const meta = { ...map.meta, actions, instances, instanceByPath, initial, scene: { ...scene, destructibles, programs } };
   return {
     map: { ...map, ground, props, gates, actions, meta, textures, textureFlags, ...(textureMips ? { textureMips } : {}) },
-    unplaced,
+    unplaced, pastBound,
   };
 }
 
@@ -827,7 +841,7 @@ export function accessGizmo(t: AccessTemplate, lever: 'disc' | 'atGate'): GuideS
       minZ = Math.min(minZ, p.points[k + 2]!); maxZ = Math.max(maxZ, p.points[k + 2]!);
     }
     if (Number.isFinite(minX)) {
-      const centre = [(minX + maxX) / 2, minY + Math.min(10, (maxY - minY) / 2), (minZ + maxZ) / 2];
+      const centre = [(minX + maxX) / 2, minY + Math.min(FORGE_GATE_LEVER_HEIGHT_ADAPTATION, (maxY - minY) / 2), (minZ + maxZ) / 2];
       const slide = new Vector3(...g.open).applyMatrix4(new Matrix4().fromArray(g.parent).setPosition(0, 0, 0));
       const disc = t.gate.levers[0];
       // A placed copy has no lever of its own (its switch is placed apart): its slide alone.

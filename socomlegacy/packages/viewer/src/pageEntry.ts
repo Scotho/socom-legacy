@@ -114,7 +114,16 @@ PAGE_LOADERS.forge = async () => {
   return { mountForge: async doc => {
     const install = import('./agent/install');
     install.catch(() => undefined);         // the page logs a failed panel; a page that never reaches it leaves no unhandled rejection
-    await page.mountForge(doc, { panels: [({ packs }) => install.then(m => m.forgeAgentPanel({ packs }))] });
+    // FP-5 item 5 (FP.R3): the registry's content source (`./packs/content/source`), and its packs as the page's held
+    // packs; a source that cannot be read leaves the page its defaults (`NO_CONTENT_SOURCE`, no pack held).
+    // The review's F3: read again on the page's own install or removal (its local packs) and on another page's notice.
+    const sources = await import('./packs/content/source').catch(() => null);
+    const content = sources ? await sources.pageContentSource().catch(() => null) : null;
+    await page.mountForge(doc, { panels: [({ packs }) => {
+      if (content && sources) { try { sources.refreshOnPackChanges(content, { packs }); } catch { /* the source stays as booted */ } }
+      return install.then(m => m.forgeAgentPanel({ packs }));
+    }],
+      ...(content ? { content, availablePacks: () => content.availablePacks() } : {}) });
   } };
 };
 

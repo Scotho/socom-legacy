@@ -134,6 +134,21 @@ the code that runs it is cited above.
 | OPT-15 | `dlgOnlineOptions` | strip `ExternalWhispers`: on / off | `Enable_Whispers` / `Disable_Whispers` | `EnableExternalWhispers` 1 / 0 |
 | OPT-12 | `dlgScreenAdjust` | the dialog's LEFT / RIGHT / UP / DOWN | `screen_left` / `_right` / `_up` / `_down` | `ScreenOriginX` -1 / +1, `ScreenOriginY` -1 / +1, inside 0..250 (X) and 80..250 (Y) |
 
+*Correction (2026-11-07, SS-1):* the "bound" column names each strip's **boxes** as the design names them; the boxes'
+captions are other words. The stick presets' boxes Custom / Trainee / Soldier / Seal carry the captions `_194_CUSTOM_MSG`,
+`_195_RECRUIT_MSG`, `_196_SAILOR_MSG`, `_197_SEAL_MSG` (`tools/dump-dialogs.ts --dialog dlgControllerSelection.rdr`;
+the fixture `test-fixtures/RUN/UI/READERC.ZAR`), so the words a player sees are CUSTOM, RECRUIT, SAILOR, SEAL, as
+research 302 §4 has them; research 302 stands. The words are read as the message ids' names in the design, not
+from the decoded string table; research 302's table and the disc's help line "Sailor setting selected." (the
+controller-options plan) back them. Each box's caption is held to the settings' description by viewer
+`test/optionsSchema.test.ts` (`@s2u/ui` `optionsSchema.ts`). The rows above are not changed.
+
+*Note (2026-11-07, SS-2; H422 answered (a) by the owner):* TEAMMATE NAMES (`DISPLAY_MP_TEAM_NAMES`, OPT-11 and OPT-15
+above) holds the two values the table gives, 1 / 0, and the launcher writes no other: LATER 671's launcher-only 2
+("Original", v0.4.11-v0.4.12) is gone, a card holding it read as 1 (viewer `originalOptions.ts` `restoreValveModule`,
+`nameTags.ts` `migrateTeamNames`). The look of the tags -- the original's or the port's adapted ones -- is a browser
+setting, `s2u.viewer.nameTags`, with no original (a browser adaptation, OT.R101). The rows above are not changed.
+
 The unit test runs each row's VALVE commands, in order, on a registry at the table's defaults and holds the saved module
 to the defaults with exactly the row's valves changed; the dev-host test holds each row's binding to the layout and its
 commands to the animation, and every strip box of the four OPTIONS pages and ONLINE OPTIONS to a row or a reason.

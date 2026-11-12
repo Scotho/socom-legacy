@@ -2,7 +2,8 @@ import { BufferGeometry, Color, Group, LoadingManager, Matrix3, Mesh, MeshBasicM
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ZipError, openZip, bytesSource } from './zipReader';
 import { setModelVisualSource } from './modelPackHook';
-import { pageIndexedDb } from './pageStore';
+import { pageIndexedDb, pageSettings } from './pageStore';
+import { modsStateStore, type ModelSwitches, type ModsStateStore } from './packs/modsState';
 import { idbPackDatabase, PackStorageError, type PackMigrationPart, type PackWriteOptions } from './packs/storage';
 import { memberAt, storedMember, type NativePackIdentity, type NativePackObservation } from './packs/identity';
 import type { CheckReport } from '@s2u/creator-contracts';
@@ -1067,8 +1068,31 @@ async function applyDirectory(
 
 
 /**
- * The test room's model-pack controls, appended to `#panel-body`. Restores a pack this browser kept, then waits
- * for a folder or a zip. Call it only when `modelPackActive` is true: it installs into `buildWorld`.
+ * B206 ML-10 batch review F2 (ML.R14; product track, ML.R2): the MODS screen's model-pack switches, as the record holds
+ * them (`../packs/modsState`, read through its models hint, so a page with none on opens nothing). A record that cannot
+ * be read leaves every slot off: a switch not known to be on mounts nothing.
+ */
+export async function readModelSwitches(
+  store: Pick<ModsStateStore, 'read'> = modsStateStore(modelDatabase(), pageSettings, () => null),
+): Promise<ModelSwitches> {
+  try { const { models } = await store.read(); return { primary: models.primary, second: models.second }; } catch { return { primary: false, second: false }; }
+}
+/** ML-10 F2: the kept packs' plans with every slot switched off in MODS dropped -- an off model pack is not mounted. */
+export function switchedModelPlans<P>(plans: { primary: P | null; second: P | null }, on: ModelSwitches): { primary: P | null; second: P | null } {
+  return { primary: on.primary ? plans.primary : null, second: on.second ? plans.second : null };
+}
+
+/** B206 ML-7: the model-pack section's one line (ML.R14). */
+export const MODEL_PACK_LINE = 'Model packs: Home > Experiments > Mods. The ones switched on there are drawn here; reload the page after a change there.';
+/** ML-10 F2: the status when packs are kept but none is switched on. */
+export const MODEL_PACK_OFF_LINE = 'Model packs kept, none switched on in Home > Experiments > Mods.';
+
+/**
+ * The test room's model-pack section, appended to `#panel-body` (with `?modmodels`). Restores the packs this browser
+ * kept. B206 ML-7 (plan 2026-11-06-mods-loader, ML.R14; OT.R110): the folder, zip, second-pack, Clear and Reload
+ * controls left the page -- model packs are added, switched and removed in Home > Experiments > Mods (the same store);
+ * what stays is one line saying so, the restore's status, the kept pieces' line and the world piece ids the hook's
+ * `models.json` needs. Call it only when `modelPackActive` is true: it installs into `buildWorld`.
  */
 export async function mountModelPack(doc: Document): Promise<void> {
   if (!modelPackActive(packAddress(), packBase())) return;
@@ -1083,42 +1107,11 @@ export async function mountModelPack(doc: Document): Promise<void> {
   const section = doc.createElement('section');
   section.id = 'model-pack';
   section.className = 'section';
-  const heading = doc.createElement('h2');
-  heading.className = 's2u-field__label';
-  heading.textContent = 'Model pack';
-  const note = doc.createElement('p');
-  note.className = 's2u-field__note';
-  note.textContent = 'A private folder or zip of GLBs, and a second pack beside it. Each pack is 128 ids and 500 MiB. An id in both keeps the first pack. A mapped prop, weapon, or world piece draws the GLB. Collision stays the game\u2019s. Nothing is uploaded.';
-  const row = doc.createElement('div');
-  row.className = 's2u-tabs';
-  const tab = (label: string): HTMLButtonElement => {
-    const button = doc.createElement('button');
-    button.type = 'button';
-    button.className = 's2u-tab';
-    button.textContent = label;
-    return button;
-  };
-  const folder = tab('Choose model folder');
-  const zip = tab('Import model pack (.zip)');
-  const secondFolder = tab('Choose second folder');
-  const secondZip = tab('Import second pack (.zip)');
-  const clear = tab('Clear model pack');
-  const reload = tab('Reload map');
-  const fileInput = (directory: boolean): HTMLInputElement => {
-    const input = doc.createElement('input');
-    input.type = 'file';
-    input.hidden = true;
-    if (directory) {
-      input.multiple = true;
-      input.setAttribute('webkitdirectory', '');
-    } else input.accept = '.zip,application/zip';
-    return input;
-  };
-  const dirInput = fileInput(true);
-  const zipInput = fileInput(false);
-  const secondDirInput = fileInput(true);
-  const secondZipInput = fileInput(false);
-  row.append(folder, zip, secondFolder, secondZip, clear, reload);
+  section.setAttribute('aria-label', 'Model pack');
+  const line = doc.createElement('p');
+  line.id = 'model-pack-line';
+  line.className = 's2u-field__note';
+  line.textContent = MODEL_PACK_LINE;
   const pieces = doc.createElement('details');
   pieces.id = 'model-pack-piece-list';
   const piecesSummary = doc.createElement('summary');
@@ -1137,59 +1130,21 @@ export async function mountModelPack(doc: Document): Promise<void> {
   const kept = doc.createElement('p');
   kept.id = 'model-pack-kept';
   kept.className = 's2u-field__note';
-  section.append(heading, note, row, status, kept, pieces, dirInput, zipInput, secondDirInput, secondZipInput);
+  section.append(line, status, kept, pieces);
   body.append(section);
 
-  const queue = packWorkQueue();
-  const host = globalThis as PickerHost;
-  const refused = (e: unknown): void => {
-    if (isAbort(e)) return;
-    say(`Model pack refused: ${e instanceof Error ? e.message : String(e)}`);
-  };
-  const choose = (
-    slot: ModelPackSlot, picker: string, dir: HTMLInputElement, zipFile: HTMLInputElement,
-    folderBtn: HTMLButtonElement, zipBtn: HTMLButtonElement,
-  ): void => {
-    folderBtn.addEventListener('click', () => {
-      if (typeof host.showDirectoryPicker !== 'function') { dir.click(); return; }
-      void queue.importing(
-        host.showDirectoryPicker({ id: picker, mode: 'read' }),
-        (handle) => applyDirectory(handle, say, () => true, slot),
-      ).catch(refused);
-    });
-    dir.addEventListener('change', () => {
-      const list = dir.files;
-      if (!list || list.length === 0) return;
-      void queue.importing(entriesFromFileList(list), (entries) => keepModelPack(entries, say, packAddress(), slot)).catch(refused);
-    });
-    zipBtn.addEventListener('click', () => zipFile.click());
-    zipFile.addEventListener('change', () => {
-      const file = zipFile.files?.[0];
-      if (!file) return;
-      void queue.importing(entriesFromZipFile(file), (entries) => keepModelPack(entries, say, packAddress(), slot)).catch(refused);
-    });
-  };
-  choose('primary', PICKER_ID, dirInput, zipInput, folder, zip);
-  choose('second', SECOND_PICKER_ID, secondDirInput, secondZipInput, secondFolder, secondZip);
-  // #410's re-check F3: the clear runs after any import already under way, so a late import's write cannot bring the pack
-  // back; an import asked after the clear installs and writes only once it has run (LATER 309); Reload waits for all of it.
-  // Clear drops both packs.
-  clear.addEventListener('click', () => {
-    void queue.after(async () => {
-      clearModelPack();
-      await forgetBothPacks();
-      say('Model pack cleared. Reload the map to draw the game\u2019s meshes.');
-    });
-  });
-  reload.addEventListener('click', () => { void queue.settled().then(() => globalThis.location?.reload()); });
-
   say('No model pack.');
-  const plans = await readBootPlansWithin(MODEL_PACK_READY_WAIT_MS);
-  if (plans === 'late') {
+  const read = await readBootPlansWithin(MODEL_PACK_READY_WAIT_MS);
+  if (read === 'late') {
     say(PACK_LATE_LINE);
     return;
   }
-  if (!plans.primary && !plans.second) return;
+  // ML-10 F2: only the slots switched on in Home > Experiments > Mods are mounted.
+  const plans = switchedModelPlans(read, await readModelSwitches());
+  if (!plans.primary && !plans.second) {
+    if (read.primary || read.second) say(MODEL_PACK_OFF_LINE);
+    return;
+  }
   const loadSaved = async (plan: PackPlan, slot: ModelPackSlot, late: string, loading: (bytes: number | null) => string): Promise<void> => {
     const wait = plan.bytes === null ? MODEL_PACK_READY_WAIT_MAX_MS : modelPackReadyWaitMs(plan.bytes);
     say(loading(plan.bytes));

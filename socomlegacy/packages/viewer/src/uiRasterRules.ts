@@ -84,6 +84,17 @@ export function wrap(i: number, n: number): number {
 }
 
 /**
+ * GM-29: `wrap` for a whole texel index (`Math.floor`'s answer, or one past it), with no division when it is already in
+ * 0 .. n - 1. The same value as `wrap` for every whole `i` and every `n` a bitmap has: in range `i % n` is `i` and `i + n`
+ * is exact, so `wrap` gives `i` back, `+ 0` turning a `-0` into the `+0` `wrap` gives; out of range, NaN or infinite it is
+ * `wrap` itself (`test/uiRasterRules.test.ts` holds it, `Object.is`, over the edges). A cost, not a rule: the axis tables
+ * of both drawers are what they were.
+ */
+export function wrapIndex(i: number, n: number): number {
+  return i >= 0 && i < n ? i + 0 : ((i % n) + n) % n;
+}
+
+/**
  * A quad's horizontal texel axis, one entry per covered column `xs` .. `xe - 1`: the left and right texels' byte
  * offsets in a row and the fraction between them. `u = u0 + (du (x - x0)) / dx` in Float64 -- multiply then divide,
  * never a reciprocal or an increment, which can change rounded colour bytes; bilinear takes texel centres at +0.5. The
@@ -96,8 +107,8 @@ export function columnAxis(
   for (let k = 0, x = xs; x < xe; k++, x++) {
     const u = u0 + (du * (x - x0)) / dx;
     const tx = nearest ? u : u - 0.5, base = Math.floor(tx);
-    left[k] = wrap(base, width) * 4;
-    right[k] = wrap(base + 1, width) * 4;
+    left[k] = wrapIndex(base, width) * 4;
+    right[k] = wrapIndex(base + 1, width) * 4;
     fraction[k] = tx - base;
   }
 }
@@ -116,8 +127,8 @@ export function rowAxis(
 ): RowAxis {
   const v = v0 + (dv * (y - y0)) / dy;
   const ty = nearest ? v : v - 0.5, base = Math.floor(ty), fy = ty - base, iy = 1 - fy;
-  const top = wrap(base, height) * width * 4;
-  const bottom = wrap(base + 1, height) * width * 4;
+  const top = wrapIndex(base, height) * width * 4;
+  const bottom = wrapIndex(base + 1, height) * width * 4;
   if (!out) return { top, bottom, fy, iy };
   out.top = top; out.bottom = bottom; out.fy = fy; out.iy = iy;
   return out;
@@ -157,21 +168,80 @@ export const GS_BILINEAR_WEIGHT_READING = 'float64 weights' as const;
 export const GS_SPRITE_SUBPIXEL_READING = 'float corners' as const;
 
 /**
- * UI_MODEL_EDGE_RULE_READING: a 3D-pass triangle covers each pixel of its bounding box whose integer point gives no
- * negative barycentric weight -- inclusive on every edge (`drawModels`). The meshes are drawn through VU1 to the GS,
- * whose triangle fill rule is the hardware's: unread in the decompilation.
+ * UI_MODEL_EDGE_RULE_READING: the GS's top-left fill rule (GM-15d). A 3D-pass triangle covers a pixel of its bounding
+ * box when each of its three edge functions at the integer point, times the winding's sign, is positive -- or exactly 0
+ * on an edge that is a left edge (the interior at +x) or a top edge (horizontal, the interior at +y, the frame's y
+ * growing down): `modelEdgeOwns`. A pixel on an edge two triangles share is therefore the one triangle's whose left or
+ * top edge it is, and a pixel on a right or bottom edge is not drawn. The meshes are drawn through VU1 to the GS, whose
+ * triangle fill rule is the hardware's, in no repository source: a reading, pending a GS capture (research 380 §4). The
+ * port's own GS reading for its 2D quads is the same half-open rule (research 185 §3.3, `GS_SPRITE_COVERAGE_READING`).
+ * Before GM-15d the value was "inclusive on every edge"; both are recorded in the plan's Log (the lane holder's choice
+ * between readings, 2026-11-09).
  */
-export const UI_MODEL_EDGE_RULE_READING = 'inclusive on every edge' as const;
+export const UI_MODEL_EDGE_RULE_READING = 'top-left: a pixel on a left or top edge in, on a right or bottom edge out' as const;
 
 /**
- * UI_MODEL_DEPTH_FORMAT_READING: the 3D pass's depth is the interpolated invW, stored in a Float32 buffer per pass
- * (0 = empty); a pixel draws when the buffer is empty or its Float64 invW is strictly greater than the stored value,
- * so the first triangle drawn wins a tie (`drawModels`). The original's is the GS's Z buffer under the bind packets'
- * `TEST_1` (ZTE 1, ZTST GEQUAL; research 185 §3.1, pending review) and the `ZBUF_1` the environment packets write
- * (0x3e0880, 0x3e0980), whose format (PSM; the plan's "Z16S") no note states: data packets and hardware, unread in
- * the decompilation.
+ * The top-left rule for one edge (`UI_MODEL_EDGE_RULE_READING`): does a triangle own the pixel whose edge function is
+ * `e`, for an edge whose function grows by `gx` a pixel to the right and `gy` a pixel down, `s` the triangle's winding
+ * sign (-1 when its signed area is negative)? Inside (`s e > 0`), or on the edge (`e` 0) of a left edge (`s gx > 0`) or a
+ * top one (`gx` 0, `s gy > 0`). For the edge P -> Q of `e = (P.x - x)(Q.y - y) - (Q.x - x)(P.y - y)`, `gx = P.y - Q.y`
+ * and `gy = Q.x - P.x`: a shared edge, walked the other way or under the other winding, gives each sign flipped, so
+ * exactly one of its two triangles owns a pixel on it -- in IEEE arithmetic, where `a b - c d` rounds each product, as
+ * JavaScript does (`modelEdgeF32` too). A GPU that fuses the expression into an FMA breaks the exact negation, so two
+ * walks of one edge can leave leftovers of the same sign: a double add or a hole on that GPU (GM-27 measures it). The software's (`drawModels`, the plan's executor) and the twin's
+ * (`T3_inside`, the model programs' `owns`) are this rule in f64 and in f32.
  */
-export const UI_MODEL_DEPTH_FORMAT_READING = 'float32 invW, strictly greater wins, 0 empty' as const;
+export function modelEdgeOwns(e: number, gx: number, gy: number, s: number): boolean {
+  return s * e > 0 || (e === 0 && (s * gx > 0 || (gx === 0 && s * gy > 0)));
+}
+
+const fr = Math.fround;
+/**
+ * GM-15d (the disc fold): the 3D pass decides coverage and depth in one arithmetic, the GPU's -- every operation rounded
+ * to f32, in the twin's order (`uiGpuTwin.ts` T2, T4; the model programs' `e0` .. `e2`, `w0` .. `w2`, `invW`) -- so the
+ * software reference, the twin and the shader meet every edge and depth tie alike. The dev-disc run at 4d62d9c02 showed
+ * why: with the edge functions, weights and invW in f64 and only the stored depth rounded, the ARMORY's ties came out
+ * differently (seam 1,479 / coplanar 53 / other 410 pixels, every one a depth tie; the plan's Log). Neither precision is
+ * the original's: the GS compares 16-bit integer Z (`UI_MODEL_DEPTH_QUANTISE_READING`). The attributes (the
+ * perspective-correct texel and colour) stay f64 in the software, the B class's.
+ *
+ * One edge function at the integer point (x, y), `(P.x - x)(Q.y - y) - (Q.x - x)(P.y - y)`, from f32 vertices.
+ */
+export function modelEdgeF32(px: number, py: number, qx: number, qy: number, x: number, y: number): number {
+  return fr(fr(fr(px - x) * fr(qy - y)) - fr(fr(qx - x) * fr(py - y)));
+}
+/**
+ * GM-15d (the disc fold): the depth from two edge functions in f32 -- the weights `e inv`, the third `1 - w0 - w1`, then
+ * `invW = (w0 aw + w1 bw) + w2 cw` -- with `inv` the f32 of the f64 area's reciprocal and the three invW as f32: the
+ * twin's T2_weight, T2_third and T4_invW (before its power-of-two `depthScale`, which moves no equality).
+ */
+export function modelDepthF32(e0: number, e1: number, inv: number, aw: number, bw: number, cw: number): number {
+  const w0 = fr(e0 * inv), w1 = fr(e1 * inv), w2 = fr(fr(1 - w0) - w1);
+  return fr(fr(fr(w0 * aw) + fr(w1 * bw)) + fr(w2 * cw));
+}
+
+/**
+ * UI_MODEL_DEPTH_FORMAT_READING: the 3D pass's depth is the interpolated invW computed in f32 (`modelDepthF32`, the
+ * GPU's arithmetic; GM-15d's disc fold), stored in a Float32 buffer per pass (0 = empty); a pixel draws when its f32 depth is at least the stored one -- GEQUAL, f32 against the
+ * f32 store, so the later of two equal depths wins (`drawModels`; GM-15d). The original's is the GS's Z buffer under the
+ * bind packets' `TEST_1` 0x5000c (ZTE 1, ZTST GEQUAL; research 185 §3.1, re-read in §11.3) and the `ZBUF_1` the
+ * environment packets write: 0x3a000118 -- ZBP 0x118, PSMZ16S, ZMSK 0 -- read off the ELF at 0x3e0940 (the env packet
+ * 0x3e0880) and 0x3e09f0 (the per-flip packet 0x3e0980), and not patched at run time: the per-flip `FUN_003aff30`
+ * patches only FRAME_1 and XYOFFSET (D:L304822-304823; its pointers set by `FUN_003b1180` at D:L305249-305250). Reading, pending review
+ * (research 380 §4). The 16-bit store itself is not modelled: `UI_MODEL_DEPTH_QUANTISE_READING`. Before GM-15d an f64
+ * invW had to be strictly greater than the f32 store, so the first won a tie -- R1's double adds, the port's artefact.
+ */
+export const UI_MODEL_DEPTH_FORMAT_READING = 'float32 invW, GEQUAL (the later of two equal depths wins), 0 empty' as const;
+
+/**
+ * UI_MODEL_DEPTH_QUANTISE_READING: the depth is not quantised -- two f32 invW that differ are different depths, however
+ * close (`drawModels`). The GS stores a 16-bit Z (PSMZ16S, `UI_MODEL_DEPTH_FORMAT_READING`) of the integer Z each
+ * vertex's XYZF2 sends through `FTOI4` (desktop research 12, `desktop@be5578311:docs/research/12-vu1-entry0-ui-path.md`
+ * L530-626, from the recompilation's VU1 dumps); the menus' own VU1 lists, and so the Z scale of their viewport, are
+ * unread. Inside one Z unit the GS ties two depths an f32 tells apart, and GEQUAL keeps the later: what that changes is
+ * unknown until the scale is read (research 380 §4: a GS dump of the roller and the ARMORY, or the VU1 lists decoded).
+ */
+export const UI_MODEL_DEPTH_QUANTISE_READING = 'none: the float32 invW compared as it stands; the Z16S store and the menus\' Z scale unread' as const;
 
 /**
  * UI_MODEL_GOURAUD_READING: a 3D-pass triangle's vertex colour is interpolated perspective-correctly (by 1/w), as its

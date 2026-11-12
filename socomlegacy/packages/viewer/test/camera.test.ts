@@ -554,3 +554,56 @@ describe('Escape releases the pointer lock (a browser adaptation, no original)',
     lockTo(null);
   });
 });
+
+describe('the Forge editor\'s R/F vertical moves stay in the Forge (FP-1b; REVIEW-B 9; a browser adaptation, FG.R2)', () => {
+  it('a fly camera that is not the forge editor\'s (the test room\'s, the match\'s fallback) never moves on R or F', () => {
+    const fly = new FlyCamera(canvas());
+    fly.setScale(0.1);
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    for (const code of ['KeyR', 'KeyF']) {
+      press(code);
+      run(fly, 0.5, 30);
+      release(code);
+      run(fly, 2, 60);
+      expect(fly.pose(), code).toEqual({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    }
+    fly.dispose();
+  });
+
+  it('the forge editor\'s camera, its right button held, rises on R and sinks on F', () => {
+    const c = canvas();
+    const fly = new FlyCamera(c, { forgeKbm: true });
+    fly.setScale(0.1);
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    c.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true, cancelable: true }));
+    press('KeyR');
+    run(fly, 0.5, 30);
+    release('KeyR');
+    run(fly, 2, 60);
+    const up = fly.pose().y;
+    expect(up).toBeGreaterThan(0);
+    press('KeyF');
+    run(fly, 1, 60);
+    release('KeyF');
+    run(fly, 2, 60);
+    expect(fly.pose().y).toBeLessThan(up);
+    c.dispatchEvent(new MouseEvent('pointerup', { button: 2, bubbles: true, cancelable: true }));
+    fly.dispose();
+  });
+});
+
+describe("the forge editor camera's numbers are named (FP-1b; REVIEW-B 15; browser adaptations, FG.R2)", () => {
+  it('names its collision radius, the orthographic wheel zoom, its bounds and the Z / C step, and uses no bare literal for them', async () => {
+    const cam = await import('../src/camera');
+    expect([cam.FORGE_CAMERA_RADIUS_M_ADAPTATION, cam.FORGE_ORTHO_WHEEL_ZOOM_ADAPTATION, cam.FORGE_ORTHO_ZOOM_MIN_ADAPTATION,
+      cam.FORGE_ORTHO_ZOOM_MAX_ADAPTATION, cam.FORGE_ORTHO_ZOOM_STEP_ADAPTATION]).toEqual([0.25, 0.002, 0.1, 100, 0.9]);
+    const { readFileSync } = await import('node:fs');
+    const { dirname, resolve } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/camera.ts'), 'utf-8');
+    expect(src).not.toMatch(/0\.25 \/ this\.metersPerUnit/);
+    expect(src).not.toMatch(/Math\.exp\(-deltaY \* 0\.002\)/);
+    expect(src).not.toMatch(/, 0\.1, 100\)/);
+    expect(src).not.toMatch(/\? 0\.9 : 1 \/ 0\.9/);
+  });
+});

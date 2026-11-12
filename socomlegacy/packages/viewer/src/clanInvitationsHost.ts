@@ -3,6 +3,7 @@ import {
   type ClanInvitationReply, type ClanInvitationResponse, type ClanInvitationsQuery, type ClanInvitationsService, type InvitedPlayersService, type LobbyClan,
   type MyClanInvitations, type RespondToInvitesService, type SentInvitationReply, type UiCommandHost, type UiVarManager, type ZAnimUiCommand,
 } from '@s2u/ui';
+import type { BriefingRoomTransport, ChatLinesReplyWithSays } from './briefingRoomHost';
 
 /**
  * SVC-09a's page half (web research 156 §2.4), for ONL-09's INVITATIONS row: `CheckMyInvites` (`@s2u/ui`'s
@@ -174,6 +175,11 @@ export interface ClanInvitationsMount {
   inputString: (cmd: ZAnimUiCommand) => string | null;
   /** ONL-07's lobby: its +0x7d, its state and the account's name; absent, the readings (`WORLD_LOBBY_STATE_READING`, `ACCOUNT_NAME_READING`). */
   lobby?: { readonly up: boolean; state(): number; account?(): string | null } | null;
+  /**
+   * The dialog the page shows (the shell's `currentName`), for `CLAN_INVITE_LIVE_DIALOGS`: a live mark asks the list only
+   * on one of them. Absent, every mark asks (a rig with no shell).
+   */
+  dialog?: () => string | null;
 }
 
 /**
@@ -182,10 +188,14 @@ export interface ClanInvitationsMount {
  * bearer -- the page then sends the ticket (no ticket, no request), so the server's ticketless branch could be retired
  * (INVITE-TICKETLESS, research 273 §9); INVITE PLAYERS' five rows and RESPOND TO INVITES' two over the same transport.
  */
-export function connectClanInvitations(host: UiCommandHost, m: ClanInvitationsMount): { invited: InvitedPlayersCommands; respond: RespondToInvitesCommands } {
+export function connectClanInvitations(host: UiCommandHost, m: ClanInvitationsMount): {
+  invited: InvitedPlayersCommands; respond: RespondToInvitesCommands; live(): void; livePending(): boolean;
+} {
   const lobby = m.lobby ?? null;
   const svc = m.service ? sessionClanMembership(m.service, m.ticket, m.sessionLost) : null;
-  if (svc) new ClanInvitationCommands({ list: m.invitations, service: svc.invitations }).register(host);
+  // CLAN-INVITES (the review's F2): the original's own ask of the received list settles a live mark left pending
+  let pending = false;
+  if (svc) new ClanInvitationCommands({ list: m.invitations, service: svc.invitations, log: (name) => { if (name === 'CheckMyInvites') pending = false; } }).register(host);
   const never: ClanInvitationsService = { check: () => Promise.reject(new Error('no service')) };
   const invited = new InvitedPlayersCommands({
     uiVars: m.uiVars, clan: m.clan, service: svc?.invited, event: m.event, inputString: m.inputString, ticket: svc ? m.ticket : undefined,
@@ -196,5 +206,51 @@ export function connectClanInvitations(host: UiCommandHost, m: ClanInvitationsMo
     list: m.invitations, invitations: svc?.invitations ?? never, service: svc?.respond, inputString: m.inputString, ticket: svc ? m.ticket : undefined,
   });
   respond.register(host);
-  return { invited, respond };
+  // CLAN-INVITES (CLAN_INVITE_LIVE_ADAPTATION): central's mark asks the received list again over the ticketed transport,
+  // only on SOCOM II ONLINE or RESPOND TO INVITES (CLAN_INVITE_LIVE_DIALOGS; the review's F2) -- elsewhere it stays pending
+  // and SOCOM II ONLINE's own init_screen CheckMyInvites asks the list on entry; no transport, nothing (the world's
+  // ticketless row is never asked by it); no ticket, the request is never sent
+  const live = (): void => {
+    if (!svc) return;
+    const on = m.dialog ? m.dialog() : null;
+    if (m.dialog && (on === null || !(CLAN_INVITE_LIVE_DIALOGS as readonly string[]).includes(on))) { pending = true; return; }
+    pending = false;
+    m.invitations.refresh(svc.invitations);
+  };
+  return { invited, respond, live, livePending: () => pending };
+}
+
+/**
+ * CLAN_INVITE_LIVE_DIALOGS (the review's F2 on `CLAN_INVITE_LIVE_ADAPTATION`): the dialogs on which a live mark asks the
+ * received list -- SOCOM II ONLINE, whose `TurnOnInvitations` draws the INVITATIONS row from it (research 273 §4), and
+ * RESPOND TO INVITES, which lists it (§3). The list's reply raises MP_MEDIUS_HAS_INVITES (`FUN_002e86c0` D:L187604) into
+ * the dialog shown, and the original asks the list only from these menus (`init_screen`, the respond page's loop), so the
+ * adaptation raises it nowhere else: on any other dialog -- or none, a match -- the mark waits for SOCOM II ONLINE's own
+ * `init_screen` CheckMyInvites on entry.
+ */
+export const CLAN_INVITE_LIVE_DIALOGS = ['dlgWorldOfSOCOM.rdr', 'dlgRespondToInvites.rdr'] as const;
+
+/**
+ * CLAN-INVITES (the owner's word, 2026-11-10: "ensure ... that clan invites come in live for a player that recieves
+ * one"): the page's half of `CLAN_INVITE_LIVE_ADAPTATION` (a browser adaptation, no original; the server's
+ * `packages/central/src/clanInviteLive.ts`, research 273 §10). The original asks the received list only at SOCOM II
+ * ONLINE's `init_screen`, RESPOND TO INVITES' `WAIT 30` loop and a respond's reply, so a new invitation never reaches a
+ * player resting on the menu. Central marks the logged-in invitee whose list changed and its `/lobby/chat-lines` reply
+ * -- the briefing room transport's poll, `CHAT_POLL_MS_ADAPTATION` (1 s), already running while the lobby is up --
+ * carries `clanInvitations: true` once. This wraps that transport as `./operatorToast`'s `withSays` does: the reply
+ * handed on unchanged (the chat reads `lines` and `system` only), and on the mark `changed` called with the ticket the
+ * poll was sent with; the session then asks the list again (`connectClanInvitations`' `live`,
+ * `MyClanInvitations.refresh`), and the original's own reply handling and `TurnOnInvitations` draw the row. No request,
+ * connection or period is added.
+ */
+export function withClanInvitationNotice(t: BriefingRoomTransport, changed: (ticket: string) => void): BriefingRoomTransport {
+  const poll = t.chatLines;
+  if (!poll) return t;
+  return {
+    ...t,
+    chatLines: (ticket) => poll.call(t, ticket).then((r) => {
+      if (r !== null && typeof r === 'object' && !Array.isArray(r) && (r as ChatLinesReplyWithSays).clanInvitations === true) changed(ticket);
+      return r;
+    }),
+  };
 }

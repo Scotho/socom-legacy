@@ -68,11 +68,16 @@ export function loadSummary(perf: LoadMarkClock | null = pagePerformance()): Loa
   return out;
 }
 
+/** XBOX-DIAG (`./matchDiag`): the latest phase this load reached, as an index of `LOAD_PHASES`; -1 before the first. */
+let reached = -1;
+export function loadPhaseReached(): number { return reached; }
+
 /**
  * One phase reached. A `load-start` clears the earlier load's marks first, so each summary is one load's. At the first
  * frame the summary is logged once. Never throws: an instrument does not stop a load.
  */
 export function markLoad(phase: LoadPhase, perf: LoadMarkClock | null = pagePerformance(), log: (line: string) => void = (l) => { console.info(l); }): void {
+  reached = phase === 'load-start' ? 0 : Math.max(reached, LOAD_PHASES.indexOf(phase));
   if (!perf) return;
   try {
     if (phase === 'load-start') { for (const p of LOAD_PHASES) perf.clearMarks?.(LOAD_MARK_PREFIX + p); perf.clearMarks?.(LOBBY_PREPARED_MARKS.found); perf.clearMarks?.(LOBBY_PREPARED_MARKS.none); }

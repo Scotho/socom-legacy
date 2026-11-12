@@ -37,8 +37,9 @@ export const ZANIM_COMMAND_NAMES: readonly string[] = [
 export const ZCMD = {
   QUAD_ALIGN: 1, IF: 2, ELSEIF: 3, ELSE: 4, ENDIF: 5, RANGE_TEST: 9, RANDOM_WEIGHT: 10, FAIL: 11, LOOP: 14, WAIT: 15,
   OBJECT_ACTIVE_STATE: 17, OBJECT_TRANSLATE_STATE: 18, OBJECT_ROTATE_STATE: 19, OBJECT_MOTION: 21,
-  OBJECT_MOTION_FROM_TO: 22, OBJECT_OPACITY_FROM_TO: 25, PARTICLE_SOURCE: 27, SOUND: 30, LIGHT: 32, EXPRESSION: 43, CALL_ANIMATION: 45,
+  OBJECT_MOTION_FROM_TO: 22, SCROLL_MOTION: 24, OBJECT_OPACITY_FROM_TO: 25, PARTICLE_SOURCE: 27, SOUND: 30, LIGHT: 32, EXPRESSION: 43, CALL_ANIMATION: 45,
   STOP_SEQUENCE: 51, VALVE: 61, WHILE: 39, END_WHILE: 40, CALL_SEQUENCE: 50, STOP_ANIMATION: 46, PAUSE_ANIMATION: 47,
+  INVALIDATE_ANIMATION: 49,
   MESSAGE: 55, DESTRUCTION_SOURCE: 29, FIRE_WEAPON: 57, OBJECT_MAKE_WORLDCHILD: 6, FOR_CHILDREN: 41, END_FOR_CHILDREN: 42,
   /**
    * `EXECUTE_ACTION` (MAP-06; research 174 s3, 209 s13): registered by the action module after `VALVE`, numbered on in
@@ -190,7 +191,12 @@ export const NODE_ROOT = -7, NODE_CALLER = -6;
 export type EffectOp =
   | { op: 'if' | 'elseif'; conditions: EffectCondition[] }
   | { op: 'else' | 'endif' }
-  /** `WAIT` (15; begin `FUN_0025ed50`): `frames` when flag 0x10 (the i32 at +8), else `seconds` (the f32 at +8); flag 0x20 a random range. */
+  /**
+   * `WAIT` (15; begin `FUN_0025ed50` D:L108436-108447): `frames` when flag 0x10 (the i32 at +8), else `seconds` (the f32
+   * at +8). Flag 0x20 is the random form: the begin writes base + range x U[0,1) over +8, the base the f32 at +12 and the
+   * range at +16 -- a word on, +16 / +20, with 0x10 -- so `seconds` is that base and `range` that range (the disc's +8
+   * repeats the base: MP71's `seagull_squak` +8 4, +12 4, +16 9, a 4-13 s wait).
+   */
   | { op: 'wait'; seconds: number; range: number; frames: number | null }
   /** `LOOP` (14; tick `FUN_0025ede0`): back to the sequence's start until `count` passes (flag 1; -1 forever) or `seconds` (flag 2). */
   | { op: 'loop'; count: number | null; seconds: number | null }
@@ -217,11 +223,39 @@ export type EffectOp =
    * sits there, and reading them as the motion is what made the hooks decode as a zero scale (research 176 §9.2). The
    * viewer's general `fromTo` host still applies that scale; `viewer/src/cranes.ts` and `viewer/src/gates.ts` (MAP-07)
    * are what consume `translation`.
+   *
+   * The speed profile (DF-9, research 387 §12; flags 0x800 or 0x1000): the begin takes the block at the u16 +0x0e
+   * (`FUN_0025fe70` D:L109097-109098), starts its phase at the first of its three times above 0 and its speed at the
+   * start speed, and keeps the unit direction from the start to the target (D:L109263-109289); the tick then moves the
+   * node by `FUN_002606f0` (D:L108997, D:L109348-109434) in place of the rate -- phase 1 adds `accel` x dt to the
+   * speed for `times[0]`, phase 2 holds the cruise speed for `times[1]`, phase 3 adds `decel` x dt until the command's
+   * time is up, the node moved by the speed along the direction -- and sets the target at the end unless flag 0x2000
+   * (D:L108958-108972). The begin recomputes the times from the distance (`FUN_00260910` D:L109438-109505, called at D:L109259) only when it
+   * also took the start or the target from a node; MP71's washups take neither (flag 2, P+0's bits clear), so the disc's
+   * times stand. The world runs it from a given start (LATER 782: viewer `sceneScroll.ts`, `SCENE_PROFILE_MOTION_READING`).
    */
   | {
     op: 'fromTo'; node: number; flags: number; seconds: number; from: Vec3; to: Vec3;
     rotation?: { from: Quat4; to: Quat4 };
     translation?: { from: Vec3 | null; to: Vec3; rate: Vec3 };
+    profile?: { speeds: Vec3; accel: number; decel: number; times: Vec3 };
+  }
+  /**
+   * `SCROLL_MOTION` (24; DF-9, research 387 §12; `FUN_0025bc20`'s 24th registration, D:L106888): begin `FUN_00260fb0`
+   * (D:L109681-109703) keeps the world place of the node at +7 (`mover`) and registers every visual at and under the
+   * node at +6 (`node`) in the texture-scroll table (`FUN_003134c0` D:L213767ff, 0x4b50d0), its offset 0; the tick
+   * `FUN_00260b40` (D:L109507-109676) measures how far `mover` travelled since the last tick -- signed by the axis at
+   * +0x14 carried through `mover`'s matrix (its x and z, D:L109635-109655) -- and moves those visuals' texture
+   * coordinates by `uv` times it (`FUN_003c0280` -> `FUN_003bfee0` D:L313770ff: each vertex's u and v, in 1/4096ths).
+   * Flag 8 measures the travel projected through `node`'s matrix instead (`projected`: the point at +0x20, the axis at
+   * +0x2c with flag 0x10, else up; D:L109576-109631); flags 2 and 4 pick the scroll table's walk (`FUN_003bfee0`'s
+   * last two arguments, D:L109627-109629, unread); flag 1 ends it after `seconds` (+0x44, D:L109663-109674), else it runs until its
+   * animation stops. Was decoded as `other`. The world runs the travel form (LATER 782: viewer `sceneScroll.ts`;
+   * what is not drawn is `SCROLL_MOTION_PLACEHOLDER`, viewer `worldState.ts`).
+   */
+  | {
+    op: 'scroll'; node: number; mover: number; flags: number; axis: Vec3; uv: [number, number]; seconds: number | null;
+    projected?: { point: Vec3; axis: Vec3 };
   }
   | { op: 'motion'; motion: ObjectMotion }
   /**
@@ -243,12 +277,19 @@ export type EffectOp =
    * unplaced through the bank's +0x1c play (decomp 245406, 245416), a higher priority fading the voice there first
    * (245386-245398), a taken slot keeping it pending (245424-245444); the viewer does not model the slot and its runners drop those (`SOUND_PRIORITY_SLOT_READING`).
    * `flags` is the command's u16 at +4. Both absent on a hand-built op: a new play.
+   * `offset`: flag 4's vector at +0x14, added to the place before the node's matrices carry it to the world
+   * (`FUN_00309240`, D:L112423-112426; `mp6_battlesounds`' distant guns at (300, 0, 1000) from the skydome).
    */
-  | { op: 'sound'; sound: string; node: number; volume: number; flags?: number; newPlay?: boolean }
+  | { op: 'sound'; sound: string; node: number; volume: number; flags?: number; newPlay?: boolean; offset?: Vec3 }
   /** `LIGHT` (32): a dynamic light (`ZAnimLight`). */
   | { op: 'light'; light: ZAnimLight }
-  /** `CALL_ANIMATION` (45; begin `FUN_0025d5c0`): the animation named at +7, run at this one's place. */
-  | { op: 'call'; anim: string }
+  /**
+   * `CALL_ANIMATION` (45; begin `FUN_0025d5c0`): the animation named at +7, run at this one's place. Flag 4 (the u16 at
+   * +4): `caller`, the node at +9, handed to the callee as a type-3 context entry -- its `NODE_CALLER` (D:L107605-107613;
+   * `FUN_0026f4e0` D:L118164-118168); flag 8: `place`, the node at +10, whose world position the call takes
+   * (`FUN_00310980`, D:L107620-107629). Research 386 §3.3: the death debris' `*_flypart*` calls, one per part.
+   */
+  | { op: 'call'; anim: string; caller?: number; place?: number }
   /** `STOP_SEQUENCE` (51): this animation's sequence named at +4 (a name index). */
   | { op: 'stopSequence'; sequence: string }
   /** `FAIL` (11): the animation stops. */
@@ -277,6 +318,15 @@ export type EffectOp =
    * keeps them (and their particle sources) alive with nothing left to run.
    */
   | { op: 'pauseAnimation'; anim: string }
+  /**
+   * `INVALIDATE_ANIMATION` (49; tick `FUN_0025d2b0` D:L107355-107373, the 49th registration of `FUN_0025bc20`,
+   * D:L106913): the animation the name byte +4 names -- found as `STOP_ANIMATION` finds its own (`FUN_0026e4c0`
+   * D:L117534ff: the call slot of that name, made on first use with the definition looked up by `set::name`) -- or, for
+   * 0, the running one (`anim` null), has its instance's `+0x34` bit 0 set: every later start of it is refused
+   * (`FUN_00270ef0` D:L119142) until its set starts again (`FUN_0026c600` D:L116340-116344). Done at once; what runs
+   * goes on. Desert Glory's ten (research 175 §5.1.1) each name their own animation.
+   */
+  | { op: 'invalidate'; anim: string | null }
   | { op: 'endWhile' }
   /** `VALVE` (61; `FUN_00353fd0`, decomp 252128): the valve (a name index when flag 2) and an operation on it: 0x0b set, 0x0c add, 0x0d subtract; 1-6 the tests. */
   | { op: 'valve'; valve: string; operation: number; operand: number; context?: true }
@@ -287,11 +337,11 @@ export type EffectOp =
    */
   | { op: 'executeAction'; anim: string }
   /**
-   * `DESTRUCTION_SOURCE` (29): the node the debris leaves from, the i8 at +4 (Frostfire's `breakapane`: 0xf9, `NODE_ROOT`)
-   * -- read from the one sample; the payload after it (a name index at +5, the fragments' floats) is not decoded
-   * (SUP-02's glass fragments).
+   * `DESTRUCTION_SOURCE` (29; 80 bytes; tick `FUN_002678f0`, D:L113383-113421, the 29th registration of `FUN_0025bc20`
+   * D:L106893): the node the debris leaves from, the byte at +4 (Frostfire's and Fish Hook's `breakapane`: 0xf9,
+   * `NODE_ROOT`), and -- on a command of the full 80 bytes -- what its fragments are made of (`debris`; LATER 850).
    */
-  | { op: 'destruction'; node: number }
+  | { op: 'destruction'; node: number; debris?: DestructionDebris }
   /**
    * `FIRE_WEAPON` (57; 44 bytes; begin `FUN_0025ccb0`, D:L107197-107316, the 57th registration of `FUN_0025bc20`):
    * a weapon's round made at a node -- the u8 at +6 the weapon's name (a name index, looked up in the weapon table
@@ -378,6 +428,8 @@ function f32Short(v: number): number {
 
 /** `SOUND`'s flag 0x10: the command carries its own volume at +8 (`FUN_002659c0` 112363-112416). */
 const SOUND_VOLUME = 0x10;
+/** `SOUND`'s flag 4: the command carries an offset at +0x14, the place's start (`FUN_002659c0` D:L112423-112426). */
+const SOUND_OFFSET = 0x4;
 
 /**
  * `SOUND`'s flags 0x400 / 0x800: the sound goes to the game's one-voice priority slot (`FUN_002659c0` 112460,
@@ -436,6 +488,56 @@ function conditions(c: CmdBytes, names: readonly string[]): EffectCondition[] {
   return out;
 }
 
+/**
+ * `DESTRUCTION_SOURCE`'s payload past its node (LATER 850; research 210 §6.1). `FUN_002678f0` reads the command in place
+ * and calls `FUN_00322580` with every field below (its registers at 0x2678f0-0x2679c4: f12 +0x18, f13 +0x4c, a1 the name,
+ * a2 cmd+8, a3/t0 the velocity's two ends, t1 +0x34, t2 +0x40, t3 +6); `FUN_00322580` (D:L222612-222678) keeps +0x3c and
+ * +0x40..+0x48 on the fragments' shared descriptor (D:L222654-222658; made by `FUN_00328e90` D:L226243-226277) and,
+ * for mode 0, hands the rest to `FUN_00322800` (D:L222681-222831), which throws the node's triangles (`./glassFragments`).
+ */
+export interface DestructionDebris {
+  /**
+   * The name at +5 (a name index), formatted `%s` (0x3ed110) and looked up as a texture (`FUN_001ec940`), else
+   * `null_xmas.bmp` (0x3f6ec8); neither found, nothing is thrown (D:L222634-222641).
+   */
+  texture: string;
+  /** +6: 0 the triangles are thrown (`FUN_00322800`); 1 the descriptor alone is made; any other, nothing (D:L222660-222672). */
+  mode: number;
+  /**
+   * +8..+0x14, four f32: each fragment's vertex colour, each rounded to a byte (+0.5; `FUN_00322df0` D:L223268-223298).
+   * The fourth is never read as stored: `FUN_00322800` writes 100.0 over +0x14 before each triangle (D:L222777; 0x322a40).
+   */
+  colour: [number, number, number, number];
+  /**
+   * +0x18 (f12): the measure a triangle is split by -- `0.6 x size / |2 x area|` against 0.3 and a draw (`FUN_00322df0`
+   * D:L223084-223101).
+   */
+  size: number;
+  /** +0x1c, +0x24, +0x2c: one end of each axis's velocity draw (`lo + (hi - lo) x r`, `FUN_00322800` D:L222784-222792). */
+  velocityFrom: Vec3;
+  /** +0x20, +0x28, +0x30: the other end. */
+  velocityTo: Vec3;
+  /** +0x34, +0x38: the life's draw, seconds (D:L222799-222801, the lerp at D:L222821). */
+  life: [number, number];
+  /** +0x3c: the descriptor's +0x2c, the drag toward the world's wind (`FUN_003271d0` D:L225243-225279); 0, none. */
+  drag: number;
+  /** +0x40..+0x48: the descriptor's +0x30, added to the velocity times the step each tick (D:L225219-225224). */
+  acceleration: Vec3;
+  /** +0x4c (f13): each fragment's +0x54, written to its visual's +0x9c each tick (D:L225240); its meaning is not read. */
+  visual9c: number;
+}
+
+/** `DESTRUCTION_SOURCE`'s payload (`DestructionDebris`), or null for a command shorter than the 80 bytes `FUN_002678f0` reads. */
+function destructionDebris(c: CmdBytes, names: readonly string[]): DestructionDebris | null {
+  if (c.length < 0x50) return null;
+  return {
+    texture: NAME(names, c.u8(5)), mode: c.u8(6),
+    colour: [c.f32(8), c.f32(0xc), c.f32(0x10), c.f32(0x14)], size: c.f32(0x18),
+    velocityFrom: [c.f32(0x1c), c.f32(0x24), c.f32(0x2c)], velocityTo: [c.f32(0x20), c.f32(0x28), c.f32(0x30)],
+    life: [c.f32(0x34), c.f32(0x38)], drag: c.f32(0x3c), acceleration: c.vec3(0x40), visual9c: c.f32(0x4c),
+  };
+}
+
 /** One command's bytes to what it does; `names` is the animation's name table. */
 export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>, names: readonly string[]): EffectOp {
   const c = new CmdBytes(cmd.bytes);
@@ -451,7 +553,11 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.WAIT: {
       const flags = c.u16(4);
       const frames = (flags & 0x10) !== 0 ? c.i32(8) : null;
-      return { op: 'wait', seconds: frames === null ? c.f32(8) : 0, range: (flags & 0x20) !== 0 ? c.f32(12) : 0, frames };
+      if ((flags & 0x20) !== 0) {
+        const at = 8 + 4 * ((flags & 0x10) !== 0 ? 2 : 1);           // FUN_0025ed50: iVar2 = 2 with 0x10, else 1
+        return { op: 'wait', seconds: c.f32(at), range: c.f32(at + 4), frames };
+      }
+      return { op: 'wait', seconds: frames === null ? c.f32(8) : 0, range: 0, frames };
     }
     case ZCMD.LOOP: {
       const flags = c.u32(4);
@@ -464,11 +570,23 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
       // The flashes' form (flags 0x300): +0x34 the time, +0x38 from, +0x44 to, +0x50 the rate -- which is (to - from) /
       // time on every one of them (research 89 §4), the check that the reading is right. Those two vectors stay the
       // scale reading. A position block (u16 +0x0c, research 174 §5 / 176 §9.2, `uiZanim` `move`) is separate.
-      const flags = c.u16(4), p = c.u16(0x0c);
+      const flags = c.u16(4), p = c.u16(0x0c), q = c.u16(0x0e);
       return {
         op: 'fromTo', node: c.i8(6), flags, seconds: c.f32(0x34), from: c.vec3(0x38), to: c.vec3(0x44),
         ...((flags & 0x40) !== 0 ? { rotation: { from: c.quat(0x10), to: c.quat(0x20) } } : {}),
         ...(p !== 0 ? { translation: { from: (flags & 2) !== 0 ? c.vec3(p + 4) : null, to: c.vec3(p + 0x10), rate: c.vec3(p + 0x1c) } } : {}),
+        // DF-9: the speed profile's block (`FUN_0025fe70` D:L109097-109098; `FUN_002606f0`'s +0x00..+0x1c).
+        // Taken at param_1 + u16(+0x0e) unconditionally under either flag, as the original does.
+        ...((flags & 0x1800) !== 0
+          ? { profile: { speeds: c.vec3(q), accel: c.f32(q + 0xc), decel: c.f32(q + 0x10), times: c.vec3(q + 0x14) } } : {}),
+      };
+    }
+    case ZCMD.SCROLL_MOTION: {
+      const flags = c.u8(4);
+      return {
+        op: 'scroll', node: c.i8(6), mover: c.i8(7), flags, axis: c.vec3(0x14), uv: [c.f32(0x38), c.f32(0x3c)],
+        seconds: (flags & 1) !== 0 ? c.f32(0x44) : null,
+        ...((flags & 8) !== 0 ? { projected: { point: c.vec3(0x20), axis: (flags & 0x10) !== 0 ? c.vec3(0x2c) : [0, 1, 0] as Vec3 } } : {}),
       };
     }
     case ZCMD.OBJECT_OPACITY_FROM_TO:
@@ -477,10 +595,16 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.PARTICLE_SOURCE: return { op: 'particles', source: decodeParticleSource(c, names) };
     case ZCMD.SOUND: {
       const flags = c.u16(4);
-      return { op: 'sound', sound: NAME(names, c.u16(6)), node: c.i8(16), volume: (flags & SOUND_VOLUME) !== 0 ? c.f32(8) : 1, flags, newPlay: SOUND_NEW_PLAY(flags) };
+      return {
+        op: 'sound', sound: NAME(names, c.u16(6)), node: c.i8(16), volume: (flags & SOUND_VOLUME) !== 0 ? c.f32(8) : 1, flags, newPlay: SOUND_NEW_PLAY(flags),
+        ...((flags & SOUND_OFFSET) !== 0 ? { offset: c.vec3(0x14) } : {}),
+      };
     }
     case ZCMD.LIGHT: return { op: 'light', light: decodeLight(c) };
-    case ZCMD.CALL_ANIMATION: return { op: 'call', anim: NAME(names, c.u8(7)) };
+    case ZCMD.CALL_ANIMATION: {
+      const flags = c.u16(4);
+      return { op: 'call', anim: NAME(names, c.u8(7)), ...(flags & 4 ? { caller: c.i8(9) } : {}), ...(flags & 8 ? { place: c.i8(10) } : {}) };
+    }
     case ZCMD.STOP_SEQUENCE: return { op: 'stopSequence', sequence: NAME(names, c.u16(4)) };
     case ZCMD.WHILE: {
       const forever = (c.u8(4) & 1) !== 0, list = forever ? [] : conditions(c, names);
@@ -493,11 +617,16 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.CALL_SEQUENCE: return { op: 'callSequence', sequence: NAME(names, c.u16(4)) };
     case ZCMD.STOP_ANIMATION: return { op: 'stopAnimation', anim: NAME(names, c.u16(4)) };
     case ZCMD.PAUSE_ANIMATION: return { op: 'pauseAnimation', anim: NAME(names, c.u16(4)) };
+    // `FUN_0025d2b0` tests the byte +4 alone (D:L107363); a name index otherwise (`FUN_0026e4c0`'s `param_2`).
+    case ZCMD.INVALIDATE_ANIMATION: return { op: 'invalidate', anim: c.u8(4) === 0 ? null : NAME(names, c.u8(4)) };
     case ZCMD.END_WHILE: return { op: 'endWhile' };
     case ZCMD.FAIL: return { op: 'fail' };
     case ZCMD.VALVE: return { op: 'valve', ...valveOf(c, names) };
     case ZCMD.EXECUTE_ACTION: return { op: 'executeAction', anim: NAME(names, c.u16(4)) };
-    case ZCMD.DESTRUCTION_SOURCE: return { op: 'destruction', node: c.i8(4) };
+    case ZCMD.DESTRUCTION_SOURCE: {
+      const debris = destructionDebris(c, names);
+      return { op: 'destruction', node: c.i8(4), ...(debris ? { debris } : {}) };
+    }
     case ZCMD.FIRE_WEAPON:
       return { op: 'fireWeapon', weapon: NAME(names, c.u8(6)), ammo: NAME(names, c.u8(5)), node: c.i8(8), f1: f32Short(c.f32(0xc)), f2: f32Short(c.f32(0x10)),
         ...(c.u8(4) & 1 ? { offset: [c.f32(0x14), c.f32(0x18), c.f32(0x1c)] as [number, number, number] } : {}),

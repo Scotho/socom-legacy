@@ -1,90 +1,199 @@
 ---
 title: "Testing a pack locally"
-description: "Where you can try a pack today: the test room's loaders, the Forge's Play for rules, and what a v2 import does."
-status: "Test room only"
-source: ["socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-10-texture-pack-conventions.md", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts:27-32", "socomlegacy/packages/viewer/src/experimentalGraphics.ts:437", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
+description: "Where you load a pack today: Home > Experiments > Mods for every earlier-format pack, the test room for mods and model packs, the Forge's Play for rules, and what a v2 import does."
+status: "Works"
+source: ["socomlegacy/packages/viewer/src/console/adapters/mods.ts", "socomlegacy/packages/viewer/src/console/render/mods.ts", "socomlegacy/packages/viewer/src/packs/classify.ts", "socomlegacy/packages/viewer/src/packs/pagePacks.ts", "socomlegacy/packages/viewer/src/packApplyOverlay.ts", "socomlegacy/packages/viewer/src/hdTexturePack.ts", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/viewer/src/mods/panel.ts", "socomlegacy/packages/viewer/src/modelPack.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts", "socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/examples/zombie-waves/README.md", "socomlegacy/packages/viewer/src/forge/npcs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
 ---
 
-**Status: Test room only.** Packs are tried in the browser, on your own computer, and kept in that browser's storage.
-Nothing you load is uploaded, and nothing reaches a lobby match or another player. Most of what you can see today is
-in the **test room** (the game's page at `/testroom`), using the earlier pack formats; a rules pack runs in the
-**Forge**'s local Play; and a v2 pack can be checked and stored, but not yet applied. Each section below says which.
+**Status: Works.** Every earlier-format pack is loaded in one place, **Home > Experiments > Mods**, kept in your
+browser's storage, and switched on, off or removed there. Texture packs and the HD texture pack then apply on every
+page; mods and model packs apply in the test room only; a rules pack runs in the Forge's local Play; a v2 pack is
+checked and stored but not applied. Each section below carries its own status.
+
+Packs are tried in the browser, on your own computer. Nothing you load is uploaded, and a pack changes only what
+**your** screen draws: the game's data in a match, the simulation and what is sent to other players are untouched
+([What a pack may change](#what-a-pack-may-change)).
 
 You need the game set up in your browser with your own disc, as for playing: a pack changes what the game draws or
 does, so the game has to be there first.
 
 ## At a glance
 
-| what you want to try | where | status |
-|---|---|---|
-| an `s2u-mod` data override (replace or add one of the game's files) | the test room's **Mods** panel | Test room only |
-| a texture pack for one map | the test room's Experimental view, **Import pack (.zip)** | Test room only |
-| an HD texture pack | the same **Import pack (.zip)** button: imported and stored, never drawn | Planned -- held off until the owner lifts the hold |
-| a model pack (GLB models in place of the game's meshes) | the test room with `modmodels` in the address | Test room only |
-| a v2 rules pack, like [your first pack](/guides/first-pack/) | the Forge's Rules panel or its agent connection, then Play | Forge, local only |
-| any v2 pack: is it valid? | the agent connection: the solo test room's **Connect your agent** (outside Play), or the Forge's | Format only: checked and stored, never applied |
+| what you want to try | where you load it | where it applies | status |
+|---|---|---|---|
+| a texture pack for one map (built) | Home > Experiments > Mods | every page, on its own map | Works |
+| an HD texture pack, bare or as a Thunderstore zip | Home > Experiments > Mods | every page, every map | Works |
+| an `s2u-mod` data override (replace or add one of the game's files) | Home > Experiments > Mods | the test room only | Test room only |
+| a model pack (GLB models in place of the game's meshes) | Home > Experiments > Mods | the test room, with `modmodels` in the address | Test room only |
+| a v2 rules pack, like [your first pack](/guides/first-pack/) | the Forge's Rules panel or its [agent connection](/connect/), then Play | the Forge's Play | Forge, local only |
+| any v2 pack: is it valid? | Home > Experiments > Mods, or the [agent connection](/connect/): the solo test room's **Connect your agent** (outside Play), or the Forge's | nowhere: checked and stored | Format only: checked and stored, never applied |
 
 The formats themselves are described on [The earlier formats](/kinds/earlier-formats/) and [Pack kinds](/kinds/).
 
-## The test room's Mods panel (`s2u-mod`)
+## Home > Experiments > Mods
+
+Status: **Works.** The viewer's `console/render/mods.ts` draws the screen; `console/adapters/mods.ts` reads and writes
+the one pack store behind it (`packs/registry.ts`).
+
+On the launcher's Home, open **Experiments**, then **Mods**. The screen has, from the top:
+
+1. **Drop a pack here, or choose a file.** Drop a zip, a folder or loose files anywhere on the screen, or press the
+   row (Cross on a pad, or a click) to open the file picker -- the page's file input `#mods-file`, which takes several
+   files at once. A folder is walked file by file. While a pack is read and kept, the row says so ("Reading…",
+   "Keeping… n files") with a bar.
+2. **Texture pack**: **Original**, or one installed texture pack (a map's texture pack or the HD pack). One choice
+   only: two packs never replace the same texture.
+3. A line with the last outcome: "*name* added.", "*name* removed.", or a refusal in words.
+4. **Installed**: one row per pack -- its name, its kind, its number of files and its size, and where it applies
+   ("Every page, every map" for the HD pack, "Every page, on *map*" for a map's texture pack, "The test room" for a mod
+   or a model pack). The HD pack's row credits its author: "HD texture pack by GoE SouL". Each row has a switch and **Remove**; a mod row also moves up or down in the order. A v2 pack has
+   no switch: its row says "Stored".
+5. **Add test HD texture pack** (temporary; see below).
+
+What a drop is read as (the viewer's `packs/classify.ts`), in this order:
+
+- **A Thunderstore package.** A zip whose root (or one top folder) holds the store's `manifest.json` -- its keys are
+  the store's `name`, `version_number`, `website_url`, `description` and `dependencies` -- is unwrapped: the store's
+  root files (`manifest.json`, `icon.png`, `README.md`, `CHANGELOG.md`) are checked against the store's rules and set
+  aside, and the pack inside is read as below. A texture pack's own root `manifest.json` has other keys, so it is
+  never mistaken for the store's.
+- **An HD texture pack**: `experimental-packs/hd/current.json` anywhere in the zip. Drop it as its zip; loose files
+  are refused.
+- **A mod**: `mod.json` at the root or in one folder.
+- **A model pack**: `models.json`.
+- **A built texture pack** for one map: a `manifest.json` with its payloads.
+- **A v2 pack**: `s2u-pack.json`. Checked and stored, never applied.
+
+A drop that is none of these is refused, with the reason on the screen, and nothing is kept. The reasons you may see:
+
+| refusal | what to do |
+|---|---|
+| "Nothing to add: the drop holds no files." | Drop the pack's zip or its folder. |
+| "The Thunderstore package does not keep the store's rules: …" | Fix the store file the rest of the message names ([Thunderstore](/publishing/thunderstore/)). |
+| "The Thunderstore package holds only its store files: no pack is inside it." | Put the pack's own files in the zip beside the store's. |
+| "Its manifest.json is neither a Thunderstore package's nor a built texture pack's." | Check which `manifest.json` this is. |
+| "Its mod.json sits deeper than one folder: …" | Put `mod.json` at the root of the zip or of its one folder. |
+| "Not a pack MODS reads: …" | The drop has none of the files above. |
+| "Drop the HD pack as its zip (or its Thunderstore zip), not as loose files." | Drop the zip itself. |
+| "A texture pack of PNGs or export.json folders is built against its map: …" | Mods on Home adds built texture packs only; a pack of source images has to be built against its map first. |
+
+Adding a texture pack does not choose it: the outcome line says "Choose it as the texture pack to see it", and the
+choice is yours. A texture pack chosen here is applied at once on every open page of the game in this browser, a
+match in another tab included; a mod's change is read when the test room loads its map again.
+
+### The HD pack's size: decoded
+
+An HD pack's row gives its size **decoded** ("… MB decoded"): the size of its images once unpacked, as its manifest
+counts it, which is several times the zip you downloaded. Every other pack's size is what is kept.
+
+### Add test HD texture pack (temporary)
+
+The last row, **Add test HD texture pack** ("HD textures by GoE SouL. Temporary: downloads our test HD pack into this
+list and chooses it, until the HD pack is on Thunderstore"), downloads the project's own test HD pack, GoE SouL's HD
+textures, adds it to the list as an HD texture
+pack, and chooses it. While it runs it counts **files**: "Downloading the test HD pack… *n* of *N* files, *x* MB
+downloaded" -- the files fetched of the files to fetch, beside the bytes so far. Where the project's server does not
+serve the pack, it says "The test HD pack is not available yet." and keeps nothing; pressed again with the pack
+already kept, it downloads nothing more and only chooses it.
+
+The row is temporary by name in the code (`TEST_HD_PACK_BUTTON_ADAPTATION`, the viewer's `console/adapters/mods.ts`):
+it goes once the HD pack is on Thunderstore and the project owner says to remove it. Until the pack has a store page
+the screen draws no link to one (`HD_PACK_STORE_PAGE_PLACEHOLDER` is empty).
+
+## Where a pack applies
+
+Status: **Works** for texture packs; **Test room only** for mods and model packs (the viewer's `packs/pagePacks.ts`;
+the screen's "where" column, `console/adapters/mods.ts`).
+
+- **The HD texture pack**, once chosen, applies on every page: the main game's matches, online lobby matches
+  included, its menus (the HD menus follow the HD pack), the Forge and the test room -- under both pictures, MODERN
+  and PS2.
+- **A map's texture pack**, once chosen, applies on every page, on its own map only; the other maps draw their
+  originals.
+- **Mods and model packs** are kept, ordered and switched in Mods, but apply only in the test room (the next section).
+- **A v2 pack** is never applied.
+
+There is no HD picture any more: VIDEO MODE offers two pictures, MODERN and PS2 (the ui package's
+`screens/videoPicture.ts`), and the test room has no HD switch and no texture-pack import of its own. Choosing the HD
+pack in Mods is how HD is turned on.
+
+## Applying a pack: the overlay
+
+Status: **Works** (the viewer's `packApplyOverlay.ts`, `PACK_APPLY_OVERLAY_ADAPTATION`).
+
+A texture pack chosen while a page is open applies at once, not at the next map. While it applies, the page shows the
+pack's name, "Applying pack... *n*/*N*" (the textures replaced of the textures the pack replaces on this map) and a
+bar; it goes at *N*/*N*. A pack that cannot be applied shows "*name*: not applied -- *why*" for a few seconds.
+
+- **Outside play** -- the Forge's editor, the test room's Explore, a match while you are dead or spectating -- it is a
+  panel over the whole screen.
+- **In live play** -- alive in a running match, or walking in the test room's Play -- it is a small strip in the top
+  right corner, so it never hides the play.
+- **At a map's load** it is the corner strip, drawn over the loading screen with the loading art still visible. The
+  apply starts with the map and never makes the load wait.
+
+The overlay never pauses the game: the match keeps running and your seat keeps sending.
+
+### How smooth an apply is
+
+The work is spread over frames: each frame gives the apply a time budget (`MODS_APPLY_FRAME_BUDGET_MS_ADAPTATION`, the
+viewer's `hdTexturePack.ts`), large images are drawn in slices (`HD_DRAW_TEXELS_PER_SLICE_ADAPTATION`), and the HD
+pack's images are decoded off the main thread. The project's target for the worst frame during an apply is 50 ms.
+
+Measured, with the all-maps HD pack (3,421 images) chosen from a second tab while the test room ran MP2, on one
+machine -- an NVIDIA GeForce RTX 4070 SUPER under headless Chromium (WebGL2 through ANGLE Direct3D 11): the
+worst frame of the apply was 57 ms in one run and 48 ms in another, with one frame and no frame over 50 ms; before the
+spreading it was 535 ms and 363 ms. So the target is met in one of two runs, not yet in every one. Not fixed: a
+single stall of about a third of a second at the moment the pack is chosen, before the overlay appears; its cause is
+not known yet. WebGPU was not measured. (The MODS loader plan's Log, task ML-9, 2026-11-07.)
+
+### Memory
+
+Measured on the same machine (headless Chromium, WebGL2 through ANGLE Direct3D 11) with the all-maps HD pack chosen
+in the test room's offline Play (the HD plan's Log, 2026-11-07, for the MODS loader's task ML-8):
+
+| where | images applied | applied size (of the 1,536 MiB cap) | JS heap: before -> apply's peak -> after |
+|---|---|---|---|
+| MP2 | 341 | 211.7 MiB | 311.1 -> 624.9 -> 510.2 MiB |
+| MP72 | 383 | 220.7 MiB | 302.3 -> 770.8 -> 578.6 MiB |
+| the main menu | 10 | 13.5 MiB (of the menus' 384 MiB) | 470.2-495.0 MiB |
+
+The whole pack is 4,658.7 MiB decoded; one map uses about a seventh of the applied cap. A lobby match on the front
+end was not measured.
+
+## What a pack may change
+
+Status: **Works.**
+
+A pack changes what is drawn on your screen, and nothing else. A texture pack replaces images; it never changes the
+map, the collision, the rules, the timing, or anything sent to the match's server or to other players, and the other
+players see their own textures. In every match of the main game, and in the test room while it is joined to a room
+on a server, a replacement for an image that is opaque in the original is drawn opaque, whatever its own transparency
+(the fairness guard: `opaqueGuard` in the viewer's `hdTexturePack.ts`, switched on by `matchMount.ts` and `main.ts`);
+in the test room offline and in the Forge's editor, a pack is drawn as it was made. Mods and model packs, which can
+change the game's data or what you can see through, stay in the test room.
+
+## Mods in the test room (`s2u-mod`)
 
 Status: **Test room only.**
 
-Open the test room. Its side panel has a **Mods** section:
+Add a mod in **Home > Experiments > Mods** and switch it on there; the order there is the order the mods apply in,
+from the top down, so when two mods replace the same file the lower one wins. The test room's side panel keeps one
+line, "Mods: *N* on -- Home > Experiments > Mods.", with any conflict and its winner after it, and **Reload map**: a
+mod applies when a map loads, so after a change in Mods press **Reload map** (the viewer's `mods/panel.ts`).
 
-1. Turn on **Enable mods**.
-2. Press **Add a mod (.zip)** and pick your zip, or **Add a mod folder** and pick the folder. A mod has its `mod.json`
-   at the top, or inside the one folder a zipped directory adds.
-3. The mod appears as a row. A mod with a problem shows `invalid:` and the reason instead; the other mods still load.
-4. Turning a mod on or off, or moving it, does not reload the map. Press **Reload map** when the panel asks.
-
-Mods apply from the top of the list down, so when two mods replace the same file, the lower one wins; the panel names
-every conflict and its winner. This browser keeps your mods, their order and their switches until you press
-**Remove**.
-
-The panel is in every build of the test room, offline and online. It is not used in a lobby match reached through the
-normal menus, and not in the replay viewer: there, the game always reads its own files.
-
-## Texture packs: the Experimental view
-
-Status: **Test room only.**
-
-A texture pack replaces some of one map's solid textures with your own images. In the test room, open the
-**Experimental (adaptation)** section and select the Experimental view. Its **Texture pack** row has:
-
-- **Import pack (.zip)**: a base pack zip whose PNGs you replaced at 2x or 4x. It is checked, built for the map and
-  kept in this browser only; a refusal says why.
-- the **Texture pack** chooser: **Original** (no pack) or a pack from the current map's library;
-- **Remove**, to drop the chosen pack.
-
-The base pack is made from your own copy of the game by a separate local tool; this wiki does not cover that step
-yet. A texture the pack does not cover, or cannot replace, keeps its original.
-
-## HD texture packs
-
-Status: **Planned** -- held off until the owner lifts the hold (the ui package's `screens/videoPicture.ts`,
-`VIDEO_PICTURE_HD_OFFERED`, lines 27-32; the viewer's `experimentalGraphics.ts`, line 437).
-
-The same **Import pack (.zip)** button also takes an HD texture pack (a replacement pack for every texture: world,
-characters, weapons, effects, menus). It is recognised by its own layout, checked, and kept in this browser; one HD
-pack at a time, so a new import replaces the old one (the viewer's `hdTexturePackServed.ts`, `importZip`). That is as
-far as it goes: in every build the **HD texture pack - PCSX2** switch that would turn it on is drawn but disabled, with
-the note "Held until after the GPU work", and the HD picture is offered nowhere. You can import and store a pack, but
-nothing draws it until the hold is lifted. [The earlier formats](/kinds/earlier-formats/) describes the format.
+Mods apply in every build of the test room, offline and online. They are not used in a lobby match reached through
+the normal menus, nor in the replay viewer: there, the game always reads its own files.
 
 ## Model packs
 
 Status: **Test room only.**
 
-A model pack draws your own GLB models in place of some of the game's meshes. It is off unless the page is the test
-room **and** the address contains `modmodels`, for example `/testroom?modmodels`. Then:
-
-1. Open **Settings**. At the bottom is **Model pack**.
-2. **Choose model folder**, or **Import model pack (.zip)**. The pack holds a `models.json` and the GLB files it names;
-   anything else is ignored.
-3. If a map is already on screen, press **Reload map** once the status line says the pack is on.
-
-**Clear model pack** removes it. A model pack changes what is drawn only; what you collide with stays the game's.
+A model pack draws your own GLB models in place of some of the game's meshes. Add it in **Home > Experiments >
+Mods** (a folder or a zip with `models.json` and the GLB files it names) and switch it on there. It applies only on
+the test room's page **and** with `modmodels` in the address, for example `/testroom?modmodels` (the viewer's
+`modelPack.ts`, `MODEL_PACK_PARAM`); the test room's Settings then show one line for it. A model pack changes what is
+drawn only; what you collide with stays the game's.
 
 ## Rules packs: the Forge's Play
 
@@ -97,8 +206,8 @@ on the layout you are editing, on your computer. There are two ways to give the 
 - **By hand, in the Rules panel.** Open the **Rules** panel (right side, under Edit), press **New rules**, then
   **Add rule** and type each rule as JSON text, the same text as in your rules file. **Check rules** lists any
   refusal with the field it is about.
-- **Through an agent.** The Forge's **Agent** tab (**Connect your agent**) lets an AI agent or tool you connect
-  yourself work in the editor. Its `rules.import` takes a rules pack's files (`s2u-pack.json` and the rules file) and
+- **Through an agent.** The Forge's **Agent** tab ([**Connect your agent**](/connect/)) lets an AI agent or tool
+  you connect yourself work in the editor. Its `rules.import` takes a rules pack's files (`s2u-pack.json` and the rules file) and
   checks them with the same checker, then makes them the layout's rules.
 
 Then choose **Play the layout**. The match runs your rules: in the first pack's case, a message at the start of each
@@ -107,19 +216,61 @@ round, and every hit at half damage. With no rules, the layout plays as before.
 Rules never travel with a share code, and a layout with rules cannot be played in a lobby: both are refused by name
 today.
 
+### Zombie waves on Crossroads
+
+Status: **Forge, local only.** The example pack `example.zombie-waves` is in the repository at
+`packages/creator-contracts/examples/zombie-waves/`. It is rules only: phases, one rest timer and one NPC spawner.
+It claims the engine's patrol brain. It does not claim the reserved zombie chase.
+
+Open it in a browser build:
+
+1. Go to `/forge`.
+2. Choose **Open** and pick `packages/creator-contracts/examples/zombie-waves.crossroads.json`.
+   The base is Crossroads (`MP72`). The file already holds the pack, imported the way `forge.rules.import` adopts a
+   rules pack: the layout's mode is `zombie-waves`, and Play reads that draft.
+3. Press **Play the layout**. The match stays on your machine. The map's own player spawns are the squad.
+
+To assemble it yourself: open Crossroads, place an NPC spawner whose authored id is `horde` (terrorist side, character
+type 0), then import `s2u-pack.json` and `rules/waves.json` with `forge.rules.import` from the Forge's Agent tab.
+Home > Experiments > Mods refuses this pack today (`pack.HANDLER_UNKNOWN`): that screen offers no behaviour
+handlers yet. Open it in the Forge as above.
+
+What each wave does, at the pack's defaults:
+
+| phase | what you see |
+|---|---|
+| Wave 1 (`wave-1`) | the round starts, the message is "Wave 1", and the horde spawner releases 4 patrol NPCs |
+| Rest (`rest-1`) | when that spawner is empty, the message is "Wave 1 cleared" and a ten-second timer runs |
+| Wave 2 (`wave-2`) | the timer fires, the message is "Wave 2", and the spawner releases 7 |
+| Rest (`rest-2`) | "Wave 2 cleared", then the same ten-second rest |
+| Wave 3 (`wave-3`) | the timer fires, the message is "Wave 3", and the spawner releases 10 |
+| Cleared (`cleared`) | the spawner is empty, the message is "All waves cleared", and the round ends with the SEALs as the winner |
+
+Each kill on the horde adds 100 cash to the attacker, awards 1 point, and lowers the `Left` HUD value by one. If no
+player is left alive, the message is "The squad is down" and the round ends with no winner.
+
+Play seats that release. Wave 1 puts 4 patrol NPCs on the map at the horde spawner, on its side. Shoot one and `Left`
+drops by one. When the last of them dies, the spawner is empty, "Wave 1 cleared" shows, and the ten-second rest runs
+into the next wave. A side holds 8 seats. A larger wave fills those and seats the rest as seats free up, so `Left`
+still reaches 0. Clearing the last wave is the pack's round end. A new round drops a horde still seated. Where the
+map has a navigation graph, the lobby's patrol brain drives released patrol NPCs, in every round, unless the
+layout's marker NPCs are set to sentry. With marker NPCs set to sentry, or with no nav graph, released patrol NPCs
+stand. The chase brain is still not claimed.
+
 ## A v2 pack's import: checked and stored, not applied
 
 Status: **Format only.**
 
-Any v2 pack, of any kind, can be given to the pack library through an agent connection's `packs.import`, with the
-kind `pack`, as a zip or a folder. Two places offer one:
+A v2 pack dropped into **Home > Experiments > Mods** is checked and stored, and listed with "Stored" in place of a
+switch. Any v2 pack, of any kind, can also be given to the pack library through an agent connection's `packs.import`,
+with the kind `pack`, as a zip or a folder. Two places offer one:
 
-- **The test room.** At the bottom of the solo test room's settings panel, **Connect your agent** lets an AI agent or
-  tool you connect yourself bring packs in. It is there in the solo room only (not in an online match or a replay),
+- **The test room.** At the bottom of the solo test room's settings panel, [**Connect your agent**](/connect/) lets
+  an AI agent or tool you connect yourself bring packs in. It is there in the solo room only (not in an online match or a replay),
   and it imports or removes a pack only while the room is in Build, not during Play (the viewer's
   `agent/testroomInstall.ts`, line 29, and `agent/testroomTarget.ts`, line 23).
-- **The Forge.** The Forge's **Agent** tab (**Connect your agent**) does the same in the editor (the viewer's
-  `agent/forgePacks.ts`, line 17).
+- **The Forge.** The Forge's **Agent** tab ([**Connect your agent**](/connect/)) does the same in the editor (the
+  viewer's `agent/forgePacks.ts`, line 17).
 
 What happens, in either place:
 
@@ -135,6 +286,32 @@ through the Forge's Rules panel rather than from the library.
 
 ## When something is refused
 
-Every refusal names a code, and most name the file or field. [Refusal codes](/reference/codes/) lists them all, and
-[Troubleshooting](/troubleshooting/) has a fix for each. Your pack never changes the game's own files: remove it,
-or reload without it, and the game is as it was.
+Every refusal names a code or a reason, and most name the file or field. [Refusal codes](/reference/codes/) lists the
+v2 pack's codes, and [Troubleshooting](/troubleshooting/) has a fix for each. Your pack never changes the game's own
+files: switch it off or remove it in Mods, and the game is as it was.
+
+## For agents
+
+```json
+{
+  "page": "/guides/test-locally/",
+  "audience": [
+    "players",
+    "creators"
+  ],
+  "summary": "The MODS screen walkthrough (Home > Experiments > Mods) and where each kind of pack loads and applies: texture and HD packs on every page, mods and model packs in the test room, rules packs in the Forge, v2 packs checked and stored. The zombie-wave example opens in the Forge on Crossroads; Home > Experiments > Mods refuses it (pack.HANDLER_UNKNOWN) because that screen offers no behaviour handlers yet.",
+  "inputs": [
+    "a pack zip, folder or loose files"
+  ],
+  "outputs": [
+    "the pack installed, switched on or off, or a refusal in words"
+  ],
+  "see_also": [
+    "/kinds/",
+    "/kinds/earlier-formats/",
+    "/troubleshooting/",
+    "/guides/first-pack/",
+    "/connect/"
+  ]
+}
+```

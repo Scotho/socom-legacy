@@ -1,0 +1,173 @@
+---
+title: "Custom maps"
+description: "A Forge map bundle: one zip holding a map and the packs it needs. What is inside, a sample to try, how Mods lists it, and how the Forge and the test room open it."
+status: "Forge, local only"
+source: ["socomlegacy/docs/specs/2026-11-07-forge-path-design.md", "socomlegacy/packages/creator-contracts/src/layout.ts"]
+---
+
+**Status: Forge, local only.** A custom map is added in Home > Experiments > Mods, opened in the Forge and walked in
+the test room, all on your device. It never reaches an online match. This page describes builds on engine contract
+0.1.2 or later (the Forge path's first slice); a build on 0.1.1 does not read a bundle.
+
+A **custom map** is a map someone made in the Forge, shared as one file: a **Forge map bundle**. You download one zip,
+drop it into Mods, and the map turns up in the Forge and the test room under **Custom Maps**. You never install its
+packs one by one: the bundle carries them.
+
+## What is inside a bundle
+
+A bundle is a zip with two things in it:
+
+- **`forge-bundle.json`**, the bundle's label: which map this is (a Forge layout) and which packs it carries.
+- **The packs**, each whole in its own folder (`packs/0/`, `packs/1/`, ...). Each is an ordinary v2 pack, with its own
+  manifest `s2u-pack.json` ([Pack anatomy](/anatomy/)). A pack that holds a map carries it as a **content map**: the
+  map's ground, spawns and props, and the 3D model drawn for it.
+
+<svg viewBox="0 0 640 250" width="100%" role="img" aria-label="The anatomy of a Forge map bundle: a zip holding forge-bundle.json (schema, version, layout, packs) and the folder packs/0/, which holds one v2 pack: s2u-pack.json, maps/sample-yard.json (the content map), assets/cover.json, visuals/sample-yard.glb, visuals/props/cover.glb and LICENSES.txt. Each entry of packs names its pack's folder.">
+  <title>The anatomy of a Forge map bundle</title>
+  <rect x="4" y="4" width="632" height="242" rx="10" fill="none" stroke="currentColor" strokeWidth="2" />
+  <text x="20" y="28" fontSize="15" fontWeight="bold" fill="currentColor">sample-yard.forge.zip</text>
+  <rect x="20" y="44" width="250" height="186" rx="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+  <text x="34" y="68" fontSize="14" fontWeight="bold" fontFamily="monospace" fill="currentColor">forge-bundle.json</text>
+  <text x="34" y="94" fontSize="12" fontFamily="monospace" fill="currentColor">schema: s2u.creator/forge-map-bundle</text>
+  <text x="34" y="116" fontSize="12" fontFamily="monospace" fill="currentColor">version: 1</text>
+  <text x="34" y="138" fontSize="12" fontFamily="monospace" fill="currentColor">layout: the map (Forge layout v3)</text>
+  <text x="34" y="160" fontSize="12" fontFamily="monospace" fill="currentColor">packs: [ ref + root ]</text>
+  <text x="34" y="190" fontSize="11" fill="currentColor">ref = id, version, hash</text>
+  <text x="34" y="208" fontSize="11" fill="currentColor">root = the pack's folder</text>
+  <line x1="200" y1="156" x2="318" y2="70" stroke="currentColor" strokeWidth="1.5" strokeDasharray="5 4" />
+  <rect x="320" y="44" width="300" height="186" rx="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+  <text x="334" y="68" fontSize="14" fontWeight="bold" fontFamily="monospace" fill="currentColor">packs/0/  (one v2 pack)</text>
+  <text x="334" y="94" fontSize="12" fontFamily="monospace" fill="currentColor">s2u-pack.json</text>
+  <text x="334" y="116" fontSize="12" fontFamily="monospace" fill="currentColor">maps/sample-yard.json  (content map)</text>
+  <text x="334" y="138" fontSize="12" fontFamily="monospace" fill="currentColor">assets/cover.json</text>
+  <text x="334" y="160" fontSize="12" fontFamily="monospace" fill="currentColor">visuals/sample-yard.glb</text>
+  <text x="334" y="182" fontSize="12" fontFamily="monospace" fill="currentColor">visuals/props/cover.glb</text>
+  <text x="334" y="204" fontSize="12" fontFamily="monospace" fill="currentColor">LICENSES.txt</text>
+</svg>
+
+Nothing in a bundle is a program: it is data, checked before anything uses it, like every pack
+([What a pack is](/what-is-a-pack/)).
+
+## Try the sample yard
+
+The **sample yard** is a small bundle to try: a floor, three cover blocks and two team starts, in one pack
+(`example.sample-yard` 0.1.1). It is synthetic and **CC0** (public domain): made from scratch, with no game data and
+nothing from any other game. It sits in the project's repository at `socomlegacy/test-fixtures/creator/sample-yard.forge.zip`.
+
+*Download: not published on this site yet.* Its download link is added when the wiki is next published.
+
+## In Mods
+
+Drop the zip into **Home > Experiments > Mods**, as you would any pack ([Testing a pack locally](/guides/test-locally/)).
+Mods checks the bundle, installs the packs it carries (a pack you already have is not added twice) and keeps the map.
+It says: "Sample Yard added: a custom map for the Forge and the test room."
+
+The map gets its own row:
+
+| what the row shows | for the sample yard |
+|---|---|
+| the kind | "Forge map bundle" |
+| the map, its packs, whether it is ready | "Sample Yard · 1 pack · Ready" |
+| where it opens | "Custom map · Forge, test room" |
+
+**Ready** means every pack the map needs is on this device. When one is not, the row says so, by name -- for
+example "Needs 1 pack not here: example.props 1.0.0". Add the missing pack in Mods and the row reads Ready.
+
+The row has no on/off switch: a custom map is opened from the Forge or the test room, not switched on. **Remove**
+takes the map away and keeps its packs, because other maps may use them: "Sample Yard removed. Its packs are kept:
+other layouts may use them." Dropping the same bundle again changes nothing: "Sample Yard is already here: nothing
+changed."
+
+## In the Forge
+
+The Forge's base list, and the list **New** shows when it asks what a layout starts from, gain a group named
+**Custom Maps**, after the Forge's own groups. It lists:
+
+- the bundles you installed in Mods;
+- the maps inside packs you installed on their own (with no bundle);
+- your saved layouts.
+
+Each row shows its name and a short note: "Sample Yard · Ready", or "· needs 1 pack". Hold the pointer over a row for
+the whole sentence. Choosing a row opens it and says the same sentence once ("Ready", or "Needs 1 pack not here: ...").
+
+An installed bundle opens **read-only**: it belongs to Mods, and nothing you do changes it. The toolbar's **Saves**
+button becomes **Save as**: it asks for a name ("This custom map is installed and read-only: a copy is saved in this
+browser, and opened to edit."), saves a copy among your own layouts, and opens that copy for you to edit. The Forge's
+Play runs the map on your device, as it does any layout.
+
+## In the test room
+
+The test room gets a second list beside its map list, also named **Custom Maps**, with the same rows. Choosing one
+loads the map ("reading the custom map") and lets you walk it: its ground, its spawns and its props. There are no
+rules, no characters and no objectives: the test room is for walking, and the Forge is for playing.
+
+**Offline only.** Online, the test room joins a server room named after the map, so a custom map's ground would go
+with you into a room other players share. While the test room is set to a server, the list is switched off and says
+"custom maps walk offline only".
+
+## Never online
+
+A custom map never reaches an online match. An online lobby plays the game's own maps and content, and refuses a
+layout for either of two reasons, each with its own words:
+
+| the layout | the refusal |
+|---|---|
+| stands on an authored map (its base is a content map) | `record.ONLINE_CONTENT_MAP`: "An online lobby plays the disc's own maps: this layout stands on an authored map. Play it locally." |
+| needs any creator pack, even on one of the game's own maps | `record.ONLINE_PACKS`: "An online lobby plays the disc's own content: this layout needs creator packs. Play it locally." |
+
+The sample yard gets both: it stands on its own authored map, and it needs its pack. Whether a lobby may ever carry
+packs is a question for the project's owner (H273); until he answers, they stay out. Play a custom map in the Forge,
+or walk it in the test room.
+
+## For creators: the bundle's fields
+
+The envelope `forge-bundle.json` holds exactly four fields; any other is refused.
+
+| field | what it is |
+|---|---|
+| `schema` | Always `s2u.creator/forge-map-bundle`. |
+| `version` | Always `1`. |
+| `layout` | A Forge layout record, `forge-layout` version 3: the map. Its `base` is `content:` plus a library stem when it stands on a content map, with `contentBase` (`mapId` and the pack's `ref`) naming that map; its `requires` lists the packs it needs. |
+| `packs` | A list of at most 64 `{ref, root}` entries. `ref` is the pack's `id`, `version` and `hash` (the pack digest, 64 lower-case hex digits); `root` is the pack's folder, ending `/`, with `s2u-pack.json` at its top. |
+
+- `forge-bundle.json` sits at the zip's root, or inside one top folder (a zipped folder). Every other file belongs to
+  one pack's folder.
+- Each pack is checked whole, as any v2 pack is, and must be exactly the pack its `ref` names.
+- A pack the layout needs but the bundle does not carry is not an error: it is listed as missing, and Mods' row says
+  "Needs ...".
+- A content map is `s2u.creator/content-map` version 1 or 2. Version 2 adds one field, `visual.includesProps`: whether
+  the map's 3D model already draws its props.
+- The fields in full, for an editor: the JSON Schema `socomlegacy/packages/creator-contracts/schemas/forge-map-bundle.v1.schema.json`.
+  The contract's validator (`validateForgeBundle`, `creator-contracts/src/bundle.ts`) is the authority. The contract
+  version that brings all of this, 0.1.2, is on the [Changelog](/changelog/) and the
+  [Manifest reference](/reference/manifest/).
+
+## For agents
+
+```json
+{
+  "page": "/kinds/custom-maps/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "The Forge map bundle (forge-bundle.json, schema s2u.creator/forge-map-bundle version 1, engine contract 0.1.2+): one zip carrying a Forge layout record v3 and the v2 packs it stands on; Home > Experiments > Mods installs it as a read-only custom map (kind words 'Forge map bundle', place 'Custom map · Forge, test room', readiness 'Ready' or 'Needs <n> pack(s) not here: <id> <version>, ...'); the Forge lists it under Custom Maps (read-only, Save as copies it into the saves); the test room walks it offline only; an online lobby refuses it (record.ONLINE_CONTENT_MAP, record.ONLINE_PACKS; H273).",
+  "inputs": [
+    "a zip whose root (or one top folder) holds forge-bundle.json: {schema: 's2u.creator/forge-map-bundle', version: 1, layout: a forge-layout v3 record, packs: [{ref: {id, version, hash}, root: 'packs/<n>/'}]} -- exactly these keys (bundle.FIELD_UNKNOWN otherwise), at most 64 packs, every non-envelope file under one declared root (bundle.FILE_OUTSIDE otherwise)",
+    "to build one: each pack validated as a v2 pack first, its ref.hash the pack digest the validator reports (a stale hash is bundle.PACK_REF_MISMATCH); the layout's contentBase {mapId, ref} naming a carried pack that lists the member maps/<mapId>.json (bundle.BASE_MAP_MISSING otherwise), a content map at s2u.creator/content-map version 1 or 2 (bundle.BASE_MAP_INVALID otherwise; visual.includesProps only in version 2, map.VERSION_FIELD otherwise); each pack's contract range admitting the build's engine contract (0.1.2 builds; the sample states '>=0.1.2 <0.2.0')",
+    "the code this page reads, on its branches until they land: creator-contracts/src/bundle.ts (validateForgeBundle, FORGE_BUNDLE_KEYS, BUNDLE_CODES), creator-contracts/schemas/forge-map-bundle.v1.schema.json, creator-contracts/src/maps.ts (CONTENT_MAP_VERSIONS, CONTENT_MAP_V2_FIELDS), viewer/src/packs/readiness.ts (readinessSentence, readinessCaption), viewer/src/packs/customMaps.ts, viewer/src/forge/customMaps.ts (CUSTOM_MAPS_GROUP, customMapRows), viewer/src/customOffline.ts (CUSTOM_MAPS_OFFLINE_WORDS); the sample at socomlegacy/test-fixtures/creator/sample-yard.forge.zip (CC0, synthetic)"
+  ],
+  "outputs": [
+    "a bundle Mods accepts: the drop says '<name> added: a custom map for the Forge and the test room.' (plus the readiness sentence when packs are missing); a re-drop says '<name> is already here: nothing changed.'; Remove says '<name> removed. Its packs are kept: other layouts may use them.'",
+    "where it opens: the Forge's base list and New's card under 'Custom Maps' (row '<name> · Ready' or '<name> · needs <n> pack(s)', title and switch toast the full readiness sentence; a bundle opens read-only with autosave off and the Saves button reading 'Save as'); the test room's second select 'Custom Maps', walk only (no rules, NPCs or objectives), disabled with 'custom maps walk offline only' while Online names a server",
+    "what never happens: a custom map or any creator pack in an online lobby -- onlineCreatorLayoutRefusal (creator-contracts/src/layout.ts) refuses an authored base with record.ONLINE_CONTENT_MAP, 'An online lobby plays the disc's own maps: this layout stands on an authored map. Play it locally.', and any required creator pack (requires, the base's pack, a piece's content) with record.ONLINE_PACKS, 'An online lobby plays the disc's own content: this layout needs creator packs. Play it locally.'; a bundle on a content map, the sample yard among them, gets both"
+  ],
+  "see_also": [
+    "/anatomy/",
+    "/guides/test-locally/",
+    "/reference/manifest/",
+    "/changelog/"
+  ]
+}
+```

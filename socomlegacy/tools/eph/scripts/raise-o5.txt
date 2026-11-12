@@ -1,0 +1,9 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE O-runs (CAPTURE-JOB.md "Tonight's subset"; SPC, 2026-11-09), r0004 M51 --state 5 (slot 5 faces the posts: count 1, rifle up).
+# Design (30, 2026-11-09, from the decompilation): the count needs the post inside reach (807.5) AND inside the 80-degree cone (FUN_005cc120); a record that leaves the cone has its mark cleared at once (D:L482556-482566). So these runs TURN the player on the right stick (rleft/rright, ~128 deg/s at full push as the 2026-11-01 rig walker turns), never walk toward the posts, and log raiseYaw every row. No calibration tap before the measured part.
+# Case O5: O2 -> O1, then after the raise (~14.5 s: count 1, rifle up) the pause menu opened (Start), held ~3 s, and closed (Start); moved from 18.0 s (the flicker's lower at 18.18 s, 30's call) -- the gate byte 0x40a378 (U16) across it, and the count, word and envelope through the pause. Wall clock: the pause stops the guest clock (run with --wall-clock).
+# The turns are closed-loop (30's call): run with --yaw-turns "1000:+70:3,10750:0:2" -- away to the case start's yaw + 70 (+/- 3), back to it (+/- 2), on raiseYaw (rleft raises it); the times above were the open-loop pilot's.
+14500 start 1
+14650 start 0
+17500 start 1
+17650 start 0
+26000 lup 0

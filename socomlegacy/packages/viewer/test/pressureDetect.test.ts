@@ -179,6 +179,17 @@ describe('PS2P: the auto default -- recorded where it is seen, applied at the me
     b.enterSeparate();
     expect(stored(p)).toMatchObject({ prone: 3, crouch: 3 });
   });
+
+  it('LATER 663: Restore defaults in SEPARATE on a detected pad ends where entering SEPARATE does: Crouch and Prone on Triangle', () => {
+    setControllerStanceMode('separate');
+    const p = pad();
+    const b = new PadBinding({ pads: { getGamepads: () => [p] }, now: () => 0, holdMs: 0 });
+    b.frame(0); set(p, 3, 0.5); b.frame(1); set(p, 3, 0); b.frame(2);
+    b.setProne(11); b.setCrouch(10);                           // the player's own binds, then the restore
+    b.restoreDefaults();
+    expect([b.prone(), b.crouch()]).toEqual([3, 3]);
+    expect(stored(p)).toMatchObject({ prone: 3, crouch: 3 });
+  });
 });
 
 describe('PS2P: the WebHID Connect row is offered on Chromium with a 054c:0268 pad only', () => {

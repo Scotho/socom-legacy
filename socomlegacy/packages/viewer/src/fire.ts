@@ -9,7 +9,7 @@ import {
   type SurfaceMaterial, type TracerKind, type WeaponRecord, type WorldPoly,
 } from '@s2u/scene';
 import { aimHitKept, aimQueryAdmits, type AimQuery } from './net/aimQuery';
-import { startLines, startWalled, type StartBody } from './net/startLine';
+import { roundStartAdmits, startLines, startWalled, type StartBody } from './net/startLine';
 import { roundAdmits, roundPath, type ExtraSurface } from './round';
 import { MagazineRing, ringFor } from './magazines';
 import { afterShotLock, LOCK_EXEMPT, pelletsOf, reloadDelayOf, RELOAD_DELAY_DEFAULT } from './firearms';
@@ -147,6 +147,46 @@ export const NET_REFILL_DRY_PULL_READING = 'at once, no round in the same frame'
  * by a capture of a dry trigger held through a jump (offline), and of a pistol fired dry in the air online.
  */
 export const DRY_CLICK_FRAME_READING = 'each page frame';
+/**
+ * RELOAD_PRESS_FRAME_READING (LATER 330; research 84 s11): the game frame a reload's press arms the kit's timer `+0x820`
+ * in, against the kit's frame that runs it down. R arms it in `FUN_00594cf0` (D:L453460-453463 -> `FUN_005c32b0`), whose
+ * caller is not read; the actor's frame `FUN_005506a0` runs a virtual update (`piVar6[0x30]` vtable `+0x3c`, D:L417905)
+ * before the kit's frame (`FUN_005c0fd0`, D:L417907). `'next'` (the port's): the press's own frame keeps its fire tick and
+ * the timer's first run-down is the next game frame's, as a bolt's or a pump's lock set inside the fire tick
+ * (`FUN_005be9a0` -> `FUN_005c5340` -> `FUN_005c32b0`) runs from the frame after its round. `'same'`: the press runs
+ * before the kit's frame, so the timer runs down in the press's own frame, which has no fire tick -- the reload a game
+ * frame sooner. Settled by resolving that vtable slot (whether it reaches `FUN_00594cf0`) or by a capture of a reload's
+ * press and its `reloadStart` frame against the frame clock.
+ */
+export const RELOAD_PRESS_FRAME_READING = 'next' as 'next' | 'same';
+/**
+ * RELOAD_ITEM_UP_READING (GRENADE-RELOAD, research 361 §5-§6; reading, pending review): R with a throwable, a charge or
+ * the Detonator up moves nothing. The press (`FUN_00594cf0` D:L453459-453463) arms the kit timer `kit+0x820` with the
+ * hand's record's ReloadDelay (`FUN_005c32b0` D:L477656-477679 -> `FUN_005c3780` D:L477826-477833 -> `FUN_003d2c40`
+ * D:L325487-325490); at its end `FUN_005c0fd0` (D:L476550-476561) calls `FUN_005c2a90`, which walks the hand's slot's
+ * ten magazines from the current one + 1 (D:L477462-477476) and plays the clip only on a find (`FUN_005a82e0`
+ * D:L477479); each of these records carries one magazine (`NumMags` 1, research 361 §1), so no clip, no magazine change
+ * and no sound, and the online refill (D:L477490-477500) passes only class 4 or a primary (`FUN_003d1d10`). The port
+ * refuses the press (`Fire.reload`, `FireSource.itemUp`). Not built (`ITEM_RELOAD_TIMER_READING`, research 361 §6): that
+ * timer -- every throwable's, charge's and the Detonator's record has no `ReloadDelay` key, so the parser's 0.01 s
+ * (`RELOAD_DELAY_DEFAULT`, `FUN_003cda30`) -- during which the throw's tick `FUN_005c1970` is skipped (D:L476550-476566):
+ * one kit frame.
+ */
+export const RELOAD_ITEM_UP_READING = 'nothing moves';
+/**
+ * RELOAD_LAUNCHER_UP_READING (GRENADE-RELOAD fold, research 361 §5-§6; reading, pending review): R with the LAW or the
+ * RPG-7 up moves nothing. The press is the same (`FUN_00594cf0` D:L453459-453463 -> `FUN_005c32b0`); at the timer's end
+ * `FUN_005c2a90` takes the hand's slot (D:L477411) and, in a round mode -- `FUN_005bd7e0` D:L474371-474397: the carrier
+ * found back from the slot's round (`FUN_005c67d0` D:L479665-479709) a launcher (`FUN_003c5d80` D:L317277-317298, class
+ * 0x91) and the mode, the round's id, over 3 -- redirects to the first slot holding that round with rounds
+ * (D:L477414-477444). The LAW HEAT's and the RPG round's records carry one magazine (`NumMags` 1, through `readKitTable`),
+ * so the walk (D:L477462-477476) finds nothing: no clip (D:L477479), no magazine change; the online refill passes only
+ * class 4 or a primary (D:L477490-477500, D:L477517-477524), not a rocket round (class 0xb9). The RPG-7's own `NumMags` 2
+ * is its launcher slot's, never reached by R. The port refuses the press (`Fire.reload`, `FireSource.launcherUp`). Not
+ * built (`LAUNCHER_RELOAD_TIMER_READING`, LATER 786): the timer the press arms is the round's ReloadDelay (1 s), and
+ * while it runs no fire tick runs -- the rocket's trigger held off 1 s.
+ */
+export const RELOAD_LAUNCHER_UP_READING = 'nothing moves';
 
 /**
  * A carrier's round mode (`setRound`; research 94 §C4.2): the round's item id (the mode), its record and fire keys
@@ -322,6 +362,20 @@ export interface FireSource {
    * this branch (out of scope). Absent: always.
    */
   inHand?(): boolean;
+  /**
+   * GRENADE-RELOAD (research 361 §5; `RELOAD_ITEM_UP_READING`): whether a throwable, a charge or the Detonator is the
+   * item in the hand. R works on the hand's slot -- `FUN_00594cf0` D:L453459-453463 -> `FUN_005c32b0` takes the hand's
+   * record (`FUN_005c3780` D:L477826-477833, `kit+0xe4[kit+0x824]`) -> `FUN_005c2a90` walks that slot's magazines
+   * (D:L477462-477476) -- and each of those records carries one magazine (research 361 §1), so the walk finds nothing
+   * and the firearm is not reloaded: `reload` refuses. Not the launcher (`launcherUp`). Absent: never.
+   */
+  itemUp?(): boolean;
+  /**
+   * GRENADE-RELOAD fold (research 361 §5; `RELOAD_LAUNCHER_UP_READING`): whether the LAW or the RPG-7 is up. R works on
+   * the hand's slot, redirected to its round's (`FUN_005c2a90` D:L477413-477444), whose one magazine gives the walk
+   * nothing: `reload` refuses. Absent: never.
+   */
+  launcherUp?(): boolean;
   /** Whether the view refuses a reload's start (`FUN_005c2a90` 477410: not in the binoculars; `./zoom` `reloadRefused`). */
   reloadRefused?(): boolean;
   /**
@@ -695,14 +749,22 @@ export class Fire {
    * Seconds until the next round may go; at most 0 is ready. LATER 326 (reading, pending review): the kit's timer
    * `+0x81c` -- set to the rate when a round leaves (`FUN_005be9a0` D:L475488, D:L475517; the rate `FUN_005c09f0`,
    * D:L476571), run down a game frame at a time and clamped at 0 (`FUN_005c0fd0` D:L476644-476646): no leftover carried.
-   * The console runs it down inside the fire tick, which a bolt's or pump's lock (`+0x820`) skips, so the lock holds it;
-   * the page runs it down through the lock -- LATER 330 (the review's F2). A held round the timer allows goes on the page
+   * The console runs it down inside the fire tick, which a frame of the kit's other timer (`+0x820`: a reload's delay, a
+   * bolt's or a pump's lock) skips (D:L476549-476563), so the lock holds it (`frameTimed`; LATER 330, the review's F2;
+   * reading, pending review). A held round the timer allows goes on the page
    * frame any page-time gate lifts (the raise, a reload's or a bolt's clip, the swap's `ready`, the binoculars, the aim),
    * not only at a step -- the rate holds (`update`, the 326 re-read's N1).
    */
   private wait = 0;
   /** LATER 326: browser time not yet run down as whole game frames (`GAME_FRAME_DT`), the kit's frame clock. */
   private gameTime = 0;
+  /**
+   * LATER 330 (reading, pending review): the kit's frame since the last step began with `+0x820` running (a reload's delay
+   * `reloadPending`, a bolt's or a pump's lock `afterShotPending`), so it runs no fire tick (`FUN_005c0fd0`
+   * D:L476549-476563) -- no gate and no run-down of the fire timer (D:L476643-476647) -- the frame the timer ends in
+   * included (D:L476552-476561).
+   */
+  private frameTimed = false;
   /**
    * LATER 587 (reading, pending review): the last `update`'s step brought the timer to 0 and no round has gone since -- the
    * gate opened at that step, the game frame's start `gameTime` counts from. A press on the next page frame is that
@@ -990,10 +1052,18 @@ export class Fire {
     return this.mags.total();
   }
 
-  /** The trigger pressed: a round now if the rifle is ready; held, `update` keeps firing at the rate. */
-  pull(): Shot | null {
+  /**
+   * The trigger pressed: a round now if the rifle is ready; held, `update` keeps firing at the rate.
+   *
+   * TRIGGER-SWAP (2026-11-09; reading, pending review): `carried` is the kit's pull count `kit+0x818` already raised in
+   * this hold by another item the trigger was held through (`./matchFirearm`'s hand-over, `FirearmHands.heldPulls`) --
+   * the count is the kit's, which the slot change leaves (`FUN_005c4b10` D:L478779-478936) and only a let-go zeroes
+   * (`FUN_005c0ae0` D:L476380-476382, D:L476399-476400); the round and the dry branch are refused at its limit
+   * (D:L476439-476441; `FUN_005c0fd0` D:L476591, D:L476616). A press of the firearm's own carries 0.
+   */
+  pull(carried = 0): Shot | null {
     const edge = !this.held;
-    if (!this.held) { this.pulled = 0; this.gun?.trigger(true); }
+    if (!this.held) { this.pulled = carried; this.gun?.trigger(true); }
     this.held = true;
     // WEAPON: a dry trigger's press is the kit frame's dry branch (`dryFrame`, `FUN_005c0fd0` D:L476573-476633): the click,
     // and the reload at once when there is a magazine to take; no round this frame. `update` asks it again each frame.
@@ -1168,8 +1238,14 @@ export class Fire {
   /**
    * WEAPON: the weapon in the hand changes (the kit's L1/L2: `./kit`). The one put away keeps its magazine and spares;
    * the one taken up has its own (full the first time); a reload in progress stops without its magazine
-   * (`reloadEnd`, not completed), and the rate's wait, the pull and the kick start again. The same weapon changes
-   * nothing but its record (a new spawn's kit: 2X's magazines, `./loadout`), which the next `refill` fills by.
+   * (`reloadEnd`, not completed), and the kick starts again. The same weapon changes nothing but its record (a new spawn's
+   * kit: 2X's magazines, `./loadout`), which the next `refill` fills by.
+   *
+   * TRIGGER-SWAP fold (research 211 §10; reading, pending review): the trigger, the pull count (`pulled`, kit +0x818) and
+   * the rate's timer (`wait`, kit +0x81c) are the kit's and stay -- the slot change (`FUN_005c4b10` D:L478779-478936)
+   * zeroes +0x810 (D:L478836-478839, D:L478926-478929) and the throw's power +0x11c (`FUN_00592d40`, D:L478915), neither
+   * of these; `FUN_005c0ae0` refuses at the count's limit (D:L476439-476441) and while +0x81c runs (D:L476446-476448).
+   * A spawn's kit is `refill`'s (the trigger let go, the timer 0). Was: the wait and the pull zeroed here.
    */
   setWeapon(record: WeaponRecord): void {
     if (record.name === this.rifle.name) { this.rifle = record; return; }
@@ -1181,21 +1257,40 @@ export class Fire {
     this.roundMode_ = null;                        // the other weapon's mode (`main.ts` sets its own after)
     const kept = this.stowedMags.get(record.name);
     if (kept) this.mags = kept; else this.fillMags();
-    this.wait = 0; this.gateOpened = false;
-    this.pulled = 0;
     this.kick = new RifleKick(record, this.random);
   }
 
+  /** TRIGGER-SWAP fold: the kit's pull count in this hold (`kit+0x818`), for a hand-over (`./matchFirearm` `suspendTrigger`). */
+  pulls(): number {
+    return this.pulled;
+  }
+
   /**
-   * PF-34 (ruling PF.R54; research 234 s4): a weapon taken from the ground into the hand's slot -- its record (the swap's
-   * resets: the reload stopped, the rate's wait, the pull and the kick) and exactly the ring the room gave
+   * TRIGGER-SWAP fold (research 211 §10; reading, pending review): the kit's one rate timer `kit+0x81c`, set by another
+   * item's use -- a rocket's launch writes its FireWait there (`FUN_005be9a0` D:L475514-475517) -- carried into the
+   * firearm: the longer of the two stands, and the firearm's round waits it out (`FUN_005c0ae0` D:L476446-476448).
+   */
+  holdWait(seconds: number): void {
+    if (seconds > this.wait) { this.wait = seconds; this.gateOpened = false; }
+  }
+
+  /**
+   * PF-34 (ruling PF.R54; research 234 s4): a weapon taken from the ground into the hand's slot -- its record (the reload
+   * stopped and the kick started again, as a swap's) and exactly the ring the room gave
    * (`MagazineRing.from`: the room's `kit` event, the ten slots; empty from a drop, `WEAPON_DROP_AMMO_READING`). Nothing
    * is filled: `setWeapon`'s first-draw fill and `refill` are a spawn's, never a pickup's (research 194 s2). The replaced
    * weapon left the kit, and its stowed ring is forgotten.
+   *
+   * TRIGGER-SWAP fold's review F2 (research 211 §10.4; reading, pending review): the trigger, the pull count (`pulled`,
+   * kit +0x818) and the rate's timer (`wait`, kit +0x81c) stay, the same weapon or another -- the original's pickup into
+   * the slot (`FUN_0059f0c0`'s same-family branch D:L458278-458282: `FUN_005b8fc0`, `FUN_005b8f20`, then `FUN_005bc410`,
+   * no slot change) writes the slot's record (D:L473829) and, the hand's slot, zeroes +0x810 (D:L473865-473868) and the
+   * throw's power (`FUN_00592d40`, D:L473854); no function on that path writes +0x818 or +0x81c. Was (a same-name
+   * pickup): the wait and the pull zeroed.
    */
   takeWeapon(record: WeaponRecord, rounds: readonly number[]): void {
     const old = this.rifle.name;
-    if (record.name === old) { this.cancelReload('replaced'); this.rifle = record; this.wait = 0; this.gateOpened = false; this.pulled = 0; this.kick = new RifleKick(record, this.random); }
+    if (record.name === old) { this.cancelReload('replaced'); this.rifle = record; this.kick = new RifleKick(record, this.random); }
     else this.setWeapon(record);
     this.mags = MagazineRing.from(record, rounds);
     this.stowedMags.delete(old);
@@ -1576,6 +1671,8 @@ export class Fire {
    */
   reload(): boolean {
     if (this.source.reloadTaken?.()) return false;                // TURRET-AMMO: mounted, R is the turret's
+    if (this.source.itemUp?.()) return false;                     // GRENADE-RELOAD: R is the item's slot (RELOAD_ITEM_UP_READING)
+    if (this.source.launcherUp?.()) return false;                 // GRENADE-RELOAD fold: R is the round's slot (RELOAD_LAUNCHER_UP_READING)
     // NET-REFILL (research 312 §2.2): online the walk finding nothing refills a refill weapon (`reloadable`), so R on its
     // part-spent or empty last magazine is taken as any reload.
     if (this.reloadLeft > 0 || this.reloadPending >= 0 || this.afterShotPending >= 0 || this.afterShotLeft > 0 || !this.reloadable()) return false;
@@ -1589,6 +1686,8 @@ export class Fire {
     this.reloadPending = this.reloadDelay();
     this.pressOf = { weapon: this.rifle.name, ring: this.mags, delay: this.reloadPending };   // A1 fold 3: the room's `pressLock`
     this.emit({ type: 'reloadPress', weapon: this.weapon(), seconds: this.reloadPending });
+    // LATER 330: the press's own frame runs the timer down first, with no fire tick, under the other reading.
+    if (RELOAD_PRESS_FRAME_READING === 'same') { this.frameTimed = true; this.kitTimerStep(0); }
   }
 
   /** LATER 72: online, the reload's delay window's end in commands (the room's `pressLock.until`), from the page's net. */
@@ -1686,16 +1785,44 @@ export class Fire {
   }
 
   /**
+   * LATER 330 (reading, pending review): one game frame of the kit's other timer `+0x820` -- a reload's delay
+   * (`reloadPending`) or a bolt's or a pump's lock (`afterShotPending`) -- run down by the frame's dt in float32 and ended
+   * on the frame it goes below 0, the reload (`FUN_005c2a90`) or the after-shot (`FUN_005c3000`) begun then
+   * (`FUN_005c0fd0` D:L476550-476560; the count the room's bots take, `match/src/bots/roles.ts` `botFireFrames`). Was: run
+   * down a browser frame at a time, so its end came up to a game frame early on a fast page. A clip begun here runs on the
+   * page's time (`FUN_005a7ab0`'s lock, the pose's clip) as before: a reload's counted from its page frame's start (the
+   * frame's `dt`, the command its `reloadStart` is named on, as the room counts its lock), an after-shot's from the next.
+   */
+  private kitTimerStep(dt: number): void {
+    const f = Math.fround, frame = f(GAME_FRAME_DT);
+    if (this.reloadPending >= 0) {
+      this.reloadPending = f(f(this.reloadPending) - frame);
+      if (!(this.reloadPending < 0)) return;
+      this.beginReload();
+      if (this.reloadLeft > 0) {
+        this.reloadLeft -= dt;
+        if (this.reloadLeft <= 1e-9) {
+          this.reloadLeft = 0;
+          this.emit({ type: 'reloadEnd', weapon: this.weapon(), completed: true, reason: 'complete' });
+        }
+      }
+    } else if (this.afterShotPending >= 0) {
+      this.afterShotPending = f(f(this.afterShotPending) - frame);
+      if (this.afterShotPending < 0) this.beginAfterShot();
+    }
+  }
+
+  /**
    * One frame, before it is drawn: the reload, the rate's wait, a held trigger's rounds, the scoped kick, and the
    * tracer's one frame -- a tracer lit since the last frame is drawn in this one and gone in the next.
    */
   update(dt: number): number {
     this.takeKept = null;                                           // LATER 526's R3: the rifle updates only unmounted -- the take was accepted and is released; its wait ran in `mountWait`
     const timed = this.reloadPending >= 0 || this.afterShotPending >= 0;   // `kit+0x820` running: no fire tick this frame (D:L476549-476563)
-    if (this.reloadPending >= 0) {
-      this.reloadPending -= dt;
-      if (this.reloadPending <= 1e-9) this.beginReload();
-    }
+    // LATER 330: the timer runs down at the game-frame steps below (`kitTimerStep`); one already spent (`mountUntake`'s
+    // timer that ran out in the take's wait) begins at once, as before.
+    if (this.reloadPending >= 0 && this.reloadPending <= 1e-9) this.beginReload();
+    if (this.afterShotPending >= 0 && this.afterShotPending <= 1e-9) this.beginAfterShot();
     // PF-18: the clip's cut (`FireSource.reloadCut`) ends the lock at the clip's life -- the pose's step ran before this
     // frame's update (`main.ts`), so the life left counts from this frame's end, past which the margin holds.
     const cut = this.reloadLeft > 0 || this.afterShotLeft > 0 ? this.source.reloadCut?.() ?? null : null;
@@ -1707,15 +1834,11 @@ export class Fire {
         this.emit({ type: 'reloadEnd', weapon: this.weapon(), completed: true, reason: 'complete' });
       }
     }
-    // M4: the bolt's or the pump's lock (`FUN_005c0fd0` L476549-476561 runs the kit's timer down), then its clip.
+    // M4: the bolt's or the pump's clip after its lock (the lock is the kit's timer: `kitTimerStep`).
     if (this.afterShotLeft > 0) {
       this.afterShotLeft -= dt;
       if (cut && this.afterShotLeft > 1e-9) this.afterShotLeft = Math.min(this.afterShotLeft, cut.left + RELOAD_CUT_MARGIN_S);
       if (this.afterShotLeft <= 1e-9) this.afterShotLeft = 0;
-    }
-    if (this.afterShotPending >= 0) {
-      this.afterShotPending -= dt;
-      if (this.afterShotPending <= 1e-9) this.beginAfterShot();
     }
     this.tracerFrame();
     this.shadeLate();
@@ -1737,10 +1860,16 @@ export class Fire {
     const steps = Math.floor((this.gameTime + 1e-9) / GAME_FRAME_DT), left = Math.max(0, this.gameTime - steps * GAME_FRAME_DT);
     let fired = 0, opened = false;
     for (let k = 0; k < steps; k++) {
-      if (this.wait > 1e-9 && this.wait - GAME_FRAME_DT <= 1e-9) opened = true;   // LATER 587: this step opens the gate
-      this.wait = Math.max(0, this.wait - GAME_FRAME_DT);   // the frame that ended: its run-down (D:L476644-476646)
       // LATER 338: the step's own moment in this page frame -- its round named at the walk's tick there, on its camera.
       const at = (k + 1) * GAME_FRAME_DT - before;
+      // The frame that ended: its run-down (D:L476644-476646) -- LATER 330: only if it ran its fire tick (`frameTimed`).
+      if (!this.frameTimed) {
+        if (this.wait > 1e-9 && this.wait - GAME_FRAME_DT <= 1e-9) opened = true;   // LATER 587: this step opens the gate
+        this.wait = Math.max(0, this.wait - GAME_FRAME_DT);
+      }
+      // LATER 330: the next frame's `+0x820` running -- run down, perhaps ended -- and no fire tick in it.
+      this.frameTimed = this.reloadPending >= 0 || this.afterShotPending >= 0;
+      if (this.frameTimed) { this.kitTimerStep(dt); continue; }
       if (this.held && this.wait <= 1e-9 && this.pullRound(at)) fired++;   // the next frame's gate and its round
     }
     this.gameTime = left;
@@ -1752,9 +1881,10 @@ export class Fire {
     // the timer runs out only at a step. Not the raise alone (the 326 re-read's N1): any gate `pullRound` reads on the
     // page's own time -- the reload's clip, a bolt's or a pump's clip, the swap's `ready`, the binoculars, the aim --
     // lifting between steps lets the held round go on this page frame too; the rate holds (the timer still runs out only
-    // at a step; the page-time gates themselves are LATER 330's). The second round after such a round comes up to one page
+    // at a step; LATER 330: the kit's own timer `+0x820` runs out only at a step too, and its frame has no fire tick,
+    // `frameTimed`; a clip's lock is the pose's time). The second round after such a round comes up to one page
     // frame later than the rate, never earlier (N2).
-    if (fired === 0 && this.held && this.wait <= 1e-9 && this.pullRound()) { fired++; this.gameTime = 0; this.gateOpened = false; }
+    if (fired === 0 && !this.frameTimed && this.held && this.wait <= 1e-9 && this.pullRound()) { fired++; this.gameTime = 0; this.gateOpened = false; }
     // LATER 179 / 48: the kit frame's dry branch, when no round left this frame (`FUN_005c0ae0` 0, D:L476569-476573) --
     // so on the frame after the emptying round, never on its own -- and not twice for a press (`pull`).
     if (!timed && !this.dryRan && this.shots === this.shotsSeen) this.dryFrame();
@@ -1947,15 +2077,22 @@ export class Fire {
     this.object.remove(this.tracer);
   }
 
-  /** `R` on `target` while walking (the aim is there), ignored with a modifier -- Ctrl+R stays the browser's -- and on repeat. */
-  bindKey(target: EventTarget = globalThis): void {
+  /**
+   * `R` on `target` while walking (the aim is there), ignored with a modifier -- Ctrl+R stays the browser's -- and on repeat.
+   * RB-8 (OT.R114, RB.R4): `kbm`, a page's opt-in (the test room's `kbmAllowed`), attaches the keys in every build and is asked again at each press.
+   */
+  bindKey(target: EventTarget = globalThis, kbm: (() => boolean) | null = null): void {
     this.unbindKey();
-    if (import.meta.env.DEV) {                                       // OT.R29: the keys a development build's only
-      keyboardSite('s2u-kb-fire');
+    this.kbm = kbm;
+    if (import.meta.env.DEV || kbm !== null) {                       // OT.R29: the keys a development build's only; RB-8: or a `kbm` page's
+      if (import.meta.env.DEV) keyboardSite('s2u-kb-fire');
       target.addEventListener('keydown', this.onKey as EventListener);
     }
     this.bound = target;
   }
+
+  /** RB-8: the page's keyboard opt-in given at `bindKey`, else null. */
+  private kbm: (() => boolean) | null = null;
 
   unbindKey(): void {
     this.bound?.removeEventListener('keydown', this.onKey as EventListener);
@@ -1963,6 +2100,7 @@ export class Fire {
   }
 
   private readonly onKey = (e: KeyboardEvent): void => {
+    if (!import.meta.env.DEV && !this.kbm?.()) return;
     if (e.code !== 'KeyR' || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !this.source.aim()) return;
     const target = e.target;
     if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
@@ -2095,7 +2233,8 @@ export class Fire {
       // head toward the same point, so the room takes it and the round stops at the wall the barrel poked through. The
       // tracer is still drawn from the muzzle. The original's round past a poked barrel is retired.
       const start = this.source.startBody?.() ?? null;
-      const walled = start !== null && startWalled(grid, start, muzzle);
+      // LEAN-WALLED (issue #752 defect 2, research 390): the lines meet only what this round's flight meets.
+      const walled = start !== null && startWalled(grid, start, muzzle, roundStartAdmits(this.penetrationOf));
       const leave: Vec3 = walled ? startLines(grid, start).head : muzzle;
       const toward = sub(target, leave);
       const length = Math.hypot(...toward);

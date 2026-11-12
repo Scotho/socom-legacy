@@ -60,9 +60,8 @@ it("captures exactly 2 MiB through the page sender and rejects an oversized Blob
   try {
     const instructions = await connection.prepare("other");
     await vi.waitFor(() => expect(sockets[0]?.readyState).toBe(WebSocket.OPEN));
-    const invitation = JSON.parse(
-      /agent_pair with invitation ("[^"]+")/.exec(instructions)![1]!,
-    );
+    // AX-U (C6): the copied line's join link carries the invitation.
+    const invitation = /\/join\/([A-Za-z0-9_.:-]+)$/.exec(instructions)![1]!;
     const pair = gateway.state.pair(
       "capture-test",
       invitation,

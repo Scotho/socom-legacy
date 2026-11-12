@@ -10,23 +10,27 @@ let state:ExperimentalSettings;
 const input=(id:string)=>document.getElementById('exp-'+id) as HTMLInputElement;
 const mount=(max:number)=>{setWorldSamplingMaximum(max);mountExperimentalGraphics(document,s=>state=s,()=>{});document.querySelector<HTMLButtonElement>('[data-experimental]')!.click();};
 beforeEach(()=>{document.body.innerHTML=html;document.body.className='test-room';});
+const anisotropic=()=>Array.from((document.getElementById('exp-filterMode') as HTMLSelectElement).options).find(o=>o.value==='anisotropic')!;
+const mode=(value:string)=>{const s=document.getElementById('exp-filterMode') as HTMLSelectElement;s.value=value;s.dispatchEvent(new Event('change'));};
 describe('GX-24 group table controls',()=>{
- it('shows unsupported anisotropy explicitly and leaves its switch disabled',()=>{
-  mount(1);expect(input('worldAnisotropy').disabled).toBe(true);
+ // B206 ML-7 (ML.R14): the world-sampling switches are Texture filtering's modes.
+ it('shows unsupported anisotropy explicitly and leaves its mode disabled',()=>{
+  mount(1);expect(anisotropic().disabled).toBe(true);
   expect(document.getElementById('exp-world-anisotropy-status')!.textContent).toContain('Unsupported');
  });
- // The owner's defaults (2026-10-11, H135): the world sampling switches OFF; FXAA and the bicubic resolve filter ON.
- const offByDefault=['worldAnisotropy','worldTrilinear','worldLodBias'],onByDefault=['fxaa','resolveFiltering'];
+ // The owner's defaults (2026-10-11, H135): the world sampling switches OFF (Texture filtering at Original LOD); FXAA and the bicubic resolve filter ON.
+ const onByDefault=['fxaa','resolveFiltering'];
  const atDefaults=()=>{
-  for(const id of offByDefault)expect(input(id).checked,id).toBe(false);
+  expect((document.getElementById('exp-filterMode') as HTMLSelectElement).value).toBe('original');
+  expect(state).toMatchObject({worldAnisotropy:false,worldTrilinear:false,worldLodBias:false});
   for(const id of onByDefault)expect(input(id).checked,id).toBe(true);
   expect(input('resolveFilter').value).toBe('bicubic');
  };
- it("gates LOD bias and resolve prerequisites, preserves A/B settings, resets every new switch to the owner's default",()=>{
-  mount(16);expect(input('worldAnisotropy').disabled).toBe(false);
+ it("gates the filtering prerequisites and resolve, preserves A/B settings, resets every new switch to the owner's default",()=>{
+  mount(16);expect(anisotropic().disabled).toBe(false);
   atDefaults();expect(state).toMatchObject({fxaa:true,resolveFiltering:true,resolveFilter:'bicubic'});
-  input('worldLodBias').click();expect(input('worldLodBiasValue').disabled).toBe(true);
-  input('worldTrilinear').click();expect(input('worldLodBiasValue').disabled).toBe(false);
+  input('textureFiltering').click();expect(input('filterBias').disabled).toBe(true);
+  input('textureFiltering').click();mode('trilinear');expect(input('filterBias').disabled).toBe(false);expect(state).toMatchObject({worldTrilinear:true,worldLodBias:true});
   expect(input('resolveFilter').disabled).toBe(false);
   input('resolution').click();expect(input('resolveFilter').disabled).toBe(true);
   input('resolution').click();expect(input('resolveFilter').disabled).toBe(false);

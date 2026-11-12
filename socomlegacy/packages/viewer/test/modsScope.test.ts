@@ -116,9 +116,8 @@ describe('a boot with no mods: no store opened, never held up', () => {
       files: [{ name: 'mod.json', bytes: enc.encode(manifest) }, { name: 'HELLO.TXT', bytes: enc.encode('hi') }] }] });
     await vi.advanceTimersByTimeAsync(10);
     expect(modOverridesActive()).toBe(false);
-    expect((document.getElementById('mods-enabled') as HTMLInputElement).checked).toBe(false);
     expect(document.getElementById('mods')!.textContent).toMatch(/off for this visit/i);
-    expect(document.getElementById('mods')!.textContent).toContain('Late');
+    expect(document.getElementById('mods-line')!.textContent).toMatch(/^Mods: 0 on -- Home > Experiments > Mods\. Saved mods loaded late/);
   });
 
   // The re-review's N1 and N2: after a late answer, a visitor's later change wrote "off" for the next visit too, and a
@@ -138,32 +137,23 @@ describe('a boot with no mods: no store opened, never held up', () => {
     return { id: 'late', label: 'late.zip', files: [{ name: 'mod.json', bytes: enc.encode(manifest) }, { name: 'HELLO.TXT', bytes: enc.encode('hi') }] };
   };
 
-  it('N1: a change after a late answer keeps the saved switch on for the next visit', async () => {
+  // B206 ML-7: the panel has no switch of its own any more (the mods are switched in Home > Experiments > Mods), so the
+  // re-review's N1 and N2 -- a visitor's in-page change after, or before, a late answer -- have no control to act on.
+  // What stays: a late answer never writes "off" over the saved switch, and Reload map reads it and applies the mods.
+  it('N1 (ML-7): a late answer writes no "off" for the next visit, and Reload map applies the saved mods', async () => {
     vi.useFakeTimers();
     const m = lateMount();
     await vi.advanceTimersByTimeAsync(MODS_READY_WAIT_ADAPTATION + 1);
     m.answer({ choices: { enabled: true, order: ['late'], disabled: [] }, packages: [lateMod()] });
     await vi.advanceTimersByTimeAsync(10);
-    const box = document.querySelector<HTMLInputElement>('[data-mod-toggle="late"]')!;
-    box.checked = false;
-    box.dispatchEvent(new Event('change', { bubbles: true }));
-    await vi.advanceTimersByTimeAsync(10);
-    expect(m.written.at(-1)).toMatchObject({ enabled: true, disabled: ['late'] });
     expect(modOverridesActive()).toBe(false);
-  });
-
-  it('N2: mods turned on before a late answer stay on, through a Reload', async () => {
-    vi.useFakeTimers();
-    const m = lateMount();
-    await vi.advanceTimersByTimeAsync(MODS_READY_WAIT_ADAPTATION + 1);
-    const master = document.getElementById('mods-enabled') as HTMLInputElement;
-    master.checked = true;
-    master.dispatchEvent(new Event('change'));
-    await vi.advanceTimersByTimeAsync(10);
+    expect(m.written.some((c) => (c as { enabled?: boolean }).enabled === false)).toBe(false);
     (document.getElementById('mod-reload-map') as HTMLButtonElement).click();
-    m.answer({ choices: { enabled: false, order: ['late'], disabled: [] }, packages: [lateMod()] });
     await vi.advanceTimersByTimeAsync(10);
-    expect(master.checked).toBe(true);
+    m.answer({ choices: { enabled: true, order: ['late'], disabled: [] }, packages: [lateMod()] });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(modOverridesActive()).toBe(true);
+    expect(document.getElementById('mods-line')!.textContent).toBe('Mods: 1 on -- Home > Experiments > Mods.');
   });
 
   // The re-review's N3: a store that cannot be opened reads as empty; that is not an emptied store.

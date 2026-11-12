@@ -59,7 +59,7 @@ export const PICKUP_LAUNCHER_CLIP_GATE_PLACEHOLDER = 'no action on the body' as 
 /**
  * OBF-15, ruling OBF.R9 (the owner, 2026-10-30, "Drop it to the ground"): a death's drops lie on the floor below the
  * feet they fell from -- the room's own floor pick, the walking tick's (`selectFloor(probeGround(...))` from the feet +
- * `STEP_PROBE_LIFT_READING`, `Walker.slideOrMove`; `FUN_005b5d40` D:L470230-470240, research 86 s6.3), taken only when it
+ * `probeLiftOf('stand')`, `Walker.slideOrMove`; `FUN_005b5d40` D:L470230-470240, research 86 s6.3), taken only when it
  * is at or under the feet; with no floor there, the drop stays where it fell. **An owner-ruled departure from the
  * original**, not a reading: `FUN_0059f730` places the drop at the weapon's mount on the body (D:L458398-458441) and no
  * per-tick pass over the pickups settles it (the lifetime `FUN_00542290` alone), so the original's, as read, stays in

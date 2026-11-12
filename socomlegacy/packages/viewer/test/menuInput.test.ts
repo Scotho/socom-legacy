@@ -11,7 +11,7 @@ import { FrontEndSession, mountFrontEnd, readFrontEndDisc, type FrontEndDisc } f
 import { GamePad } from '../src/setupPad';
 import { r, rec } from '../../ui/test/widgets/fixtures';
 import {
-  MENU_KEYS_READING, MENU_KEY_LATCH_READING, MENU_PAD_SLOTS, MENU_STICK_READING, MenuPageInput, attachMenuInput, framePoint, menuStick, padSnapshot,
+  MENU_KEYS_READING, MENU_KEY_LATCH_READING, MENU_PAD_SLOTS, MENU_STICK_READING, MenuPageInput, attachMenuInput, attachMenuPointer, framePoint, menuStick, padSnapshot,
 } from '../src/menuInput';
 
 /**
@@ -442,4 +442,25 @@ describe('attachMenuInput: the page\'s source on the session\'s input', () => {
     document.removeEventListener('keydown', viewer);
     document.removeEventListener('pointerdown', viewer);
   });
+});
+
+
+it('captures one pointer for slider dragging, cancels on touch cancellation/blur, and removes listeners on close', () => {
+  const canvas = document.createElement('canvas'); document.body.append(canvas);
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 640, height: 448 } as DOMRect);
+  const input = { tap: vi.fn(), pointerDown: vi.fn(), pointerMove: vi.fn(), pointerUp: vi.fn() };
+  const detach = attachMenuPointer(input, canvas);
+  const send = (type: string, id: number, x = 100, y = 100) => {
+    const event = new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true });
+    Object.defineProperties(event, { pointerId: { value: id }, pointerType: { value: 'touch' } });
+    canvas.dispatchEvent(event);
+  };
+  send('pointerdown', 1); expect(input.pointerDown).toHaveBeenCalledWith(100, 100);
+  send('pointermove', 2); expect(input.pointerMove).not.toHaveBeenCalled();
+  send('pointermove', 1, 700, 470); expect(input.pointerMove).toHaveBeenLastCalledWith(700, 470);
+  send('pointercancel', 1); input.pointerMove.mockClear(); send('pointermove', 1); expect(input.pointerMove).not.toHaveBeenCalled();
+  send('pointerdown', 3); window.dispatchEvent(new Event('blur'));
+  send('pointermove', 3); expect(input.pointerMove).not.toHaveBeenCalled();
+  detach(); input.pointerDown.mockClear(); send('pointerdown', 4); expect(input.pointerDown).not.toHaveBeenCalled();
+  expect(canvas.style.touchAction).not.toBe('none'); canvas.remove(); vi.restoreAllMocks();
 });

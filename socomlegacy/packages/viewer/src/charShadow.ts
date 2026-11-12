@@ -3,6 +3,7 @@ import {
   type BufferGeometry, type Camera, type ColorRepresentation, type InterleavedBufferAttribute, type Material, type SkinnedMesh,
   type Texture,
 } from 'three';
+import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import { MeshBasicNodeMaterial, type Node } from 'three/webgpu';
 import {
   float, normalWorld, positionWorld, renderGroup, select, texture as textureNode, uniform, vec2, vec4,
@@ -87,16 +88,81 @@ target.texture.minFilter = NearestFilter;
 target.texture.magFilter = NearestFilter;
 
 /**
+ * VS-5 (VS.R5; the video settings design §4.2, §7): the Shadows row's tiers -- a browser adaptation over the original's
+ * one shadow, which has no tiers (one 256x256 map, `SHADOW_MAP_SIZE`, unchanged). Each tier scales the map's side; Medium
+ * is the original's map and today's draw exactly. Who casts (the local player only, the header), the formula and the
+ * receivers are the same under every tier: a tier only sharpens or softens the one shadow. Off is the page's switch
+ * (`./matchMount`: the pass skipped and the world's decals hidden, as before), not a tier here.
+ */
+export type ShadowTier = 'low' | 'medium' | 'high';
+/** VS-5, an adaptation (no original): Low's map is half the original's side, 128. */
+export const SHADOW_MAP_SCALE_LOW_ADAPTATION = 0.5;
+/** VS-5, an adaptation (no original): High's map is twice the original's side, 512. */
+export const SHADOW_MAP_SCALE_HIGH_ADAPTATION = 2;
+/**
+ * VS-5, an adaptation (no original: the GS samples the map once a pixel): High's soft edge, a 2x2 percentage-closer
+ * tap -- the coverage averaged over the four texels half a texel each way. Medium and Low take the single nearest tap.
+ */
+export const SHADOW_SOFT_TAPS_ADAPTATION = 4;
+const TIER_SCALE: Readonly<Record<ShadowTier, number>> = { low: SHADOW_MAP_SCALE_LOW_ADAPTATION, medium: 1, high: SHADOW_MAP_SCALE_HIGH_ADAPTATION };
+/** A tier's map side: `SHADOW_MAP_SIZE` times its scale (Medium: the original's 256). */
+export function shadowMapSize(tier: ShadowTier): number { return SHADOW_MAP_SIZE * TIER_SCALE[tier]; }
+/** The map's current side and tier (Medium until `setShadowTier` is told another). */
+let mapSize = SHADOW_MAP_SIZE;
+let mapTier: ShadowTier = 'medium';
+/** 1 / the map's side, for High's taps (read by High's graph alone). */
+const texel = uniform(1 / SHADOW_MAP_SIZE).setName('shadowTexel').setGroup(renderGroup);
+/**
+ * Whether High's soft taps are taken. VS-12: a graph of their own (`shadowFactor(map, true)`), swapped in by the world
+ * (`onShadowSoftChange`) -- never a uniform-guarded branch in the default graph, which Medium's shader would then carry
+ * (CPS.R7: at Balanced's defaults the game draws what it drew, `test/experimentalOriginal.test.ts`'s pinned source).
+ */
+let soft = false;
+const softHeard = new Set<() => void>();
+/** Called when High's taps come or go (a tier to or from High); the returned function stops it. */
+export function onShadowSoftChange(changed: () => void): () => void {
+  softHeard.add(changed);
+  return () => { softHeard.delete(changed); };
+}
+/** The corners' reach, `(size - 2) / size`: a texel of margin each side at the map's current size (254/256 at Medium). */
+export function shadowMapMargin(): number { return (mapSize - 2) / mapSize; }
+/** The soft taps taken: `SHADOW_SOFT_TAPS_ADAPTATION` under High, 0 (today's single tap) otherwise. */
+export function shadowSoftTaps(): number { return soft ? SHADOW_SOFT_TAPS_ADAPTATION : 0; }
+/**
+ * The page's map at a tier: the render target resized (three's `setSize` disposes its GPU side, remade at the next draw at
+ * the new size; the same `Texture` object, so the world's graphs keep sampling it), the margin and the taps with it. The
+ * map is redrawn by the next frame (no shadow's last draw stands). The same tier changes nothing.
+ */
+function setShadowTier(tier: ShadowTier): void {
+  if (tier === mapTier) return;
+  mapTier = tier;
+  mapSize = shadowMapSize(tier);
+  target.setSize(mapSize, mapSize);
+  texel.value = 1 / mapSize;
+  drawnBy = null;
+  const nextSoft = tier === 'high';
+  if (nextSoft !== soft) { soft = nextSoft; for (const changed of [...softHeard]) changed(); }
+}
+
+/**
  * The receiver's darkening, 0..1, for the world's graph: `a * coverage` of the header's formula. The normal is the
  * surface's own where the draw carries one and the flat triangle's otherwise (three derives it for a geometry with no
  * normal lane), as the VU reads each vertex's.
  */
-export function shadowFactor(map: Texture = target.texture): Node<'float'> {
+export function shadowFactor(map: Texture = target.texture, softTaps: boolean = soft): Node<'float'> {
   const light = toLight.mul(vec4(positionWorld, 1));
   // A render target's texel rows run top-down in three's node textures (WebGPU's convention, kept by the WebGL2 backend).
   const uv = vec2(light.x.mul(0.5).add(0.5), light.y.mul(-0.5).add(0.5));
   const inside = uv.x.greaterThan(0).and(uv.x.lessThan(1)).and(uv.y.greaterThan(0)).and(uv.y.lessThan(1));
-  const coverage = select(inside, textureNode(map, uv).a, float(0));
+  // VS-5: High's 2x2 tap (`SHADOW_SOFT_TAPS_ADAPTATION`), its own graph (VS-12); Medium and Low take the one nearest
+  // tap, today's expression and today's shader byte for byte. The review's F1: the taps are explicit-LOD samples
+  // (`level(0)`: textureLod / textureSampleLevel); the map has no mips and nearest filtering, so level 0 is the texel the
+  // implicit sample reads.
+  const tap = (dx: number, dy: number) => textureNode(map, uv.add(vec2(dx, dy).mul(texel))).level(float(0)).a;
+  const sampled = softTaps
+    ? tap(-0.5, -0.5).add(tap(0.5, -0.5)).add(tap(-0.5, 0.5)).add(tap(0.5, 0.5)).mul(1 / SHADOW_SOFT_TAPS_ADAPTATION)
+    : textureNode(map, uv).a;
+  const coverage = select(inside, sampled, float(0));
   const n = normalWorld;
   const facing = n.dot(toward).clamp(0, 1);
   const height = centre.sub(positionWorld).dot(n);
@@ -108,7 +174,8 @@ export function shadowFactor(map: Texture = target.texture): Node<'float'> {
 /**
  * `FUN_0031a180`'s camera for one actor's bounds: at their centre looking down `direction`, the orthographic frustum
  * fitted to the eight corners in the light's frame with a texel of margin each side (the corners land within
- * `(size - 2) / size` of the edges), the depth range +-1.5x the largest side. Returns that range (the map's far).
+ * `(size - 2) / size` of the edges, `size` the map's current side: VS-5's tier), the depth range +-1.5x the largest
+ * side. Returns that range (the map's far).
  */
 export function fitShadowCamera(cam: OrthographicCamera, box: Box3, direction: Vector3): number {
   const mid = box.getCenter(new Vector3());
@@ -127,7 +194,7 @@ export function fitShadowCamera(cam: OrthographicCamera, box: Box3, direction: V
     minX = Math.min(minX, corner.x); maxX = Math.max(maxX, corner.x);
     minY = Math.min(minY, corner.y); maxY = Math.max(maxY, corner.y);
   }
-  const margin = SHADOW_MAP_SIZE / (SHADOW_MAP_SIZE - 2);
+  const margin = mapSize / (mapSize - 2);                        // VS-5: the map's current side (256 at Medium, as before)
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   const hx = ((maxX - minX) / 2) * margin, hy = ((maxY - minY) / 2) * margin;
   cam.left = cx - hx; cam.right = cx + hx; cam.bottom = cy - hy; cam.top = cy + hy;
@@ -227,6 +294,98 @@ export function shadowBounds(actor: Object3D, box: Box3): Box3 {
   return box;
 }
 
+/**
+ * SPC-2 (the shadow PC's research loop, SPC.R4 / SPC.R6; a CPU-side browser adaptation behind a switch, off by default):
+ * the box from fewer vertices, the same box. A vertex moved by one affine map -- a rigid mesh's vertex (its world matrix),
+ * or a skinned vertex with one non-zero weight (bind matrix, one bone's product, the weight, the inverse bind matrix, the
+ * world matrix: an affine map of the vertex, `w` included) -- can be the box's extreme on an axis only if it lies on the
+ * convex hull of the vertices that share its map: an affine map keeps a point strictly inside a convex set strictly
+ * inside its image, by its distance to the boundary times the map's smallest stretch. So a vertex inside its group's hull
+ * by more than `HULL_KEEP_MARGIN_ADAPTATION` is skipped; every vertex kept is computed exactly as before, so the extremes -- and the
+ * box, and the map fitted to it -- are the same values (`charShadowHull.test.ts`; research 395). A vertex blended over
+ * two or more bones is not an affine image of its neighbours' and is always kept, as is every vertex of a morphed mesh,
+ * of a group under `HULL_MIN_POINTS_ADAPTATION` or of a group the hull cannot be built for (collinear or identical
+ * points, which three's hull throws on, or fewer than four faces).
+ * The identity's one limit: the margin times the map's smallest stretch times the weight must stay far above the
+ * transform's rounding (about 1e-11 at these coordinates), so a bone, mesh or weight scaled to nearly (not exactly) zero
+ * could break it at that level; no bone or body scale is set in the viewer today.
+ * Nothing in a build sets the switch: only the test does, and the runs of research 395 set it in the page by hand.
+ */
+let hullBounds = false;
+/** SPC-2's switch: on, `shadowBounds` reads each mesh's plan (`boundsPlanOf`); off (the default), every vertex as before. */
+export function setShadowBoundsHull(on: boolean): void { hullBounds = on; }
+/** SPC-2's switch as it stands (the test's hold on "off by default"). */
+export function shadowBoundsHull(): boolean { return hullBounds; }
+/**
+ * How far inside its hull a vertex must lie to be skipped, in the mesh's own units: far above the rounding of the
+ * per-vertex float64 transform (about 1e-12 of the world's coordinates) and far below any model's detail. A browser
+ * adaptation with no original; a larger margin only keeps more vertices.
+ */
+const HULL_KEEP_MARGIN_ADAPTATION = 1e-4;
+/** A group smaller than this keeps every vertex: a hull saves nothing on it. A browser adaptation with no original. */
+const HULL_MIN_POINTS_ADAPTATION = 16;
+
+export interface BoundsPlan {
+  /** The vertex indices to read, ascending; null: every vertex. */
+  readonly indices: Uint32Array | null;
+  readonly total: number;
+  readonly kept: number;
+}
+interface PlanEntry { plan: BoundsPlan; position: unknown; positionVersion: number; skinIndex: unknown; skinWeight: unknown; skinVersion: number; skinned: boolean }
+const plans = new WeakMap<BufferGeometry, PlanEntry>();
+const versionOf = (a: unknown): number => { const v = a as { version?: number; data?: { version: number } } | undefined; return v ? (v.data !== undefined ? v.data.version : v.version ?? 0) : -1; };
+
+/** The vertices `shadowBounds` reads for one mesh under SPC-2's switch (made once per geometry, remade when it changes). */
+export function boundsPlanOf(object: Object3D): BoundsPlan {
+  const o = object as Object3D & { geometry?: BufferGeometry; isSkinnedMesh?: boolean; morphTargetInfluences?: number[] };
+  const geometry = o.geometry!;
+  const position = geometry.getAttribute('position');
+  const total = position.count;
+  const all: BoundsPlan = { indices: null, total, kept: total };
+  if ((geometry.morphAttributes['position']?.length ?? 0) > 0 || (o.morphTargetInfluences?.length ?? 0) > 0) return all;
+  const skinned = o.isSkinnedMesh === true;
+  const skinIndex = geometry.attributes['skinIndex'], skinWeight = geometry.attributes['skinWeight'];
+  const skinVersion = versionOf(skinIndex) * 1e6 + versionOf(skinWeight);
+  const cached = plans.get(geometry);
+  if (cached && cached.position === position && cached.positionVersion === versionOf(position) && cached.skinned === skinned
+    && cached.skinIndex === skinIndex && cached.skinWeight === skinWeight && cached.skinVersion === skinVersion) return cached.plan;
+  // The groups: one map each. A rigid mesh is one group; a skinned one a group per (single bone, its weight) -- the weight
+  // scales the map, so two weights on one bone are two maps -- and the blended are kept apart.
+  const groups = new Map<string, number[]>();
+  const keep: number[] = [];
+  for (let i = 0; i < total; i++) {
+    if (!skinned || skinIndex === undefined || skinWeight === undefined) { (groups.get('rigid') ?? groups.set('rigid', []).get('rigid')!).push(i); continue; }
+    let bone = -1, weight = 0, n = 0;
+    for (let c = 0; c < 4; c++) {
+      const w = c === 0 ? skinWeight.getX(i) : c === 1 ? skinWeight.getY(i) : c === 2 ? skinWeight.getZ(i) : skinWeight.getW(i);
+      if (w !== 0) { n++; weight = w; bone = c === 0 ? skinIndex.getX(i) : c === 1 ? skinIndex.getY(i) : c === 2 ? skinIndex.getZ(i) : skinIndex.getW(i); }
+    }
+    if (n === 1) { const key = `${bone}:${weight}`; (groups.get(key) ?? groups.set(key, []).get(key)!).push(i); }
+    else keep.push(i);                                         // blended (or no weight at all): read as before
+  }
+  const p = new Vector3();
+  for (const idx of groups.values()) {
+    if (idx.length < HULL_MIN_POINTS_ADAPTATION) { keep.push(...idx); continue; }
+    const points = idx.map((i) => new Vector3().fromBufferAttribute(position, i));
+    let faces: { normal: Vector3; constant: number }[] = [];
+    try {
+      const hull = new ConvexHull().setFromPoints(points);
+      faces = hull.faces.map((f) => ({ normal: f.normal, constant: f.constant }));
+    } catch { faces = []; }
+    if (faces.length < 4) { keep.push(...idx); continue; }     // no closed hull (the catch above, or too few faces): keep all
+    for (let k = 0; k < idx.length; k++) {
+      p.copy(points[k]!);
+      let inside = Infinity;                                   // the distance to the nearest face plane, inward
+      for (const f of faces) { const d = f.constant - f.normal.dot(p); if (d < inside) inside = d; }
+      if (!(inside > HULL_KEEP_MARGIN_ADAPTATION)) keep.push(idx[k]!);
+    }
+  }
+  keep.sort((a, b) => a - b);
+  const plan: BoundsPlan = keep.length === total ? all : { indices: Uint32Array.from(keep), total, kept: keep.length };
+  plans.set(geometry, { plan, position, positionVersion: versionOf(position), skinIndex, skinWeight, skinVersion, skinned });
+  return plan;
+}
+
 function expandBounds(box: Box3, object: Object3D): void {
   if (object.userData['effectLightPass'] === true) return;   // an effect light's overlay: the receiver beside it counts
   object.updateWorldMatrix(false, false);
@@ -239,7 +398,10 @@ function expandBounds(box: Box3, object: Object3D): void {
       const skinIndex = geometry.attributes['skinIndex'], skinWeight = geometry.attributes['skinWeight'];
       const ownLoop = skinned && skinIndex !== undefined && skinWeight !== undefined;   // else three's (it throws alike)
       if (ownLoop) _stamp++;                                    // CPS H8 step 2: this mesh's bone products, made afresh
-      for (let i = 0, l = position.count; i < l; i++) {
+      // SPC-2: under the switch, a mesh's planned vertices (the hulls' and the blended); a non-mesh reads every vertex.
+      const indices = hullBounds && (ownLoop || o.isMesh === true) ? boundsPlanOf(o).indices : null;
+      for (let k = 0, l = indices !== null ? indices.length : position.count; k < l; k++) {
+        const i = indices !== null ? indices[k]! : k;
         if (ownLoop) skinnedVertexPosition(o as unknown as SkinnedMesh, skinIndex, skinWeight, i, _vertex);
         else if (o.isMesh === true) (o as unknown as Mesh).getVertexPosition(i, _vertex);
         else _vertex.fromBufferAttribute(position, i);
@@ -430,6 +592,16 @@ export class CharacterShadow {
     toward.value.copy(this.direction).negate();
   }
 
+  /**
+   * VS-5 (VS.R5, a browser adaptation): the Shadows row's tier for the page's one map -- Medium the original's 256 (the
+   * default; today's draw), Low 128, High 512 with the soft taps (`setShadowTier`). The next frame redraws the map.
+   */
+  setTier(tier: ShadowTier): void {
+    if (tier === mapTier) return;
+    setShadowTier(tier);
+    this.drawn = false;
+  }
+
   /** No actor to shadow this frame (fly mode with the body hidden): the receivers take none. */
   clear(): void { strength.value = 0; }
 
@@ -501,21 +673,23 @@ export class CharacterShadow {
     renderer.setRenderTarget(this.target);
     renderer.setClearColor(0x000000, 0);
     drawnBy = null;                                  // CPS H8 step 2: the map is being redrawn; this shadow's once it is
-    renderer.clear();
     const autoUpdate = scene.matrixWorldAutoUpdate;
     scene.matrixWorldAutoUpdate = false;
+    // RENDER-FINALLY (a renderer adaptation): the state goes back in the finally, so a throwing clear or render leaves
+    // neither the silhouette nor the map's target behind for the world's render; the error still goes on.
     try {
+      renderer.clear();
       renderer.render(scene, cam);
       drawnBy = this;
       this.drawn = true;
       this.drawCount++;                              // CPS H9: the full path ran to its render's end
     } finally {
       scene.matrixWorldAutoUpdate = autoUpdate;
+      renderer.setClearColor(previousClear, previousAlpha);
+      renderer.setRenderTarget(previousTarget);
+      scene.overrideMaterial = previousOverride;
+      scene.background = previousBackground;
     }
-    renderer.setClearColor(previousClear, previousAlpha);
-    renderer.setRenderTarget(previousTarget);
-    scene.overrideMaterial = previousOverride;
-    scene.background = previousBackground;
   }
 
   /**
@@ -600,6 +774,7 @@ export function mountCharShadow(): MatchShadow {
       if (gone) return;
       gone = true;
       shadow.clear();
+      shadow.setTier('medium');                    // VS-5: the page's map left at the original's size for the next page
       shadow.dispose();
       shadow.target.dispose();
     },

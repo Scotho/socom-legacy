@@ -1,0 +1,3 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE diagnostics (30, 2026-11-09, after the timed set), r0004 M51 --state 5 (count 1, rifle up, the marking post 0x13419a0 at bearing ~170.3, acc 2.0).
+# T1 idle-long: no input for 25 s, --raise-records 5. If 0x13419a0's acc (+0x18) stays near 2 while it drifts the same path (bearing 170.3 -> 172.7), time is not why the rate went negative after the turn back.
+25000 lup 0

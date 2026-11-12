@@ -49,10 +49,15 @@ test.describe('the forge on a wide touch screen', () => {
   const size = { width: 1280, height: 800 };
   test.use({ hasTouch: true, viewport: size });
 
-  test('is as it was: the docks start under the toolbar', async ({ page }) => {
+  test('is as it was: the docks start under the toolbar and its tools row', async ({ page }) => {
     await page.goto('/forge');
     const m = await boxes(page);
-    expect(m.left.y).toBeCloseTo(m.top.y + m.top.height, 0);
-    expect(m.right.y).toBeCloseTo(m.top.y + m.top.height, 0);
+    // OT.R112: the placing tools' row sits under the toolbar (`../src/forge/forge.css` `.fx-tools-row`: top
+    // `var(--fx-top-bar)`, 46 px; height 40 px) and the docks start under both (`--fx-top: 86px`; the page's
+    // `fitToolbar` sets it to the toolbar's height plus the row's), so their top is the row's bottom, not the toolbar's.
+    const tools = (await page.locator('nav.fx-tools-row').boundingBox())!;
+    expect(tools.y, 'the tools row under the toolbar').toBeCloseTo(m.top.y + m.top.height, 0);
+    expect(m.left.y).toBeCloseTo(tools.y + tools.height, 0);
+    expect(m.right.y).toBeCloseTo(tools.y + tools.height, 0);
   });
 });

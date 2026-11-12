@@ -1,6 +1,8 @@
 import { Matrix4, Vector3 } from 'three';
-import type { TurretPlacement } from '@s2u/scene';
+import type { CollisionOwner, TurretPlacement, WorldPoly } from '@s2u/scene';
 import type { LoadedMap } from '../loadMap';
+import { under } from '../mapMeta';
+import { groundPolygons, packGround } from '../mover';
 import type { TurretMarker } from './layout';
 
 /**
@@ -12,7 +14,10 @@ import type { TurretMarker } from './layout';
  * A turret's frame is its origin turned to its facing (`TurretPlacement.facing`, the port's yaw: 0 looks down -z, left
  * positive, as three's turn about y). A copy at `at` facing `yaw` moves every matrix and point of the template by
  * `P F^-1` (P the copy's frame, F the template's), and renames every path beneath the template's root to the copy's.
- * Not copied: the turret's own collision polygons, if it has any (the copy stands on the hull without them).
+ * Its collision is the disc turret's (FP-1b, REVIEW-A 15): the hull's owners beneath its root (`LoadedMap.ground`, the map's
+ * collision as `loadMap` reads it -- the subtree test `./placedAccess` copies a gate's collision by), each polygon moved by
+ * the same `P F^-1` and packed into the joined map's hull after its own owners, so the copy collides where the disc's
+ * would. A turret whose root owns no polygons copies none; a map with no hull takes the turret without them.
  */
 
 /** One of a library map's turrets, with its drawn props, ready to copy. */
@@ -24,18 +29,22 @@ export interface TurretTemplate {
   placement: TurretPlacement;
   /** Each drawn placement beneath the turret's root: its prop entry and its index in that entry's matrices. */
   pieces: { prop: LoadedMap['props'][number]; index: number }[];
+  /** The hull's owners beneath the turret's root and their polygons (world space): its collision, if it has any. */
+  owners: { owner: CollisionOwner; polys: WorldPoly[] }[];
 }
 
-const beneath = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}=`);
 
 /** The library map's turrets, each with the props drawn beneath its root. */
 export function turretTemplates(lib: LoadedMap, source: string): TurretTemplate[] {
+  const polys = lib.ground ? groundPolygons(lib.ground) : [];
   return (lib.turrets ?? []).map((placement) => {
     const pieces: TurretTemplate['pieces'] = [];
     for (const prop of lib.props) {
-      (prop.paths ?? []).forEach((p, index) => { if (beneath(p, placement.root)) pieces.push({ prop, index }); });
+      (prop.paths ?? []).forEach((p, index) => { if (under(p, placement.root)) pieces.push({ prop, index }); });
     }
-    return { source, name: placement.name, lib, placement, pieces };
+    const owners = (lib.ground?.owners ?? []).filter((o) => under(o.path, placement.root))
+      .map((owner) => ({ owner, polys: polys.slice(owner.first, owner.first + owner.count) }));
+    return { source, name: placement.name, lib, placement, pieces, owners };
   });
 }
 
@@ -49,6 +58,15 @@ const wrapDegrees = (d: number): number => { const w = ((d + 180) % 360 + 360) %
 const moved = (m: Matrix4, p: readonly number[]): [number, number, number] => {
   const v = new Vector3(p[0], p[1], p[2]).applyMatrix4(m);
   return [v.x, v.y, v.z];
+};
+const movedPoints = (m: Matrix4, points: ArrayLike<number>): Float32Array => {
+  const out = new Float32Array(points.length);
+  const v = new Vector3();
+  for (let i = 0; i + 2 < points.length; i += 3) {
+    v.set(points[i]!, points[i + 1]!, points[i + 2]!).applyMatrix4(m);
+    out[i] = v.x; out[i + 1] = v.y; out[i + 2] = v.z;
+  }
+  return out;
 };
 
 /** The move from the template's own place to `at` facing `yaw` (radians): P F^-1. */
@@ -107,6 +125,10 @@ export function withPlacedTurrets(map: LoadedMap, placed: readonly TurretMarker[
   if (!placed?.length) return { map, unplaced: 0 };
   const props = [...map.props];
   const turrets = [...(map.turrets ?? [])];
+  // The joined hull: the map's own polygons and owners first (every index they hold kept), the copies' after.
+  const polys = map.ground ? groundPolygons(map.ground) : null;
+  const owners: CollisionOwner[] = map.ground ? map.ground.owners.map((o) => ({ ...o })) : [];
+  let collided = false;
   const textures = { ...map.textures }, textureFlags = { ...map.textureFlags };
   const textureMips = map.textureMips ? { ...map.textureMips } : undefined;
   let unplaced = 0;
@@ -128,6 +150,14 @@ export function withPlacedTurrets(map: LoadedMap, placed: readonly TurretMarker[
     const root = placedTurretRoot(i);
     props.push(...copiedProps(t, m, root, foreign));
     turrets.push(copiedPlacement(t, m, root, turrets.length, marker.yaw));
+    if (polys) for (const { owner, polys: own } of t.owners) {
+      const { frame: _f, restFrame: _r, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
+      const path = `${root}${owner.path.slice(t.placement.root.length)}`;
+      owners.push({ ...rest, path, first: polys.length, count: own.length });
+      for (const { frame: _pf, ...poly } of own as (WorldPoly & { frame?: unknown })[]) polys.push({ ...poly, path, points: movedPoints(m, poly.points) });
+      collided = true;
+    }
   });
-  return { map: { ...map, props, turrets, textures, textureFlags, ...(textureMips ? { textureMips } : {}) }, unplaced };
+  const ground = collided && map.ground && polys ? packGround(map.ground.grid, polys, owners) : map.ground;
+  return { map: { ...map, props, turrets, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ...(ground ? { ground } : {}) }, unplaced };
 }

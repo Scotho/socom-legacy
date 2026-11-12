@@ -52,8 +52,11 @@ describe("the engine handler catalogue (FCW-07b, frozen before 07c)", () => {
   // Changed deliberately by FCW-30: 0.1.0 -> 0.1.1 (the patch: additive under caret SemVer; the dispatcher's fold, was
   // 0.2.0), the first engine contract that carries the rules vocabulary
   // (`rules.ts`, spec 2026-10-27 section 7); additive -- nothing 0.1.0 published is removed or changed.
-  it("is the engine contract 0.1.1 (FCW-30's rules vocabulary, additive)", () => {
-    expect(ENGINE_CONTRACT_VERSION).toBe("0.1.1");
+  // Changed deliberately by FP-4 (FP.R2): 0.1.1 -> 0.1.2, the patch again: the forge-map bundle (`bundle.ts`) and the
+  // content map's version 2 (`maps.ts`) are additive -- nothing 0.1.1 published is removed or changed, and this
+  // catalogue's vocabularies are as they were.
+  it("is the engine contract 0.1.2 (FP-4's bundle and content-map v2, additive)", () => {
+    expect(ENGINE_CONTRACT_VERSION).toBe("0.1.2");
   });
 });
 

@@ -14,7 +14,7 @@ const source: EnvironmentSource = {
     ambient: [0.25, 0.25, 0.25],
   },
   camera: { fogColor: [128, 64, 32], fogNear: 100, fogFar: 4000, fogTop: 300, fogBottom: 0, fogEnabled: true, fogAltitude: true },
-  night: { mission: true, lens: [0, 255, 0, 128] },
+  night: { mission: true, lens: [0.2, 0.898, 0.2, 0.24] },   // the disc's LensFX_NVG, 0..1 (research 84 s14)
   shadowVector: [0, -1, 0],
   envMaterials: [{ texture: 'sky01.tif' }, { texture: 'chrome.tif' }],
   flares: 7,
@@ -48,7 +48,8 @@ describe('environmentSections', () => {
   });
 
   it('night, shadows, reflections and flares in words', () => {
-    expect(section('Night').rows.map((r) => r.value)).toEqual(['Yes', expect.stringContaining('#00ff00')]);
+    expect(section('Night').rows.map((r) => r.value)).toEqual(['Yes', '#33e533 · alpha 0.24']);
+    expect(section('Night').rows[1]!.swatch).toBe('#33e533');
     expect(section('Shadows').rows[0]!.value).toBe('straight down');
     expect(section('Reflections').rows[0]!.value).toBe('2 · sky01.tif, chrome.tif');
     expect(section('Flares').rows[0]!.value).toMatch(/^7/);
@@ -83,5 +84,14 @@ describe('directionWords and rgbHex', () => {
   it('a 0..1 colour as a hex swatch, clamped', () => {
     expect(rgbHex([1, 0.5, 0])).toBe('#ff8000');
     expect(rgbHex([2, -1, 0.25])).toBe('#ff0040');
+  });
+});
+
+describe("environmentOf copies a disc map's night lens in the disc's range (FP-1b; REVIEW-A 12)", () => {
+  it('keeps LensFX_NVG as its 0..1 floats, each held to 0..1', async () => {
+    const { environmentOf } = await import('../../src/forge/environmentCopy');
+    const map = (lens: [number, number, number, number]) => ({ archive: 'MP81', lightRig: null, camera: null, night: { mission: true, lens } }) as never;
+    expect(environmentOf(map([0.2, 0.898, 0.2, 0.24])).night).toEqual({ mission: true, lens: [0.2, 0.898, 0.2, 0.24] });
+    expect(environmentOf(map([1.5, 0.5, -1, 0.3])).night).toEqual({ mission: true, lens: [1, 0.5, 0, 0.3] });
   });
 });

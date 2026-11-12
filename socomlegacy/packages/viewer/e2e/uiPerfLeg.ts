@@ -58,12 +58,53 @@ export function uiPerfGlRefusal(gl: string | undefined, renderer: string | null)
  * pair of functions the spec spins on the page for `markerMs` each, `markerStart` before the press and `markerEnd`
  * before the stop, so the profile's clock is aligned to the page's (`tools/perf/cpf/profileWindow.ts` `profileClock`).
  * Two names, never one: a name's samples are one marker's run (review GM-16-DIAG-1 F1). A profiled run is diagnostic
- * only.
+ * only. GM-29: `settleCapMs`, the longest the profile waits for a switch's record window to close after the press
+ * (`uiPerfProfileStop`) -- the T4's 8 HD answers settled over 3.3 s (2026-11-09), so 15 s covers a host four times
+ * slower, and a run past it is said (a NOTE in the profile's summary), never a pass.
  */
 export const UI_PERF_PROFILE_ADAPTATION = {
   flag: 'S2U_UI_PERF_PROFILE', samplingIntervalUs: 100, scales: [2, 4],
-  markerStart: 'gm16ProfileMarkStart', markerEnd: 'gm16ProfileMarkEnd', markerMs: 5,
+  markerStart: 'gm16ProfileMarkStart', markerEnd: 'gm16ProfileMarkEnd', markerMs: 5, settleCapMs: 15_000,
 } as const;
+
+/**
+ * GM-29 (the T4 profile's first instrument fault, `agent-mail/evidence/gpu-menus/gm-f1-t4p/PROFILE.md`): the profiled
+ * switch's record -- the last switch to `to` whose first frame comes after `baseline`, the ring's last frame read before
+ * the press (null: the ring was empty). A frame's time is its animation frame's (rAF) time, which can precede a clock
+ * read made just before it on the page (the start marker's): the 2x cold switch's first frame at 34346.2 ms missed a
+ * marker at 34346.4 ms. A frame after the baseline is a later frame, whatever its timestamp's skew.
+ */
+export function uiPerfProfiledSwitch<T extends { to: string; at: number }>(switches: readonly T[], to: string, baseline: number | null): T | null {
+  const b = baseline ?? -Infinity;
+  let found: T | null = null;
+  for (const x of switches) if (x.to === to && x.at > b) found = x;
+  return found;
+}
+
+/** What the stop rule reads at each poll: the switch's record, the ring's last frame, whether the HD loads are settled, the time since the press. */
+export interface UiPerfProfileStopState {
+  sw: { at: number; settleMs: number } | null;
+  lastFrame: number | null;
+  /** No HD load was pending at the poll (the page's `hdSettled()` had resolved since the previous poll). */
+  hdIdle: boolean;
+  elapsedMs: number;
+  quietMs: number;
+  capMs: number;
+}
+
+/**
+ * GM-29 (the T4 profile's second instrument fault): when the profiled switch's record window has closed -- `closed` once
+ * no HD load is pending and the ring's last frame is `quietMs` past the switch's last answer (`at + settleMs`, the
+ * ring's own settle, `dialogSwitches`); `capped` at `capMs` after the press (said, never a pass); else `wait`. The rule
+ * it replaces closed 1 s after the switch's first frame while `settleMs` was still 0 -- before any HD answer -- so the
+ * T4's 4x cold profile covered 30% of its window. With the loads pending the window stays open whatever `settleMs`
+ * says.
+ */
+export function uiPerfProfileStop(o: UiPerfProfileStopState): 'wait' | 'closed' | 'capped' {
+  if (o.sw && o.hdIdle && o.lastFrame !== null && o.lastFrame >= o.sw.at + o.sw.settleMs + o.quietMs) return 'closed';
+  if (o.elapsedMs >= o.capMs) return 'capped';
+  return 'wait';
+}
 
 /** The flag: on for exactly "1". */
 export function uiPerfProfileOn(v: string | undefined): boolean {

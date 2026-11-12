@@ -6,6 +6,7 @@ import { archivePage } from './archivePage';
 import { serverPage } from './serverPage';
 import { journeyPage } from './journeyPage';
 import { statusPage } from './statusPage';
+import { agentSetupPage } from '../agent/setupPage';
 import { fixtureReport } from './statusModel';
 import type { PageId } from './content/types';
 
@@ -46,6 +47,8 @@ function pictureFrom(search: string): ReturnType<typeof fixtureReport> {
 startPwa(window);
 const pages: Record<PageId, () => HTMLElement> = {
   news: newsPage, roadmap: roadmapPage, journey: () => journeyPage(), archive: archivePage, server: serverPage, status: statusEntry,
+  // FP-14 (FP.R10; a browser adaptation): the agent connection's public setup, steps 1 and 2 (MC-12's route).
+  agent: () => agentSetupPage(),
 };
 const page = document.body.dataset['projectPage'] as PageId;
 document.querySelector('#project-site')!.replaceChildren(pages[page]());

@@ -1,0 +1,121 @@
+{
+  "schema": "s2u-rules",
+  "vocabulary": 0,
+  "id": "zombie-waves",
+  "name": "Zombie waves",
+  "description": "Three waves of patrol NPCs from one spawner, a ten-second rest between waves, cash and a point for each kill. The round ends when the last wave is cleared or no player is left alive.",
+  "config": [
+    { "id": "wave1", "type": "int", "default": 4, "min": 1, "max": 64, "label": "Wave 1 size" },
+    { "id": "wave2", "type": "int", "default": 7, "min": 1, "max": 64, "label": "Wave 2 size" },
+    { "id": "wave3", "type": "int", "default": 10, "min": 1, "max": 64, "label": "Wave 3 size" },
+    { "id": "bounty", "type": "int", "default": 100, "min": 0, "max": 10000, "label": "Cash per kill" },
+    { "id": "points", "type": "int", "default": 1, "min": 0, "max": 100, "label": "Points per kill" }
+  ],
+  "variables": [
+    { "id": "wave", "scope": "match", "type": "int", "start": 1, "min": 1, "max": 3, "reset": "round" },
+    { "id": "left", "scope": "match", "type": "int", "start": 0, "min": 0, "max": 64, "reset": "round" },
+    { "id": "cash", "scope": "player", "type": "int", "start": 0, "min": 0, "max": 100000, "reset": "round" }
+  ],
+  "timers": [
+    { "id": "rest", "scope": "match", "seconds": 10, "reset": "round" }
+  ],
+  "phases": ["wave-1", "rest-1", "wave-2", "rest-2", "wave-3", "cleared"],
+  "phaseReset": "round",
+  "entities": {
+    "spawners": ["horde"]
+  },
+  "capabilities": [
+    { "slot": "behaviour.npc", "handler": "behaviour.npc.patrol" }
+  ],
+  "rules": [
+    {
+      "id": "open-1",
+      "when": "round.start",
+      "then": [
+        { "do": "variable.set", "var": "wave", "value": 1 },
+        { "do": "variable.set", "var": "left", "value": { "param": "wave1" } },
+        { "do": "message.show", "text": "Wave 1" },
+        { "do": "hud.value", "var": "wave", "label": "Wave" },
+        { "do": "hud.value", "var": "left", "label": "Left" },
+        { "do": "spawner.release", "spawner": "horde", "count": { "param": "wave1" }, "brain": "behaviour.npc.patrol" }
+      ]
+    },
+    {
+      "id": "bounty",
+      "when": { "event": "npc.death", "spawner": "horde" },
+      "then": [
+        { "do": "variable.add", "var": "cash", "who": "attacker", "amount": { "param": "bounty" } },
+        { "do": "score.award", "who": "attacker", "points": { "param": "points" } },
+        { "do": "variable.add", "var": "left", "amount": -1 },
+        { "do": "hud.value", "var": "left", "label": "Left" }
+      ]
+    },
+    {
+      "id": "clear-1",
+      "when": { "event": "spawner.empty", "spawner": "horde" },
+      "if": [{ "test": "phase", "is": "wave-1" }],
+      "then": [
+        { "do": "phase.set", "phase": "rest-1" },
+        { "do": "timer.start", "timer": "rest" },
+        { "do": "message.show", "text": "Wave 1 cleared" }
+      ]
+    },
+    {
+      "id": "open-2",
+      "when": { "event": "timer.fire", "timer": "rest" },
+      "if": [{ "test": "phase", "is": "rest-1" }],
+      "then": [
+        { "do": "variable.set", "var": "wave", "value": 2 },
+        { "do": "variable.set", "var": "left", "value": { "param": "wave2" } },
+        { "do": "phase.set", "phase": "wave-2" },
+        { "do": "message.show", "text": "Wave 2" },
+        { "do": "hud.value", "var": "wave", "label": "Wave" },
+        { "do": "hud.value", "var": "left", "label": "Left" },
+        { "do": "spawner.release", "spawner": "horde", "count": { "param": "wave2" }, "brain": "behaviour.npc.patrol" }
+      ]
+    },
+    {
+      "id": "clear-2",
+      "when": { "event": "spawner.empty", "spawner": "horde" },
+      "if": [{ "test": "phase", "is": "wave-2" }],
+      "then": [
+        { "do": "phase.set", "phase": "rest-2" },
+        { "do": "timer.start", "timer": "rest" },
+        { "do": "message.show", "text": "Wave 2 cleared" }
+      ]
+    },
+    {
+      "id": "open-3",
+      "when": { "event": "timer.fire", "timer": "rest" },
+      "if": [{ "test": "phase", "is": "rest-2" }],
+      "then": [
+        { "do": "variable.set", "var": "wave", "value": 3 },
+        { "do": "variable.set", "var": "left", "value": { "param": "wave3" } },
+        { "do": "phase.set", "phase": "wave-3" },
+        { "do": "message.show", "text": "Wave 3" },
+        { "do": "hud.value", "var": "wave", "label": "Wave" },
+        { "do": "hud.value", "var": "left", "label": "Left" },
+        { "do": "spawner.release", "spawner": "horde", "count": { "param": "wave3" }, "brain": "behaviour.npc.patrol" }
+      ]
+    },
+    {
+      "id": "clear-3",
+      "when": { "event": "spawner.empty", "spawner": "horde" },
+      "if": [{ "test": "phase", "is": "wave-3" }],
+      "then": [
+        { "do": "phase.set", "phase": "cleared" },
+        { "do": "message.show", "text": "All waves cleared" },
+        { "do": "round.end", "winner": "seal" }
+      ]
+    },
+    {
+      "id": "wiped",
+      "when": "player.eliminated",
+      "if": [{ "test": "alive", "op": "=", "count": 0 }],
+      "then": [
+        { "do": "message.show", "text": "The squad is down" },
+        { "do": "round.end", "winner": "none" }
+      ]
+    }
+  ]
+}

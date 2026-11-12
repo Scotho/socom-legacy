@@ -1,6 +1,6 @@
 import {
-  Color, DataTexture, DoubleSide, LinearFilter, Mesh, MeshBasicMaterial, NearestFilter, OrthographicCamera, PlaneGeometry,
-  RGBAFormat, Scene, UnsignedByteType, Vector2, type BufferAttribute, type Camera, type Texture,
+  BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute, LinearFilter, Mesh, MeshBasicMaterial, NearestFilter,
+  OrthographicCamera, PlaneGeometry, RGBAFormat, Scene, UnsignedByteType, Vector2, type BufferAttribute, type Camera, type Texture,
 } from 'three';
 import type { Rgba } from '@s2u/gs';
 import { HUD_COLOURS, taggedName } from './hud';
@@ -10,6 +10,7 @@ import type { UiSamplingSettings } from './experimentalUiSampling';
 import type { ReticleBitmaps } from './hudBitmaps';
 import { plainBotText } from './botPresentation';
 import {hdTextures} from './hdTexturePack';
+import type { ThreatQuad, ThreatValues } from './threatMarks';
 
 /**
  * The reticle (web sprint 2, W2.4; the spec's W2.R4 and §7): the game's own rifle reticle, `ret_rifle_01.tif` and
@@ -287,15 +288,30 @@ export const PERCEPTION = {
 export const PERCEPTION_SEEN_RATE_PLACEHOLDER = Number.POSITIVE_INFINITY;
 
 /**
- * PERCEPTION_SIGHT_PLACEHOLDER (research 321 sections 4.1 and 7.5, AD-3): what the page takes for the query's visibility
- * (`FUN_0060b120` D:L516326-516386: from the observer's eye, `DAT_0066b7a8` by the body's slot +0x34, to the target's
- * point by its slot +0x38, each surface met taking its material's `+0x20` off 1, foliage a random share by distance band,
- * an unknown material 0) and for the record's distance (`+0x10`): seen when no surface the eye's query keeps lies between
- * the aim's eye and the target's feet raised by the page's standing eye height (`./mover` `EYE_HEIGHT`), the distance feet
- * to feet. A PINE trace of the query's two points and of the record's `+0x10`, and the materials' `+0x20`, settle it.
+ * PERCEPTION_SIGHT_READING (research 321 sections 4.1.1 and 7.5, AD-3; LATER 793, SIGHT-POINTS: was
+ * `PERCEPTION_SIGHT_PLACEHOLDER`, its two points the aim's eye and the feet raised by `EYE_HEIGHT`). The query
+ * (`FUN_0060bc40` D:L516713-516729 submits it, `FUN_0060b120` D:L516310-516386 reads its hits):
+ * - **Its two points, read** (reading, pending review): from the observer's posed `head` node (`DAT_0066b7a8` by the
+ *   body's slot +0x34 `FUN_005a31c0`, body+0x308) to the target's posed `neck` node (slot +0x38 `FUN_005a3160`,
+ *   body+0x30c), D:L460155-460171, the nodes named at the body's set-up (`FUN_00553ea0` D:L419620-419623), each the
+ *   node's origin up its parent chain (`FUN_002869d0` D:L130737-130766) put in the world by the body's matrix
+ *   (`FUN_00308640(body+0x28, p, 1)`); no random point. The same neck point is the cone's (`FUN_005cc120`
+ *   D:L483236-483237). The page: `Play.nodeWorld('head')` and `RemotePlayers.neckAt`, its own posed skeletons (that the
+ *   original's nodes are posed each frame, and when against the sweep, is inferred, not read).
+ * - **Its hits, read; the page's rule a stand-in** (`surfaces`): a null query 0; no hit 1; the hits nearest the start
+ *   first; one on the target or its descendants ends the walk; a missing material 0, an index past the table material
+ *   0; `FUN_0059acd0(hit node)` not 0 skips the hit; else material `+0x3c` bit 0 (VOLUMETRIC) clear takes `+0x20`
+ *   (OPACITY, clamped to [0, 1]) off, set a random share by the squared start-to-hit distance (< 2500 0.5u + 0.5,
+ *   < 90000 0.39999998u + 0.25, < 250000 0.3u); the result clamped to [0, 1]. The page takes 1 or 0: seen when no
+ *   surface the eye's query keeps (`pickSurfaces`, `aimPickBlocks`: a VOLUMETRIC one passed whole, any other kept one
+ *   blocking whole) lies between the two points -- the materials' OPACITY not yet read off `materials.rdr`, the random
+ *   bands and `FUN_0059acd0` not built, the type-2 query's collision leaves not closed.
+ * - **The record's distance `+0x10`, unread** (`record`): feet to feet.
+ * A PINE trace of the record's `+0x10` and of a query's hits and visibility, and the materials' OPACITY read off the
+ * disc, settle the last two.
  */
-export const PERCEPTION_SIGHT_PLACEHOLDER = {
-  surfaces: 'the eye query\'s kept surfaces', from: 'the aim\'s eye', to: 'the feet raised by EYE_HEIGHT', record: 'feet to feet',
+export const PERCEPTION_SIGHT_READING = {
+  surfaces: 'the eye query\'s kept surfaces', from: 'the observer\'s posed head node', to: 'the target\'s posed neck node', record: 'feet to feet',
 } as const;
 
 /**
@@ -335,9 +351,12 @@ export function perceptionMagnification(viewState: number, magnification: number
 export interface PerceptionLookInputs {
   /** The target active (`+0xe1` bit 4): alive and in the world. */
   alive: boolean;
-  /** The record's distance (`+0x10`; `PERCEPTION_SIGHT_PLACEHOLDER`'s feet to feet), units. */
+  /** The record's distance (`+0x10`; `PERCEPTION_SIGHT_READING`'s feet to feet), units. */
   distance: number;
-  /** The camera's eye and its unit forward (`FUN_005c9520` D:L481807-481863), and the target's point. */
+  /**
+   * The camera's eye and its unit forward (`FUN_005c9520` D:L481807-481863), and the target's point: its posed neck node
+   * (slot +0x38, `FUN_005a3160`; `FUN_005cc120` D:L483236-483237), the sight's end (`PERCEPTION_SIGHT_READING`).
+   */
   apex: readonly [number, number, number]; forward: readonly [number, number, number]; target: readonly [number, number, number];
   /** The view's magnification (`perceptionMagnification`). */
   magnification: number;
@@ -345,7 +364,7 @@ export interface PerceptionLookInputs {
   mid: number | null;
   /** The target's speed across the ground, squared (`+0x38`, `+0x40`; units a second). */
   speedSquared: number;
-  /** The query's visibility over 0 (`PERCEPTION_SIGHT_PLACEHOLDER`). */
+  /** The query's visibility over 0 (`PERCEPTION_SIGHT_READING`). */
   seen: boolean;
 }
 
@@ -397,6 +416,14 @@ export class Perception {
   /** The record's mark (bit 0x200): false for an actor no pass has seen. */
   identified(id: number): boolean {
     return this.records.get(id)?.marked ?? false;
+  }
+
+  /**
+   * ENEMY-RAISE ER-1: the actors whose record carries the mark (bit 0x200), each once -- what `FUN_005c9b30` walks for
+   * the controller's count (D:L482101-482132; `enemyCount`).
+   */
+  *marked(): Iterable<number> {
+    for (const [id, r] of this.records) if (r.marked) yield id;
   }
 
   /** The record's accumulator (`+0x18`), 0 for an actor no pass has seen. */
@@ -459,6 +486,73 @@ export const PERCEPTION_RECORD_LIFE_READING = {
 
 /** ESCORT, the round's type byte `DAT_00437ce8 + 0x111` = 3 (research 155, 192: 1 BREACH, 2 DEMOLITION, 3 ESCORT, 4 EXTRACTION). */
 export const ESCORT_GAME_TYPE = 3;
+
+/**
+ * ENEMY-RAISE ER-1 (research 321 s4.1.1 point 7): the seats' team words, `body+0xc8` -- SEAL 0x40000001 and Terrorist
+ * 0x80000100 (`FUN_002c32c0` / `FUN_002c32e0` D:L164772-164793; the captured SealObjects, research 190, 193 s4.1), the two
+ * exchanged under the clan swap `DAT_004412d8` (research 309).
+ */
+export const SEAT_WORD = { seal: 0x40000001, terrorist: 0x80000100 } as const;
+
+/**
+ * ENEMY-RAISE ER-1 (research 175 s2, research 321 s4.1.1 point 4): the escortees' team words from their map records
+ * (`vehicles.rdr`'s team list through `FUN_00533370` D:L400379-400443): EXTRACTION's hostages bits 17, 30, 31
+ * (0xc0020000), ESCORT's VIPs bits 17, 30 (0x40020000).
+ */
+export const ESCORTEE_WORD = { hostage: 0xc0020000, vip: 0x40020000 } as const;
+
+/** ER-1: a seat's team word by its side; under the swap the two words are exchanged (`SEAT_WORD`). */
+export function seatWord(team: 'seal' | 'terrorist', swapped = false): number {
+  return SEAT_WORD[swapped ? (team === 'seal' ? 'terrorist' : 'seal') : team];
+}
+
+/**
+ * ER-1: an escortee's team word on the round's type -- ESCORT's VIP, else the hostage -- with bits 30 and 31 exchanged at
+ * the spawn under the swap (`FUN_002b28d0` D:L155859-155867): the VIP 0x80020000, the hostage unchanged.
+ */
+export function escorteeWord(gameType: number | null, swapped = false): number {
+  const w = gameType === ESCORT_GAME_TYPE ? ESCORTEE_WORD.vip : ESCORTEE_WORD.hostage;
+  if (!swapped) return w;
+  const b30 = (w >>> 30) & 1, b31 = (w >>> 31) & 1;
+  return ((w & 0x3fffffff) | (b30 << 31) | (b31 << 30)) >>> 0;
+}
+
+/**
+ * ENEMY-RAISE ER-1 (research 321 s4.1.1 point 7, s7.7; SCOPE.md s1.3; reading, pending review): what the page takes for
+ * `FUN_005c9b30`'s four tests beyond the team word (D:L482112) and the mark (D:L482131) -- `enemyCount`'s:
+ * - `kind`: every body the page perceives (the room's seats, its escortees, the body under the reticle) is a SEAL body,
+ *   kind 2 (`FUN_00553ea0` -> `FUN_0029ee10(body, 2, ...)` D:L419419, D:L144973); kinds 3 and 4 (D:L482116-482129) are not
+ *   perceived (SCOPE.md U4);
+ * - `active`: the room's alive flag stands for `target+0xe1` bit 4 (D:L482115; set D:L145030, cleared D:L144775 through
+ *   `FUN_00547af0`, whose role at a death is unread: U15);
+ * - `ledHostage`: a led (restrained) hostage is counted by its welcome-list word, without its leader's rewrite
+ *   (`FUN_00607d70` D:L514835, `FUN_00601910` D:L511801; the kept mask untraced: U4);
+ * - `swap`: the page sees no `DAT_004412d8`, so its seats and escortees take their unswapped words -- both exchanged
+ *   together, the count by side is the same either way (`seatWord`, `escorteeWord`);
+ * - `observer`: only a seated player counts (a spectator walks no body of its own).
+ * Settles: a capture of `ctrl+0xc0` and the records (SCOPE.md s2.1 runs 5, 9; a led hostage on MP6, MP10, MP11 or MP71).
+ */
+export const ENEMY_COUNT_FILTER_READING = {
+  kind: 'every perceived body kind 2', active: "the room's alive flag", ledHostage: "the welcome list's word, no leader rewrite",
+  swap: "the page's seats and escortees unswapped", observer: 'a seated player only',
+} as const;
+
+/**
+ * ENEMY-RAISE ER-1: the controller's `ctrl+0xc0` -- `FUN_005c9b30` zeroes it (D:L482090) and adds one for each marked
+ * record (D:L482131-482132) whose target is active (D:L482115) and shares no bit of the observer's team word
+ * (`(body+0xc8 & target+0xc8) == 0`, D:L482112): so teammates never count, a free hostage (0xc0020000) never, an ESCORT
+ * VIP (0x40020000) for the side whose word it does not meet. An actor with no word known is not counted
+ * (`ENEMY_COUNT_FILTER_READING`).
+ */
+export function enemyCount(perception: Pick<Perception, 'marked'>, observer: number, wordOf: (id: number) => number | null, alive: (id: number) => boolean): number {
+  let n = 0;
+  for (const id of perception.marked()) {
+    if (!alive(id)) continue;
+    const w = wordOf(id);
+    if (w !== null && (observer & w) === 0) n++;
+  }
+  return n;
+}
 
 /*
  * The target's health (research 321 sections 4.2.1 and 7.5): the bar fills with the target's `+0x1044`
@@ -941,6 +1035,185 @@ export function scopeLayout(frame: { width: number; height: number }): {
   return { quads, bars };
 }
 
+// ---- THREAT-MARKS: the eight `ret_threat` quads (`FUN_00215250` D:L69842-69899; research 321 section 2.6) ----------------
+
+/** The gap past the arm's outer end, PS2 pixels: 15.0 (0x41700000; `FUN_00215250` D:L69842, D:L69847, D:L69851, D:L69857). */
+export const THREAT_GAP = 15;
+
+/**
+ * The diagonals' position factors `DAT_003dc5b8..f0` (the r0001 ELF's words, read 2026-11-09: 0.9, 0.6, 0.65, 0.5, 0.9,
+ * 0.6, 0.65, 0.52; the same bits at r0004 0x407738..0x407770): each diagonal's laid centre is the reticle's corner
+ * `cx +- r, cy +- r` plus `[x, y]` times `(Aw + 15, Ah + 15)` outward (D:L69863-69898). Position multipliers, not tints.
+ */
+export const THREAT_DIAGONAL_FACTORS = {
+  frontRight: [0.9, 0.6], backRight: [0.65, 0.5], frontLeft: [0.9, 0.6], backLeft: [0.65, 0.52],
+} as const;
+
+/** The diagonals' turns, degrees, positive clockwise on the y-down screen (0xc2340000 -45, 0x42340000 +45; D:L69869, D:L69878, D:L69888, D:L69898). */
+export const THREAT_DIAGONAL_TURNS = { frontRight: -45, backRight: 45, frontLeft: 45, backLeft: -45 } as const;
+
+/** The quads' texture window (`FUN_003591d0` at HUD init, D:L71010: 0x3cf5c28f = 0.03 to 1.0 on both axes). */
+export const THREAT_UV = { u0: 0.03, v0: 0.03, u1: 1, v1: 1 } as const;
+
+/** Set 5's forced arm size (`DAT_003dc5f8` = 32.0, `ChangeReticule` D:L69309-69315; the r0001 ELF word read 2026-11-09). */
+export const THREAT_SET5_ARM = 32;
+
+/**
+ * THREAT_QUAD_ORIENTATION_READING (SCOPE 1.4; research 320's `GRENADE_METER_BITMAP_READING`): which way the wedges point.
+ * The corner algebra is read -- the permutations move the position slots against fixed UVs (`FUN_00358cc0` /
+ * `FUN_00358e20` D:L254802-254891 over `FUN_00359260` D:L254987-255003, `FUN_003591d0` D:L254975-254983), so relative to
+ * the top quad (screen (x, y) = (u, v)) `cc0` gives (1 - v, 1 - u), `e20` (u, 1 - v) and both (v, 1 - u), and the
+ * diagonals turn their cardinal's image: all eight point one way. Which way is the one bit of
+ * `GRENADE_METER_BITMAP_READING` (v 0 shows the decoded last rows): under it, **outward**, toward the threat. Not a second
+ * free constant: `threatLayout` takes the row order and the wedges flip together with that reading. A capture that
+ * settles it (the grenade meter, any HUD sprite's row order, or one lit mark) settles this.
+ */
+export const THREAT_QUAD_ORIENTATION_READING = 'outward, from GRENADE_METER_BITMAP_READING' as const;
+
+/**
+ * THREAT_ALPHA_SCALE_READING (SCOPE section 2): the port's opacity of a mark is its PS2 alpha over 128 (the GS's vertex
+ * alpha on the bitmap's own alpha, 128 opaque: the sprite constructor `FUN_00359640` D:L255128), as the pip's
+ * (`PIP_FULL`): the peak 50 shows at 50/128 = 0.39.
+ */
+export const THREAT_ALPHA_SCALE_READING = 128;
+
+/**
+ * THREAT_SCOPED_SETS_READING (SCOPE 1.4): the draw's guard `*(hud + set x 0x1f0 + 0x2b10)` for sets 4-10 reads `+0x150`
+ * of the HUD constructor's overlay sprites (`hud+0x3180`, `hud+0x3940`, D:L71221-71222) -- triangle 2's vertex-1 red,
+ * 128.0 from the constructor and written by no HUD code -- so the block runs under sets 5-10 with each set's `Aw`/`Ah`
+ * (set 4 is skipped by the HUD frame and laid once by ChangeReticule). Read by offset arithmetic and a grep, pending
+ * review; a write through a pointer is not excluded.
+ */
+export const THREAT_SCOPED_SETS_READING = 'laid under sets 5-10' as const;
+
+/**
+ * THREAT_DEAD_FADE_READING (SCOPE 1.4, section 2; dot's scope review F3): at a death ChangeReticule(-1) hides only the
+ * first four sprites (right, front-right, top, front-left: D:L69339-69347 and the other set branches), the HUD frame
+ * relays all eight under set -1 with the previous set's `Aw`/`Ah` (D:L70415-70434, D:L69298-69316), and the last four
+ * (left, back-left, bottom, back-right) are never hidden: they keep fading. The page draws the eight outside the
+ * reticle's dead gate (`reticleShown`) with that per-quad rule.
+ */
+export const THREAT_DEAD_FADE_READING = 'quads 0-3 hide, 4-7 keep fading' as const;
+
+/** The sets under which ChangeReticule leaves the first four threat sprites as they were (6, 8, 10: D:L69339-69591). */
+export const THREAT_LEAVE_SETS: ReadonlySet<number> = new Set([6, 8, 10]);
+
+/** A threat quad's vertex in frame pixels (y down) and the decoded bitmap's texture coordinate there (s across, t down the rows). */
+export interface ThreatVertex { x: number; y: number; s: number; t: number }
+
+/**
+ * One laid threat quad: its two triangles' six vertices in the sprite's slot order -- triangle 1 `+0xd0`, `+0xe0`,
+ * `+0xf0`, triangle 2 `+0x1a0`, `+0x1b0`, `+0x1c0`, each slot with its fixed UV ((u0, v0), (u0, v1), (u1, v1) and
+ * (u0, v0), (u1, v1), (u1, v0)) -- and its alpha (PS2 scale).
+ */
+export interface ThreatQuadLayout { quad: ThreatQuad; vertices: ThreatVertex[]; alpha: number }
+
+type Slot = [number, number];
+interface Slots { d0: Slot; e0: Slot; f0: Slot; a0: Slot; b0: Slot; c0: Slot }
+
+/** `FUN_00359260` (D:L254987-255003): a `w` x `h` box about `p`, the slots top-left, bottom-left, bottom-right; top-left, bottom-right, top-right. */
+function threatBox(w: number, h: number, p: Slot): Slots {
+  const x0 = p[0] - w / 2, x1 = p[0] + w / 2, y0 = p[1] - h / 2, y1 = p[1] + h / 2;
+  return { d0: [x0, y0], e0: [x0, y1], f0: [x1, y1], a0: [x0, y0], b0: [x1, y1], c0: [x1, y0] };
+}
+
+/** `FUN_00358cc0` (D:L254802-254825): the position slots moved, in the code's order. */
+function cc0(s: Slots): Slots {
+  const d0 = s.f0, f0 = s.a0, b0 = s.a0, a0 = d0;
+  return { d0, e0: s.e0, f0, a0, b0, c0: s.c0 };
+}
+
+/** `FUN_00358e20` (D:L254860-254891): the position slots moved, in the code's order. */
+function e20(s: Slots): Slots {
+  const d0 = s.e0, e0 = s.a0, a0 = d0, b0 = s.c0, c0 = s.f0, f0 = b0;
+  return { d0, e0, f0, a0, b0, c0 };
+}
+
+/**
+ * `FUN_003589d0` (D:L254725-254800): a turn of `deg` degrees about the pivot the slots give -- x from `+0xe0` and `+0xf0`,
+ * y from `+0xd0` and `+0xe0`, each `max(a, b) + (a - b) / 2` as the code has it -- of `+0xd0`, `+0xe0`, `+0xf0` and
+ * `+0x1c0`, new x = x cos - y sin, new y = x sin + y cos (`FUN_001b3720` sinf, `FUN_001b3548` cosf); then `+0x1a0` =
+ * `+0xd0` and `+0x1b0` = `+0xf0`. With y down a positive turn is clockwise on the screen.
+ */
+function turn(deg: number, s: Slots): Slots {
+  const px = (s.e0[0] - s.f0[0]) * 0.5 + Math.max(s.e0[0], s.f0[0]);
+  const py = (s.d0[1] - s.e0[1]) * 0.5 + Math.max(s.d0[1], s.e0[1]);
+  const r = deg * 0.017453292, sin = Math.sin(r), cos = Math.cos(r);
+  const at = ([x, y]: Slot): Slot => { const dx = x - px, dy = y - py; return [dx * cos - dy * sin + px, dy * cos + dx * sin + py]; };
+  const d0 = at(s.d0), e0 = at(s.e0), f0 = at(s.f0), c0 = at(s.c0);
+  return { d0, e0, f0, a0: d0, b0: f0, c0 };
+}
+
+/**
+ * `ChangeReticule`'s `Aw`/`Ah` for a set (D:L69298-69316): the set's floating bitmap's size, else its fixed one's
+ * (`hud+0x44e8 + 4 set`, `hud+0x44bc + 4 set`) -- `Aw` halved under set 4, both `THREAT_SET5_ARM` under set 5 -- or null
+ * where the set has no bitmap (the last kept) and under set -1 (ChangeReticule writes none).
+ */
+export function threatArm(set: number, bitmap: { width: number; height: number } | null): { w: number; h: number } | null {
+  if (set === -1 || !bitmap) return null;
+  if (set === 4) return { w: bitmap.width * 0.5, h: bitmap.height };
+  if (set === 5) return { w: THREAT_SET5_ARM, h: THREAT_SET5_ARM };
+  return { w: bitmap.width, h: bitmap.height };
+}
+
+/**
+ * THREAT-MARKS (research 321 section 2.6; `FUN_00215250` D:L69842-69899): the eight `ret_threat` quads on a frame of
+ * `frame` pixels about the reticle's centre `centre` (frame pixels: `hud+0x44ac/+0x44b0`), `size` the reticle's drawn
+ * size (`r`, PS2 pixels), `arm` ChangeReticule's `Aw`/`Ah` (`threatArm`), `bitmap` ret_threat's `Tw`/`Th`, and the
+ * actor's breadths and alphas (`./threatMarks`). In PS2 pixels scaled by `frame.height / 448`, so one layout serves the
+ * PS2 and the Modern pictures. Per quad, in the HUD's order (`THREAT_QUADS`):
+ * - the box about its laid centre P (`FUN_00359260`): the side and diagonal quads `Tw` x `Th x f`, the top and bottom
+ *   `Tw x f` x `Th` (the breadth float scales the mark's breadth, not its length) -- right P = (cx + r + Aw + 15, cy - 1),
+ *   top (cx + 1, cy - r - Ah - 15), left (cx - r - Aw - 15, cy - 1), bottom (cx + 1, cy + r + Ah + 15), and the
+ *   diagonals from the reticle's corners by `THREAT_DIAGONAL_FACTORS`;
+ * - the permutation of its slots (right, front-right, back-right `cc0`; top none; front-left, left, back-left `cc0` then
+ *   `e20`; bottom `e20`);
+ * - for a diagonal, the turn about its pivot corner (`turn`: bottom-left after `cc0`, bottom-right after `cc0` + `e20`)
+ *   by `THREAT_DIAGONAL_TURNS`, so its drawn centre moves with its breadth.
+ * A diagonal whose alpha is not above 0 is not laid (`0.0 < alpha`, D:L69863, D:L69872, D:L69881, D:L69891): null. Each vertex carries the decoded bitmap's
+ * coordinate under `order` (`GRENADE_METER_BITMAP_READING`: v 0 the decoded last rows, and by the same read u 0 the decoded
+ * last columns -- "the same read mirrors u (u 0 at the right edge)", its doc above; invisible on the meter's symmetric
+ * bitmaps, visible on ret_threat's row 5, the review's F3; `THREAT_QUAD_ORIENTATION_READING`). Flipped, both go together.
+ */
+export function threatLayout(
+  frame: { width: number; height: number }, centre: [number, number], size: number, arm: { w: number; h: number },
+  bitmap: { width: number; height: number }, values: ThreatValues, order: MeterRowOrder = GRENADE_METER_BITMAP_READING,
+): (ThreatQuadLayout | null)[] {
+  const s = frame.height / PS2_HEIGHT;
+  const r = size, Tw = bitmap.width, Th = bitmap.height, ox = arm.w + THREAT_GAP, oy = arm.h + THREAT_GAP;
+  const b = values.breadth, alpha = values.alpha;
+  const F = THREAT_DIAGONAL_FACTORS, T = THREAT_DIAGONAL_TURNS;
+  // In PS2 pixels about the centre (cx, cy) = (0, 0): the code's fVar12 = cx + r, fVar6 = cx - r, fVar10 = cy - r,
+  // fVar13 = cy + r, fVar11 = cx + 1, fVar9 = cy - 1 (D:L69769-69778).
+  const plan: { quad: ThreatQuad; w: number; h: number; p: Slot; perm: 'none' | 'cc0' | 'e20' | 'both'; deg: number }[] = [
+    { quad: 'right', w: Tw, h: Th * b[0]!, p: [r + ox, -1], perm: 'cc0', deg: 0 },
+    { quad: 'frontRight', w: Tw, h: Th * b[1]!, p: [r + F.frontRight[0] * ox, -r - F.frontRight[1] * oy], perm: 'cc0', deg: T.frontRight },
+    { quad: 'front', w: Tw * b[2]!, h: Th, p: [1, -r - oy], perm: 'none', deg: 0 },
+    { quad: 'frontLeft', w: Tw, h: Th * b[3]!, p: [-r - F.frontLeft[0] * ox, -r - F.frontLeft[1] * oy], perm: 'both', deg: T.frontLeft },
+    { quad: 'left', w: Tw, h: Th * b[4]!, p: [-r - ox, -1], perm: 'both', deg: 0 },
+    { quad: 'backLeft', w: Tw, h: Th * b[5]!, p: [-r - F.backLeft[0] * ox, r + F.backLeft[1] * oy], perm: 'both', deg: T.backLeft },
+    { quad: 'back', w: Tw * b[6]!, h: Th, p: [1, r + oy], perm: 'e20', deg: 0 },
+    { quad: 'backRight', w: Tw, h: Th * b[7]!, p: [r + F.backRight[0] * ox, r + F.backRight[1] * oy], perm: 'cc0', deg: T.backRight },
+  ];
+  const mirrored = order === 'first row on the centre line';
+  const rowOf = (v: number): number => (mirrored ? 1 - v : v);
+  const columnOf = (u: number): number => (mirrored ? 1 - u : u);   // review F3: the reading's u mirror
+  const { u0, v0, u1, v1 } = THREAT_UV;
+  const uv: [number, number][] = [[u0, v0], [u0, v1], [u1, v1], [u0, v0], [u1, v1], [u1, v0]];
+  return plan.map(({ quad, w, h, p, perm, deg }, i) => {
+    if (deg !== 0 && !(alpha[i]! > 0)) return null;
+    let sl = threatBox(w, h, p);
+    if (perm === 'cc0' || perm === 'both') sl = cc0(sl);
+    if (perm === 'e20' || perm === 'both') sl = e20(sl);
+    if (deg !== 0) sl = turn(deg, sl);
+    const slots = [sl.d0, sl.e0, sl.f0, sl.a0, sl.b0, sl.c0];
+    const vertices = slots.map(([x, y], k): ThreatVertex => ({
+      x: centre[0] + x * s, y: centre[1] + y * s, s: columnOf(uv[k]![0]), t: rowOf(uv[k]![1]),
+    }));
+    return { quad, vertices, alpha: alpha[i]! };
+  });
+}
+
 
 /** What the HUD pass needs of three's renderer (a `WebGPURenderer` in the page). */
 export interface HudRenderer {
@@ -1111,6 +1384,23 @@ export class Reticle {
   private glyphInks = new Map<string, MeshBasicMaterial>();
   private glyphMeshes: Record<'text' | 'shadow', Mesh[]> = { text: [], shadow: [] };
   private barMeshes: Record<'fill' | 'lost', Mesh> | null = null;
+  /**
+   * THREAT-MARKS (`threatLayout`): the eight `ret_threat` quads, each its own six-vertex geometry and material (its own
+   * alpha); the breadths and alphas this frame (`setThreat`); the page's gate apart from the reticle's dead gate
+   * (`setThreatGate`, THREAT_DEAD_FADE_READING); the original's set as asked this frame (`setSet`'s `type`, before the
+   * page's own refusals), ChangeReticule's `Aw`/`Ah` kept from the last set that had them, the first four sprites' shown
+   * state, and each quad's last laid vertices (kept under set 4, which the HUD frame does not relay).
+   */
+  private threatMeshes: Mesh[] = [];
+  private threatBitmap: { width: number; height: number } | null = null;
+  private threatValues: ThreatValues = { breadth: new Array<number>(8).fill(0), alpha: new Array<number>(8).fill(0) };
+  private threatGate = { shown: false, dead: false };
+  private hudSet = 1;
+  private threatPrevSet: number | null = null;
+  private threatArmSize: { w: number; h: number } | null = null;
+  private threatFirstFour = true;
+  private threatSize = 0;
+  private threatLaid: (ThreatVertex[] | null)[] = new Array<ThreatVertex[] | null>(8).fill(null);
 
   /**
    * The bitmaps of the map just loaded, or none (the reticle then draws nothing); NU-3b: `font` the HUD's font atlas
@@ -1215,6 +1505,30 @@ export class Reticle {
       const material = make(nvg, null);
       for (let i = 0; i < 4; i++) this.nightMeshes.push(this.addMesh(material, -1));
     }
+    // THREAT-MARKS: the eight `ret_threat` quads (HUD init `FUN_002178c0` D:L71008-71025: alpha 0, shown, the constructor's
+    // RGB 128 -- no colour call: the red is the bitmap's), in the arms' list (`hud+0x4c`), each its own geometry and alpha.
+    const threat = bitmaps.sets?.['ret_threat.tif'];
+    if (threat) {
+      const map = texture(threat);
+      this.textures.push(map);
+      for (let i = 0; i < 8; i++) {
+        const material = new MeshBasicMaterial({
+          map, transparent: true, depthTest: false, depthWrite: false, side: DoubleSide, fog: false, toneMapped: false, opacity: 0,
+        });
+        this.materials.push(material);
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(18), 3));
+        geometry.setAttribute('uv', new Float32BufferAttribute(new Float32Array(12), 2));
+        const mesh = new Mesh(geometry, material);
+        mesh.frustumCulled = false;
+        mesh.renderOrder = 1;
+        mesh.visible = false;
+        mesh.userData.threat = i;
+        this.scene.add(mesh);
+        this.threatMeshes.push(mesh);
+      }
+      this.threatBitmap = { width: threat.width, height: threat.height };
+    }
     // NU-3b C4: the target's name in the font (`TARGET_NAME_LOOK_READING`: the HUD's string colour and its drop shadow)
     // and its bar, untextured, in `CHealthBar`'s colours (research 87 row 1.8), over the reticle.
     if (font) {
@@ -1268,6 +1582,7 @@ export class Reticle {
    * no arms (the grenade's, the scope's) keeps the drawn ones".)
    */
   setSet(type: number): boolean {
+    this.hudSet = type;                            // THREAT-MARKS: the original's set this frame, before the page's refusals
     if (type === this.set) return true;
     if (type === -1) { this.set = -1; return true; }
     if (type === 4) {
@@ -1301,6 +1616,65 @@ export class Reticle {
    * left; `FUN_001f7ff0` D:L56673-56688). Read only under set 4 (`FUN_00213a60` acts only there, D:L69189).
    */
   setMeter(power: number): void { this.power = power; }
+
+  /** THREAT-MARKS: the actor's eight breadths and the HUD's eight alphas this frame (`./threatMarks` `ThreatMarks.values`). */
+  setThreat(values: ThreatValues): void { this.threatValues = { breadth: [...values.breadth], alpha: [...values.alpha] }; }
+
+  /**
+   * THREAT-MARKS (THREAT_DEAD_FADE_READING): the marks' own gate, apart from the reticle's -- `shown` the page's gates but
+   * the death (walking, spawned, no tactical map, scoreboard or round screen: `reticleShown` without `dead`), `dead` the
+   * page's death (ChangeReticule(-1): the first four sprites hidden, the last four fading on).
+   */
+  setThreatGate(shown: boolean, dead: boolean): void { this.threatGate = { shown, dead }; }
+
+  /** THREAT-MARKS: the eight quads as drawn last frame -- shown or not, their opacity and their vertices (for the tests). */
+  threatState(): { visible: boolean; opacity: number; vertices: ThreatVertex[] | null }[] {
+    return this.threatMeshes.map((mesh, i) => {
+      const laid = this.threatLaid[i];
+      return { visible: mesh.visible, opacity: (mesh.material as MeshBasicMaterial).opacity, vertices: laid ? laid.map((v) => ({ ...v })) : null };
+    });
+  }
+
+  /**
+   * THREAT-MARKS: one HUD frame of the eight quads -- ChangeReticule's show state of the first four (hidden under set -1 or
+   * a death, left as they were under 6, 8 and 10, shown under the rest: D:L69339-69591), its `Aw`/`Ah` for the set
+   * (`threatArm`; under a death, set -1, the last kept), the relayout (`threatLayout`; every frame but under set 4, laid
+   * there once at the change, `FUN_00213e20` D:L69317 then `FUN_00216770` D:L70415-70434; THREAT_SCOPED_SETS_READING),
+   * each quad's vertices and opacity (THREAT_ALPHA_SCALE_READING). Whether any quad shows.
+   */
+  private layThreat(): boolean {
+    if (this.threatMeshes.length === 0 || !this.threatBitmap || this.frame.height <= 0) return false;
+    const set = this.threatGate.dead ? -1 : this.hudSet;
+    const prev = this.threatPrevSet;
+    this.threatPrevSet = set;
+    if (set === -1) this.threatFirstFour = false;
+    else if (!THREAT_LEAVE_SETS.has(set)) this.threatFirstFour = true;
+    if (set !== -1) {
+      const names = RETICLE_SETS[set];
+      const name = names ? names.floating ?? names.fixed : null;
+      const arm = threatArm(set, name ? this.sets[name] ?? null : null);
+      if (arm) this.threatArmSize = arm;
+    }
+    if (set !== 4) this.threatSize = this.drawSize;   // `hud+0x44b4`, written by the HUD frame but under set 4 (D:L70419)
+    if ((set !== 4 || prev !== 4) && this.threatArmSize) {
+      const laid = threatLayout(this.frame, this.meterCentre(), this.threatSize, this.threatArmSize, this.threatBitmap, this.threatValues);
+      laid.forEach((q, i) => { if (q) this.threatLaid[i] = q.vertices; });
+    }
+    let any = false;
+    this.threatMeshes.forEach((mesh, i) => {
+      const alpha = this.threatValues.alpha[i] ?? 0, vertices = this.threatLaid[i];
+      const on = this.threatGate.shown && alpha > 0 && !!vertices && (i >= 4 || this.threatFirstFour);
+      mesh.visible = on;
+      if (!on || !vertices) return;
+      any = true;
+      (mesh.material as MeshBasicMaterial).opacity = Math.min(1, alpha / THREAT_ALPHA_SCALE_READING);
+      const pos = mesh.geometry.getAttribute('position') as BufferAttribute, uv = mesh.geometry.getAttribute('uv') as BufferAttribute;
+      vertices.forEach((v, k) => { pos.setXYZ(k, v.x, v.y, 0); uv.setXY(k, v.s, v.t); });
+      pos.needsUpdate = true;
+      uv.needsUpdate = true;
+    });
+    return any;
+  }
 
   /** The reticle set drawn now. */
   currentSet(): number { return this.set; }
@@ -1500,11 +1874,25 @@ export class Reticle {
     if (this.set !== 4 || GRENADE_METER_CENTRE_READING !== 'the last firearm frame\'s') {
       this.laid = { aim: [this.aim[0], this.aim[1]], offset: [this.offset[0], this.offset[1]] };
     }
-    if (!this.on || this.meshes.length === 0) return;
+    // THREAT-MARKS: the eight quads outside the reticle's gate (THREAT_DEAD_FADE_READING): with the reticle off (a death),
+    // the scene draws them alone.
+    const threat = this.layThreat();
+    const reticleOn = this.on && this.meshes.length > 0;
+    if (!reticleOn) {
+      if (!threat) return;
+      for (const child of this.scene.children) if (!this.threatMeshes.includes(child as Mesh)) child.visible = false;
+    }
     this.sampling.apply(this.textures);
     const { width, height } = this.frame;
     this.camera.left = 0; this.camera.right = width; this.camera.top = 0; this.camera.bottom = height;
     this.camera.updateProjectionMatrix();
+    if (!reticleOn) {
+      this.sampling.fit(this.threatMeshes);
+      const autoClearOff = renderer.autoClear;
+      renderer.autoClear = false;
+      try { renderer.render(this.scene, this.camera); } finally { renderer.autoClear = autoClearOff; }
+      return;
+    }
     const scoped = this.mode === 'scope' && this.scopeMeshes.length > 0;
     const binocs = this.mode === 'binoculars' && this.binocMeshes.length > 0;
     const tube = this.tube && this.mode === 'reticle';                 // LATER 164: the cross and the tube together
@@ -1576,7 +1964,7 @@ export class Reticle {
       if (r) { mesh.position.set(r.x + r.width / 2, r.y + r.height / 2, 0); mesh.scale.set(r.width, r.height, 1); }
     });
     this.renderTarget();
-    this.sampling.fit([...this.meshes.map(({mesh}) => mesh), ...(this.pipMesh ? [this.pipMesh] : []), ...this.meterMeshes.map(({ mesh }) => mesh)]);
+    this.sampling.fit([...this.meshes.map(({mesh}) => mesh), ...(this.pipMesh ? [this.pipMesh] : []), ...this.meterMeshes.map(({ mesh }) => mesh), ...this.threatMeshes]);
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     try { renderer.render(this.scene, this.camera); } finally { renderer.autoClear = autoClear; }
@@ -1617,5 +2005,8 @@ export class Reticle {
     this.glyphMeshes = { text: [], shadow: [] }; this.glyphMaterials = null; this.glyphInks.clear(); this.font = null;
     if (this.barMeshes) { this.scene.remove(this.barMeshes.fill); this.scene.remove(this.barMeshes.lost); }
     this.barMeshes = null;
+    for (const m of this.threatMeshes) { this.scene.remove(m); m.geometry.dispose(); }
+    this.threatMeshes = []; this.threatBitmap = null; this.threatPrevSet = null; this.threatArmSize = null; this.threatFirstFour = true;
+    this.threatLaid = new Array<ThreatVertex[] | null>(8).fill(null);
   }
 }

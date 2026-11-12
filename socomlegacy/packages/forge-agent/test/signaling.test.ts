@@ -202,7 +202,7 @@ it("OAuth HTTP discovery, guest consent and PKCE token exchange use the SDK rout
     const consent = await fetch(authorization),
       html = await consent.text(),
       cookie = consent.headers.get("set-cookie")!.split(";")[0]!;
-    expect(html).toContain("Continue as a guest");
+    expect(html).toContain("to sign in to SOCOM 2 Legacy as a guest?");
     const id = /name="id" value="([^"]+)"/.exec(html)![1]!,
       csrf = /name="csrf" value="([^"]+)"/.exec(html)![1]!;
     const approved = await fetch(`http://127.0.0.1:${port}/guest/consent`, {

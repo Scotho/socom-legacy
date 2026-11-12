@@ -196,6 +196,13 @@ test('Frostfire: the frag grenade explosion lights the deck around it', async ({
   await page.goto(`${TEST_ROOM}?map=MP2&mode=play&fly&devmode&kit=62,15,121,126,255`);
   await expect(page.locator('#status')).toContainText('triangles');
   await expect.poll(() => page.evaluate(() => window.__viewer.effects().loaded), { timeout: 60_000 }).toBe(true);
+  // The light passes' pre-warm over: a light begun while it runs shows its overlays only at its end (`EffectLights`
+  // `warmDone`), and the stats hide them meanwhile. WebGPU's compile (the default since MEGA.R8) outlasted the 3 s
+  // below on the shadow PC (agent/mega 7cd782a5f: overlays 0, a light live, 1,266 pooled).
+  await expect.poll(() => page.evaluate(() => {
+    const v = window.__viewer;
+    return (v.links().warmed['world'] ?? 0) > 0 && !v.effects().lights.warming;
+  }), { timeout: 120_000 }).toBe(true);
   expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
   await page.evaluate(([x, y, z, eye, pitch]) => window.__viewer.setCamera({ x, y: y + eye, z, yaw: 90, pitch }), [...SPAWN_A, EYE, REST_PITCH] as const);
   await page.evaluate(() => window.__viewer.walkFor(0.5, { forward: 0 }));
@@ -211,6 +218,7 @@ test('Frostfire: the frag grenade explosion lights the deck around it', async ({
   }), { timeout: 3_000, intervals: [10] }).toBe(true);
   const lit = (await page.evaluate(() => window.__viewer.effects())).lights;
   expect(lit.live).toBe(1);
+  expect(lit.warming).toBe(false);
   expect(lit.overlays).toBeGreaterThan(0);
   expect(lit.ranges[0]![1]).toBeGreaterThan(100);                    // 190 shrinking to nothing by 0.5 s
   await page.locator('#view').screenshot({ path: join(SCREENS, 'frostfire-frag-flash.png') });

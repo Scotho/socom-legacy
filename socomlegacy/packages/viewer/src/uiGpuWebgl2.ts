@@ -10,7 +10,9 @@ import {
   UI_GPU_MOVIE_FRAGMENT_SOURCE, UI_GPU_MOVIE_TEXTURES_ADAPTATION, UI_GPU_MOVIE_UNIT, UI_GPU_MOVIE_VERTEX_SOURCE, UiGpuMovieTextures, releasedMovie,
   type UiGpuMovieStats,
 } from './uiGpuMovie';
-import { UiGpuTextureCache, type UiGpuHdKeys, type UiGpuTextureOptions, type UiGpuTextureStats } from './uiGpuTextures';
+import {
+  UiGpuTextureCache, uiGpuOversizeRefusal, uiGpuOversized, type UiGpuHdKeys, type UiGpuTextureOptions, type UiGpuTextureStats,
+} from './uiGpuTextures';
 
 /**
  * GM-11a-1 (the GPU menus plan, `docs/plans/2026-11-01-gpu-menus.md`, "Architecture" and "Frame conventions"; research
@@ -31,7 +33,9 @@ import { UiGpuTextureCache, type UiGpuHdKeys, type UiGpuTextureOptions, type UiG
  *   no scissor, no dither, no rasterizer discard, every channel written. A real GPU's conversion of `k / 255` back to
  *   `k` is the box's to show (the harness sweeps every byte value; GM-11b).
  * - **A transparent frame** (the Settings overlay) is held before the software's divide (P22: premultiplied over black,
- *   as the canvas composites it, `premultipliedAlpha: true`); the presenter divides it on `readFrame`.
+ *   as the canvas composites it, `premultipliedAlpha: true`); the presenter divides it on `readFrame`. GM-19a: it reaches
+ *   the canvas through the premultiplied present (`UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`: each channel at most its
+ *   alpha), never a blit of RGB over A.
  * - **Nothing changes for players**: no module imports this one statically (the plan: the GPU modules are reached by
  *   `import()` only), and the switch (`uiGpuSwitch.ts`) keeps every surface `off`.
  *
@@ -56,7 +60,7 @@ import { UiGpuTextureCache, type UiGpuHdKeys, type UiGpuTextureOptions, type UiG
  * `DEPTH_COMPONENT32F` renderbuffer when the plan's `target.depth` is set; each `pass` clears it to 0 (the software's
  * "empty"); each run of triangles is one `drawArraysInstanced` through `model-ff-src` or `model-ff-add`
  * (`uiGpuShaders.ts`, the per-pixel rules; `uiGpuModels.ts`, the vertex shader, the instance layout and the blender),
- * a triangle an instance, under `DEPTH_TEST` with `GREATER`, the depth mask on, the colour mask RGB only (M7), and the
+ * a triangle an instance, under `DEPTH_TEST` with `GEQUAL` (GM-15d, `TEST_1` ZTST GEQUAL), the depth mask on, the colour mask RGB only (M7), and the
  * pass's power-of-two `depthScale` as `u_depthScale`. A quad never tests or writes that depth: `drawState` turns the
  * depth test off for every quad and the movie (`UI_2D_QUAD_Z_READING`).
  *
@@ -78,9 +82,71 @@ export const UI_GPU_INSTANCE_LAYOUT = Object.freeze({ stride: 72, a_rect: 0, a_c
 /** The plan steps `UiGpuBackend.draw` draws (GM-11a-1 the clear; GM-11a-2 the copies and quads; GM-11a-3 the movie; GM-15a the models' pass and triangles). */
 export const UI_GPU_DRAWN_STEPS: ReadonlySet<UiPlanStep['kind']> = new Set<UiPlanStep['kind']>(['clear', 'copy', 'quads', 'movie', 'pass', 'triangles']);
 
-/** Every program the backend links: the quads' (GM-11a-2), the models' (GM-15a) and the movie's (GM-11a-3). */
-export type UiGpuProgram = UiGpuShaderProgram | 'movie';
+/**
+ * Every program the backend links: the quads' (GM-11a-2), the models' (GM-15a) and the movie's (GM-11a-3); GM-19a: a
+ * transparent backend links the premultiplied present's too (`uiGpuProgramsFor`).
+ */
+export type UiGpuProgram = UiGpuShaderProgram | 'movie' | 'present';
 export const UI_GPU_PROGRAMS: readonly UiGpuProgram[] = Object.freeze([...UI_GPU_QUAD_PROGRAMS, ...UI_GPU_MODEL_PROGRAMS, 'movie'] as const);
+const UI_GPU_TRANSPARENT_PROGRAMS: readonly UiGpuProgram[] = Object.freeze([...UI_GPU_PROGRAMS, 'present'] as const);
+
+/** GM-19a: the programs a backend links -- `UI_GPU_PROGRAMS`, and on a transparent surface the present's as well. */
+export function uiGpuProgramsFor(transparent: boolean): readonly UiGpuProgram[] {
+  return transparent ? UI_GPU_TRANSPARENT_PROGRAMS : UI_GPU_PROGRAMS;
+}
+
+/**
+ * UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION (GM-19a; GM-11a-1 review F3; research 380 §5): no original; bounds the
+ * browser's composite of a transparent frame. The overlay's canvas is `premultipliedAlpha: true`
+ * (`UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION`) and its frame target holds the software's bytes before the divide (P14/P22),
+ * where a channel may exceed the alpha (the software clamps each channel of its premultiplied sum on its own, P12); a
+ * premultiplied canvas composites such a pixel undefined (WebGL 1.0 §5.2.1). So a transparent frame is presented by a
+ * draw, not a blit: one triangle over the canvas through the `present` program, each colour channel shown
+ * `min(channel, alpha)` (`uiGpuPremultipliedPresent`, the same rule on the CPU), the alpha as it is, flipped once as the
+ * blit flips -- what the 2D canvas composites of the software's straight frame (each channel divided and clamped at
+ * 255, then multiplied back by the browser), within the browser's own rounding of 1. The frame target, which
+ * `readPixels`, `readFrame` and the parity spec read, keeps the pre-divide bytes. `unit` is the texture unit the
+ * present samples the frame on (none of the frame's programs uses it). An opaque frame is blitted as before.
+ */
+export const UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION = Object.freeze({ rule: 'min(rgb, a)', unit: 3 } as const);
+
+/** GM-19a: `UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`'s rule on the CPU, in place: each colour channel at most the pixel's alpha. */
+export function uiGpuPremultipliedPresent(data: Uint8ClampedArray | Uint8Array): void {
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3]!;
+    if (data[i]! > a) data[i] = a;
+    if (data[i + 1]! > a) data[i + 1] = a;
+    if (data[i + 2]! > a) data[i + 2] = a;
+  }
+}
+
+/** GM-19a: the present's vertex shader -- one triangle over the whole viewport from `gl_VertexID`, no attributes. */
+export const UI_GPU_PRESENT_VERTEX_SOURCE = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+/**
+ * GM-19a: the present's fragment shader -- the frame target's texel fetched flipped once (the canvas's GL row `y` is the
+ * frame's row `H - 1 - y`, as the blit's flip), each colour channel at most its alpha
+ * (`UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`). The RGBA8 texel reads `k / 255` and is written back as `k` (the clear's
+ * conversion, GM-11a-1); `min` of two such values is one of them, so no byte is made that the target does not hold.
+ */
+export const UI_GPU_PRESENT_FRAGMENT_SOURCE = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+uniform sampler2D u_frame;
+out vec4 o_colour;
+void main() {
+  ivec2 size = textureSize(u_frame, 0);
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 c = texelFetch(u_frame, ivec2(p.x, size.y - 1 - p.y), 0);
+  o_colour = vec4(min(c.rgb, vec3(c.a)), c.a);
+}
+`;
 
 /**
  * A quad's colour channel as the program receives it: the plan's number, or its code (P23). A finite number past f32's
@@ -88,11 +154,29 @@ export const UI_GPU_PROGRAMS: readonly UiGpuProgram[] = Object.freeze([...UI_GPU
  * infinity's code with the number 0, as the twin receives it (`S13_channel`: `Math.fround` of the number).
  */
 export function gpuChannel(value: number, code: number): [number, number] {
-  if (code !== UI_PLAN_CODE.finite) return [0, code];
+  return [gpuChannelValue(value, code), gpuChannelCode(value, code)];
+}
+
+/** GM-32: `gpuChannel`'s number alone (no array: the instance upload writes it straight into its record). */
+export function gpuChannelValue(value: number, code: number): number {
+  if (code !== UI_PLAN_CODE.finite) return 0;
   const v = Math.fround(value);
-  if (v === Infinity) return [0, UI_PLAN_CODE.posInf];
-  if (v === -Infinity) return [0, UI_PLAN_CODE.negInf];
-  return [value, UI_PLAN_CODE.finite];
+  return v === Infinity || v === -Infinity ? 0 : value;
+}
+
+/** GM-32: `gpuChannel`'s code alone. */
+export function gpuChannelCode(value: number, code: number): number {
+  if (code !== UI_PLAN_CODE.finite) return code;
+  const v = Math.fround(value);
+  return v === Infinity ? UI_PLAN_CODE.posInf : v === -Infinity ? UI_PLAN_CODE.negInf : UI_PLAN_CODE.finite;
+}
+
+/** GM-32: the first `n` f32s of `a` and `b` equal bit for bit (a NaN's payload and a zero's sign included). */
+function sameWords(a: Float32Array, b: Float32Array, n: number): boolean {
+  if (a.length < n || b.length < n) return false;
+  const x = new Uint32Array(a.buffer, a.byteOffset, n), y = new Uint32Array(b.buffer, b.byteOffset, n);
+  for (let i = 0; i < n; i++) if (x[i] !== y[i]) return false;
+  return true;
 }
 
 /** The program a run of quads is drawn with: its path and, on `ff`, its blend (P10, P11; GM.R6). */
@@ -113,6 +197,9 @@ function programParts(name: UiGpuProgram): {
   vs: string; fs: string; uniforms: readonly string[]; samplers: readonly (readonly [string, number])[]; attributes: Readonly<Record<string, number>>;
 } {
   if (name === 'movie') return { vs: UI_GPU_MOVIE_VERTEX_SOURCE, fs: UI_GPU_MOVIE_FRAGMENT_SOURCE, uniforms: MOVIE_UNIFORMS, samplers: [['u_movie', UI_GPU_MOVIE_UNIT]], attributes: {} };
+  if (name === 'present') {
+    return { vs: UI_GPU_PRESENT_VERTEX_SOURCE, fs: UI_GPU_PRESENT_FRAGMENT_SOURCE, uniforms: [], samplers: [['u_frame', UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION.unit]], attributes: {} };
+  }
   if (isModel(name)) {
     return { vs: UI_GPU_MODEL_VERTEX_SOURCE, fs: UI_GPU_SHADER_SOURCES[name], uniforms: MODEL_UNIFORMS, samplers: [['u_tex', UI_GPU_TEXTURE_UNITS.tex]], attributes: UI_GPU_MODEL_ATTRIBUTES };
   }
@@ -344,8 +431,12 @@ export class UiGpuBackend {
   private triangleBuffer: { buffer: WebGLBuffer; bytes: number } | null = null;
   private triangleStaging = new ArrayBuffer(0);
   private triangleFirst = new Map<UiPlanStep, number>();
-  private axis: { texture: WebGLTexture; rows: number } | null = null;
+  // GM-32: `uploaded` the f32s the texture holds from the last upload, 0 for none (a new texture); `axisPrev` those f32s,
+  // so a frame whose table is bit for bit the last one's uploads nothing.
+  private axis: { texture: WebGLTexture; rows: number; uploaded: number } | null = null;
   private axisBuffer = new Float32Array(0);
+  private axisPrev = new Float32Array(0);
+  private readonly axisCounts = { uploads: 0, kept: 0 };
   private scratch: { texture: WebGLTexture; width: number; height: number } | null = null;
   private copied: { batch: number; rect: UiPlanRect } | null = null;
   // GM-13: the bitmaps, by content key, resident across frames under the cache's budgets.
@@ -357,11 +448,14 @@ export class UiGpuBackend {
 
   /** GM-11a-3: the GPU time of each drawn frame, when asked (`UiGpuBackendOptions.timeQueries`); null otherwise. */
   readonly timer: UiGpuTimer | null;
+  /** GM-19a: the programs this backend links (`uiGpuProgramsFor`: the present's too on a transparent surface). */
+  private readonly programList: readonly UiGpuProgram[];
 
   constructor(readonly gl: WebGL2RenderingContext, readonly canvas: UiGpuCanvas, readonly transparent: boolean, timeQueries = false, textures: UiGpuTextureOptions = {}) {
     this.movie = new UiGpuMovieTextures(gl, { storage: (format, w, h) => this.storage(format, w, h), unpackState: () => this.unpackState() });
     this.textures = new UiGpuTextureCache({ gl, storage: (format, w, h) => this.storage(format, w, h), unpackState: () => this.unpackState() }, textures);
     this.timer = timeQueries ? new UiGpuTimer(gl) : null;
+    this.programList = uiGpuProgramsFor(transparent);
   }
 
   /** The movie's upload counts (GM-11a-3: one upload per picture, at most one a tick). */
@@ -369,6 +463,9 @@ export class UiGpuBackend {
 
   /** GM-13: the texture cache's counts (uploads, residency, evictions, the budgets). */
   get textureStats(): UiGpuTextureStats { return this.textures.stats; }
+
+  /** GM-32: the axis table's uploads, and the frames whose table the texture held already (bit for bit): nothing uploaded. */
+  get axisStats(): { uploads: number; kept: number } { return { ...this.axisCounts }; }
 
   /** GM-13: the HD lookup whose keys name HD replacements (`HdMenuTextures`); null with HD off. */
   setHdKeys(hd: UiGpuHdKeys | null): void { this.textures.setHd(hd); }
@@ -489,6 +586,10 @@ export class UiGpuBackend {
    * of the default framebuffer, and a blit does not pay it -- so a bare blit was wiped by the next read (the box at
    * 5650fe4fc: the canvas read all zero after the present; every GPU frame black through `drawImage`). The clear pays
    * it; the blit then covers every pixel (the canvas is sized to the frame), so it changes no byte shown.
+   *
+   * GM-19a (`UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`): a transparent frame is drawn onto the canvas, not blitted -- each
+   * colour channel at most its alpha, so the premultiplied canvas is never given a pixel it composites undefined; the
+   * frame target keeps the pre-divide bytes. The draw pays the owed clear too; the clear before it is kept.
    */
   present(): void {
     this.live();
@@ -504,7 +605,33 @@ export class UiGpuBackend {
     gl.colorMask(true, true, true, true);
     gl.clearColor(0, 0, 0, this.transparent ? 0 : 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    if (this.transparent) { this.presentPremultiplied(W, H); return; }
     gl.blitFramebuffer(0, 0, W, H, 0, H, W, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+  }
+
+  /**
+   * GM-19a: the transparent frame onto the canvas (bound as DRAW_FRAMEBUFFER by `present`) through the `present` program --
+   * one triangle over the viewport, the frame target's texture on `UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION.unit`, under a
+   * state that cannot alter a byte (no blend, dither, scissor, cull, depth or stencil; every channel written); the unit
+   * let go after, so the frame target is never left bound where a later draw into it could sample it.
+   */
+  private presentPremultiplied(W: number, H: number): void {
+    const gl = this.gl, p = this.program('present');
+    gl.viewport(0, 0, W, H);
+    gl.disable(gl.DITHER);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
+    gl.disable(gl.SAMPLE_COVERAGE);
+    gl.useProgram(p.program);
+    if (!this.vao) this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+    this.bindUnit(UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION.unit, this.texture!);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   /**
@@ -561,8 +688,9 @@ export class UiGpuBackend {
 
   /**
    * Why `draw` cannot take this plan (the presenter then draws the frame L1 and names the reason), or null: a software
-   * verdict, a step it does not draw yet, a frame, bitmap or axis table past `MAX_TEXTURE_SIZE` (the large-image route is
-   * GM-14b's), or an `ff` quad whose colour is past f32's range (the blender would receive an infinity, `gpuChannel`);
+   * verdict, a step it does not draw yet, a frame, bitmap or axis table past `MAX_TEXTURE_SIZE` (a bitmap or HD image past
+   * it takes GM-14b's route, `UI_GPU_OVERSIZE_ROUTE_ADAPTATION`: `uiGpuOversizeRefusal`, counted under one key), or an
+   * `ff` quad whose colour is past f32's range (the blender would receive an infinity, `gpuChannel`);
    * GM-11a-3: a movie picture past `MAX_TEXTURE_SIZE`, more distinct pictures than the movie's textures, or a picture
    * whose buffer is released (never touched). GM-15a: a model run that is not fixed-function (GM-26's; the plan's
    * verdict already keeps it L1), or a triangle a number of which is past f32's range (the GPU would receive an infinity,
@@ -581,7 +709,10 @@ export class UiGpuBackend {
     }
     const max = this.maxTextureSize, { width, height } = plan.target;
     if (width > max || height > max) return `the frame ${width} x ${height} is past MAX_TEXTURE_SIZE ${max}`;
-    for (const t of plan.textures) if (t.width > max || t.height > max) return `${t.name} (${t.width} x ${t.height}) is past MAX_TEXTURE_SIZE ${max}: GM-14b's route`;
+    // GM-14b: the large-image route -- the frame L1 at its fallback scale, nothing past the limit made; one read-out key.
+    // Review F2: the refusal names each image (its HD key, size and the limit); the read-out counts it under the one reason.
+    const over = plan.textures.filter((t) => t.width > max || t.height > max);
+    if (over.length) return uiGpuOversizeRefusal(uiGpuOversized(over, max), max, (i) => (over[i]!.hd ? this.textures.hdKeyOf(over[i]!.image) : null));
     for (const m of plan.movies) if (m.width > max || m.height > max) return `a movie picture (${m.width} x ${m.height}) is past MAX_TEXTURE_SIZE ${max}`;
     const pictures = new Set(plan.movies.map((m) => m.picture));
     if (pictures.size > UI_GPU_MOVIE_TEXTURES_ADAPTATION) return `${pictures.size} movie pictures in one frame: more than UI_GPU_MOVIE_TEXTURES_ADAPTATION (${UI_GPU_MOVIE_TEXTURES_ADAPTATION})`;
@@ -631,7 +762,7 @@ export class UiGpuBackend {
   /** Every program compiled and linked now (the presenter's `ready`, GM-12a, waits on it); idempotent. */
   compilePrograms(): void {
     this.live();
-    for (const name of UI_GPU_PROGRAMS) this.program(name);
+    for (const name of this.programList) this.program(name);
   }
 
   /**
@@ -641,7 +772,7 @@ export class UiGpuBackend {
    */
   startPrograms(): void {
     this.live();
-    for (const name of UI_GPU_PROGRAMS) {
+    for (const name of this.programList) {
       if (this.programs.has(name) || this.linking.has(name)) continue;
       const gl = this.gl, parts = programParts(name);
       const vs = this.startShader(gl.VERTEX_SHADER, parts.vs), fs = this.startShader(gl.FRAGMENT_SHADER, parts.fs);
@@ -669,7 +800,7 @@ export class UiGpuBackend {
     } catch (e) {
       return { state: 'failed', why: e instanceof Error ? e.message : String(e) };
     }
-    return this.programs.size === UI_GPU_PROGRAMS.length ? { state: 'linked' } : { state: 'pending' };
+    return this.programs.size === this.programList.length ? { state: 'linked' } : { state: 'pending' };
   }
 
   /**
@@ -748,6 +879,11 @@ export class UiGpuBackend {
    * GM.R3: the plan's f64 axis table as an `RGBA32F` texture, `UI_GPU_AXIS_WIDTH` entries a row, entry `e` at
    * (`e % width`, `e / width`): each f64 rounded to the nearest f32 (`Float32Array`'s conversion, the twin's). The
    * texture is kept and grown by powers of two in rows; the rows a frame uses are uploaded whole.
+   *
+   * GM-32 (the T4 profile at `82ef1260f`: `uploadAxis` 31.0 ms and `texSubImage2D` 47.9 ms over the 4x cold switch): a
+   * frame whose rows are, as f32 bits, the ones the texture holds from the last upload uploads nothing -- the texture's
+   * contents are those bits either way (a fade changes the quads' colours, not their texels). A new or re-made texture
+   * holds nothing (`uploaded` 0), so its first frame uploads.
    */
   private uploadAxis(axis: Float64Array): void {
     const gl = this.gl, W = UI_GPU_AXIS_WIDTH, rows = Math.ceil(axis.length / 4 / W);
@@ -756,15 +892,22 @@ export class UiGpuBackend {
       let cap = 1;
       while (cap < rows) cap *= 2;
       cap = Math.max(rows, Math.min(cap, this.maxTextureSize));
-      this.axis = { texture: this.storage(gl.RGBA32F, W, cap), rows: cap };
+      this.axis = { texture: this.storage(gl.RGBA32F, W, cap), rows: cap, uploaded: 0 };
     }
     const n = rows * W * 4;
     if (this.axisBuffer.length < n) this.axisBuffer = new Float32Array(n);
-    this.axisBuffer.set(axis);
-    this.axisBuffer.fill(0, axis.length, n);
+    const next = this.axisBuffer;
+    next.set(axis);
+    next.fill(0, axis.length, n);
+    if (this.axis.uploaded === n && sameWords(next, this.axisPrev, n)) { this.axisCounts.kept++; return; }
     this.unpackState();
     gl.bindTexture(gl.TEXTURE_2D, this.axis.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, rows, gl.RGBA, gl.FLOAT, this.axisBuffer.subarray(0, n));
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, rows, gl.RGBA, gl.FLOAT, next.subarray(0, n));
+    this.axis.uploaded = n;
+    this.axisCounts.uploads++;
+    // The uploaded f32s are the next frame's comparison; the other buffer is written next.
+    this.axisBuffer = this.axisPrev;
+    this.axisPrev = next;
   }
 
   /**
@@ -901,20 +1044,28 @@ export class UiGpuBackend {
     const L = UI_GPU_INSTANCE_LAYOUT, bytes = n * L.stride;
     if (this.staging.byteLength < bytes) { let cap = 1024; while (cap < bytes) cap *= 2; this.staging = new ArrayBuffer(cap); }
     const i32 = new Int32Array(this.staging), f32 = new Float32Array(this.staging);
+    // GM-32 (the T4 profile: `uploadInstances` 18.2 ms over the 4x cold switch): the record's words written one by one --
+    // the same values in the same places as the arrays this built per quad (`gpuChannelValue`, `gpuChannelCode`:
+    // `gpuChannel`'s two halves).
+    const rect = L.a_rect / 4, colour = L.a_colour / 4, codes = L.a_codes / 4, axisAt = L.a_axis / 4, flags = L.a_flags / 4;
     for (const step of plan.steps) {
       if (step.kind !== 'quads') continue;
       let at = this.runFirst.get(step)! * (L.stride / 4);
       for (const i of step.quads) {
         const q = plan.quads[i]!;
-        const c = [0, 1, 2, 3].map((k) => gpuChannel(q.colour[k]!, q.codes[k]!));
-        if (step.path !== 'prog' && (q.zeroMask !== 0 || c.some(([, k]) => k !== UI_PLAN_CODE.finite))) throw new Error(`UiGpuBackend.draw: an ff quad with a code (${q.node})`);
+        let coded = false;
+        for (let k = 0; k < 4; k++) if (gpuChannelCode(q.colour[k]!, q.codes[k]!) !== UI_PLAN_CODE.finite) coded = true;
+        if (step.path !== 'prog' && (q.zeroMask !== 0 || coded)) throw new Error(`UiGpuBackend.draw: an ff quad with a code (${q.node})`);
         if (step.path === 'prog' && q.batch !== step.batch) throw new Error(`UiGpuBackend.draw: quad ${i} of batch ${q.batch} in batch ${step.batch}'s run`);
-        const { xs, ys, xe, ye } = q.rect;
-        i32.set([xs, ys, xe, ye], at + L.a_rect / 4);
-        f32.set([c[0]![0], c[1]![0], c[2]![0], c[3]![0]], at + L.a_colour / 4);
-        i32.set([c[0]![1], c[1]![1], c[2]![1], c[3]![1]], at + L.a_codes / 4);
-        i32.set([q.axis ? q.axis.column / 4 : 0, q.axis ? q.axis.row / 4 : 0, q.texture === null ? 0 : 1, 0], at + L.a_axis / 4);
-        i32.set([q.zeroMask, q.blend === 'additive' ? 1 : 0], at + L.a_flags / 4);
+        const r = q.rect;
+        i32[at + rect] = r.xs; i32[at + rect + 1] = r.ys; i32[at + rect + 2] = r.xe; i32[at + rect + 3] = r.ye;
+        for (let k = 0; k < 4; k++) {
+          f32[at + colour + k] = gpuChannelValue(q.colour[k]!, q.codes[k]!);
+          i32[at + codes + k] = gpuChannelCode(q.colour[k]!, q.codes[k]!);
+        }
+        i32[at + axisAt] = q.axis ? q.axis.column / 4 : 0; i32[at + axisAt + 1] = q.axis ? q.axis.row / 4 : 0;
+        i32[at + axisAt + 2] = q.texture === null ? 0 : 1; i32[at + axisAt + 3] = 0;
+        i32[at + flags] = q.zeroMask; i32[at + flags + 1] = q.blend === 'additive' ? 1 : 0;
         at += L.stride / 4;
       }
     }
@@ -1003,7 +1154,7 @@ export class UiGpuBackend {
 
   /**
    * GM-15a: one run of triangles (P1: in the plan's order) -- one instanced strip over each triangle's box through the
-   * run's model program, a triangle an instance -- tested `GREATER` against the pass's depth and written where it passes
+   * run's model program, a triangle an instance -- tested `GEQUAL` against the pass's depth and written where it passes
    * (M3), the colour mask RGB only (M7), the blender's `UI_GPU_MODEL_FF_BLEND`, the pass's `depthScale`.
    */
   private triangles(plan: UiFramePlan, step: Extract<UiPlanStep, { kind: 'triangles' }>, keys: readonly string[]): void {
@@ -1013,7 +1164,7 @@ export class UiGpuBackend {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
     this.drawState();
     gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.GREATER);
+    gl.depthFunc(gl.GEQUAL);   // GM-15d: TEST_1 ZTST GEQUAL (UI_MODEL_DEPTH_FORMAT_READING)
     gl.depthMask(true);
     gl.colorMask(true, true, true, false);
     gl.useProgram(p.program);

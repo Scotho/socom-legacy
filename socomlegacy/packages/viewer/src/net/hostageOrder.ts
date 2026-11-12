@@ -1,4 +1,5 @@
-import { aimPickBlocks, segmentHits, surfaceMaterial, type AiLoc, type Grid, type SurfaceMaterial } from '@s2u/scene';
+import { aimPickBlocks, segmentHits, surfaceMaterial, type AiLoc, type AiMaps, type Grid, type SurfaceMaterial } from '@s2u/scene';
+import { locateAiCell } from '../../../match/src/hostagePath';
 import { aimHitKept, aimQueryAdmits } from './aimQuery';
 
 /**
@@ -15,7 +16,8 @@ import { aimHitKept, aimQueryAdmits } from './aimQuery';
  * - `CanAcceptCommand` `FUN_00590bc0` (D:L450728-450735): the hostage alive (`+0xe1` bit 4) and a shared `+200` bit;
  * - `FUN_00591dc0` (D:L451386-451452): the hostage alive, an escortee, online eligible with no rescued exclusion (r0001's; r0004 adds one, R4B-04 below); the
  *   issuer's crosshair pick (`FUN_005aa690`) the hostage; the Manhattan cell distance `< 0x14` (0x591f94 `sltiu`) on
- *   body `+0xe8` -- x = (word & 0x7ffff) >> 6, z = u16 `+0xea` >> 3 -- the sub-map ignored;
+ *   body `+0xe8` -- x = (word & 0x7ffff) >> 6, z = u16 `+0xea` >> 3, each the located sub-map's own index -- the sub-map
+ *   ignored (`ORDER_CELL_FIELD_READING`);
  * - cmd 4 `FUN_00591ab0` (D:L451272-451290): the test and the hostage in unit 0x11; cmd 5 `FUN_00591770`
  *   (D:L451228-451242): the test, not in unit 0x11, and online the issuer in the hostage's unit (`FUN_005ef340`);
  * - the aim pick `FUN_005aa6e0` (D:L464132-464190): a hit surface blocks unless its material is VOLUMETRIC or LIQUID
@@ -39,13 +41,33 @@ export const ESCORTEE_UNIT_ID = 0x11;
 export const ORDER_RANGE_CELLS_READING = 20;
 
 /**
- * Which cell the range measures: body `+0xe8` (x = (word & 0x7ffff) >> 6, z = u16 `+0xea` >> 3), the sub-map bits
- * ignored -- not the zone test's `+0xe4` (189 s14.6 correction 1). The port takes `aiCellOf` on sub-map 0 for both
- * bodies (the sub-map ignored as the original ignores it); a body off that grid is out of range. Owed: whether `+0xe8`
- * holds a sub-map's local indices -- MP6's jail lies on sub-maps 3/4, 91 / 84 cells off sub-map 0's origin, so the
- * original could hold a SEAL outside out of range where the port offers the order (research 239 s9). Reading.
+ * Which cell the range measures: body `+0xe8` (x = (word & 0x7ffff) >> 6, z = u16 `+0xea` >> 3), the sub-map bits 0-5
+ * ignored (189 s14.6 correction 1). DF-7 (research 239 s9): `+0xe8` is written by `FUN_005b7ba0` (D:L471318) with the
+ * word `FUN_0052dc70` locates (D:L471278), and that word's x / z are the LOCATED sub-map's own indices -- (x - the
+ * sub-map's min) x its scale (D:L397251-397252), the sub-map in bits 0-5 (D:L397264), bounded by its width and depth
+ * (D:L397265-397266) -- so the test compares two local cells, each on its own body's sub-map, as if one lattice. The
+ * port takes the same located cell for both bodies (`orderCellOf`: `locateAiCell`, the planner's locator) and the same
+ * Manhattan distance (`cellDistance`). On MP6 a jailed hostage and a SEAL at the bars both locate on sub-map 0 (6
+ * cells: offered); a SEAL on the jail's upper floor (sub-map 3, origin 91 x 2 cells off sub-map 0's) or in its basement
+ * (sub-map 4, 84 x 2) is 93-97 cells off her (refused), where the port's sub-map-0 lattice put him 8-11 cells away. Not
+ * modelled: `+0xe8` is rewritten only when the located cell is traversable (`FUN_0052a090`, D:L471288-471291) and its
+ * x / z changed or `+0x1061` bit 6 is set (D:L471284-471286, D:L471309), so the original keeps a body's last
+ * traversable cell while it stands on an untraversable or unstored one, where the port takes the located cell (or none:
+ * out of range) on the page and the room alike (LATER 780). r0004's twin keeps the range on `+0xe8` (r4 0x597758-0x5977c0). Reading,
+ * pending review. Was: "'+0xe8, sub-map ignored'", sub-map 0's
+ * lattice for both bodies.
  */
-export const ORDER_CELL_FIELD_READING = '+0xe8, sub-map ignored';
+export const ORDER_CELL_FIELD_READING = "+0xe8: the located sub-map's own cell, the sub-map ignored";
+
+/**
+ * A body's cell for the order's range (`ORDER_CELL_FIELD_READING`): the cell `FUN_0052dc70` locates for its feet on the
+ * map's AI maps (`locateAiCell`), its x / z the located sub-map's own; null without the maps or off every stored cell
+ * (out of range) -- where the original keeps the last traversable `+0xe8` (D:L471288-471291; LATER 780). The page's
+ * offer and the room's check both take it, so the page offers what the room accepts.
+ */
+export function orderCellOf(ai: AiMaps | null | undefined, feet: readonly number[]): AiLoc | null {
+  return ai ? locateAiCell(ai, [feet[0]!, feet[1]!, feet[2]!]) : null;
+}
 
 /**
  * The crosshair pick (`FUN_005aa690(issuer)` == the hostage, D:L451421-451426): the room casts the page's eye and dir;
@@ -80,20 +102,14 @@ export const AIM_PICK_IGNORE_READING = 'penetration >= 0.98 without flag bit 4, 
 /**
  * The jail bars `nohostagerescue` / `okhostagerescue`: the same nine polygons in material 28 METAL_GRATE (penetration
  * 0.4) and 3 INVISIBLE_DI (1.0) -- shut, the bars block the pick; opened (`okforhostages`), they do not (research 199 s6,
- * s12.7; 175 s5.1). Reading.
+ * s12.7; 175 s5.1). Reading. The swap is the cell door's program's (DF-4, `../doors` `DOOR_CALL_READING`; was
+ * the bars' swap placeholder, 'not swapped'): `singleDoor_right` calls `okforhostages` after the open's swing and
+ * `not_okforhostages` after the close's, run on the room's world (`WorldState.doorCall`) and carried on its `EnvWire`
+ * -- the grate off and the invisible set on when open, the inverse when shut. At the opening both sets are active (no
+ * bit 31 on either reference; `cdoor1`'s autostart sets only its valve) and both are saved (bit 28), so the round's
+ * reset gives both back: the grate blocks the pick until the door is first opened, as when shut.
  */
 export const BARS_MATERIAL_READING = '28 METAL_GRATE shut, 3 INVISIBLE_DI open';
-
-/**
- * The bars' swap is not run: `singleDoor_right` calls `okforhostages` on open and `not_okforhostages` on close
- * (research 175 s5.1), and no code of the port's world state names them (MAP-02's door rotation alone, which 175 s5.1
- * says omits them). Probed on the MP6 fixture (HX-4a's room half, 2026-10-06): the room's grid holds BOTH placed sets on
- * the same faces (x 1731.16 and 1734, `nohostagerescue` METAL_GRATE and `okhostagerescue` INVISIBLE_DI, both nodes
- * active), so the grate blocks the order's pick across the bars whether the door is open or shut; through the doorway
- * the cell door's leaf (both materials too) is the room's static grid's. Settles: the world state running the door's
- * helper calls (one set active at a time). Placeholder.
- */
-export const BARS_SWAP_PLACEHOLDER = 'not swapped';
 
 /**
  * No side check (ruling HX.R3): the offer, the forward, the host's handler and OnCommand test no side; the hostage's
@@ -170,7 +186,7 @@ export function unitOfSeat(seat: number): number {
  */
 export { aimPickBlocks };
 
-/** The Manhattan distance of two AI-map cells, the sub-map ignored (`FUN_00591dc0` D:L451427-451448). */
+/** The Manhattan distance of two AI-map cells, each its own sub-map's indices, the sub-map ignored (`FUN_00591dc0` D:L451427-451448). */
 export function cellDistance(a: AiLoc, b: AiLoc): number {
   return Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 }

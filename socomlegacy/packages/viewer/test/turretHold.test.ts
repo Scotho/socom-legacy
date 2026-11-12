@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { readKitTable, type Grid } from '@s2u/scene';
 import { fixture } from '../../archive/test/fixtures';
 import { FlyCamera } from '../src/camera';
-import { STEP_PROBE_LIFT_READING, WalkMode } from '../src/walk';
+import { probeLiftOf, WalkMode } from '../src/walk';
 import { NetClient, type WebSocketLike } from '../src/net/client';
 import { decodeCommands, encodeCommands, frameKind } from '../src/net/codec';
 import { Frame, type ClientEvent } from '../src/net/protocol';
@@ -95,7 +95,7 @@ async function rig(olderRoom: boolean | 'after' = false) {
   const teleport = (at: V3, yaw: number): boolean => {
     if (!walk.respawn(at, yaw)) return false;
     const body = player();
-    body.sim.walker.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+    body.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
     body.sim.walker.state.yaw = yaw;
     return true;
   };
@@ -524,7 +524,7 @@ async function netRig(o: {
   const teleport = (at: V3, yaw: number): boolean => {
     if (!walk.respawn(at, yaw)) return false;
     const body = player();
-    body.sim.walker.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+    body.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
     body.sim.walker.state.yaw = yaw;
     return true;
   };

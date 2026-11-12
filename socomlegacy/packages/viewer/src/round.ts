@@ -5,9 +5,18 @@ import { segmentHits, surfaceWord, SURFACE_SIDE, SURFACE_SKIP, type Grid, type W
  * meet. The projectile's segment runs in the collision world's batch (`FUN_0031dd90` queues it, `FUN_002d3cf0` runs it)
  * through `FUN_002d3030` at the query class 0 (D:L175299-175312): a polygon with surface-word bit 18 (`m_cameratype` 1 or
  * 3: the camera-only faces) is passed, and the type-2 branch records only a polygon with surface-word bit 1
- * (`SURFACE_SIDE`, `m_ditype` bit 1) set (D:L175350-175352; LATER 413's review). Not modelled: the function's front-only
- * mode (`DAT_003df270` 0x20 / 0x30, D:L175276-175281), whether a round's segment runs under it.
+ * (`SURFACE_SIDE`, `m_ditype` bit 1) set (D:L175350-175352; LATER 413's review).
+ *
+ * BULLET_LINE_ONE_SIDED_READING (research 386 §3.2, review 3 F2): the function's crossing mode is the collider's, not
+ * the query's -- `DAT_003df270` 0x20 for a hull collider (its +0x80 bit 1 clear, `FUN_00316e30` D:L215827-215828;
+ * D:L175276-175281), which meets a face only from its front (research 281 §4.3) -- so a round's segment is one-sided in
+ * the original as the blast's lines are (`./net/blast` `blastSeen`, `./sceneHealth` `blastLine`). The port's round stays
+ * two-sided here (`roundPath`'s walk), a known departure for the simulation track: settled by the build with a capture of
+ * a round fired from behind a one-faced wall (H421).
  */
+export const BULLET_LINE_ONE_SIDED_READING = 'two-sided-departure' as const;
+
+/** LATER 413: whether the round's query admits the polygon (the side bit set, the camera-only bit clear). */
 export function roundAdmits(poly: Pick<WorldPoly, 'ditype' | 'ptcount' | 'material' | 'cameratype'>): boolean {
   const w = surfaceWord(poly);
   return (w & SURFACE_SIDE) !== 0 && (w & SURFACE_SKIP) === 0;

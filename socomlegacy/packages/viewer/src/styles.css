@@ -26,7 +26,7 @@ html, body { margin: 0; height: 100%; background: var(--s2u-ground); color: var(
 /*
  * GM-12b (`./uiGpuFront.ts` UI_GPU_STANDBY_CLASS, a browser adaptation): the front end's GPU canvas while the software's
  * frame shows on `#front-end` beneath it -- out of sight and out of the pointer's way, its box kept laid out (SCREEN
- * POSITION reads it). Made only when the GPU switch asks `front` of the GPU; every player's page has no such canvas.
+ * POSITION reads it). Made when the GPU switch asks `front` of the GPU -- every page since the flip (GM.R18).
  */
 #front-end-gpu.s2u-ui-gpu-standby { visibility: hidden; }
 /*
@@ -51,7 +51,7 @@ body.ps2-look { background: var(--s2u-ground-deep); }
   position: fixed; inset: 0; z-index: 19000; display: grid; place-items: center; pointer-events: auto; background: var(--s2u-ground-deep);
 }
 #original-loading[hidden] { display: none; }
-#original-loading canvas { height: min(100vh, calc(100vw * 448 / 640)); aspect-ratio: 640 / 448; }
+#original-loading canvas { height: min(100vh, calc(100vw * 448 / 640)); aspect-ratio: 640 / 448; grid-area: 1 / 1; }
 body.ps2-look #view {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: min(100vw, calc(100vh * 4 / 3)); height: min(100vh, calc(100vw * 3 / 4));
@@ -508,6 +508,10 @@ body.armory-open #toast { display: none !important; }
   padding: 0 var(--s2u-space-3); border-radius: var(--s2u-radius-pill); letter-spacing: var(--s2u-tracking-hint);
 }
 #touch-walk #tw-weapons[hidden] { display: none; }
+/* OT.R120 (SPECTATE_KIT_CHANGE_OWNER, the owner's adaptation): dead and watching a teammate the page flies, and the walk
+   pad hides with INV in it; `is-inv-shown` (`./matchTouch` `weaponsFrame`) shows INV alone of it over the fly camera's layer. */
+.touch.is-inv-shown:not(.is-walking) #touch-walk { display: block; }
+.touch.is-inv-shown:not(.is-walking) #touch-walk > :not(#tw-weapons) { display: none; }
 /* The fullscreen button, while walking: the HUD owns the bottom right (the range strip), so it stands at the left edge. */
 body.is-walking #fullscreen { right: auto; bottom: auto; left: calc(8px + env(safe-area-inset-left, 0px)); top: calc(72px + env(safe-area-inset-top, 0px)); width: 36px; height: 36px; }
 /* Held upright the HUD's bottom strip is taller: the two clusters stand on the bottom row, above it, and the page asks for a turn. */
@@ -579,7 +583,16 @@ body.is-walking #fullscreen { right: auto; bottom: auto; left: calc(8px + env(sa
 canvas.is-taunt-editor { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; z-index: 1001; }
 
 /* The same native 640x448 Options plane over either match. START keeps its shade underneath. */
-canvas[data-native-settings] {
+canvas[data-native-settings], canvas[data-native-settings-gpu] {
   position: fixed; inset: 0; margin: auto;
   width: min(100vw, calc(100vh * 640 / 448)); height: min(100vh, calc(100vw * 448 / 640)); z-index: 1001;
 }
+/*
+ * GM-19a / GM-23 (`./uiGpuSurfaceMount.ts` UI_GPU_STANDBY_CLASS and UI_GPU_UNDER_CLASS, browser adaptations): the overlay's
+ * and the loading screen's GPU canvases, made when the GPU switch asks their surface of the GPU (every page since the
+ * flip, GM.R18). In standby while the software's frame shows; the overlay's 2D canvas hidden under its transparent GPU frame.
+ */
+canvas[data-native-settings-gpu].s2u-ui-gpu-standby, #original-loading canvas.s2u-ui-gpu-standby, canvas.s2u-ui-gpu-under { visibility: hidden; }
+
+/* Native Options owns pointer input; the diagnostic panel must not cover its lower sliders. */
+body:has(canvas[data-native-settings]) #playtest-overlay { display: none; }

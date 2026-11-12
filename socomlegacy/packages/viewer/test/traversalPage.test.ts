@@ -197,6 +197,8 @@ describe('the HUD and the sounds (research 86 sections 3.4, 7.5)', () => {
     const hud = { setAction: (a: ActionPrompt | null) => { slots.push(a); } };
     walker.place(60, 10, 20);
     walker.state.yaw = 0;
+    for (let i = 0; i < 240 && p.traversal()?.climbPrompt()?.kind !== 'ladder'; i++) walker.tick(FORWARD);   // LC-1: CLIMB offered,
+    p.traversal()!.action();                                                                                    // mounted on the press
     for (let i = 0; i < 240 && p.traversal()?.state().kind !== 'ladder'; i++) walker.tick(FORWARD);
     p.hudFrame(hud);
     expect(slots).toEqual(['ladder_slide']);
@@ -250,6 +252,8 @@ describe("the ladder slide's loop (PAR-89, research 305 s3)", () => {
     const { p, walker } = page(sounds);
     walker.place(60, 10, 20);
     walker.state.yaw = 0;
+    for (let i = 0; i < 240 && p.traversal()?.climbPrompt()?.kind !== 'ladder'; i++) walker.tick(FORWARD);   // LC-1: CLIMB offered,
+    p.traversal()!.action();                                                                                    // mounted on the press
     for (let i = 0; i < 240 && p.traversal()?.state().kind !== 'ladder'; i++) walker.tick(FORWARD);
     for (let i = 0; i < 60; i++) walker.tick(FORWARD);
     p.action();

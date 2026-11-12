@@ -1,5 +1,7 @@
 import { segmentHit } from '@s2u/scene';
 import { aimedClaim, BOT_PITCH_STEP_DEG, BOT_YAW_STEP_DEG, lookStep, muzzleOf, torsoPoint } from '../net/botAim';
+import type { RuleNpcSeats } from '../../../match/src/creator/rules';
+import type { Conn, Room } from '../../../match/src/room';
 import { NetClient, type NetWalk } from '../net/client';
 import { quantiseCommand } from '../net/codec';
 import type { V3 } from '../net/hitVolumes';
@@ -7,7 +9,7 @@ import { TEAM_SIZE } from '../net/lobby';
 import type { LoopbackMatch } from '../net/loopback';
 import { aimPitchLimitsOf } from '../net/lookGate';
 import { netRefills } from '../net/netRefill';
-import { MAX_PLAYERS, TICK_HZ, type Command, type ServerEvent, type Team } from '../net/protocol';
+import { MAX_PLAYERS, PROTOCOL_VERSION, TICK_HZ, type Command, type ServerEvent, type Team } from '../net/protocol';
 import { faceToward, type CameraBody } from '../net/shotCone';
 import type { SimMap } from '../simMap';
 import { reloadDelayOf } from '../firearms';
@@ -248,4 +250,204 @@ export class ForgeNpcs {
     this.timer = null;
     for (const n of this.npcs) n.close();
   }
+}
+
+/** The rules brain a release asks the lobby's patrol brain to drive (`BEHAVIOUR_CAPABILITIES`). */
+const PATROL_BRAIN = 'behaviour.npc.patrol';
+/** Seat ids the forge's NPCs use start at `NPC_SEAT_BASE`; a release stops before the lobby's high CPU ids. */
+const RELEASE_ID_LIMIT = 240;
+
+/** A patrol brain that can take a seat it was not built with (`NpcBrain.adoptSeat`). */
+export interface PatrolSeatBrain {
+  adoptSeat(id: number): ((event: ServerEvent) => void) | null;
+  /** Forget a released seat when it is vacated or cleared, so a later release of the same id is adopted again. */
+  releaseSeat(id: number): void;
+}
+
+/**
+ * NPC seats for a rules `spawner.release` (product track, a browser adaptation). The same row the forge already seats
+ * a marker NPC on: `room.hello` into the page's loopback, on the side `soloSide` names, and the lobby's patrol brain
+ * when the release asks for it. A classic round already in play seats a joiner as a ghost, so the body is the room's
+ * own `spawn` at the release point -- the spawn a rule's player respawn uses.
+ */
+export interface ForgePlayNpcSeats {
+  readonly npcs: RuleNpcSeats;
+  sideOf(id: number): Team | undefined;
+  /** Adopt patrol releases whose brain was not ready at the release. Play calls this at each room step. */
+  flush(): void;
+  /** Drop every released seat and the queue before the room rebuilds the round. */
+  beforeRound(): void;
+}
+
+interface HeldRelease {
+  id: number;
+  at: [number, number, number];
+  yaw: number;
+  side: Team;
+  type: number;
+  patrol: boolean;
+  spawner: string;
+}
+
+export function forgePlayNpcSeats(o: {
+  room: () => Room;
+  /** The room's map stem, read at the release (the match's map may not exist when the host is built). */
+  stem: () => string;
+  /** The player's and the marker NPCs' sides. A release's side wins for its own id. */
+  baseSide?: (id: number) => Team | undefined;
+  brain: () => PatrolSeatBrain | null;
+  /** Marker NPCs take `NPC_SEAT_BASE + i`. A release starts after them so a round-start hello does not collide. */
+  reserved?: number;
+}): ForgePlayNpcSeats {
+  const sides = new Map<number, Team>();
+  const hears = new Map<number, (event: ServerEvent) => void>();
+  const pending: number[] = [];
+  /** Ids returned to the host for this room, hello'd or still waiting on a free slot. */
+  const tracked = new Set<number>();
+  /** Hello'd and not yet vacated. */
+  const live = new Set<number>();
+  const waiting: HeldRelease[] = [];
+  const seatBase = NPC_SEAT_BASE + Math.max(0, o.reserved ?? 0);
+  let cursor = seatBase;
+  let busy = false;
+
+  const roomOf = (): Room => o.room();
+
+  const capacity = (side: Team): number => {
+    const room = roomOf();
+    const members = room.lobby.players();
+    const onSide = members.filter((m) => m.team === side).length;
+    return Math.max(0, Math.min(TEAM_SIZE - onSide, room.lobby.playerLimit() - members.length));
+  };
+
+  const takeId = (): number | null => {
+    const room = roomOf();
+    while (cursor < RELEASE_ID_LIMIT && (room.lobby.member(cursor) || tracked.has(cursor))) cursor++;
+    if (cursor >= RELEASE_ID_LIMIT) return null;
+    return cursor++;
+  };
+
+  /**
+   * A released NPC's death leaves the lobby before the room's clock reads the sides. A corpse kept its seat, so the
+   * next release was cut by the side's 8 (`TEAM_SIZE`) and a side with nobody living was still "seated", which is the
+   * solo room's classic elimination. Marker NPCs and the player are not these ids. The slot can take the next body
+   * of the same release at the next `flush`, the start of the next step.
+   * The brain lets the seat go too (`PatrolSeatBrain.releaseSeat`; the review's F1), so the id is adopted again when a
+   * later round's release takes it.
+   */
+  const vacate = (id: number): void => {
+    const room = roomOf();
+    o.brain()?.releaseSeat(id);
+    if (room.lobby.member(id)) room.leave(id);
+    live.delete(id);
+    hears.delete(id);
+  };
+
+  /**
+   * The vacate stays inside `Room.kill`'s broadcast: the room's clock reads the sides later that same step, and a dead
+   * release still seated there is a classic elimination. The replacement waits for the next `flush` (the review's F3, a
+   * maintainers' fix): seated here it was spawned -- its `player.spawn` told, its hello's frames sent -- before the
+   * victim's own `player.death`, which `Room.kill` tells after this broadcast.
+   */
+  const onFrame = (ev: ServerEvent): void => {
+    if (busy || ev.type !== 'kill') return;
+    const victim = ev.victim;
+    if (typeof victim !== 'number' || !live.has(victim)) return;
+    busy = true;
+    try { vacate(victim); } finally { busy = false; }
+  };
+
+  const connFor = (id: number): Conn => ({
+    send: (frame) => {
+      if (typeof frame !== 'string') return;
+      let ev: ServerEvent;
+      try { ev = JSON.parse(frame) as ServerEvent; } catch { return; }
+      hears.get(id)?.(ev);
+      onFrame(ev);
+    },
+    close: () => {},
+  });
+
+  const seatHeld = (h: HeldRelease): boolean => {
+    const room = roomOf();
+    const seated = room.seatRuleRelease(h.id, connFor(h.id), {
+      type: 'hello', version: PROTOCOL_VERSION, name: `NPC ${h.id - NPC_SEAT_BASE + 1}`, map: o.stem(),
+      types: { seal: h.type, terrorist: h.type },
+    }, h.at, h.yaw, h.side, h.spawner);
+    if (!seated) return false;
+    live.add(h.id);
+    if (h.patrol) pending.push(h.id);
+    return true;
+  };
+
+  /** The room's next round must not bring the last round's horde back, and must not seat its queue first. */
+  const clearReleased = (): void => {
+    const room = roomOf();
+    const brain = o.brain();
+    for (const id of [...tracked]) {
+      brain?.releaseSeat(id);   // the review's F1: the next round's release starts at `seatBase` again
+      if (room.lobby.member(id)) room.leave(id);
+    }
+    tracked.clear();
+    live.clear();
+    waiting.length = 0;
+    pending.length = 0;
+    sides.clear();
+    hears.clear();
+    cursor = seatBase;
+  };
+
+  function fill(): void {
+    while (waiting.length && capacity(waiting[0]!.side) > 0) {
+      const h = waiting[0]!;
+      if (!seatHeld(h)) break;
+      waiting.shift();
+    }
+  }
+
+  const vacateDead = (): void => {
+    const room = roomOf();
+    for (const id of [...live]) {
+      const p = room.player(id);
+      if (!p || !p.alive) vacate(id);
+    }
+  };
+
+  return {
+    sideOf: (id) => sides.get(id) ?? o.baseSide?.(id),
+    beforeRound: clearReleased,
+    flush: () => {
+      vacateDead();
+      fill();
+      const brain = o.brain();
+      if (!brain || pending.length === 0) return;
+      const ids = pending.splice(0);
+      for (const id of ids) {
+        const hear = brain.adoptSeat(id);
+        if (hear) hears.set(id, hear);
+      }
+    },
+    npcs: {
+      release: (spawner, count, brainName, at, side) => {
+        vacateDead();
+        const type = typeof spawner.type === 'number' ? spawner.type : 0;
+        const ids: number[] = [];
+        const n = Math.min(count, at.length);
+        for (let i = 0; i < n; i++) {
+          const id = takeId();
+          if (id === null) break;
+          const point = at[i]!;
+          sides.set(id, side);
+          tracked.add(id);
+          waiting.push({
+            id, at: [point[0], point[1], point[2]], yaw: spawner.yaw, side, type, patrol: brainName === PATROL_BRAIN,
+            spawner: spawner.id,
+          });
+          ids.push(id);
+        }
+        fill();
+        return ids;
+      },
+    },
+  };
 }

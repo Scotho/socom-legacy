@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { resolve } from 'node:path';
 import { describe, it } from 'vitest';
 import { isWallSurface, polygonNormal, probeGround, selectFloor, type Grid, type WorldPoly } from '@s2u/scene';
-import { groundGrid, groundPolygons, STEP_PROBE_LIFT_READING, Walker, type WalkInput } from '../src/mover';
+import { groundGrid, groundPolygons, probeLiftOf, Walker, type WalkInput } from '../src/mover';
 import { simMapFromBytes } from '../src/simMap';
 import { Traversal } from '../src/traversal';
 import { slideEligible, slideSpanOf } from '../src/steepSlide';
@@ -42,7 +42,7 @@ function wallsNear(polys: readonly WorldPoly[], x: number, y: number, z: number)
 }
 
 function floorsNear(grid: Grid, x: number, y: number, z: number): string {
-  const f = selectFloor(probeGround(grid, x, z), y + STEP_PROBE_LIFT_READING, y);
+  const f = selectFloor(probeGround(grid, x, z), y + probeLiftOf('stand'), y);
   if (!f) return 'none';
   const pts = f.poly.points;
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -56,7 +56,7 @@ if (process.env.OBF21_NO_STEEP_RISE) {
   const proto = Walker.prototype as unknown as Record<string, unknown>;
   proto.groundEndpoint = function groundEndpoint(this: Walker, x: number, z: number): boolean {
     const self = this as unknown as { state: { x: number; y: number; z: number }; grid: Grid; takeOff(): void; start(n: string, s: null): void; setFloorNormal(n: readonly number[]): void };
-    const s = self.state, floor = selectFloor(probeGround(self.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y);
+    const s = self.state, floor = selectFloor(probeGround(self.grid, x, z), s.y + probeLiftOf('stand'), s.y);
     if (!floor) return false;
     const rise = floor.y - s.y;
     // `unbounded` (LATER 590's record): the rule as it stood before the owner's interim bound, a steep rise refused
@@ -87,8 +87,8 @@ describe.skipIf(CASES.length === 0 || !DISC)('OBF-21 ledge cases (probe)', () =>
       const w = new Walker(grid), t = new Traversal(grid, polys);
       w.driver = t;
       // A case may give its own start (`start` [x, y, z], `yaw` degrees, the walk's heading) instead of an edge's.
-      if (c.start) w.place(c.start[0], c.start[1] + STEP_PROBE_LIFT_READING, c.start[2]);
-      else w.place(e.x - e.out[0] * 6, e.top + STEP_PROBE_LIFT_READING, e.z - e.out[1] * 6);
+      if (c.start) w.place(c.start[0], c.start[1] + probeLiftOf('stand'), c.start[2]);
+      else w.place(e.x - e.out[0] * 6, e.top + probeLiftOf('stand'), e.z - e.out[1] * 6);
       w.stance = STANCE[c.cfg] ?? 'stand';
       w.state.yaw = c.yaw ?? (Math.atan2(-e.out[0], -e.out[1]) * 180) / Math.PI;
       const say = (tag: string): void => {
@@ -143,7 +143,7 @@ describe.skipIf(CASES.length === 0 || !DISC)('OBF-21 ledge cases (probe)', () =>
         const a = (k * Math.PI) / 4, dx = Math.cos(a), dz = Math.sin(a);
         const sl = W.slide!.call(w, s.x + dx, s.z + dz, s.x, s.z) as [number, number];
         const cr = W.crosses!.call(w, s.x, s.z, sl[0], sl[1]);
-        const f = selectFloor(probeGround(grid, sl[0], sl[1]), s.y + STEP_PROBE_LIFT_READING, s.y);
+        const f = selectFloor(probeGround(grid, sl[0], sl[1]), s.y + probeLiftOf('stand'), s.y);
         parts.push(`(${dx.toFixed(1)},${dz.toFixed(1)})->${sl[0].toFixed(2)},${sl[1].toFixed(2)}${cr ? ' X' : ''} f${f ? (f.y - s.y).toFixed(2) + (f.normal[1] < Math.cos(50 * Math.PI / 180) ? 'steep' : '') : '-'}`);
       }
       out(`  dirs ${parts.join(' | ')}`);
@@ -153,7 +153,7 @@ describe.skipIf(CASES.length === 0 || !DISC)('OBF-21 ledge cases (probe)', () =>
         for (let d = -8; d <= 8.001; d += 0.1) {
           const x = s.x + px * d, z = s.z + pz * d;
           const all = probeGround(grid, x, z);
-          const f = selectFloor(all, s.y + STEP_PROBE_LIFT_READING, s.y);
+          const f = selectFloor(all, s.y + probeLiftOf('stand'), s.y);
           const line = f ? `${(f.y - s.y).toFixed(2)} ny ${f.normal[1].toFixed(3)} span ${slideSpanOf(f.poly.points, x, z)?.toFixed(2)} ${f.poly.path}` : 'none';
           if (line !== last) out(`  prof d ${d.toFixed(1)}: ${line} | all ${all.map((h) => (h.y - s.y).toFixed(2)).join(',')}`);
           last = line;

@@ -21,6 +21,8 @@ const gateway = createGateway({
   rtcConfig,
   // Browser adaptation (gateway policy): proxy hops trusted for X-Forwarded-For; validated by createGateway.
   trustedProxies: Number(process.env.FORGE_AGENT_TRUSTED_PROXIES ?? 0),
+  // AX-11 (a browser adaptation, gateway policy): the OAuth state file; unset keeps logins in memory only.
+  stateFile: process.env.FORGE_AGENT_STATE_FILE || undefined,
   origins:
     process.env.FORGE_AGENT_ORIGINS?.split(",").filter(Boolean) ??
     (development ? ["http://localhost:5173", "http://127.0.0.1:5173"] : []),

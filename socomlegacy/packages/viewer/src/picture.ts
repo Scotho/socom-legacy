@@ -1,9 +1,9 @@
-import { VIDEO_PICTURE_DEFAULT, VIDEO_PICTURE_HD_OFFERED, VIDEO_PICTURES, type VideoPicture } from '@s2u/ui';
+import { VIDEO_PICTURE_DEFAULT, VIDEO_PICTURES, type VideoPicture } from '@s2u/ui';
 import { EXPERIMENTAL_DEFAULTS, type ExperimentalSettings } from './experimentalGraphics';
 import { readPreference, savePreference } from './startupSettings';
 
 /**
- * OT.R79 (LATER 378, a browser adaptation): the front end's picture -- VIDEO MODE's MODERN / PS2 / EXPERIMENTAL
+ * OT.R79 (LATER 378, a browser adaptation): the front end's picture -- VIDEO MODE's MODERN / PS2
  * (`@s2u/ui` `./screens/videoPicture`) -- kept by this browser beside the test room's look (`s2u.viewer.look`, its own:
  * the two become one truth with LATER 379), and drawn by the front end's match (`./matchMount` `MatchPicture`):
  *
@@ -11,13 +11,13 @@ import { readPreference, savePreference } from './startupSettings';
  *   window, the test room's Modern -- what the front end's match drew before OT.R79;
  * - PS2: the test room's PS2 -- the 640 x 448 frame (`Renderer.setPresentation('ps2')`, the HUD's), its projection from the
  *   map's own half-angles, letterboxed on a 4:3 box (the match's canvas's `s2u-picture-ps2` class, `styles.css`);
- * - EXPERIMENTAL, captioned "HD (GoE Soul)" since HD.R8 (the owner, 2026-10-31; OT.R92): Modern with the test room's
- *   experimental renderer at the owner's defaults (`EXPERIMENTAL_DEFAULTS`, enabled) with Colour adjustment (`grade`),
- *   Adjust existing map detail (`detailAdjust`), FXAA and Map texture mip bias (`textureBias`) off and the HD texture pack on (`./hdTexturePackServed`) -- in every
- *   match, not only the test room (`pictureExperimentalSettings`); the test room's panel stays the test room's.
  *
- * The detail pass is on under all three (PF-30: the original's own; `./startupSettings` `resolveVisuals`). The menus'
- * 640 x 448 frame is the same under all three (the merge controller's call): the choice is the world's.
+ * The third, EXPERIMENTAL -- captioned "HD (GoE SouL)" by HD.R8 (OT.R92) and held by HD-HOLD -- is removed by B206 ML-6
+ * (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD pack is a texture pack chosen in Home > Experiments > Mods,
+ * applied under either picture (`./packs/pagePacks`), and a stored `experimental` reads MODERN.
+ *
+ * The detail pass is on under both (PF-30: the original's own; `./startupSettings` `resolveVisuals`). The menus'
+ * 640 x 448 frame is the same under both (the merge controller's call): the choice is the world's.
  */
 export const PICTURE_KEY = 's2u.viewer.picture';
 /** The front end's match canvas's class (it has no id): SCREEN POSITION's offset and the PS2 picture's box find it by this. */
@@ -28,19 +28,15 @@ export const PICTURE_PS2_CLASS = 's2u-picture-ps2';
 export { VIDEO_PICTURE_DEFAULT, type VideoPicture };
 
 /**
- * HD.R8: what the front end's match hands the renderer for `picture` -- the experimental renderer off under MODERN and
- * PS2 (exactly as before), and under HD (GoE Soul) the owner's defaults (2026-10-08/11, his choice for this picture,
- * 2026-10-31) with his "please turn off colour adjustment and existing map detail while this is on" and the pack on;
- * FXAA and Map texture mip bias off too (the owner, 2026-11-01: "turn fxaa off in experimental and ground bias").
+ * What the front end's match hands the renderer under either picture: the experimental renderer off, exactly as before
+ * (the OFF pins). B206 ML-6 (ML.R11) removed HD.R8's `pictureExperimentalSettings`, whose HD (GoE SouL) branch was the
+ * only one that turned it on; the HD pack rides with no renderer settings (`hdPack` here stays false: the match's pack
+ * is the MODS choice's, `./packs/pagePacks`).
  */
-export function pictureExperimentalSettings(picture: VideoPicture): ExperimentalSettings {
-  return picture === 'experimental'
-    ? { ...EXPERIMENTAL_DEFAULTS, enabled: true, grade: false, detailAdjust: false, fxaa: false, textureBias: false, hdPack: true }
-    : { ...EXPERIMENTAL_DEFAULTS, enabled: false };
-}
+export const MATCH_EXPERIMENTAL_OFF: ExperimentalSettings = { ...EXPERIMENTAL_DEFAULTS, enabled: false };
 
+/** A stored picture; anything else -- a stored `experimental` (the HD picture ML-6 removed), `480p`, nothing -- reads MODERN. */
 export function parsePicture(raw: string | null): VideoPicture {
-  if (raw === 'experimental' && !VIDEO_PICTURE_HD_OFFERED) return VIDEO_PICTURE_DEFAULT;   // HD-HOLD: a stored HD reads as MODERN
   return (VIDEO_PICTURES as readonly string[]).includes(raw ?? '') ? raw as VideoPicture : VIDEO_PICTURE_DEFAULT;
 }
 
@@ -51,7 +47,7 @@ export function pictureKeeper(read: (key: string) => string | null = readPrefere
   return {
     get: (): VideoPicture => picture,
     set(p: VideoPicture): void {
-      if (p === 'experimental' && !VIDEO_PICTURE_HD_OFFERED) return;                       // HD-HOLD: never turned on
+      if (!(VIDEO_PICTURES as readonly string[]).includes(p)) return;                     // ML-6: a removed picture is never taken
       if (p === picture) return;
       picture = p;
       write(PICTURE_KEY, p);

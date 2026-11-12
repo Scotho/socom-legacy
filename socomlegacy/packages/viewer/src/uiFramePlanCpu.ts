@@ -1,7 +1,7 @@
 import type { Rgba } from '@s2u/gs';
 import { rasterizeUiDrawList } from './uiCompositorView';
 import { decodeChannel, type UiFramePlan, type UiPlanQuad, type UiPlanRect, type UiPlanTriangle } from './uiFramePlan';
-import { wrap } from './uiRasterRules';
+import { modelDepthF32, modelEdgeF32, modelEdgeOwns, wrap } from './uiRasterRules';
 
 /**
  * GM-06a (the GPU menus plan; research 380 §2.1, GM.R5's first proof): the f64 CPU executor of a `UiFramePlan`. It runs
@@ -16,8 +16,8 @@ import { wrap } from './uiRasterRules';
  *
  * GM-06b: a `movie` step copies the picture's RGB at the origin, nearest `p / s`, the alpha untouched (P17); a `pass`
  * step starts a fresh Float32 depth buffer (0 = empty, `UI_MODEL_DEPTH_FORMAT_READING`); a `triangles` step draws each
- * triangle over its integer box as `drawModels` does (M2-M7): barycentrics at the integer point, every edge inclusive,
- * strictly greater f64 `invW` against the f32 depth, perspective-correct weights, `sample`'s lerp form at
+ * triangle over its integer box as `drawModels` does (M2-M7): the edge functions at the integer point by the top-left
+ * rule (`modelEdgeOwns`), edges and depth in the GPU's f32 arithmetic (`modelEdgeF32`, `modelDepthF32`), the depth tested GEQUAL against the f32 store, perspective-correct weights, `sample`'s lerp form at
  * `(u W, (1 - v) H)` with REPEAT, no write at `al <= 0`, the frame alpha untouched.
  *
  * A plan whose verdict is `software` is L1: the reference draws it from the plan's inputs, at the plan's own scale (the
@@ -148,17 +148,21 @@ function drawTriangle(plan: UiFramePlan, t: UiPlanTriangle, frame: Uint8ClampedA
   const { a, b, c, box } = t;
   const tex = t.texture === null ? null : plan.textures[t.texture]!.image;
   const additive = t.blend === 'additive';
-  const inv = 1 / t.area;
+  const inv = 1 / t.area, finv = Math.fround(inv), sign = finv < 0 ? -1 : 1;
+  const ax = Math.fround(a.x), ay = Math.fround(a.y), bx = Math.fround(b.x), by = Math.fround(b.y), cx = Math.fround(c.x), cy = Math.fround(c.y);
+  const aw = Math.fround(a.invW), bw = Math.fround(b.invW), cw = Math.fround(c.invW);
+  const g0x = Math.fround(by - cy), g0y = Math.fround(cx - bx), g1x = Math.fround(cy - ay), g1y = Math.fround(ax - cx), g2x = Math.fround(ay - by), g2y = Math.fround(bx - ax);
   const s: number[] = [0, 0, 0, 0];
   for (let y = box.ys; y < box.ye; y++) {
     for (let x = box.xs; x < box.xe; x++) {
-      let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv;
+      const e0 = modelEdgeF32(bx, by, cx, cy, x, y), e1 = modelEdgeF32(cx, cy, ax, ay, x, y), e2 = modelEdgeF32(ax, ay, bx, by, x, y);
+      if (!modelEdgeOwns(e0, g0x, g0y, sign) || !modelEdgeOwns(e1, g1x, g1y, sign) || !modelEdgeOwns(e2, g2x, g2y, sign)) continue;   // M2: top-left, f32
+      const i = y * W + x, z = modelDepthF32(e0, e1, finv, aw, bw, cw);
+      if (z < depth[i]!) continue;                               // M3: GEQUAL, the f32 depth against the f32 store, 0 empty
+      let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv;   // M4: the attributes in f64
       let w1 = ((c.x - x) * (a.y - y) - (a.x - x) * (c.y - y)) * inv;
       let w2 = 1 - w0 - w1;
-      if (w0 < 0 || w1 < 0 || w2 < 0) continue;                  // M2: inclusive on every edge
       const invW = w0 * a.invW + w1 * b.invW + w2 * c.invW;
-      const i = y * W + x;
-      if (depth[i]! > 0 && invW <= depth[i]!) continue;         // M3: strictly greater wins, 0 empty
       w0 *= a.invW / invW; w1 *= b.invW / invW; w2 *= c.invW / invW;   // M4
       const r0 = w0 * a.rgba[0] + w1 * b.rgba[0] + w2 * c.rgba[0];
       const r1 = w0 * a.rgba[1] + w1 * b.rgba[1] + w2 * c.rgba[1];
@@ -172,7 +176,7 @@ function drawTriangle(plan: UiFramePlan, t: UiPlanTriangle, frame: Uint8ClampedA
         al = (s[3]! / 255) * (r3 / 128);
       } else { r = r0; g = r1; bl = r2; al = r3 / 128; }
       if (al <= 0) continue;                                     // M6: no colour, no depth
-      depth[i] = invW;
+      depth[i] = z;
       const o = i * 4;                                           // M7: the frame alpha untouched
       if (additive) {
         frame[o] = frame[o]! + r * al;

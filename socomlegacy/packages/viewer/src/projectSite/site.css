@@ -15,12 +15,21 @@ body { min-width: 280px; }
 /* the ds tap size for a control that is not an .s2u-action (which carries it already) */
 .project-tap { min-height: var(--s2u-hit-min); }
 :is(a, label).project-tap { display: inline-flex; align-items: center; }
-.project-header { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2u-space-6); min-height: 100px; border-bottom: 1px solid var(--s2u-highlight); }
+.project-header { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2u-space-3) var(--s2u-space-6); min-height: 100px; padding: var(--s2u-space-4) 0; border-bottom: 1px solid var(--s2u-highlight); }
 .project-brand { display: inline-flex; align-items: center; gap: var(--s2u-space-3); color: var(--s2u-text-strong); text-decoration: none; font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-tab); min-height: 44px; }
 /* the ds emblem at the ds 40px (the teaser's 28px is off the scale) */
 .project-brand-mark { display: block; flex: none; width: var(--s2u-icon-40); height: var(--s2u-icon-40); }
-/* the nav is the ds's s2u-navlinks (icon + word, ring inside the link); only its place in the header is ours */
-.project-nav { margin-left: auto; }
+/* the nav is the ds's s2u-navlinks (icon + word, ring inside the link); only its place in the header is ours (LCM-16, fold 2):
+   a two-tier header -- the brand and Play share the top row, the nav takes its own row under them, left-aligned, and wraps.
+   The arithmetic, from Oswald's own advances at wght 500 (shared/fonts/oswald-normal-variable-latin.woff2), 18px uppercase
+   at 0.08em (1.44px a letter): a link is 8 + 20 (icon) + 8 + word + 8 -- NEWS 89, ROADMAP 125, JOURNEY 117, ARCHIVE 116,
+   SERVER 106, LEADERBOARD 162 (the longest), STATUS 104 = 818, + six 16px gaps = 914 px. The column is
+   min(1040, viewport - 2 * clamp(16px, 4vw, 40px)), so one line holds from about 994 px; below it the row wraps (never
+   clips), and the one widest link (162) fits the narrowest column above the phone rule (641 - 2 * 25.6 = 590). The row
+   starts one link padding (8px) to the left so the first icon lines up with the emblem; the 44px links stack with no
+   row gap, each a whole --s2u-hit-min target. */
+.project-launcher { margin-left: auto; }
+.project-nav { flex: 1 0 100%; order: 3; margin: 0 0 0 calc(-1 * var(--s2u-space-2)); flex-wrap: wrap; justify-content: flex-start; gap: 0 var(--s2u-space-4); }
 .project-main { padding-bottom: 80px; }
 .project-hero { padding: 76px 0 56px; position: relative; isolation: isolate; }
 .project-hero::before { content: ''; position: absolute; top: 0; right: 0; width: 38%; height: 100%; pointer-events: none; opacity: .25; background: repeating-linear-gradient(0deg, transparent 0 31px, var(--s2u-highlight) 31px 32px), repeating-linear-gradient(90deg, transparent 0 31px, var(--s2u-highlight) 31px 32px); mask-image: linear-gradient(90deg, transparent, var(--s2u-ground-deep)); z-index: -1; }
@@ -122,9 +131,6 @@ body { min-width: 280px; }
 .project-footer { padding: var(--s2u-space-8) 0; border-top: 1px solid var(--s2u-highlight); display: grid; gap: var(--s2u-space-2); font: var(--s2u-type-body-small); }
 .project-footer-brand { color: var(--s2u-gold-display); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); }
 @media (max-width: 900px) {
-  .project-header { gap: var(--s2u-space-3) var(--s2u-space-6); padding: var(--s2u-space-4) 0; }
-  .project-launcher { margin-left: auto; }
-  .project-nav { order: 3; width: 100%; margin: 0; }
   .project-hall-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-hall-tiles .project-filter:not(.project-hall-tile) { grid-column: 1 / -1; }
   .project-archive-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -135,7 +141,10 @@ body { min-width: 280px; }
   /* the two-row header (patterns.css <= 640px): the brand and Play on the first row, the nav on its own row, plain words */
   .project-header { flex-wrap: wrap; gap: var(--s2u-space-2); }
   .project-brand { font: var(--s2u-type-body-small); letter-spacing: var(--s2u-tracking-tab); gap: var(--s2u-space-2); }
-  .project-nav { flex: 1 0 100%; order: 3; margin: 0; justify-content: space-between; gap: var(--s2u-space-1); }
+  /* LCM-16: seven links (Leaderboard joined, LCM.R18 (e)) as plain 15px words, no padding, 4px icon gap: News 53, Roadmap 74,
+     Journey 65, Archive 65, Server 59, Leaderboard 91, Status 59 = 465 + six 16px gaps = 561 px -- two lines at 390 (358 px
+     column), three at 320 (288 px); the margin goes back to 0 since the links lose their padding */
+  .project-nav { flex: 1 0 100%; order: 3; margin: 0; flex-wrap: wrap; justify-content: flex-start; gap: 0 var(--s2u-space-4); height: auto; }
   .project-nav .s2u-navlinks__link { padding-inline: 0; gap: var(--s2u-space-1); font: var(--s2u-type-body-small); letter-spacing: 0; text-transform: none; }
   .project-hall-tile { min-height: calc(var(--s2u-space-12) + var(--s2u-space-8)); }
   .project-hero { padding: var(--s2u-space-12) 0 var(--s2u-space-8); }
@@ -212,4 +221,219 @@ body { min-width: 280px; }
 @keyframes project-status-pulse { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) {
   .project-status-shape { animation: none; }
+}
+/* LCM-16 (the LIVE cards plan, LCM.R11, R14, R18 (e); the owner: "they must meet or exceed project standards"): the stats
+   pages -- /match/<id>, /leaderboard, /player/<name> -- in this shell. One breadcrumb, one identity block, one stats table,
+   one figure, one bar list, one state line, one failure for the three pages, on ds tokens alone. The breakpoints are the
+   house's 900 and 640 px, and 1024 px where a two-column layout folds. A browser adaptation (product track, OT.R53). */
+.project-shell {
+  /* the stats table's row, LCM.R11's 52 px (the mockup pages.html v9): an adaptation, not a ds token */
+  --project-row-h: 52px;
+  /* the sides as the cards draw them: SEALs gold-display, Terrorists the ds glyph-cross; adaptations, not ds tokens */
+  --project-side-seal: var(--s2u-gold-display);
+  --project-side-terrorist: var(--s2u-glyph-cross);
+  /* the widest a table's identity runs before its name is cut (its title keeps the whole name): an adaptation */
+  --project-ident-max: 240px;
+  /* the height a stats page's body keeps while it loads, so the footer does not jump when the answer lands: an adaptation */
+  --project-stats-reserve: 60vh;
+}
+
+/* the breadcrumb (LCM.R11): the house kicker's type, separators drawn and never read, the page last */
+.project-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s2u-space-2); margin: 0; padding: 0; list-style: none; font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-text-dim); }
+.project-crumbs li { display: inline-flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; max-width: 100%; }
+.project-crumbs li + li::before { content: "/"; content: "/" / ""; color: var(--s2u-gold-source); }
+.project-crumbs a { color: var(--s2u-text-dim); text-decoration: none; }
+.project-crumb-here { min-width: 0; color: var(--s2u-gold-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a head over a map still: the still under the ds backdrop shade (88% ground: small text stays legible, README "Surfaces") */
+.project-hero--still { overflow: hidden; padding-inline: var(--s2u-space-6); border: 1px solid var(--s2u-highlight); border-top: 0; margin-bottom: var(--s2u-space-8); }
+.project-hero--still::before { display: none; }
+.project-hero--still::after { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--s2u-backdrop-shade); pointer-events: none; }
+.project-hero-still { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+
+/* the identity block (LCM.R11): a fixed medal slot (rows align with or without a medal), the tag a small line above the
+   name, both left; the medal a whole multiple of the disc's 16 x 16, pixelated; the name cut in its row, its title whole */
+.project-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s2u-space-3); align-items: center; min-width: 0; text-align: left; }
+.project-ident-medal { grid-row: 1 / span 2; display: block; flex: none; }
+.project-ident-medal img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+.project-ident--sm .project-ident-medal { width: var(--s2u-icon-16); height: var(--s2u-icon-16); }
+.project-ident--md .project-ident-medal { width: var(--s2u-space-8); height: var(--s2u-space-8); }
+.project-ident--lg .project-ident-medal { width: var(--s2u-space-12); height: var(--s2u-space-12); }
+.project-ident--lg { column-gap: var(--s2u-space-4); }
+.project-ident-tag { grid-column: 2; align-self: end; min-width: 0; font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-ident-name { grid-column: 2; align-self: start; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; color: var(--s2u-text-strong); text-decoration: none; }
+.project-ident-medal + .project-ident-name { grid-row: 1 / span 2; align-self: center; }
+/* LCM-20: a single identity (an award, a card, a page head) with no medal has no slot: one column, the tag and the name
+   on the block's left edge, under the card's label (playerIdent's medalSlot 'fit'); a table row keeps its fixed slot */
+.project-ident--no-medal { grid-template-columns: minmax(0, 1fr); column-gap: 0; }
+.project-ident--no-medal :is(.project-ident-tag, .project-ident-name) { grid-column: 1; }
+.project-ident--no-medal .project-ident-tag + .project-ident-name { grid-row: 2; }
+.project-ident--sm .project-ident-name { font: var(--s2u-type-panel-heading); }
+.project-ident--md .project-ident-name { font: var(--s2u-type-stat-number); }
+.project-ident--lg .project-ident-name { font: var(--s2u-type-screen-title); }
+.project-ident--lg .project-ident-tag { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); padding-bottom: var(--s2u-space-1); }
+/* a name link's hit box: its padding reaches the ds tap size (44px over a 22px line), a negative margin gives the height
+   back so the row keeps its 52px; a name cut by overflow cannot lend a pseudo-element the box, so padding it is */
+a:is(.project-ident-name, .project-name) { padding-block: var(--s2u-space-3); }
+a.project-ident-name { margin-block: calc(-1 * var(--s2u-space-3)); }
+a:is(.project-ident-name, .project-name):hover { text-decoration: underline; text-underline-offset: 4px; }
+/* the page's title as an identity (the player page's head): it wraps, never cut */
+.project-hero .project-ident h1.project-ident-name { margin: 0; font: var(--s2u-type-story-title); white-space: normal; overflow: visible; overflow-wrap: anywhere; max-width: none; }
+
+/* a stats table: 52px rows, the numbers right-aligned in tabular figures, the player column sticky while the rest
+   scrolls inside its own panel, a shade at the right edge while there is more to scroll (it scrolls away at the end) */
+.project-stat-wrap {
+  position: relative; overflow-x: auto; border: 1px solid var(--s2u-highlight);
+  background: linear-gradient(to left, var(--s2u-tab) 30%, transparent) right center / var(--s2u-space-12) 100% no-repeat local,
+    linear-gradient(to left, var(--s2u-highlight), transparent) right center / var(--s2u-space-4) 100% no-repeat scroll, var(--s2u-tab);
+}
+.project-stat-wrap:focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: calc(-1 * var(--s2u-focus-w)); }
+.project-stat-table { width: 100%; border-collapse: separate; border-spacing: 0; font: var(--s2u-type-body-small); color: var(--s2u-text); }
+.project-stat-table caption { text-align: left; padding: var(--s2u-space-3) var(--s2u-space-4); font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-text-strong); }
+.project-stat-table th, .project-stat-table td { height: var(--project-row-h); padding: 0 var(--s2u-space-3); border-top: 1px solid var(--s2u-panel-edge); white-space: nowrap; vertical-align: middle; }
+.project-stat-table thead th { height: auto; padding-block: var(--s2u-space-2); font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); text-align: right; vertical-align: middle; }
+.project-stat-table td { text-align: right; font-variant-numeric: tabular-nums; }
+.project-stat-table abbr[title] { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.project-stat-table .project-stat-player { position: sticky; left: 0; z-index: 1; background: var(--s2u-tab); text-align: left; box-shadow: inset -1px 0 0 var(--s2u-highlight); }
+.project-stat-table .project-stat-player .project-ident { width: var(--project-ident-max); }
+.project-stat-table tbody tr:hover > * { background-color: var(--s2u-tab-lit); }
+.project-stat-table tr.is-mvp > * { background-color: var(--s2u-tab-lit); }
+.project-stat-table tr.is-mvp > .project-stat-player { box-shadow: inset var(--s2u-rule-w) 0 0 var(--s2u-gold), inset -1px 0 0 var(--s2u-highlight); }
+.project-stat-table[data-side="0"] caption .project-side, .project-side[data-side="0"] { color: var(--project-side-seal); }
+.project-stat-table[data-side="1"] caption .project-side, .project-side[data-side="1"] { color: var(--project-side-terrorist); }
+/* LCM-20: a side's name keeps its own case under any caps parent -- "SEALs", never "SEALS" (the plan's Global constraints) */
+.project-side-name { text-transform: none; }
+.project-dim { color: var(--s2u-text-dim); font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; }
+
+/* the body's sections, its states */
+.project-stats-section { margin-top: var(--s2u-space-12); }
+.project-stats-body > .project-stats-section:first-child { margin-top: 0; }
+.project-shell[data-state="loading"] .project-stats-body { min-height: var(--project-stats-reserve); }
+.project-state { padding: var(--s2u-space-8) 0; font: var(--s2u-type-body); color: var(--s2u-text); }
+.project-failure { display: grid; justify-items: start; gap: var(--s2u-space-4); padding: var(--s2u-space-8); border: 1px solid var(--s2u-highlight); background: var(--s2u-tab); }
+.project-failure p { font: var(--s2u-type-body); color: var(--s2u-text-strong); }
+.project-failure--panel { gap: 0; padding: 0; border: 0; background: none; }
+.project-failure--panel p { font: var(--s2u-type-body-small); color: var(--s2u-text); }
+.project-none { font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+.project-stats-way { margin-top: var(--s2u-space-2); }
+
+/* figures: a value and its label; in a grid of tiles the label sits above (the career, the leaderboard's facts beside) */
+.project-figure { min-width: 0; }
+.project-figure-value { font: var(--s2u-type-stat-number); color: var(--s2u-text-strong); font-variant-numeric: tabular-nums; }
+.project-figure-label { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); }
+.project-figure-note { font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+.project-figures { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s2u-space-3); }
+.project-figures .project-figure { display: flex; flex-direction: column; gap: var(--s2u-space-1); padding: var(--s2u-space-4); background: var(--s2u-tab); border: 1px solid var(--s2u-highlight); border-top: var(--s2u-rule-w) solid var(--s2u-highlight); }
+.project-figures .project-figure-label { order: -1; }
+.project-player-figures, .lb-meta { display: flex; flex-wrap: wrap; gap: var(--s2u-space-4) var(--s2u-space-8); margin-top: var(--s2u-space-6); }
+.project-player-figures .project-figure, .lb-meta .project-figure { display: flex; flex-direction: column; }
+
+/* bars: a label, its count, a meter drawn and not read */
+.project-bars { display: grid; gap: var(--s2u-space-3); margin: 0; padding: 0; list-style: none; }
+.project-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s2u-space-3); row-gap: var(--s2u-space-1); font: var(--s2u-type-body-small); }
+.project-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s2u-text-strong); }
+.project-bar-value { font-variant-numeric: tabular-nums; color: var(--s2u-text); }
+.project-bar-meter { grid-column: 1 / -1; position: relative; height: var(--s2u-space-1); background: var(--s2u-panel-edge); }
+.project-bar-meter::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--project-bar-w, 0%); background: var(--s2u-gold); }
+
+/* the match page */
+.project-match-headline { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--s2u-space-4) var(--s2u-space-8); margin-top: var(--s2u-space-4); }
+.project-match-title { min-width: 0; }
+.project-match-hero h1 { margin: 0 0 var(--s2u-space-2); overflow-wrap: anywhere; }
+.project-match-mode, .project-match-result { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-gold-display); }
+.project-match-score { text-align: right; }
+.project-match-scoreline { display: flex; justify-content: flex-end; gap: var(--s2u-space-3); font: var(--s2u-type-story-title); font-variant-numeric: tabular-nums; color: var(--s2u-text-strong); }
+.project-match-dash { color: var(--s2u-gold-source); }
+.project-match-facts { margin: var(--s2u-space-6) 0 0; padding: 0; list-style: none; gap: var(--s2u-space-2) var(--s2u-space-6); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-text); }
+.project-match-facts li { min-width: 0; overflow-wrap: anywhere; }
+.project-match-live { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-3); margin-top: var(--s2u-space-4); }
+.project-badge[data-tone="live"] { display: inline-flex; align-items: center; gap: var(--s2u-space-2); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-state-live); border-color: var(--s2u-state-live); }
+.project-badge[data-tone="live"]::before { content: ""; width: var(--s2u-space-2); height: var(--s2u-space-2); border-radius: var(--s2u-radius-pill); background: currentColor; animation: project-status-pulse var(--s2u-dur-slow) var(--s2u-ease) infinite alternate; }
+.project-match-updated { font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+.project-match-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-2) var(--s2u-space-6); margin-top: var(--s2u-space-6); }
+.project-match-copied:not(.s2u-visually-hidden) { flex-basis: 100%; font: var(--s2u-type-body-small); color: var(--s2u-state-alert); }
+/* LCM-20 (the shoot): every card on one row when wide (its count, set by the page), three to a row below 1024 px -- never an orphan */
+.project-awards { display: grid; grid-template-columns: repeat(var(--project-awards-n, 5), minmax(0, 1fr)); gap: var(--s2u-space-4); margin: 0; padding: 0; list-style: none; }
+.project-award { display: grid; align-content: start; gap: var(--s2u-space-2); min-width: 0; padding: var(--s2u-space-4) var(--s2u-space-6); background: var(--s2u-tab); border: 1px solid var(--s2u-highlight); border-top: var(--s2u-rule-w) solid var(--s2u-highlight); }
+.project-award:first-child { border-top-color: var(--s2u-gold); }
+.project-award-label { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); }
+.project-award-value { font: var(--s2u-type-stat-number); font-variant-numeric: tabular-nums; color: var(--s2u-text-strong); }
+.project-match-board .project-stat-wrap + .project-stat-wrap { margin-top: var(--s2u-space-6); }
+.project-rounds { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(3 * var(--s2u-space-12) + var(--s2u-space-6))), 1fr)); gap: var(--s2u-space-3); margin: 0; padding: 0; list-style: none; }
+.project-round { display: grid; gap: var(--s2u-space-1); padding: var(--s2u-space-3) var(--s2u-space-4); background: var(--s2u-tab); border: 1px solid var(--s2u-highlight); border-top: var(--s2u-rule-w) solid var(--s2u-highlight); }
+.project-round[data-side="0"] { border-top-color: var(--project-side-seal); }
+.project-round[data-side="1"] { border-top-color: var(--project-side-terrorist); }
+.project-round-head { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-strong); }
+.project-round-reason { font: var(--s2u-type-body-small); color: var(--s2u-text); }
+.project-round-foot { font: var(--s2u-type-body-small); color: var(--s2u-text-dim); overflow-wrap: anywhere; }
+.project-feed-pick { max-width: calc(5 * var(--s2u-space-12)); margin-bottom: var(--s2u-space-4); }
+.project-feed { margin: 0; padding: 0; list-style: none; font: var(--s2u-type-readout); color: var(--s2u-text); }
+.project-feed li { padding: var(--s2u-space-1) 0; border-top: 1px solid var(--s2u-panel-edge); overflow-wrap: anywhere; }
+.project-feed-time, .project-feed-glyph { color: var(--s2u-text-dim); font-variant-numeric: tabular-nums; }
+.project-feed-weapon { color: var(--s2u-text-strong); }
+.project-feed-head { color: var(--s2u-gold-display); text-transform: uppercase; }
+.project-match-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; gap: var(--s2u-space-6); }
+
+/* the player page */
+.project-player-hero .project-ident { margin-top: var(--s2u-space-6); }
+.project-player-rank { margin-top: var(--s2u-space-3); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-gold-display); }
+.project-player-cols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; gap: var(--s2u-space-6); margin-top: var(--s2u-space-12); }
+.project-player-cols > .project-stats-section { margin-top: 0; }
+.project-player-side { display: grid; gap: var(--s2u-space-6); }
+.project-match-list { display: grid; gap: var(--s2u-space-2); margin: 0; padding: 0; list-style: none; }
+.project-match-row {
+  display: grid; grid-template-columns: calc(var(--s2u-space-12) + var(--s2u-space-6)) minmax(0, 1fr) auto auto auto var(--s2u-space-4); align-items: center;
+  gap: var(--s2u-space-4); min-height: calc(var(--s2u-space-12) + var(--s2u-space-4)); padding: var(--s2u-space-2) var(--s2u-space-4) var(--s2u-space-2) var(--s2u-space-2);
+  background: var(--s2u-tab); border: 1px solid var(--s2u-highlight); color: var(--s2u-text); text-decoration: none;
+  transition: background-color var(--s2u-dur-fast) var(--s2u-ease), border-color var(--s2u-dur-fast) var(--s2u-ease);
+}
+.project-match-row:hover { background-color: var(--s2u-tab-lit); border-color: var(--s2u-gold); }
+.project-match-row-thumb { height: var(--s2u-space-12); background: var(--s2u-panel-edge) center / cover no-repeat; background-image: var(--project-match-row-still, none); }
+.project-match-row-text { display: flex; flex-direction: column; min-width: 0; }
+.project-match-row-map { font: var(--s2u-type-panel-heading); color: var(--s2u-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-match-row-sub { font: var(--s2u-type-body-small); color: var(--s2u-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-match-row .project-figure { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.project-match-row .project-figure-value { font: var(--s2u-type-panel-heading); }
+.project-match-row-result .project-figure-value { text-transform: uppercase; }
+.project-match-row-result[data-result="win"] .project-figure-value { color: var(--project-side-seal); }
+.project-match-row-chev { color: var(--s2u-gold-source); }
+.project-player-more { margin-top: var(--s2u-space-4); }
+.project-player-more-status:not(.s2u-visually-hidden) { margin-top: var(--s2u-space-3); font: var(--s2u-type-body-small); color: var(--s2u-state-alert); }
+
+@media (max-width: 1024px) {
+  .project-awards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .project-player-cols { grid-template-columns: minmax(0, 1fr); }
+  .project-player-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .project-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .project-shell { --project-ident-max: 150px; }
+  .project-hero--still { padding-inline: var(--s2u-space-4); }
+  .project-hero .project-ident h1.project-ident-name { font: var(--s2u-type-screen-title); }
+  .project-ident--lg .project-ident-name { font: var(--s2u-type-stat-number); }
+  .project-match-headline { flex-direction: column; align-items: flex-start; }
+  .project-match-score { text-align: left; }
+  .project-match-scoreline { justify-content: flex-start; font: var(--s2u-type-screen-title); }
+  .project-match-cols, .project-player-side { grid-template-columns: minmax(0, 1fr); }
+  .project-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .project-failure { padding: var(--s2u-space-4); }
+  /* LCM-20: the award cards two to a row at phone width (the label and the number fit half the column), an odd last one across */
+  .project-awards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2u-space-3); }
+  .project-award { padding: var(--s2u-space-3); }
+  .project-award:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .project-award-value { overflow-wrap: anywhere; }
+  /* LCM batch 1 (the shoot): the result, K/D and score side by side as at 1440 -- four columns; the score was never hidden
+     (`.project-match-row .project-figure` outranks a one-class rule) and dropped under the K/D in three */
+  .project-match-row { grid-template-columns: minmax(0, 1fr) auto auto auto; gap: var(--s2u-space-3); padding: var(--s2u-space-3) var(--s2u-space-4); }
+  .project-match-row-thumb, .project-match-row-chev { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-badge[data-tone="live"]::before { animation: none; }
+  .project-match-row { transition: none; }
+}
+@media (forced-colors: active) {
+  .project-hero--still::after, .project-hero-still { display: none; }
+  .project-stat-table tr.is-mvp > .project-stat-player { outline: var(--s2u-focus-w) solid Highlight; outline-offset: calc(-1 * var(--s2u-focus-w)); }
 }

@@ -338,6 +338,16 @@ export class WeaponPose {
   }
 
   /**
+   * REMOTE-RELOAD's review F1: a still reload clip crouched or prone is playing -- the clip the page's own reload holds
+   * the mover to (`./walk` `WalkMode.holdReload`, `./mover` `reloadHold`), so the one a flinch's pop ends
+   * (`./fire` `reloadEndOfBody`, family 'reload'). A standing still clip and a moving overlay hold none.
+   */
+  stillHeld(): boolean {
+    const r = this.reload;
+    return r !== null && !r.overlay && r.fadeOut === null && r.stance !== 'stand';
+  }
+
+  /**
    * The reload stops: `completed` (`Fire`'s lock run out) lets a clip whose play is over finish its cross-fade out --
    * the overlay's, or a still clip's popped (PAR-95: the body's, its request kept if not yet drawn; *was:* cleared
    * with no clip left); otherwise (a new map, leaving the walk, a cut-short magazine) the clip is gone at once.

@@ -1,9 +1,10 @@
 {
- "_source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON + ZAMMO; reader @s2u/scene readKitTable(...).records (weaponRecord, kitTableOf; each record's Rumble_Modifiers as rumble, CTL-2; the M60E3 as r0004's parser reads it, R4B-01, OT.R97: stand dilateMove 15, targetMin 10, targetMax 55, fireWait 0.16 over the disc's r0001 6/8/35, 0.14); 2026-11-01",
+ "_source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON + ZAMMO; reader @s2u/scene readKitTable(...).records (weaponRecord, kitTableOf; each record's Rumble_Modifiers as rumble, CTL-2; the M60E3 as r0004's parser reads it, R4B-01, OT.R97: stand dilateMove 15, targetMin 10, targetMax 55, fireWait 0.16 over the disc's r0001 6/8/35, 0.14); THREAT-MARKS + R4B-10a: each record's Sound_Radius x 10 as soundRadius (+0x30, FUN_003cda30), with r0004's post-parse 552SD override 50 (research 384); 2026-11-09",
  "records": {
   "4": {
    "name": "F57",
    "id": 4,
+   "soundRadius": 600,
    "fireWait": 0.2,
    "roundsPerMinute": 300,
    "magazine": 20,
@@ -35,6 +36,7 @@
   "5": {
    "name": "M9",
    "id": 5,
+   "soundRadius": 600,
    "fireWait": 0.18,
    "roundsPerMinute": 333,
    "magazine": 13,
@@ -66,6 +68,7 @@
   "6": {
    "name": "226",
    "id": 6,
+   "soundRadius": 450,
    "fireWait": 0.18,
    "roundsPerMinute": 333,
    "magazine": 15,
@@ -97,6 +100,7 @@
   "7": {
    "name": "DE .50",
    "id": 7,
+   "soundRadius": 800,
    "fireWait": 0.3,
    "roundsPerMinute": 200,
    "magazine": 7,
@@ -128,6 +132,7 @@
   "8": {
    "name": "9mm Pistol",
    "id": 8,
+   "soundRadius": 40,
    "fireWait": 0.18,
    "roundsPerMinute": 333,
    "magazine": 13,
@@ -159,6 +164,7 @@
   "12": {
    "name": "P228",
    "id": 12,
+   "soundRadius": 500,
    "fireWait": 0.18,
    "roundsPerMinute": 333,
    "magazine": 15,
@@ -190,6 +196,7 @@
   "13": {
    "name": "SR-1 Gyurza",
    "id": 13,
+   "soundRadius": 600,
    "fireWait": 0.18,
    "roundsPerMinute": 333,
    "magazine": 18,
@@ -221,6 +228,7 @@
   "14": {
    "name": "Model 18",
    "id": 14,
+   "soundRadius": 700,
    "fireWait": 0.06,
    "roundsPerMinute": 1000,
    "magazine": 17,
@@ -252,6 +260,7 @@
   "15": {
    "name": "Mark 23",
    "id": 15,
+   "soundRadius": 600,
    "fireWait": 0.2,
    "roundsPerMinute": 300,
    "magazine": 12,
@@ -283,6 +292,7 @@
   "16": {
    "name": "Mark 23SD",
    "id": 16,
+   "soundRadius": 45,
    "fireWait": 0.2,
    "roundsPerMinute": 300,
    "magazine": 12,
@@ -314,6 +324,7 @@
   "31": {
    "name": "HK5",
    "id": 31,
+   "soundRadius": 700,
    "fireWait": 0.1,
    "roundsPerMinute": 600,
    "magazine": 30,
@@ -345,6 +356,7 @@
   "33": {
    "name": "HK5SD",
    "id": 33,
+   "soundRadius": 50,
    "fireWait": 0.12,
    "roundsPerMinute": 500,
    "magazine": 30,
@@ -376,6 +388,7 @@
   "34": {
    "name": "F90",
    "id": 34,
+   "soundRadius": 700,
    "fireWait": 0.09,
    "roundsPerMinute": 667,
    "magazine": 50,
@@ -407,6 +420,7 @@
   "37": {
    "name": "9mm Sub",
    "id": 37,
+   "soundRadius": 700,
    "fireWait": 0.075,
    "roundsPerMinute": 800,
    "magazine": 60,
@@ -438,6 +452,7 @@
   "38": {
    "name": "MP5K",
    "id": 38,
+   "soundRadius": 700,
    "fireWait": 0.075,
    "roundsPerMinute": 800,
    "magazine": 30,
@@ -469,6 +484,7 @@
   "51": {
    "name": "M16A2",
    "id": 51,
+   "soundRadius": 600,
    "fireWait": 0.1,
    "roundsPerMinute": 600,
    "magazine": 30,
@@ -500,6 +516,7 @@
   "52": {
    "name": "M16A2-M203",
    "id": 52,
+   "soundRadius": 600,
    "fireWait": 0.1,
    "roundsPerMinute": 600,
    "magazine": 30,
@@ -531,6 +548,7 @@
   "54": {
    "name": "M4A1",
    "id": 54,
+   "soundRadius": 1000,
    "fireWait": 0.12,
    "roundsPerMinute": 500,
    "magazine": 30,
@@ -562,6 +580,7 @@
   "57": {
    "name": "552",
    "id": 57,
+   "soundRadius": 650,
    "fireWait": 0.15,
    "roundsPerMinute": 400,
    "magazine": 30,
@@ -593,6 +612,7 @@
   "58": {
    "name": "AK-47",
    "id": 58,
+   "soundRadius": 1000,
    "fireWait": 0.16,
    "roundsPerMinute": 375,
    "magazine": 30,
@@ -624,6 +644,7 @@
   "59": {
    "name": "AKS-74",
    "id": 59,
+   "soundRadius": 1550,
    "fireWait": 0.13,
    "roundsPerMinute": 462,
    "magazine": 30,
@@ -655,6 +676,7 @@
   "60": {
    "name": "M14",
    "id": 60,
+   "soundRadius": 1500,
    "fireWait": 0.12,
    "roundsPerMinute": 500,
    "magazine": 20,
@@ -686,6 +708,7 @@
   "61": {
    "name": "M4A1-M203",
    "id": 61,
+   "soundRadius": 650,
    "fireWait": 0.14,
    "roundsPerMinute": 429,
    "magazine": 30,
@@ -717,6 +740,7 @@
   "62": {
    "name": "M4A1 SD",
    "id": 62,
+   "soundRadius": 100,
    "fireWait": 0.14,
    "roundsPerMinute": 429,
    "magazine": 30,
@@ -748,6 +772,7 @@
   "63": {
    "name": "F2000",
    "id": 63,
+   "soundRadius": 650,
    "fireWait": 0.1,
    "roundsPerMinute": 600,
    "magazine": 30,
@@ -779,6 +804,7 @@
   "64": {
    "name": "SA-80 A2",
    "id": 64,
+   "soundRadius": 600,
    "fireWait": 0.1,
    "roundsPerMinute": 600,
    "magazine": 30,
@@ -810,6 +836,7 @@
   "65": {
    "name": "AK-105",
    "id": 65,
+   "soundRadius": 1000,
    "fireWait": 0.13,
    "roundsPerMinute": 462,
    "magazine": 30,
@@ -841,6 +868,7 @@
   "66": {
    "name": "KBP OTs-14 Groza",
    "id": 66,
+   "soundRadius": 1250,
    "fireWait": 0.11,
    "roundsPerMinute": 545,
    "magazine": 30,
@@ -872,6 +900,7 @@
   "67": {
    "name": "552SD",
    "id": 67,
+   "soundRadius": 50,
    "fireWait": 0.15,
    "roundsPerMinute": 400,
    "magazine": 30,
@@ -903,6 +932,7 @@
   "68": {
    "name": "Steyr Aug",
    "id": 68,
+   "soundRadius": 700,
    "fireWait": 0.09,
    "roundsPerMinute": 667,
    "magazine": 30,
@@ -934,6 +964,7 @@
   "81": {
    "name": "Spas 12",
    "id": 81,
+   "soundRadius": 650,
    "fireWait": 0.45,
    "roundsPerMinute": 133,
    "magazine": 12,
@@ -968,6 +999,7 @@
   "83": {
    "name": "JACKHAMMER",
    "id": 83,
+   "soundRadius": 650,
    "fireWait": 0.3,
    "roundsPerMinute": 200,
    "magazine": 12,
@@ -1002,6 +1034,7 @@
   "84": {
    "name": "870",
    "id": 84,
+   "soundRadius": 650,
    "fireWait": 0.75,
    "roundsPerMinute": 80,
    "magazine": 8,
@@ -1037,6 +1070,7 @@
   "91": {
    "name": "M60E3",
    "id": 91,
+   "soundRadius": 1100,
    "fireWait": 0.16,
    "roundsPerMinute": 375,
    "magazine": 100,
@@ -1069,6 +1103,7 @@
   "92": {
    "name": "M63A",
    "id": 92,
+   "soundRadius": 5000,
    "fireWait": 0.12,
    "roundsPerMinute": 500,
    "magazine": 75,
@@ -1101,6 +1136,7 @@
   "93": {
    "name": ".PKM",
    "id": 93,
+   "soundRadius": 5000,
    "fireWait": 0.12,
    "roundsPerMinute": 500,
    "magazine": 75,
@@ -1132,6 +1168,7 @@
   "101": {
    "name": "M82A1A",
    "id": 101,
+   "soundRadius": 1350,
    "fireWait": 2.1,
    "roundsPerMinute": 29,
    "magazine": 10,
@@ -1163,6 +1200,7 @@
   "102": {
    "name": "M40A1",
    "id": 102,
+   "soundRadius": 1700,
    "fireWait": 0.5,
    "roundsPerMinute": 120,
    "magazine": 25,
@@ -1196,6 +1234,7 @@
   "103": {
    "name": "M87ELR",
    "id": 103,
+   "soundRadius": 1750,
    "fireWait": 0.7,
    "roundsPerMinute": 86,
    "magazine": 10,
@@ -1229,6 +1268,7 @@
   "104": {
    "name": "Dragunov",
    "id": 104,
+   "soundRadius": 1600,
    "fireWait": 0.15,
    "roundsPerMinute": 400,
    "magazine": 10,
@@ -1260,6 +1300,7 @@
   "105": {
    "name": "SR-25 SD",
    "id": 105,
+   "soundRadius": 100,
    "fireWait": 0.15,
    "roundsPerMinute": 400,
    "magazine": 20,
@@ -1291,6 +1332,7 @@
   "106": {
    "name": "SR-25",
    "id": 106,
+   "soundRadius": 1300,
    "fireWait": 0.15,
    "roundsPerMinute": 400,
    "magazine": 20,
@@ -1322,6 +1364,7 @@
   "142": {
    "name": "MGL",
    "id": 142,
+   "soundRadius": 30,
    "fireWait": 0.25,
    "roundsPerMinute": 240,
    "magazine": 6,
@@ -1353,6 +1396,7 @@
   "143": {
    "name": "M79",
    "id": 143,
+   "soundRadius": 30,
    "fireWait": 1.5,
    "roundsPerMinute": 40,
    "magazine": 8,

@@ -22,8 +22,9 @@ import { BotFirePolicy } from '../src/bots/roles';
  * - the frame is 525 H-blanks, 525 / 15734 s, the game capped at 30 Hz (`GAME_FRAME_DT`, research 180 s0, 208);
  * - the timer and dt are floats (single precision on the PS2's FPU): the run-down is done in float32.
  * So the original's shots a second are 1 / (frames x GAME_FRAME_DT) -- e.g. the HK5 in automatic: 0.08 s is 2.4 frames,
- * a round every 3 (9.99 a second), not 12.5. The fire timer alone: a bolt's or a pump's lock and its clip (the M40A1,
- * the M87ELR, the 870) hold it on top of this (research 84 s6, LATER 330), which neither side models here.
+ * a round every 3 (9.99 a second), not 12.5. A bolt's or a pump's lock (the M40A1, the M87ELR, the 870) holds the fire
+ * timer for its own frames on top of this (`lockFrames`; research 84 s6, LATER 330); its after-shot clip, after the lock,
+ * neither side models here (the page's kit has no clips in this test).
  *
  * The table is the disc's (`RUN/ZWEAPON.ZAR` through `readKitTable`, when `SOCOM_DISC` holds it), else its pin
  * (`scene/test/golden/weapon-records.json`, re-read whole off the disc by `weaponTable.parity.test.ts`).
@@ -44,6 +45,20 @@ function originalFrames(wait: number): number {
   const dt = f32(GAME_FRAME_DT);
   let w = f32(wait), n = 0;
   do { w = f32(w - dt); n++; } while (w > 0);
+  return n;
+}
+/**
+ * LATER 330 (reading, pending review): the game frames a bolt's or a pump's lock holds the kit after each round -- the
+ * kit's timer `+0x820`, set to the fired record's `ReloadDelayAfterShot` (else the default 0.01 s) when it is a
+ * `ReloadAfterShot` one (`FUN_005c5340` D:L479321-479343), run down a game frame at a time in float32 and ended on the
+ * frame it goes below 0 (`FUN_005c0fd0` D:L476550-476560); its frames run no fire tick (D:L476549-476563), so the fire
+ * timer's frames come after them (D:L476643-476647). A transcription, apart from the port's kit.
+ */
+function lockFrames(rec: WeaponRecord): number {
+  if (!rec.reloadAfterShot) return 0;
+  const dt = f32(GAME_FRAME_DT);
+  let left = f32(rec.reloadDelayAfterShot ?? 0.01), n = 0;
+  do { left = f32(left - dt); n++; } while (!(left < 0));
   return n;
 }
 /** The modes the table gives a weapon (a launcher carrier with none fires its FireWait: `FUN_005c09f0`'s mode >= 4). */
@@ -104,7 +119,8 @@ const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / 
 
 const FPS = [30, 60, 144] as const;
 interface Row {
-  id: number; name: string; mode: number; wait: number; frames: number; original: number;
+  /** `frames`: the fire timer's game frames a round (`fireFrames`'s); `lock`: a bolt's or a pump's lock's (LATER 330). */
+  id: number; name: string; mode: number; wait: number; frames: number; lock: number; original: number;
   /** The page held: each fps's rounds' times (s, the press's at 0) and its steady rate (from the second round on). */
   held: Record<number, number[]>; page: Record<number, number>;
   /** The page's semi-automatic pressed every frame (single mode only): each fps's rounds' times and its rate. */
@@ -116,9 +132,9 @@ interface Row {
 const ROWS: Row[] = [];
 for (const rec of RECORDS) {
   for (const mode of modesOf(rec)) {
-    const wait = originalWait(rec.fireWait, mode), frames = originalFrames(wait), each = frames * GAME_FRAME_DT * TICK_HZ;
+    const wait = originalWait(rec.fireWait, mode), frames = originalFrames(wait), lock = lockFrames(rec), each = frames * GAME_FRAME_DT * TICK_HZ;
     const held: Record<number, number[]> = {}, page: Record<number, number> = {}, clicks: Record<number, number[]> = {}, mash: Record<number, number> = {};
-    const seconds = Math.max(6, 5 * frames * GAME_FRAME_DT);   // five rounds at least (the M82A1A's 63 frames)
+    const seconds = Math.max(6, 5 * (frames + lock) * GAME_FRAME_DT);   // five rounds at least (the M82A1A's 63 frames)
     for (const fps of FPS) {
       held[fps] = pageRounds(rec, mode, fps, seconds);
       page[fps] = 1 / mean(gapsOf(held[fps]!.slice(1)));
@@ -126,7 +142,7 @@ for (const rec of RECORDS) {
     }
     // A carrier with no firearm mode (the MGL, the M79) is no bot's: `BotFirePolicy` picks mode 0 and pulls nothing.
     const pulls = rec.fireModes.length ? botPulls(rec, mode, 40 * TICK_HZ) : [], inside = pulls.flatMap((p) => gapsOf(p));
-    ROWS.push({ id: rec.id, name: rec.name, mode, wait, frames, original: 1 / (frames * GAME_FRAME_DT), held, page, clicks, mash,
+    ROWS.push({ id: rec.id, name: rec.name, mode, wait, frames, lock, original: 1 / ((frames + lock) * GAME_FRAME_DT), held, page, clicks, mash,
       bot: inside.length ? TICK_HZ / mean(inside) : NaN, botMin: pulls.length ? Math.min(...gapsOf(pulls.flat())) : NaN,
       botDrift: Math.max(0, ...pulls.map((p) => Math.abs((p.at(-1)! - p[0]!) - (p.length - 1) * each))) });
   }
@@ -146,7 +162,7 @@ describe(`OBF-19: every weapon's rate of fire, the original's against the port's
   it("the page's kit held: every weapon, every mode, at 30, 60 and 144 fps -- round j never before j original rounds' frames, never a page frame after", () => {
     const off: string[] = [];
     for (const r of ROWS) {
-      const q = r.frames * GAME_FRAME_DT;
+      const q = (r.frames + r.lock) * GAME_FRAME_DT;                    // LATER 330: a bolt's or a pump's lock in it
       for (const fps of FPS) {
         const at = r.held[fps]!, bad = at.findIndex((t, j) => !(t >= j * q - 1e-9 && t <= j * q + 1 / fps + 1e-9));
         if (at.length < 4 || bad >= 0) off.push(`${r.name} m${r.mode} @${fps}: ${at.length} rounds, round ${bad} at ${at[bad]?.toFixed(4)} against ${(bad * q).toFixed(4)}`);
@@ -163,7 +179,7 @@ describe(`OBF-19: every weapon's rate of fire, the original's against the port's
   it("the page's semi-automatic pressed every page frame: every weapon at 30, 60 and 144 fps -- round j never before j original rounds' frames, never a page frame after", () => {
     const off: string[] = [];
     for (const r of ROWS.filter((x) => x.mode === 1)) {
-      const q = r.frames * GAME_FRAME_DT;
+      const q = (r.frames + r.lock) * GAME_FRAME_DT;                    // LATER 330: a bolt's or a pump's lock in it
       for (const fps of FPS) {
         const at = r.clicks[fps]!, bad = at.findIndex((t, j) => !(t >= j * q - 1e-9 && t <= j * q + 1 / fps + 1e-9));
         if (at.length < 4 || bad >= 0) off.push(`${r.name} @${fps}: ${at.length} rounds, ${r.mash[fps]!.toFixed(3)}/s against ${r.original.toFixed(3)}; round ${bad} at ${at[bad]?.toFixed(4)} against ${(bad * q).toFixed(4)}`);

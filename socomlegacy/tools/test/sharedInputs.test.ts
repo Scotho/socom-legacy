@@ -139,7 +139,7 @@ const ROWS: Row[] = [
     what: 'the flashbang\'s white-out: the line of sight its level is gated by (`blastSeen`, FUN_005a0e70)',
     page: body(join(VIEWER, 'grenade.ts'), 'explode'),
     room: body(ROOM, 'blastPlayers'),
-    kind: (t) => (t !== null && /\bblastSeen\(|\.flash\b[^\n]*\bblast\b/.test(t) ? 'gated by the line of sight' : 'ungated'),
+    kind: (t) => (t !== null && /\bblast(?:Seen|Exposed)\(|\.flash\b[^\n]*\bblast\b/.test(t) ? 'gated by the line of sight' : 'ungated'),
     known: { task: 'P2', why: 'TB-1: the page\'s explode whites out by flashLevel with no line test; the room\'s blast carries no flash' },
   },
   {

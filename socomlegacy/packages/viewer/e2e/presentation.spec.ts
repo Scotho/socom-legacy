@@ -51,8 +51,9 @@ async function lit(page: Page): Promise<number> {
 async function check(page: Page, archive: string, want: 'webgpu' | 'webgl2'): Promise<void> {
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
-  // WEBGL2-DEFAULT (LATER 708): Automatic draws WebGL2, so the WebGPU half asks with renderer=webgpu.
-  await page.goto(`${TEST_ROOM}?mode=play&fly&map=${archive}&devmode${want === 'webgpu' ? '&renderer=webgpu' : ''}`);
+  // WG-7 (LATER 708): Automatic asks WebGPU first, so each half asks its backend explicitly (the WebGL2 half would
+  // otherwise draw WebGPU on a browser with an adapter and skip its coverage).
+  await page.goto(`${TEST_ROOM}?mode=play&fly&map=${archive}&devmode&renderer=${want}`);
   const status = page.locator('#status');
   await expect(status).toContainText(`(${archive})`);
   await expect(status).toContainText('triangles');

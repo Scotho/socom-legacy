@@ -343,9 +343,27 @@ ${AXIS_AND_TEXELS}    // S6: each source row's horizontal lerp, d[l] * ix + d[r]
  * (`uiCompositorView.ts`) per pixel in the f32 twin's order (`drawTriangleTwin`, T1-T12; T11, the blend, is the
  * blender's: `UI_GPU_MODEL_FF_OMITS`). The vertex shader draws the triangle's integer box (the plan's `box`,
  * `ceil(min) .. ceil(max)` clipped, M2) as a four-vertex strip whose corners are pixel edges; this program decides each
- * pixel of the box at its integer point (x, y) -- the software's point, not the pixel's centre -- by the barycentric
- * weights, inclusive on every edge (T2, T3), and writes `gl_FragDepth` on every path it does not discard (T5) against a
- * `DEPTH_COMPONENT32F` buffer tested `GREATER` (strictly greater; the pass's clear to 0 is the software's "empty").
+ * pixel of the box at its integer point (x, y) -- the software's point, not the pixel's centre -- by its three edge
+ * functions under the GS's top-left rule (T2, T3; GM-15d, `UI_MODEL_EDGE_RULE_READING`), and writes `gl_FragDepth` on
+ * every path it does not discard (T5) against a `DEPTH_COMPONENT32F` buffer tested `GEQUAL` (GM-15d, `TEST_1` ZTST
+ * GEQUAL: the later of two equal depths wins; the pass's clear to 0 is the software's "empty", and every planned depth
+ * is above it, `UI_GPU_MODEL_DEPTH_FLOOR`).
+ *
+ * The top-left flags are derived here from the vertices, not carried in the triangle record (GM-15d's choice): each
+ * edge's gradient is a difference of two f32 vertex coordinates (its sign and its zero exact) and the winding is inv's
+ * sign, the same f32 numbers the edge functions use -- so the decision on a shared edge is consistent between its two
+ * triangles by construction, the record (`UI_GPU_TRIANGLE_LAYOUT`) and its writer stay as they are, and the cost is a
+ * handful of compares a fragment. The twin's `T3_inside` and `T3_owns` are this, step for step.
+ *
+ * **The caveat (GM-15d review F2): "by construction" holds only while `e0` .. `e2` are evaluated as written, each product
+ * rounded.** The two walks of a shared edge compute `a b - c d` and `c d - a b`, exact negatives in IEEE arithmetic; a
+ * compiler that contracts either into an FMA (`fma(a, b, -c d)`) keeps one product unrounded, the two results stop being
+ * negatives, and a pixel on the edge can be owned by both triangles (a double add) or by neither (a hole). GLSL ES 3.00
+ * gives no way to forbid the contraction here: `precise` is GLSL ES 3.20 (and `EXT_gpu_shader5`), not WebGL 2's
+ * language, and `invariant` constrains an output's value across programs, not how an expression is evaluated; no
+ * contraction-proof structure is relied on here, none being guaranteed by the spec. GM-27 therefore measures the model
+ * seams on real GPUs on purpose (the plan's row: the seam pixels of the roller and ARMORY cases, double writes and holes
+ * counted).
  * `sample` (T8) is `texelFetch` on the `RGBA8UI` bitmap, its lerp written out (no `texture(`, no `mix(`), REPEAT in
  * integers without a `%` on a negative operand (undefined, ESSL 3.00 section 5.9).
  */
@@ -378,21 +396,32 @@ int wrapRepeat(int i, int n) {
   return i >= 0 ? i % n : (n - 1) - ((-i - 1) % n);
 }
 
+// The top-left rule for one edge (the twin's owns step of T3; modelEdgeOwns): the triangle owns the pixel when its edge function
+// e times the winding s is positive, or e is 0 on a left edge (s gx > 0) or a top one (gx 0, s gy > 0). One owner per
+// shared-edge pixel holds only if e0..e2 are not contracted into FMAs (see the program's doc; GM-27 measures it).
+bool owns(float e, float gx, float gy, float s) {
+  return s * e > 0.0 || (e == 0.0 && (s * gx > 0.0 || (gx == 0.0 && s * gy > 0.0)));
+}
+
 void main() {
   // T1: the integer pixel of the triangle's box ceil(min) .. ceil(max), taken at its integer point (x, y) -- M2; UI_MODEL_EDGE_RULE_READING
   ivec2 p = ivec2(gl_FragCoord.xy);
   float x = float(p.x);
   float y = float(p.y);
   float ax = t_ab.x, ay = t_ab.y, bx = t_ab.z, by = t_ab.w, cx = t_c.x, cy = t_c.y, inv = t_c.z;
-  // T2: the barycentric weights at the integer point, ((b.x - x)(c.y - y) - (c.x - x)(b.y - y)) inv, then 1 - w0 - w1 -- M2; UI_MODEL_EDGE_RULE_READING
-  float w0 = (((bx - x) * (cy - y)) - ((cx - x) * (by - y))) * inv;
-  float w1 = (((cx - x) * (ay - y)) - ((ax - x) * (cy - y))) * inv;
+  // T2: the edge functions at the integer point, (b.x - x)(c.y - y) - (c.x - x)(b.y - y) for b c, c a, a b; the weights e inv, then 1 - w0 - w1 -- M2; UI_MODEL_EDGE_RULE_READING
+  float e0 = ((bx - x) * (cy - y)) - ((cx - x) * (by - y));
+  float e1 = ((cx - x) * (ay - y)) - ((ax - x) * (cy - y));
+  float e2 = ((ax - x) * (by - y)) - ((bx - x) * (ay - y));
+  float w0 = e0 * inv;
+  float w1 = e1 * inv;
   float w2 = (1.0 - w0) - w1;
-  // T3: inside, inclusive on every edge -- M2; UI_MODEL_EDGE_RULE_READING
-  if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0) discard;
+  // T3: inside by the top-left rule, the winding from inv's sign, each edge's gradient from the vertices -- M2; UI_MODEL_EDGE_RULE_READING
+  float wind = inv < 0.0 ? -1.0 : 1.0;
+  if (!(owns(e0, by - cy, cx - bx, wind) && owns(e1, cy - ay, ax - cx, wind) && owns(e2, ay - by, bx - ax, wind))) discard;
   // T4: invW from the weights, (w0 a.invW + w1 b.invW) + w2 c.invW -- M3; UI_MODEL_DEPTH_FORMAT_READING
   float invW = ((w0 * t_w.x) + (w1 * t_w.y)) + (w2 * t_w.z);
-  // T5: the depth, invW times the pass's scale, clamped; GREATER on depth32f: strictly greater, the clear's 0 empty -- M3; UI_MODEL_DEPTH_FORMAT_READING
+  // T5: the depth, invW times the pass's scale, clamped; GEQUAL on depth32f: the later of two equal depths wins, the clear's 0 empty -- M3; UI_MODEL_DEPTH_FORMAT_READING
   gl_FragDepth = clamp(invW * u_depthScale, 0.0, 1.0);
   // T6: the perspective-corrected weights, w (v.invW / invW) -- M4; UI_MODEL_GOURAUD_READING
   w0 = w0 * (t_w.x / invW);
@@ -439,7 +468,7 @@ void main() {
   // The blend is the blender's (UI_GPU_MODEL_FF_BLEND, the frame's alpha masked, M7): the source colour out, clamped.
 ${out}
   o_colour = vec4(o, clamp(al, 0.0, 1.0));
-  // T12: the depth written: the hardware stores gl_FragDepth where GREATER passed, the depth mask on -- M3; UI_MODEL_DEPTH_FORMAT_READING
+  // T12: the depth written: the hardware stores gl_FragDepth where GEQUAL passed, the depth mask on -- M3; UI_MODEL_DEPTH_FORMAT_READING
 }
 `;
 }

@@ -217,6 +217,29 @@ describe('another player\'s reload heard (reloadSound)', () => {
     server({ type: 'reloadSound', id: 2, weapon: 254, at: [0, 0, 0] } as ServerEvent);
     expect(heard).toEqual([]);
   });
+
+  // REMOTE-RELOAD (REMOTE_RELOAD_MOTION_READING, research 91 section 22.2): the room's take -- posture, seconds, family,
+  // moving -- reaches the other body's copy (`RemotePlayers.reload`), never the page's own (its own reload drew it); a
+  // 14 room's event without the fields (an older room) reaches it bare, and the copy starts none (sound only).
+  it("another body's reloadSound reaches remote.reload with the room's take; the page's own never; an older room's bare", () => {
+    const { net, server } = page();
+    const deps = (net as unknown as { deps: NetPageDeps }).deps;
+    const heard: string[] = [];
+    deps.reloadSound = (w) => { heard.push(w.name); };
+    deps.recordOf = (id) => (id === HELD_RIFLE.id ? HELD_RIFLE : null);
+    const reloads: unknown[][] = [];
+    const stub = deps.remote as unknown as { feet: () => null; reload: (id: number, r: unknown) => void };
+    stub.feet = () => null;
+    stub.reload = (id, r) => { reloads.push([id, r]); };
+    server({ type: 'reloadSound', id: 2, weapon: HELD_RIFLE.id, at: [1, 2, 3], posture: 'crouch', moving: false, family: 'rifle', seconds: 1.9 } as ServerEvent);
+    server({ type: 'reloadSound', id: 1, weapon: HELD_RIFLE.id, at: [1, 2, 3], posture: 'stand', moving: true, family: 'rifle', seconds: 1.2 } as ServerEvent);
+    server({ type: 'reloadSound', id: 3, weapon: HELD_RIFLE.id, at: [1, 2, 3] } as ServerEvent);
+    expect(reloads).toEqual([
+      [2, { posture: 'crouch', moving: false, family: 'rifle', seconds: 1.9 }],
+      [3, { posture: undefined, moving: undefined, family: undefined, seconds: undefined }],
+    ]);
+    expect(heard).toEqual([HELD_RIFLE.name, HELD_RIFLE.name]);   // the sound as before, the page's own none
+  });
 });
 
 /**
@@ -830,6 +853,43 @@ describe('NU-4 D1: the page sweeps its drops ENGINE_READ_S after the roundOver, 
       now += 1; frame();
       expect(sweeps()).toBe(3);
       expect(seen.at(-1)).toEqual(['replaceAll', []]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
+
+/**
+ * ROUND_END_EFFECTS_READING (research 283 §9-§10, the review's fold): the effects playing stop at the engine's read --
+ * `ENGINE_READ_S` after the `roundOver`, before the round screen -- as the original's round end runs `FUN_002aa910`
+ * 3 s after the result (`FUN_002a9b30` D:L150617-150670), on the page's own reckoning of that moment (`sweepDrops`').
+ * The `roundStart`/`abandoned` clear stays the backstop (`./matchThrow` `roundStart`).
+ */
+describe('ROUND_END_EFFECTS_READING: the page stops its effects ENGINE_READ_S after the roundOver, once a result', () => {
+  it('not a millisecond before; once at ENGINE_READ_S; not again through the screens; once more at the next result', () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const { net, server } = page();
+      const deps = (net as unknown as { deps: NetPageDeps }).deps;
+      let cleared = 0;
+      deps.roundEndEffects = () => { cleared++; };
+      const frame = (): void => { server({ type: 'pong', t: now, tick: 0 } as ServerEvent); net.frame(1 / 60, {} as never, false); };
+      const result = { round: 1, winner: 'seal' as const, wins: { seal: 1, terrorist: 0 }, matchOver: false,
+        screens: [{ screen: 'roundComplete' as const, seconds: ROUND_COMPLETE_S }] };
+      for (let i = 0; i < 5; i++) { now += 1000; frame(); }
+      expect(cleared).toBe(0);                                   // a round in play: nothing
+      server({ type: 'roundOver', ...result } as ServerEvent);
+      now += ENGINE_READ_S * 1000 - 1; frame();
+      expect(cleared).toBe(0);                                   // a millisecond short: still pouring
+      now += 1; frame();
+      expect(cleared).toBe(1);                                   // the engine's read: stopped
+      for (let i = 0; i < 10; i++) { now += 500; frame(); }
+      expect(cleared).toBe(1);                                   // once
+      server({ type: 'roundStart', round: 2, seconds: 360, wins: { seal: 1, terrorist: 0 }, rounds: 11, epoch: 2, startTick: 0 });
+      server({ type: 'roundOver', ...result, round: 2 } as ServerEvent);
+      now += ENGINE_READ_S * 1000; frame();
+      expect(cleared).toBe(2);
     } finally {
       clock.mockRestore();
     }

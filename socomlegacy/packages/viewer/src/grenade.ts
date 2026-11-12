@@ -4,6 +4,7 @@ import {
   LineBasicMaterial, LineSegments, Points, PointsMaterial, Quaternion, type Material, type Object3D, type Texture,
 } from 'three';
 import type { Rgba } from '@s2u/gs';
+import { passingSound } from '@s2u/sound';
 import {
   actorToWorldDir, actorToWorldPoint, AN_M8, CLAYMORE, CLAYMORE_RULES, claymoreCone, countsTowardClaymoreLimit, explosionDamage, GAME_FRAME_DT, GameFrameAccumulator, ITEM,
   BOUNCE_LIFT, GRENADE_BLAST, gridCast, handAnim, heldPower, HE, surfaceMaterial,
@@ -286,6 +287,11 @@ export interface GrenadeSource {
    */
   actors?(): readonly V3[];
   /**
+   * LATER 645 (research 81 s5): the page's player's feet, the actor `FUN_00598000` takes another's rocket against
+   * (`+0x1c`, D:L454629) -- `WalkMode.feet()`, as LATER 644's bullets; null or absent, no rocket is tested.
+   */
+  listenerFeet?(): V3 | null;
+  /**
    * The item's node under the right hand (`Play.itemNode`: the `grenade` node `FUN_00553290` makes for class 3 under
    * `rhand`, D:L419036-419038): the grenade or the charge rides it while it is up. The firearm stays on its own mount.
    */
@@ -457,6 +463,12 @@ export interface GrenadeEvents {
    * its projectile (`FUN_003caf60` D:L320608-320613); `./matchThrow` hears both.
    */
   remoteLaunch: (info: { item: string; id: number; fireAnim: string; from: V3; owner?: number }) => void;
+  /**
+   * LATER 645 (research 81 s5): another's rocket (class 0xb9) passed the page's feet -- one game frame's segment, `from`
+   * -> `to`, came strictly under `ROCKET_BY_DISTANCE` of `actor` at a point inside it (`passingSound`); told once a
+   * rocket (`FUN_00598000` D:L454640-454646). `./matchThrow` plays `.ROCKET_BY` (`GameAudio.onRoundPast`, rocket).
+   */
+  rocketPast: (info: { from: V3; to: V3; actor: V3 }) => void;
   /** A bounce (audio: the material's `grenade_hit_*` zAnim when `sound`). */
   bounce: (info: BounceInfo) => void;
   /** The explosion (audio `.GREN_MED`; the look workstream's screen shake by distance). */
@@ -561,6 +573,8 @@ interface Live {
    * undefined until the first step (drawn where it is).
    */
   from?: { pos: V3; tumble: V3 };
+  /** LATER 645: another's rocket has passed the page's feet (`FUN_00598000`'s `+6` bit 4, D:L454641/D:L454646): told no more. */
+  rocketBy?: true;
   /** Research 209 §18: game frames an online C4 has waited past Timer1 for the room's `detonate`, when no room tick is wired. */
   serverFuseWait?: number;
   /** Research 209 §18: the room tick when that wait started (`simTick`). */
@@ -593,6 +607,24 @@ export type ThrowRefusal = 'noSnap' | 'dead' | 'netCap' | 'airborne' | 'climb' |
  * knocked off by a blast before its hand opens, the grenade's landing against the power held).
  */
 export const KNOCKED_THROW_POWER_READING = 'kept' as 'kept' | 'zeroed';
+
+/**
+ * GRENADE-RETHROW (research 326 §2.1, §7; the tester's report, 2026-11-09) [reading]: the updates from the throw clip's
+ * pop to the next wind-up's first chase when the trigger is held through it. No cooldown stands between two grenades of
+ * one slot (`FUN_005c5340`'s after-shot lock wants `ReloadAfterShot`, D:L479318-479343, which no throwable carries), so
+ * the clip's pop is the only gate. While the throw is on top `FUN_0059d830` answers 0 (D:L457352-457362) and the plain
+ * trigger branch reads the button's level (D:L453543-453567); a press with a grenade left sets the wind-up bit there
+ * (D:L453633-453637). At the pop (the update `FUN_005a7d10` first finds no throw, D:L453484) the bit-0x80 branch clears
+ * both bits, zeroes the power and remaps the edge (D:L453485-453500); on the next update a button still down reads as a
+ * fresh press and, the slot holding one (`FUN_005bdb00` -> `FUN_005bda70`, D:L474519-474538), sets the wind-up bit
+ * again (D:L453633-453637); the update after it chases the power from 0 (D:L453505-453517). So 2: the chase's first
+ * update is the second after the pop's. The original's are controller updates (`FUN_00594cf0`, one a game frame, a fixed
+ * step); the port counts `update` calls, one a page frame at a variable step (the "next update throws" precedent,
+ * `release`), so the re-arm lands two page frames after the pop -- about 14 ms at 144 Hz, 33 ms at 60 Hz, 67 ms at 30 Hz:
+ * frame-rate dependent (review F2). Settles: a PCSX2 capture of the controller's `+0x170`, `+0x118` and `+0x11c`
+ * per frame through a second throw held from the first's follow-through (research 326 §7).
+ */
+export const THROW_REARM_UPDATES_READING = 2;
 
 /**
  * A1 (research 215 s8.6 "A1"; the push read) [placeholder]: a held throwable's fuse at the turret's take. The take pops the
@@ -669,7 +701,7 @@ export class GrenadeThrower {
   /** FUN_005c0020's +0x828 marker: only the Action shortcut restores its prior slot (research 361 §2). */
   private actionReturn: { item: KitItem; slot: number | null } | null = null;
   /** SUP-03: the page's scene health, whose destructibles are C4's targets (`setWorld`); null: none, C4 refused. */
-  private world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> } | null = () => null;
+  private world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> & Partial<Pick<SceneHealth, 'hitAt'>> } | null = () => null;
   /** M7: a C4 plant's placing in progress (the kit goes back to the firearm after it, `FUN_005c4b10`). */
   private plantingC4 = false;
   /** PF-13: the settle on the target under the reticle (kit `+0x8a4`; `./equipment` `C4Settle`), stepped each frame. */
@@ -724,7 +756,7 @@ export class GrenadeThrower {
   private readonly bounceLog: BounceInfo[] = [];
   private readonly explosionLog: ExplosionInfo[] = [];
   private trail = false;
-  private readonly listeners: Listeners = { equip: [], throwStart: [], place: [], throw: [], cut: [], mountTaken: [], mountHandedBack: [], remoteRelease: [], remoteLaunch: [], bounce: [], explode: [], refuse: [], detonate: [] };
+  private readonly listeners: Listeners = { equip: [], throwStart: [], place: [], throw: [], cut: [], mountTaken: [], mountHandedBack: [], remoteRelease: [], remoteLaunch: [], rocketPast: [], bounce: [], explode: [], refuse: [], detonate: [] };
   private readonly scorchGeometry = new PlaneGeometry(1, 1);
   /** `grenade_mark.tif` as decoded (`GrenadeAssets.bitmaps`), for the scorch's material; null: the dark stand-in. */
   private scorchBitmap: Rgba | null = null;
@@ -840,12 +872,13 @@ export class GrenadeThrower {
 
   /**
    * M7: the disc's records (`KitTable.throwables`: the hand grenades, the claymore, the PMN, C4), each replacing the
-   * baked one of its name; items that are not the hand's (the Satchel, the Backblast) are passed over.
+   * baked one of its name; items that are not the hand's (the Satchel, MPBOMB) are passed over by every hand path and
+   * kept for a scene program's round alone (`sceneRecords`, `fireScene`).
    */
   setRecords(records: Iterable<ThrowableRecord | PiercedRecord>): void {
     for (const entry of records) {
       const r = this.pierced(entry);
-      if (!GRENADE_ITEMS.has(r.name)) continue;
+      if (!GRENADE_ITEMS.has(r.name)) { this.sceneRecords.set(r.name, r); continue; }
       const item = r.name as GrenadeItem;
       this.records[item] = r;
       const t = this.modelTemplates?.[r.model];
@@ -900,7 +933,7 @@ export class GrenadeThrower {
    * SUP-03: the page's world (`./worldState`), whose scene destructibles are C4's targets (`SceneHealth.c4TargetAt`; the
    * type-less actions retired: research 210 s8).
    */
-  setWorld(world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> } | null): void {
+  setWorld(world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> & Partial<Pick<SceneHealth, 'hitAt'>> } | null): void {
     this.world = world;
   }
 
@@ -1060,6 +1093,7 @@ export class GrenadeThrower {
     this.recover = 0;
     this.placing = null;
     this.refusal = null;
+    this.dropHeldThrough();                       // GRENADE-RETHROW: nothing held or cooking
     if (!this.equipped_ && this.phase_ === 'holstered') return;
     this.equipped_ = false;
     this.detonatorUp = false;
@@ -1087,12 +1121,25 @@ export class GrenadeThrower {
    * What is in the air or set down goes -- the page's own throws and charges and the others' copies -- without a blast,
    * a sound or a mark: a round's start is a fresh level and an abandon leaves it (ROUND_START_PROJECTILES_READING,
    * research 95 §8; the room clears its own the same way, `Room.clearAir`). The pouch, the hand, the effects already
-   * playing and the scorches are not the air's (`refill`, `clearScorches`).
+   * playing and the scorches are not the air's (`refill`, `clearRoundEffects`, `clearScorches`).
    */
   clearAir(): void {
     for (const l of this.live) this.dropLive(l);
     this.live.length = 0;
     for (const sm of this.smokes) delete sm.pid;                 // PF-28: pouring on, their pids no longer this round's
+  }
+
+  /**
+   * ROUND_END_EFFECTS_READING (research 283 §9): a round's end stops the effects playing -- every smoke pouring (the
+   * effects player's runs and the placeholder puffs' sources, `clearSmokes`) and every placeholder puff, flash and spark
+   * already in the air, not left to run out: the original's round end ages every live particle past its life
+   * (`FUN_002aa910` D:L151219 -> `FUN_00326fb0`) and stops the zAnim sets' runs (D:L151211-151218). The page runs it at
+   * the next `roundStart` beside `clearAir` (`./matchThrow`). The scorches are `clearScorches`'.
+   */
+  clearRoundEffects(): void {
+    this.clearSmokes();
+    for (const p of this.particles) { this.object.remove(p.sprite); p.sprite.material.dispose(); }
+    this.particles.length = 0;
   }
 
   /** Clears the air, the effects and the marks, and refills the pouch (a new map, or the hook). */
@@ -1119,6 +1166,7 @@ export class GrenadeThrower {
     this.flight.reset();
     this.placing = null;
     this.refusal = null;
+    this.dropHeldThrough();                                      // GRENADE-RETHROW: a new map's hand holds no trigger
     if (this.detonatorUp) { this.detonatorUp = false; this.refreshHandModel(); }   // no charge down: no Detonator
     if (this.phase_ !== 'holstered') this.phase_ = this.leftOf(this.item_) > 0 ? 'ready' : 'holstered';
   }
@@ -1141,6 +1189,7 @@ export class GrenadeThrower {
     if (on === this.equipped_ && (!on || (item === this.item_ && at === this.selectedSlot)) && !this.detonatorUp) return this.equipped_;
     this.equipped_ = on;
     this.detonatorUp = false;
+    this.dropHeldThrough();                       // GRENADE-RETHROW: a take-up is press-only (research 211 §10)
     if (on) { this.item_ = item; this.selectedSlot = at; }
     this.refreshHandModel();
     this.phase_ = on ? 'ready' : 'holstered';
@@ -1235,6 +1284,11 @@ export class GrenadeThrower {
   /** The throw's clip done: the next of the same in the hand, or none left and back to the rifle. */
   private finishThrow(): void {
     this.power = 0;                               // NU-2 D7: the throw off the top, the power cleared (D:L453483-453489)
+    // GRENADE-RETHROW (THROW_REARM_UPDATES_READING): the trigger held through the clip re-arms at its pop -- the edge's
+    // remap (D:L453490-453500) turns the held button into a fresh press -- when the slot still holds one, asked now.
+    const rearm = this.heldThrough;
+    this.heldThrough = false;
+    this.rearmIn = 0;
     if (this.plantingC4) {                        // M7: after the plant, back to the firearm (FUN_005c4b10, L475463)
       this.plantingC4 = false;
       this.c4Aimed = null;
@@ -1248,10 +1302,26 @@ export class GrenadeThrower {
       return;
     }
     // Manual selection has no +0x828 return marker; an empty grenade remains selected (research 361 §2).
-    if (this.slotAmmo || this.detonatorUp || this.leftOf(this.item_) > 0) { this.phase_ = 'ready'; return; }
+    if (this.slotAmmo || this.detonatorUp || this.leftOf(this.item_) > 0) {
+      this.phase_ = 'ready';
+      if (rearm && this.equipped_ && !this.detonatorUp && !isPlaced(this.record) && this.selectedLeft() > 0) this.rearmIn = THROW_REARM_UPDATES_READING;
+      return;
+    }
     this.phase_ = 'holstered';
     this.equipped_ = false;
     this.emit('equip', false, null);
+  }
+
+  /**
+   * GRENADE-RETHROW (THROW_REARM_UPDATES_READING): the held trigger's re-armed wind-up, from power 0, once the pop's
+   * updates have run -- the plain branch's press (D:L453633-453637) asking the slot again (`FUN_005bdb00`).
+   */
+  private rearmWindUp(): void {
+    if (this.phase_ !== 'ready' || !this.equipped_ || this.detonatorUp || isPlaced(this.record)) return;
+    if (this.source.dead?.() || !this.source.snapshot() || this.selectedLeft() <= 0) return;
+    this.phase_ = 'holding';
+    this.power = 0;
+    this.pressure = 1;
   }
 
   private refreshHandModel(): void {
@@ -1283,6 +1353,13 @@ export class GrenadeThrower {
     // P36: a press is not refused under a `NoFire` top -- the plain trigger's branch sets the wind-up bit (D:L453633-453637,
     // research 251 s12.8); only the chase and the release request ask `FUN_0059d830` (`update`, `startThrow`).
     if (this.equipped_ && this.phase_ === 'holding') { this.pressure = 1; return; }
+    // GRENADE-RETHROW (research 326 §2.1; THROW_REARM_UPDATES_READING): pressed under the throw's clip -- pending or
+    // after the hand opened -- the press is not dropped: the plain branch reads the button's level (D:L453543-453567)
+    // and no release can be asked under the clip (D:L476442, D:L462620-462634), so the level is kept for the pop.
+    if (this.equipped_ && this.phase_ === 'throwing' && !this.placing && !this.plantingC4 && !this.detonatorUp && !isPlaced(this.record)) {
+      this.heldThrough = true;
+      return;
+    }
     if (!this.equipped_ || this.phase_ !== 'ready' || !this.source.snapshot()) return;
     if (this.detonatorUp) { this.detonateCharges(); return; }
     if (this.selectedLeft() <= 0) return;
@@ -1295,11 +1372,22 @@ export class GrenadeThrower {
   /** The fire button let go: the pressure is 0, and the next update throws (`stepThrowPower`'s release). */
   release(): void {
     this.pressure = 0;
+    this.dropHeldThrough();                       // GRENADE-RETHROW: let go before the re-arm, a tap -- nothing re-arms
   }
 
-  /** Browser input ownership: taking a held trigger into a menu must not synthesize a throw. */
+  /**
+   * Browser input ownership: taking a held trigger into a menu must not synthesize a throw. GRENADE-RETHROW: nor re-arm
+   * one at the pop (the round screens' path tells the hand no let-go, OBF-31).
+   */
   cancelMenuHold(): void {
     if (this.phase_ === 'holding') { this.phase_ = 'ready'; this.power = 0; this.pressure = 0; }
+    this.dropHeldThrough();
+  }
+
+  /** GRENADE-RETHROW: the trigger held through a throw's clip forgotten (a let-go, the menus, a death, the turret's take). */
+  private dropHeldThrough(): void {
+    this.heldThrough = false;
+    this.rearmIn = 0;
   }
 
   /**
@@ -1315,6 +1403,7 @@ export class GrenadeThrower {
    */
   mountTake(): boolean | null {
     this.takeKept = null;
+    this.dropHeldThrough();                              // GRENADE-RETHROW: from the take the trigger is the turret's (`./matchThrow` `trigger`)
     if (this.phase_ !== 'holding' && !(this.phase_ === 'throwing' && this.pending)) return null;
     // LATER 526: what the cancel ends, kept for the room's refusal of the take (`mountUntake`).
     this.takeKept = { phase: this.phase_, pending: this.pending, bodyHold: this.bodyHold, holdEnd: this.holdEnd, power: this.power, pressure: this.pressure, wait: 0 };
@@ -1390,6 +1479,10 @@ export class GrenadeThrower {
   } | null = null;
 
   private pressure = 0;
+  /** GRENADE-RETHROW: the trigger pressed under the throw's clip and not let go since (`pull`), read at the pop (`finishThrow`). */
+  private heldThrough = false;
+  /** GRENADE-RETHROW: the updates left until the held trigger's wind-up (THROW_REARM_UPDATES_READING); 0 none. */
+  private rearmIn = 0;
   /** THROW_DIAG_ADAPTATION (LATER 247): the updates run, the clock `lastRefusal_` is stamped with; nothing reads it but `diag`. */
   private frames_ = 0;
   /** THROW_DIAG_ADAPTATION (LATER 247): the last release refused and why (`refuseRelease`); recorded only. */
@@ -1419,6 +1512,7 @@ export class GrenadeThrower {
    */
   throwNow(holdSeconds: number, immediate = true): ThrowInfo | null {
     if (!this.source.snapshot()) return null;
+    this.dropHeldThrough();                                                // GRENADE-RETHROW: the hook's throw re-arms nothing
     if (this.phase_ === 'throwing' && !this.pending) this.finishThrow();   // skip the last clip's tail
     if (!this.equipped_ && !this.equip(true)) return null;
     if (this.phase_ !== 'ready') return null;
@@ -1443,6 +1537,10 @@ export class GrenadeThrower {
    */
   update(dt: number, real = dt): void {
     this.frames_++;                                       // THROW_DIAG_ADAPTATION: the diag's clock alone
+    // GRENADE-RETHROW (THROW_REARM_UPDATES_READING): the held trigger's wind-up, its chase this update -- the second after
+    // the pop's update (the fresh press's update, then the chase's, D:L453633-453637, D:L453505-453517); page frames here,
+    // the original's fixed controller updates there (review F2: frame-rate dependent).
+    if (this.rearmIn > 0 && --this.rearmIn === 0) this.rearmWindUp();
     const snap = this.source.snapshot();
     this.followBody(snap);
     if (this.takeKept) this.takeKept.wait += dt;          // LATER 529 (F1): the turret's take, waiting for the room's word
@@ -1867,6 +1965,7 @@ export class GrenadeThrower {
    * once the alive bit is clear, D:L457349). A throw already let go flies on.
    */
   private die(): void {
+    this.dropHeldThrough();                               // GRENADE-RETHROW: no wind-up for the dead (D:L457349)
     if (this.phase_ === 'holding') { this.phase_ = 'ready'; this.power = 0; this.pressure = 0; }
     if (!this.pending && !this.placing) return;
     const item = this.item_;
@@ -2116,6 +2215,21 @@ export class GrenadeThrower {
   }
 
   /**
+   * Research 386 §3.2 (LATER 63): a scene program's `FIRE_WEAPON` round the room set off at `pos` (its `sceneRound`) --
+   * Blizzard's outhouse's C4 at its toilet: a copy of the item's round at rest there, unseen, its trigger (`+0xc4`) set,
+   * so its next frame's step explodes it through `explode` -- the record's effects, sound and scorch, as any other's;
+   * another's (`remote`), so the page deals no blast (the room did). A name the page's records do not hold is ignored.
+   */
+  fireScene(item: string, pos: V3): void {
+    const record = Object.hasOwn(this.records, item) ? this.records[item as GrenadeItem] : this.rounds.get(item) ?? this.sceneRecords.get(item);
+    if (!record) return;
+    const g = launchGrenade([pos[0], pos[1], pos[2]], [0, 0, 0], record);
+    g.state = 'rest';
+    g.trigger = true;
+    this.live.push({ g, model: null, trail: [], line: null, dots: null, rest: null, remote: true });
+  }
+
+  /**
    * PF-28: a joiner's projectile at its phase (`launchRemote`'s `hydrate`): its `Grenade` where the room has it -- the
    * position, the velocity as it is (not scaled by `Muzzle_Velocity` again), the state, the age and the two timers --
    * with its model; a placed charge facing its `velocity`; an AN-M8 detonated as its canister and its smoke from the
@@ -2168,6 +2282,13 @@ export class GrenadeThrower {
 
   /** M4: the launched rounds by `InternalName` (`@s2u/scene` `KitTable.rounds`), for the page's and the others' rounds. */
   private readonly rounds = new Map<string, ThrowableRecord>();
+  /**
+   * Codex P2 on PR #739: the kit table's throwables the hand never takes (`setRecords` passes them over: `GRENADE_ITEMS`),
+   * by `InternalName` -- MPBOMB (item 154, `zweapon.rdr`, class `explosive`, so in `KitTable.throwables` and never
+   * `KitTable.rounds`), whose records a scene program's `FIRE_WEAPON` reuses (the Crossroads bridges, the bases: research
+   * 171 §4, §8; research 386 §3.2). Read by `fireScene` alone; no slot, select, give-back or remote throw sees them.
+   */
+  private readonly sceneRecords = new Map<string, ThrowableRecord>();
   /** Every model the map's grenade templates hold, by model name (a round's `ModelName`, when the map has it). */
   private modelTemplates: Readonly<Record<string, Group>> | null = null;
 
@@ -2278,8 +2399,29 @@ export class GrenadeThrower {
   private stepLive(l: Live, cast: HullCast): void {
     this.holdOnlineC4(l);
     l.from = { pos: [...l.g.pos], tumble: [...l.g.tumble] };    // MISSION R8: what the drawing runs from
+    const flying = l.g.state === 'flight';
     for (const e of stepGrenade(l.g, GAME_FRAME_DT, cast)) this.handle(l, e);
+    if (flying) this.rocketPast(l, l.from.pos);
     if (this.trail && l.g.state === 'flight') l.trail.push([...l.g.pos]);
+  }
+
+  /**
+   * LATER 645 (research 81 s5; reading, pending review): `FUN_00598000`'s rocket branch on the page's player. Each tick
+   * the projectile's segment is its last position to its new one (`FUN_003ca5a0` copies `+0x54` into `+0x48`,
+   * D:L320297-320299, then writes the stepped point to `+0x54`, the rocket's at D:L320305-320342); a rocket (the ID's
+   * category 0xb9, `FUN_003d1e10` D:L454625-454627, here `weaponCategory`) not yet heard (`+6` bit 4, D:L454641) whose
+   * segment's nearest point, inside it, is strictly under 100 from the feet (D:L454640, `passingSound`) is heard and
+   * marked, whether or not a sound plays (the mark is set past the play, D:L454646). The console's own rocket is skipped
+   * (`+4` bit 3, D:L454627): `remote` only. Every flying step, `startAged`'s catch-up among them, as its bounces are.
+   */
+  private rocketPast(l: Live, from: V3): void {
+    if (!l.remote || l.rocketBy || weaponCategory(l.g.record.id) !== 0xb9) return;
+    const feet = this.source.listenerFeet?.();
+    if (!feet) return;
+    const to: V3 = [...l.g.pos];
+    if (!passingSound(feet, from, to, true)) return;
+    l.rocketBy = true;
+    this.emit('rocketPast', { from: [...from], to, actor: [feet[0], feet[1], feet[2]] });
   }
 
   /**
@@ -2305,6 +2447,7 @@ export class GrenadeThrower {
   }
 
   private handle(l: Live, e: GrenadeEvent): void {
+    if ((e.kind === 'bounce' || e.kind === 'pass') && e.owner !== undefined) this.contact(l, e.owner, e.point);
     if (e.kind === 'bounce') {
       const info: BounceInfo = { material: e.material, pos: e.point, speed: e.speed, sound: e.sound, anim: materialAnim(l.g.record.hitAnim, e.material) };
       this.bounceLog.push(info);
@@ -2403,6 +2546,22 @@ export class GrenadeThrower {
 
   private keepSmokeRun(ran: EffectHandle | boolean | null): void {
     if (ran && typeof ran === 'object') this.smokeRuns.push(ran);
+  }
+
+  /**
+   * LATER 851 (research 85 §5.2): a contact of the page's own copy, offline -- a bounce or a pass on the hull polygon
+   * of `owner` -- is a hit on the struck node (`FUN_003c8f50` D:L319747-319750 -> `FUN_00273a50` -> `FUN_003c7490`'s
+   * impact branch), as the room's `sceneContact`: the record's `ImpactDamage` and `Damage_Modifier`, its range falloff
+   * from where the frame began (`GRENADE_CONTACT_RANGE_READING`: `l.from`, `stepLive`), its round's `Piercing`. Remote
+   * and online copies stay presentation: the room applies theirs (as `explode`'s blast).
+   */
+  private contact(l: Live, owner: string, point: V3): void {
+    if (l.remote || this.source.online?.()) return;
+    const r = l.g.record;
+    this.world()?.health.hitAt?.(owner, {
+      kind: 'impact', rating: r.impactDamage ?? 0, modifier: r.damageModifier ?? 0, point: [...point], piercing: this.piercings.get(r.id) ?? 0,
+      range: { from: [...(l.from?.pos ?? l.g.pos)], effective: r.effectiveRange, maximum: r.maximumRange },
+    });
   }
 
   private explode(pos: V3, material: string | null, record: ThrowableRecord, l: Live): void {

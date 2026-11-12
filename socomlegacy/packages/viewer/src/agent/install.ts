@@ -2,14 +2,22 @@ import { agentPresence, connectionNotes, createAgentActivity, observeTarget, typ
 import { createAgentConnection, type PageAgentTarget } from './connection';
 import { createForgePageTarget } from './forgeTarget';
 import { createLocalPackApi, type LocalDirectoryHandle, type LocalPackApi } from './localPacks';
-import { mountAgentPanel, type AgentPanelController } from './panel';
+import { mountAgentPanel, type AgentPanelController, type AgentPanelOptions } from './panel';
+import { AGENT_STAGE_LEGEND, agentGatewayFor, agentGatewaySource, agentHealthOnShow, storedAgentGateway, type AgentStage } from './setup';
+export { agentGatewaySource, storedAgentGateway } from './setup';
 import { forgeMapPackDrivers } from './forgePacks';
 import { viewerRev } from '../revision';
-import type { ForgePanel } from '../forge/shell/panel';
+import type { ForgePadLegend, ForgePanel } from '../forge/shell/panel';
 import { FORGE_CHIP_ORDER, type StatusChipView } from '../forge/shell/statusBar';
 
-/** Browser adaptation: capture only the rendered game canvas, after its next real draw. */
-export function captureGameCanvas(doc: Document, selector: string): Promise<Blob> {
+/** AX-16: what a capture asks of the canvas: `maxWidth` scales the picture down to that width (never up). */
+export interface CaptureCanvasOptions { maxWidth?: number }
+/**
+ * Browser adaptation: capture only the rendered game canvas, after its next real draw. AX-16: `maxWidth` draws that
+ * frame into a 2D canvas of that width (the aspect kept) and encodes it instead; a canvas already narrower, or a page
+ * with no 2D context, is encoded as it is.
+ */
+export function captureGameCanvas(doc: Document, selector: string, options: CaptureCanvasOptions = {}): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const canvas = doc.querySelector<HTMLCanvasElement>(selector);
     if (!canvas || !canvas.width || !canvas.height || doc.visibilityState === 'hidden') { reject(new Error('CAPTURE_UNAVAILABLE')); return; }
@@ -17,10 +25,22 @@ export function captureGameCanvas(doc: Document, selector: string): Promise<Blob
     // Keep encoding bounded, with room remaining in the transport's 30-second command window.
     const timer = setTimeout(() => reject(new Error('CAPTURE_TIMEOUT')), 15_000);
     doc.defaultView!.requestAnimationFrame(() => {
-      try { canvas.toBlob(blob => { clearTimeout(timer); blob ? resolve(blob) : reject(new Error('CAPTURE_UNAVAILABLE')); }, 'image/png'); }
+      try { scaled(doc, canvas, options.maxWidth).toBlob(blob => { clearTimeout(timer); blob ? resolve(blob) : reject(new Error('CAPTURE_UNAVAILABLE')); }, 'image/png'); }
       catch (error) { clearTimeout(timer); reject(error); }
     });
   });
+}
+
+/** AX-16: the frame drawn into a 2D canvas `maxWidth` wide, in the same task as the draw; else the canvas itself. */
+function scaled(doc: Document, canvas: HTMLCanvasElement, maxWidth: number | undefined): HTMLCanvasElement {
+  if (maxWidth === undefined || canvas.width <= maxWidth) return canvas;
+  const small = doc.createElement('canvas');
+  small.width = Math.max(1, Math.floor(maxWidth));
+  small.height = Math.max(1, Math.round((canvas.height * small.width) / canvas.width));
+  const context = small.getContext('2d');
+  if (!context) return canvas;
+  context.drawImage(canvas, 0, 0, small.width, small.height);
+  return small;
 }
 
 /** One ICE server URL without credentials, a query or a path: `stun:`, `turn:` or `turns:`, a host name, an optional port. */
@@ -46,12 +66,12 @@ type BuildEnv = { readonly [key: string]: unknown; readonly DEV?: boolean };
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /**
- * The connection's settings from the build: the gateway (VITE_S2U_AGENT_URL; else the loopback in development, the page's
- * origin otherwise) and its ICE servers (VITE_S2U_AGENT_ICE_SERVERS, GW-F-2; else none).
+ * The connection's settings: the gateway (VITE_S2U_AGENT_URL; else the page's own setting, LATER 423; else the loopback in
+ * development, the page's origin otherwise) and its ICE servers (VITE_S2U_AGENT_ICE_SERVERS, GW-F-2; else none).
  */
-export function agentConnectionSettings(doc: Document, env: BuildEnv = import.meta.env): { gateway: string; iceServers: RTCIceServer[] } {
+export function agentConnectionSettings(doc: Document, env: BuildEnv = import.meta.env, stored: string | null = storedAgentGateway()): { gateway: string; iceServers: RTCIceServer[] } {
   return {
-    gateway: text(env['VITE_S2U_AGENT_URL']) || (env.DEV ? 'http://127.0.0.1:5360' : doc.location.origin),
+    gateway: agentGatewayFor(doc.location.origin, env, stored),
     iceServers: agentIceServers(text(env['VITE_S2U_AGENT_ICE_SERVERS'])),
   };
 }
@@ -66,9 +86,11 @@ export function agentConnectionSettings(doc: Document, env: BuildEnv = import.me
  */
 export function mountPageAgent(doc: Document, target: PageAgentTarget, packs: LocalPackApi,
   subscribe: (listener: () => void) => () => void, host: HTMLElement, refresh: () => void, signal?: AbortSignal,
-  extra: { activity?: AgentActivityStore; sharedPacks?: boolean; openStaging?: () => void } = {}): { dispose(): void; controller: AgentPanelController } {
-  const { activity, sharedPacks = false, openStaging } = extra;
-  const connection = createAgentConnection({ ...agentConnectionSettings(doc), target: activity ? observeTarget(target, activity) : target, document: doc });
+  extra: { activity?: AgentActivityStore; sharedPacks?: boolean; openStaging?: () => void; onStage?: (stage: AgentStage) => void;
+    agentRun?: Pick<AgentPanelOptions, 'undoAgentRun' | 'agentChanges'>; lastPoint?: AgentPanelOptions['lastPoint'] } = {}): { dispose(): void; controller: AgentPanelController } {
+  const { activity, sharedPacks = false, openStaging, onStage, agentRun, lastPoint } = extra;
+  const settings = agentConnectionSettings(doc);
+  const connection = createAgentConnection({ ...settings, target: activity ? observeTarget(target, activity) : target, document: doc });
   const ingest = activity ? connectionNotes(activity) : null;
   const offNotes = ingest ? connection.subscribe((state) => ingest(state.activity)) : () => undefined;
   const picker = (doc.defaultView as (Window & { showDirectoryPicker?: (options: { mode: 'read' }) => Promise<LocalDirectoryHandle> }) | null)?.showDirectoryPicker;
@@ -79,6 +101,12 @@ export function mountPageAgent(doc: Document, target: PageAgentTarget, packs: Lo
     } } : {}),
     ...(openStaging ? { openStaging } : { stageFiles: async (files: File[]) => { await packs.stage(files); refresh(); } }),
     ...(activity ? { activity } : {}),
+    ...(onStage ? { onStage } : {}),
+    ...(agentRun ?? {}),
+    ...(lastPoint ? { lastPoint } : {}),
+    gateway: settings.gateway,
+    gatewaySource: agentGatewaySource(),
+    healthOnShow: agentHealthOnShow(),
   });
   const unsubscribe = subscribe(() => connection.refresh());
   let disposed = false;
@@ -109,11 +137,23 @@ export const FORGE_ASSETS_PANEL_ID = 'creator-assets';
  * never disposes it (closing the dock leaves a staged file staged); its own file chooser gives way to the Assets panel's
  * (`openStaging` reveals it). Without them it makes and disposes its own, as before.
  */
+/**
+ * FP-14 (FP.R10): the panel's declaration, its id, dock, order and tab unchanged so a saved layout keeps it. The shell's
+ * `builtPanel` takes a body built before the mount; this one needs the mount's context (the page's API, signal and
+ * status chip), so it keeps its own `mount` beside the same declaration. A browser adaptation, FG.R2.
+ */
+export const AGENT_PANEL_DECLARATION = { id: 'agent', title: 'Connect your agent', dock: 'right', order: 50, defaultOpen: false, tab: 'Agent' } as const;
+/** FP-14 (AX-U: a moment's): the pad prompts in the shell's names (the d-pad's one name). */
+export function agentStagePadLegend(stage: AgentStage): ForgePadLegend[] {
+  return AGENT_STAGE_LEGEND[stage].map(p => ({ button: p.glyph === 'dpad-v' ? 'dpad' : p.glyph, label: p.label }));
+}
+
 export function forgeAgentPanel(options: { packs?: LocalPackApi } = {}): ForgePanel {
   let reveal: ((id: string) => void) | null = null;
   return {
-    id: 'agent', title: 'Connect your agent', dock: 'right', order: 50, defaultOpen: false, tab: 'Agent',
-    padLegend: [{ button: 'cross', label: 'Show' }],
+    ...AGENT_PANEL_DECLARATION,
+    // FP-14 fold N2: the shell does not read `padLegend` yet (the card draws its own prompts); kept for a future shell.
+    padLegend: agentStagePadLegend('connect'),
     menuSection: () => [{ id: 'agent', label: 'Agent', heading: true },
       { id: 'panel-agent', label: 'Connect your agent', note: 'Your agent builds with you · ✕ shows the connection in the dock', act: () => reveal?.('agent') }],
     mount(host, ctx) {
@@ -122,12 +162,20 @@ export function forgeAgentPanel(options: { packs?: LocalPackApi } = {}): ForgePa
       const shared = options.packs;
       const packs = shared ?? createLocalPackApi(forgeMapPackDrivers(api));
       const target = createForgePageTarget({ api, build: viewerRev() || 'forge-agent-v1', packs,
-        capture: () => captureGameCanvas(doc, doc.querySelector('.fx-match:not([hidden]) canvas') ? '.fx-match:not([hidden]) canvas' : '.fx-canvas') });
+        capture: (o) => captureGameCanvas(doc, doc.querySelector('.fx-match:not([hidden]) canvas') ? '.fx-match:not([hidden]) canvas' : '.fx-canvas', o) });
       // FUI-4 (VP-5, AI-2's page half, AI-15): one activity store; the agent's chip in the status bar, beside the match's
       // Back during Play, with a one-press Stop while connected; an approval or a failure said at page level, docks or no.
-      const activity = createAgentActivity();
+      // AX-15: the rows know their history step (the page's undo), and the dock's "Undo the agent's changes".
+      const editor = ctx.editor;
+      const history = editor?.historyTop && editor.undoWhile ? { top: () => editor.historyTop!(), undoWhile: editor.undoWhile.bind(editor),
+        subscribe: (listener: () => void) => api.subscribe(() => listener()) } : undefined;
+      const activity = createAgentActivity(history ? { history } : {});
+      const agentRun = editor?.undoAgentRun ? { undoAgentRun: () => editor.undoAgentRun!(),
+        agentChanges: () => ({ count: editor.agentStepCount?.() ?? 0, undoable: editor.historyTop?.()?.actor.kind === 'agent' }) } : undefined;
+      // AX-13: the dock's line naming the point the agent can read (`forge.focus`), repainted as the editor tells.
+      const lastPoint = api.focus ? { read: () => api.focus?.()?.point ?? null, subscribe: (listener: () => void) => api.subscribe(() => listener()) } : undefined;
       const page = mountPageAgent(doc, target, packs, listener => api.subscribe(listener), host, () => api.refreshExternalState(), ctx.signal,
-        shared ? { activity, sharedPacks: true, openStaging: () => ctx.ui.reveal(FORGE_ASSETS_PANEL_ID) } : { activity });
+        { activity, ...(agentRun ? { agentRun } : {}), ...(lastPoint ? { lastPoint } : {}), ...(shared ? { sharedPacks: true, openStaging: () => ctx.ui.reveal(FORGE_ASSETS_PANEL_ID) } : {}) });
       // R5-B (a browser adaptation): while the agent's camera shot runs the chip says so, and its one action stops the
       // camera (the shot ends `stopped`; the connection stays); the Stop that disconnects comes back once it ends.
       const shooting = (): boolean => api.shotRunning?.() === true;
@@ -148,7 +196,7 @@ export function forgeAgentPanel(options: { packs?: LocalPackApi } = {}): ForgePa
         was = state.status; said = state.error;
       });
       const offActivity = activity.subscribe(() => chip.update());
-      return { dispose() { offState(); offActivity(); chip.remove(); page.dispose(); reveal = null; } };
+      return { dispose() { offState(); offActivity(); chip.remove(); page.dispose(); activity.dispose(); reveal = null; } };
     },
   };
 }

@@ -2,10 +2,12 @@
   "title": "SOCOM Legacy Modding",
   "pages": [
     "index",
+    "map",
     "what-is-a-pack",
     "anatomy",
     "reference",
     "kinds",
+    "connect",
     "---Guides---",
     "...guides",
     "---Publishing---",

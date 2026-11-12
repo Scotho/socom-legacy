@@ -78,6 +78,15 @@
   (game +200, `mp_45_sec_clock`) = now + **45 000 ms when `mp_game_over` (game +0x10's valve) is set**, else 30 000
   (D:L123856-123862); on the host the play list's next map (Medley 0xfe, Random 0xff, or the entry; research 192 G23)
   written as the stem and the game object re-sent (D:L123863-123879).
+  The port (LOBBY-ONE-BEHIND, 2026-11-08): its returned lobby's `AdvanceMPMission` loads the map just played, so
+  `GameLobbyCommands.moveMission` loads the new map's variables (`mission_title`) again when the room's welcome or the
+  returned (not launched) view's `nextMap` moves the map while the lobby stands. The host side -- the next map written
+  into 0x414e00 before the load at D:L123881 -- is the reading, pending review; a non-host console's moment is not read
+  (§2.1), and the port's room message (the welcome, `nextMap`) stands in for it. *LOBBY-MAP-STALE (2026-11-11,
+  research 165 §9): the move's read is asynchronous, and when it landed while the rotation's 4021 had the seat down it
+  was dropped, and the welcome on that same map loaded nothing again -- the last map's title stood. The read is now
+  kept whenever the lobby still stands on that mission in the same game, and a move onto the mission held loads it
+  again until its entries have landed; the original loads the mission at once after writing it (D:L123864-123881).*
 - **`FromBriefing`** (P:L7551-7587): with `IDFromBriefing` 0 (GAME COMPLETE set it), the kit for the side held:
   `EQlimit` > 0 the restriction's valves; else the stored profile (`CharacterProfile` 2, then 0 and
   `EquipCharacterProfileSeal/Merc` by `player_team`), or the default type (`MpCharSet` 1 / 5, R95.5).

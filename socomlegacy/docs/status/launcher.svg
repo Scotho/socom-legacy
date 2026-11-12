@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="214" viewBox="0 0 760 214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Launcher: 85% toward r0001 multiplayer compatibility">
-<title>Launcher: 37 done, 4 partial, 5 to do</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="214" viewBox="0 0 760 214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Launcher: 86% toward r0001 multiplayer compatibility">
+<title>Launcher: 39 done, 6 partial, 4 to do</title>
 <rect x="0.5" y="0.5" width="759" height="213" rx="10" fill="#1a1a19" stroke="#33332f"/>
 <text x="24" y="46" font-size="20" font-weight="700" fill="#f2f2ee">Launcher</text>
-<text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">85%</text>
+<text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">86%</text>
 <text x="24" y="66" font-size="12" fill="#a3a39c">The console launcher at / and the player's own disc: finding it, checking it, handing over to the game</text>
 <line x1="24" y1="80" x2="736" y2="80" stroke="#33332f"/>
 <text x="24" y="106" font-size="13" fill="#f2f2ee">Console launcher</text>
-<text x="736" y="106" font-size="12" fill="#a3a39c" text-anchor="end">25/27 · 93%</text>
+<text x="736" y="106" font-size="12" fill="#a3a39c" text-anchor="end">27.5/29 · 95%</text>
 <circle cx="259" cy="102" r="5" fill="#0ca30c"><title>CX-1 Design-system cx layer and tokens — done</title></circle>
 <circle cx="274" cy="102" r="5" fill="#0ca30c"><title>CX-2 The console page: morph, state, grammar, input, fit — done</title></circle>
 <circle cx="289" cy="102" r="5" fill="#0ca30c"><title>CX-3 Device adapters: disc, pad, microphone, card — done</title></circle>
@@ -20,10 +20,10 @@
 <circle cx="409" cy="102" r="5" fill="#0ca30c"><title>CX-14 Button mapping in the console — done</title></circle>
 <circle cx="424" cy="102" r="5" fill="#0ca30c"><title>CX-15 Watch opens the replay viewer — done</title></circle>
 <circle cx="439" cy="102" r="5" fill="#0ca30c"><title>CX-16 Disc source behind a settings icon (CX.R9) — done</title></circle>
-<circle cx="454" cy="102" r="5" fill="#0ca30c"><title>CX-17 The category strip never hides passed items (CX.R10) — done</title></circle>
-<circle cx="469" cy="102" r="5" fill="#0ca30c"><title>CX-18 Options tab hints kept outside the scrolled tabs — done</title></circle>
-<circle cx="484" cy="102" r="5" fill="#0ca30c"><title>CX-19 The Disc row's source control a cog, partitioned inside the row (CX.R11) — done</title></circle>
-<circle cx="499" cy="102" r="5" fill="#0ca30c"><title>CX-20 L1/R1: the move cue's hook, held repeat, wrap; the large row (CX.R12) — done</title></circle>
+<circle cx="454" cy="102" r="5" fill="#0ca30c"><title>CX-18 Options tab hints kept outside the scrolled tabs — done</title></circle>
+<circle cx="469" cy="102" r="5" fill="#0ca30c"><title>CX-19 The Disc row's source control a cog, partitioned inside the row (CX.R11) — done</title></circle>
+<circle cx="484" cy="102" r="5" fill="#0ca30c"><title>CX-20 L1/R1: the move cue's hook, held repeat, wrap; the large row (CX.R12) — done</title></circle>
+<circle cx="499" cy="102" r="5" fill="#0ca30c"><title>CX-21 The console's selection cue read from the chosen disc — done</title></circle>
 <circle cx="514" cy="102" r="5" fill="#0ca30c"><title>CX-22 Play online marks a round in progress — done</title></circle>
 <circle cx="529" cy="102" r="5" fill="#0ca30c"><title>CX-23 Options tuners step the card's held value by 2% (the original's widget) — done</title></circle>
 <circle cx="544" cy="102" r="5" fill="#0ca30c"><title>CX-24 The console's sign-in submits (Cross / Enter) — done</title></circle>
@@ -31,15 +31,17 @@
 <circle cx="574" cy="102" r="5" fill="#0ca30c"><title>CX-PERSONA Persona and Service record as console screens — done</title></circle>
 <circle cx="589" cy="102" r="5" fill="#0ca30c"><title>CX-LOBBIES Game lobbies and Custom matches under Online — done</title></circle>
 <circle cx="604" cy="102" r="5" fill="#0ca30c"><title>INVITE-START An invite address starts the launcher by itself and answers the invite channel — done</title></circle>
-<g><title>CX-7 Rendered acceptance — partial</title><circle cx="619" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M619,97 A5,5 0 0 0 619,107 Z" fill="#fab219"/></g>
-<g><title>CX-8 The considerations list — partial</title><circle cx="259" cy="117" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M259,112 A5,5 0 0 0 259,122 Z" fill="#fab219"/></g>
-<circle cx="274" cy="117" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>CX-21 The console's selection cue read from the chosen disc — todo</title></circle>
+<circle cx="619" cy="102" r="5" fill="#0ca30c"><title>LR The launcher redesign: the owner's design artifact's look and layout (rail, item list, marks, legend, themes) — done</title></circle>
+<circle cx="259" cy="117" r="5" fill="#0ca30c"><title>LR-36 Play's "Before you deploy" check: the disc and the controller gate the hand-over — done</title></circle>
+<g><title>CX-7 Rendered acceptance — partial</title><circle cx="274" cy="117" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M274,112 A5,5 0 0 0 274,122 Z" fill="#fab219"/></g>
+<g><title>CX-8 The considerations list — partial</title><circle cx="289" cy="117" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M289,112 A5,5 0 0 0 289,122 Z" fill="#fab219"/></g>
+<g><title>UCS One controller editor in the launcher and the Home overlay (the original's four layouts and aiming presets) — partial</title><circle cx="304" cy="117" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M304,112 A5,5 0 0 0 304,122 Z" fill="#fab219"/></g>
 <text x="24" y="138" font-size="13" fill="#f2f2ee">Disc access</text>
-<text x="736" y="138" font-size="12" fill="#a3a39c" text-anchor="end">13/18 · 72%</text>
+<text x="736" y="138" font-size="12" fill="#a3a39c" text-anchor="end">13.5/19 · 71%</text>
 <circle cx="259" cy="134" r="5" fill="#0ca30c"><title>PLAT-03 The disc path for every front-end file class (ISO by range, served tree, LBN) — done</title></circle>
 <circle cx="274" cy="134" r="5" fill="#0ca30c"><title>FE-ISO The front end read from the player's ISO (OT.R14) — done</title></circle>
 <circle cx="289" cy="134" r="5" fill="#0ca30c"><title>DA-1 A picked folder as the disc (DirectoryAssetSource) — done</title></circle>
-<circle cx="304" cy="134" r="5" fill="#0ca30c"><title>DA-2 discIdentity refuses any disc but SCUS_972.75 — done</title></circle>
+<circle cx="304" cy="134" r="5" fill="#0ca30c"><title>DA-2 discIdentity accepts every retail release of SOCOM II (DA.R8, amended) — done</title></circle>
 <circle cx="319" cy="134" r="5" fill="#0ca30c"><title>DA-3 One disc-source module for both workers — done</title></circle>
 <circle cx="334" cy="134" r="5" fill="#0ca30c"><title>DA-4 The chooser's plumbing (input and drop) — done</title></circle>
 <circle cx="349" cy="134" r="5" fill="#0ca30c"><title>DA-5 DATA_SOURCES corrections — done</title></circle>
@@ -50,19 +52,20 @@
 <circle cx="424" cy="134" r="5" fill="#0ca30c"><title>ISO-MOBILE The ISO can be picked on iPhone and Android (no accept filter) — done</title></circle>
 <g><title>DA-7 Remember the disc (file-system handles) — partial</title><circle cx="439" cy="134" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M439,129 A5,5 0 0 0 439,139 Z" fill="#fab219"/></g>
 <g><title>DA-8 Keep a copy in browser storage (OPFS) — partial</title><circle cx="454" cy="134" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M454,129 A5,5 0 0 0 454,139 Z" fill="#fab219"/></g>
-<circle cx="469" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>CX-10b Remembered disc and kept copy: the controls — todo</title></circle>
-<circle cx="484" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>DA-6 A disc-backed Playwright run and a rendered run by hand — todo</title></circle>
-<circle cx="499" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>DA-9 The wording on what is kept and where — todo</title></circle>
-<circle cx="514" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>DA-10 Second verification wave — todo</title></circle>
+<g><title>DSH Disc share: the extracted read set sent from one device to another (first target Edge on Xbox) — partial</title><circle cx="469" cy="134" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M469,129 A5,5 0 0 0 469,139 Z" fill="#fab219"/></g>
+<circle cx="484" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>CX-10b Remembered disc and kept copy: the controls — todo</title></circle>
+<circle cx="499" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>DA-6 A disc-backed Playwright run and a rendered run by hand — todo</title></circle>
+<circle cx="514" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>DA-9 The wording on what is kept and where — todo</title></circle>
+<circle cx="529" cy="134" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>DA-10 Second verification wave — todo</title></circle>
 <text x="24" y="155" font-size="13" fill="#f2f2ee">The overlay</text>
 <text x="736" y="155" font-size="12" fill="#a3a39c" text-anchor="end">1/1 · 100%</text>
 <circle cx="259" cy="151" r="5" fill="#0ca30c"><title>OVERLAY-CONSOLE The PS/Xbox overlay is the console (locks over a game, blurred live game behind, open/close cue and transition) — done</title></circle>
 <line x1="24" y1="176" x2="736" y2="176" stroke="#33332f"/>
-<circle cx="29" cy="192" r="5" fill="#0ca30c"><title>done 37</title></circle>
-<text x="39" y="196" font-size="12" fill="#a3a39c">done 37</text>
-<g><title>partial 4</title><circle cx="108" cy="192" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,187 A5,5 0 0 0 108,197 Z" fill="#fab219"/></g>
-<text x="118" y="196" font-size="12" fill="#a3a39c">partial 4</text>
-<circle cx="201" cy="192" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 5</title></circle>
-<text x="211" y="196" font-size="12" fill="#a3a39c">to do 5</text>
-<text x="736" y="196" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-10-24</text>
+<circle cx="29" cy="192" r="5" fill="#0ca30c"><title>done 39</title></circle>
+<text x="39" y="196" font-size="12" fill="#a3a39c">done 39</text>
+<g><title>partial 6</title><circle cx="108" cy="192" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,187 A5,5 0 0 0 108,197 Z" fill="#fab219"/></g>
+<text x="118" y="196" font-size="12" fill="#a3a39c">partial 6</text>
+<circle cx="201" cy="192" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 4</title></circle>
+<text x="211" y="196" font-size="12" fill="#a3a39c">to do 4</text>
+<text x="736" y="196" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-11-09</text>
 </svg>

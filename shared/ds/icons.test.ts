@@ -8,10 +8,10 @@ import { ICONS, ICON_SIZES, icon } from './icons';
 const here = (f: string) => new URL(`./${f}`, import.meta.url);
 const tokensCss = readFileSync(here('tokens.css'), 'utf-8');
 const emblem = readFileSync(here('emblem.svg'), 'utf-8');
-const NAMES = ['play', 'news', 'roadmap', 'journey', 'archive', 'playtest', 'external', 'back', 'server', 'status'] as const;
+const NAMES = ['play', 'news', 'roadmap', 'journey', 'archive', 'playtest', 'external', 'back', 'server', 'status', 'leaderboard'] as const;
 
 describe('icons.ts: the authored marks', () => {
-  it('holds exactly the ten authored marks: the eight of 1.2.0, the server of 1.3.0, and the status mark (the four brand marks wait on the owner, Q2)', () => {
+  it('holds exactly the eleven authored marks: the eight of 1.2.0, the server of 1.3.0, the status mark and the leaderboard mark (the four brand marks wait on the owner, Q2)', () => {
     expect(Object.keys(ICONS).sort()).toEqual([...NAMES].sort());
   });
   it('the sizes are the ds scale 16, 20, 24, 40', () => {
@@ -42,6 +42,25 @@ describe('1.3.0: the server mark (authored; README, "From the live site")', () =
     expect(ICONS.server).toContain('stroke="currentColor"');
     expect(ICONS.server).toContain('stroke-width="1.5"');
     expect(icon('server', 20)).toBe(`<svg class="s2u-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS.server}</svg>`);
+  });
+});
+
+describe('the leaderboard mark (LCM-16, LCM.R18 (e); authored, additive)', () => {
+  it('is a stroke drawing on the 24 grid in the guide marks\' group and stroke, as the server and status marks', () => {
+    expect(ICONS.leaderboard).toContain('stroke="currentColor"');
+    expect(ICONS.leaderboard).toContain('stroke-width="1.5"');
+    expect(ICONS.leaderboard.startsWith('<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">')).toBe(true);
+    expect(icon('leaderboard', 20)).toBe(`<svg class="s2u-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS.leaderboard}</svg>`);
+  });
+  it('is the 2.4.0 contract (additive: a minor bump), carried in tokens.css, and the README counts eleven marks and names it', () => {
+    const version = readFileSync(here('VERSION'), 'utf-8').trim();
+    const [maj, min] = version.split('.').map(Number);
+    expect(maj * 100 + min).toBeGreaterThanOrEqual(204);
+    expect(tokensCss).toContain(`--s2u-version: "${version}"`);
+    const readme = readFileSync(here('README.md'), 'utf-8');
+    expect(readme).toMatch(/`icons\.ts`: eleven marks drawn by the project -- [^.]*\bstatus, leaderboard\b/);
+    expect(readme).not.toMatch(/\bten marks\b/);
+    expect(readme).toContain('## The leaderboard mark (2.4.0)');
   });
 });
 

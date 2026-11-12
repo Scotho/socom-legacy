@@ -1,18 +1,20 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { RdrNode } from '@s2u/archive';
 import type { Rgba } from '@s2u/gs';
 import { parseUiLayout, type FontFace, type FontGlyph } from '@s2u/scene';
-import type { LoadingSpin } from '@s2u/ui/loading';
+import { loadingFaderAlpha, type LoadingSpin } from '@s2u/ui/loading';
 import type { LoadingScreen } from '../src/loadingAssets';
-import { LoadingPanel } from '../src/loadingPanel';
-import type { UiBitmap, UiHdTextures } from '../src/uiCompositorView';
+import { loadingQuads } from '../src/loadingLayout';
+import { LoadingPanel, loadingDrawList } from '../src/loadingPanel';
+import { rasterizeUiDrawList, type RasterOptions, type UiBitmap, type UiHdTextures, type UiTextures } from '../src/uiCompositorView';
 
-// HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE Soul)): the loading screen drawn at the HD pack's scale,
-// each bitmap the pack replaces drawn from its HD texels -- the panel's own Canvas 2D path (it has no compositor), its
-// quads' places in the 640 x 448 frame unchanged. Without the option the panel's drawing is today's, call for call.
+// HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE SouL)): the loading screen drawn at the HD pack's scale,
+// each bitmap the pack replaces drawn from its HD texels, its quads' places in the 640 x 448 frame unchanged. Since
+// GM-22's code step (research 380 §4) the panel draws through the menus' compositor (HD-3's scale and lookup), no
+// longer Canvas 2D; without the option, or at scale 1, it draws the original frame.
 
 const obj = (...kv: RdrNode[]): RdrNode[] => kv;
 const layout = parseUiLayout([[
@@ -51,92 +53,120 @@ const screen = (): LoadingScreen => ({
   bitmaps,
 });
 
-/** A document whose canvases record every 2D call: the panel's own canvas and each tinted bitmap's. */
-function fakeDoc() {
-  const log: string[] = [];
+interface Put { width: number; height: number; data: Uint8ClampedArray }
+/**
+ * A document whose panel canvas has a 2D context recording each frame the panel puts (Node has no canvas), and whose
+ * clock is the test's (ms).
+ */
+function fakeDoc(clock = { now: 0 }) {
+  const puts: Put[] = [];
   let n = 0;
-  const sha = (d: Uint8ClampedArray): string => createHash('sha256').update(d).digest('hex').slice(0, 16);
-  type Fake = { id: number; width: number; height: number; pixels: string; style: Record<string, string>; append(): void; getContext(): unknown };
+  type Fake = { id: number; width: number; height: number; style: Record<string, string>; append(): void; getContext(): unknown };
   const canvases: Fake[] = [];
   const make = (tag: string): unknown => {
     if (tag !== 'canvas') return { hidden: false, id: '', setAttribute() {}, append() {} };
-    const c: Fake = { id: n++, width: 300, height: 150, pixels: '', style: {}, append() {}, getContext: () => ctx };
-    const main = c.id === 0;
+    const c: Fake = { id: n++, width: 300, height: 150, style: {}, append() {}, getContext: () => ctx };
     const ctx = {
-      _alpha: 1, fillStyle: '',
-      get globalAlpha() { return this._alpha; },
-      set globalAlpha(v: number) { this._alpha = v; if (main) log.push(`alpha ${v}`); },
-      fillRect: (...r: number[]) => { if (main) log.push(`fill ${String(ctx.fillStyle)} ${r.join(',')}`); },
-      setTransform: (...m: number[]) => { if (main) log.push(`transform ${m.join(',')}`); },
-      drawImage: (img: Fake, ...r: number[]) => { log.push(`draw [${img.width}x${img.height} ${img.pixels}] ${r.map((v) => +v.toFixed(4)).join(',')}`); },
-      putImageData: (d: { data: Uint8ClampedArray }) => { c.pixels = sha(d.data); },
+      createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData: (d: Put) => { if (c.id === 0) puts.push({ width: d.width, height: d.height, data: d.data.slice() }); },
     };
     canvases.push(c);
     return c;
   };
-  const doc = { createElement: make, body: { append() {} } } as unknown as Document;
-  return { doc, log, canvases };
+  const doc = { createElement: make, body: { append() {} }, defaultView: { performance: { now: () => clock.now } } } as unknown as Document;
+  return { doc, puts, canvases, clock };
 }
 
-class FakeImageData { data: Uint8ClampedArray; constructor(readonly width: number, readonly height: number) { this.data = new Uint8ClampedArray(width * height * 4); } }
-const had = (globalThis as { ImageData?: unknown }).ImageData;
-beforeAll(() => { (globalThis as { ImageData?: unknown }).ImageData = FakeImageData; });
-afterAll(() => { (globalThis as { ImageData?: unknown }).ImageData = had; });
-
-const logSha = (log: string[]): string => createHash('sha256').update(log.join('\n')).digest('hex');
+const sha = (d: Uint8ClampedArray): string => createHash('sha256').update(d).digest('hex');
+/**
+ * The redraw's time: 1 s after the show, past the load state's 0.5 s fade from black (`loadStateFaderAlpha`, the fader
+ * at 0 with no `fade`), so the frame shows the quads; the show's own draw, at 0, is black under the fader at 128.
+ */
+const T = 1;
 function drawn(hd?: () => { scale: number; hd?: UiHdTextures }) {
   const f = fakeDoc();
   const panel = hd ? new LoadingPanel(f.doc, hd) : new LoadingPanel(f.doc);
   panel.show(screen());
+  f.clock.now = T * 1000;
   panel.redraw();
-  return { log: f.log, canvas: f.canvases[0]! };
+  return { puts: f.puts, canvas: f.canvases[0]! };
 }
+const textures: UiTextures = (name) => new Map(bitmaps).get(name) ?? null;
+const sizes = Object.fromEntries(bitmaps.map(([n, r]) => [n, { width: r.width, height: r.height }]));
+/** The menus' rasteriser's frame for the screen's quads at `T`, the fader over them. */
+const compositor = (o: RasterOptions = {}): Uint8ClampedArray =>
+  rasterizeUiDrawList(loadingDrawList(loadingQuads({ screen: screen(), sizes, t: T }), sizes, loadingFaderAlpha(null, T)), textures, o).frame.data;
 
-/** Today's drawing (agent/hd-menus 3a2933c33, before HD-4), taken from the panel as it stood. */
-const TODAY = '428fb8641efefd9b7d0484867587e3a96fb047f687312b2e2435286321fd0e3c';
+/**
+ * The scale-1 frame's bytes (GM-22's code step, 2026-11-09). Re-pinned from HD-4's `TODAY` -- the sha of the Canvas 2D
+ * calls the panel made (agent/hd-menus 3a2933c33) -- because GM-22 moved the panel off Canvas 2D: research 380 §4
+ * (`LOADING_PANEL_ALPHA_CLAMP_READING`, re-read 2026-11-01) reads the original drawing the loading screen through the
+ * menus' walker (LoadState's Tick `FUN_001f5e70` D:L55769 -> `FUN_003691c0` -> `FUN_00336c10`), so the panel now puts
+ * the menus' rasteriser's frame for its quads (P1-P23). This pins those bytes; `loadingPanelCompositor.test.ts` holds
+ * that they are the compositor's for a draw list built from the rules independently.
+ */
+const TODAY = 'c1fe4afdde7ef43e896d746d1b83c65cdf4e73e355da2aaff40ef67e0ed49cdb';
 
-describe('HD-4: the loading screen with the pack off draws as today, call for call', () => {
-  it('no option, and an option at scale 1, give today\'s calls on a 640 x 448 canvas', () => {
+describe('HD-4: the loading screen with the pack off draws the original frame', () => {
+  it('no option, and an option at scale 1, give the same 640 x 448 frame: the compositor\'s for its quads', () => {
     const off = drawn();
-    expect(off.log.length).toBeGreaterThan(20);
-    expect([off.canvas.width, off.canvas.height]).toEqual([640, 448]);
-    expect(logSha(off.log)).toBe(TODAY);
-    expect(logSha(drawn(() => ({ scale: 1 })).log)).toBe(TODAY);
+    expect(off.puts).toHaveLength(2);                                          // the show's draw and the redraw
+    expect([off.canvas.width, off.canvas.height, off.puts[1]!.width, off.puts[1]!.height]).toEqual([640, 448, 640, 448]);
+    expect(sha(off.puts[1]!.data)).toBe(TODAY);
+    expect(sha(off.puts[1]!.data)).toBe(sha(compositor()));
+    expect(off.puts[1]!.data.some((v, i) => i % 4 !== 3 && v !== 0)).toBe(true);   // not the black of the fader at 128
+    expect(sha(drawn(() => ({ scale: 1 })).puts[1]!.data)).toBe(TODAY);
+    // At scale 1 the lookup is not asked (the original frame), as before GM-22.
+    let asked = 0;
+    expect(sha(drawn(() => ({ scale: 1, hd: () => { asked++; return null; } })).puts[1]!.data)).toBe(TODAY);
+    expect(asked).toBe(0);
   });
 });
 
-describe('HD-4: the loading screen under HD (GoE Soul) draws at the pack\'s scale', () => {
+describe('HD-4: the loading screen under HD (GoE SouL) draws at the pack\'s scale', () => {
   const picture = bitmaps[1]![1];
   const hdPicture = pattern(256, 128, 9);
-  it('a 2560 x 1792 canvas under a 4x transform, the replaced bitmap drawn from its HD texels at the same frame place', () => {
+  it('a 2560 x 1792 frame at 4x, the replaced bitmap drawn from its HD texels at the same frame place', () => {
     const asked: UiBitmap[] = [];
-    const on = drawn(() => ({ scale: 4, hd: (b) => { asked.push(b); return b === picture ? hdPicture : null; } }));
-    expect([on.canvas.width, on.canvas.height]).toEqual([2560, 1792]);
-    expect(on.log).toContain('transform 4,0,0,4,0,0');
-    expect(asked).toContain(picture);                                          // keyed by the panel's own top-row-first bitmap
-    const pic = on.log.filter((l) => l.startsWith('draw [256x128'));
-    expect(pic).toHaveLength(2);                                               // the show's draw and the redraw
-    // The source rectangle in HD texels (the original's on the 64 x 32 bitmap, times 4), the destination as the original's.
-    const was = drawn().log.find((l) => l.startsWith('draw [64x32'))!.split('] ')[1]!.split(',').map(Number);
-    const now = pic[0]!.split('] ')[1]!.split(',').map(Number);
-    expect(now.slice(0, 4)).toEqual(was.slice(0, 4).map((v) => +(v * 4).toFixed(4)));
-    expect(now.slice(4)).toEqual(was.slice(4));
-    expect(now.slice(4)).toEqual([30, 120, 580, 210]);
-    expect(on.log.some((l) => l.startsWith('draw [64x32'))).toBe(false);
+    const hd: UiHdTextures = (b) => { asked.push(b); return b.data === picture.data ? hdPicture : null; };
+    const on = drawn(() => ({ scale: 4, hd }));
+    expect([on.canvas.width, on.canvas.height, on.puts[1]!.width, on.puts[1]!.height]).toEqual([2560, 1792, 2560, 1792]);
+    // Keyed by the panel's own top-row-first texels: since GM-22 review F3 the panel hands its blend-tagged copy of the
+    // bitmap (`loadingBitmap`), the same texel array, so the pack (keyed by the bytes) sees the same bitmap.
+    expect(asked.some((b) => b.data === picture.data)).toBe(true);
+    expect(sha(on.puts[1]!.data)).toBe(sha(compositor({ scale: 4, hd: (b) => (b.data === picture.data ? hdPicture : null) })));
+    // The picture's place (30, 120, 580 x 210) at 4x holds the HD texels: the frame differs there from the pack's absence.
+    const none = compositor({ scale: 4 });
+    const at = (x: number, y: number): number => (y * 2560 + x) * 4;
+    const inside = [at(4 * 100, 4 * 200), at(4 * 300, 4 * 150), at(4 * 500, 4 * 300)];
+    expect(inside.some((i) => on.puts[1]!.data[i] !== none[i] || on.puts[1]!.data[i + 1] !== none[i + 1])).toBe(true);
+    const outside = at(4 * 10, 4 * 10);                                         // the background, not replaced
+    expect([...on.puts[1]!.data.slice(outside, outside + 4)]).toEqual([...none.slice(outside, outside + 4)]);
   });
-  it('with no replacement every bitmap still draws, the originals at their own texels under the 4x transform', () => {
-    const off = drawn(), none = drawn(() => ({ scale: 4, hd: () => null }));
+  it('with no replacement every bitmap still draws: the compositor\'s frame at 4x, the canvas back at 640 x 448 at 1', () => {
+    const none = drawn(() => ({ scale: 4, hd: () => null }));
     expect([none.canvas.width, none.canvas.height]).toEqual([2560, 1792]);
-    const draws = (log: string[]): string[] => log.filter((l) => l.startsWith('draw '));
-    expect(draws(none.log)).toEqual(draws(off.log));
-    expect(none.log.filter((l) => l.startsWith('fill '))).toEqual(off.log.filter((l) => l.startsWith('fill ')));
+    expect(sha(none.puts[1]!.data)).toBe(sha(compositor({ scale: 4 })));
+    // Back to scale 1 on the same panel: the canvas follows the frame (HD-4), the original frame again.
+    const f = fakeDoc();
+    let scale = 4;
+    const panel = new LoadingPanel(f.doc, () => ({ scale }));
+    panel.show(screen());
+    expect([f.canvases[0]!.width, f.canvases[0]!.height]).toEqual([2560, 1792]);
+    scale = 1; f.clock.now = T * 1000; panel.redraw();
+    expect([f.canvases[0]!.width, f.canvases[0]!.height]).toEqual([640, 448]);
+    expect(sha(f.puts.at(-1)!.data)).toBe(TODAY);
   });
 });
 
 describe('HD-4: the front end hands its loading screen the menus\' own pack', () => {
   it('`./frontEnd`\'s panel takes `hdMenus`\' options; the test room\'s (`./main`) takes none', () => {
     const src = (f: string): string => readFileSync(resolve(import.meta.dirname, '../src', f), 'utf8');
-    expect(src('frontEnd.ts')).toMatch(/new LoadingPanel\(doc, \(\) => hdMenus\?\.options\(\) \?\? \{ scale: 1 \}\)/);
+    // GM-23 re-pin (was GM-28's `() => ({ scale: 1 })`): the menus' options again, beside the panel's own GPU surface,
+    // which alone draws them; the panel's software draws 1x in every state (`loadingPanelGpu.test.ts`).
+    // GM-XBOX1 re-pin (review F1): the menus' options and the GPU option from one `uiGpuSurfaceWiring('loading', ...)`, the
+    // 1x option where the GPU's is withheld (the Xbox class), so the panel's software is 1x there too.
+    expect(src('frontEnd.ts')).toMatch(/new LoadingPanel\(doc, w\.hd, w\.gpu\)\)\(uiGpuSurfaceWiring\('loading', pageDeviceClass\(\), \(\) => hdMenus\?\.options\(\) \?\? \{ scale: 1 \}, \(\) => \(\{ resolveAt: /);
     expect(src('loadingPanel.ts')).toMatch(/const panel = new LoadingPanel\(doc\);/);
   });
 });

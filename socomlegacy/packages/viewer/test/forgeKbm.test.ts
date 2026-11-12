@@ -202,6 +202,80 @@ describe('OT.R68: the forge editor\'s camera reads the keyboard and the captured
     fly.dispose();
   });
 
+  it('the Walk from an orthographic view walks in perspective: the projection restored, the mouse looks, the page told', () => {
+    vi.stubEnv('DEV', false);
+    const views: string[] = [];
+    const c = document.createElement('canvas');
+    const fly = new FlyCamera(c, { forgeKbm: true, onViewportViewChange: (v) => views.push(v) });
+    fly.setPose({ x: 0, y: 100, z: 0, yaw: 0, pitch: 0 });
+    fly.setForgeViewportView('top', new Vector3(0, 0, 0));
+    expect(fly.viewportCamera()).toBeInstanceOf(OrthographicCamera);
+    fly.setWalking(true);
+    expect(fly.forgeViewportView()).toBe('perspective');
+    expect(fly.viewportCamera()).toBe(fly.camera);
+    expect(views).toEqual(['perspective']);
+    const yaw = fly.pose().yaw;
+    // The captured mouse's look, as the release test below drives it: RMB down, the lock taken, a move, the lock let go.
+    c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => c });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    const move = new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true });
+    Object.defineProperty(move, 'movementX', { value: -60 });
+    Object.defineProperty(move, 'movementY', { value: 0 });
+    c.dispatchEvent(move);
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => null });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    fly.update(1 / 60);
+    expect(fly.pose().yaw).not.toBeCloseTo(yaw, 3);
+    // Leaving the walk changes no projection; a walk from perspective tells the page nothing.
+    fly.setWalking(false);
+    fly.setWalking(true);
+    expect(views).toEqual(['perspective']);
+    fly.dispose();
+  });
+
+  it('the Walk keeps the lock the page asked for with no RMB, and the captured mouse looks; the editor still lets it go', () => {
+    vi.stubEnv('DEV', false);
+    const c = document.createElement('canvas');
+    const fly = new FlyCamera(c, { forgeKbm: true });
+    const exitPointerLock = vi.fn();
+    document.exitPointerLock = exitPointerLock;
+    const lock = (on: boolean): void => {
+      Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => (on ? c : null) });
+      document.dispatchEvent(new Event('pointerlockchange'));
+    };
+    const moved = (): void => {
+      const move = new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true });
+      Object.defineProperty(move, 'movementX', { value: -60 });
+      Object.defineProperty(move, 'movementY', { value: 0 });
+      c.dispatchEvent(move);
+      fly.update(1 / 60);
+    };
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    // (a) Walking: the lock taken by Walk's own press (the toolbar, V), no RMB -- kept, and the mouse looks.
+    fly.setWalking(true);
+    lock(true);
+    expect(exitPointerLock).not.toHaveBeenCalled();
+    expect(fly.isLocked()).toBe(true);
+    const yaw = fly.pose().yaw;
+    moved();
+    expect(fly.pose().yaw).not.toBeCloseTo(yaw, 3);
+    // An RMB press and release in the walk lets nothing go either.
+    c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    c.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    expect(exitPointerLock).not.toHaveBeenCalled();
+    lock(false);
+    // (b) Back in the editor: a lock with no RMB is let go at once, and a locked move without RMB looks nowhere.
+    fly.setWalking(false);
+    lock(true);
+    expect(exitPointerLock).toHaveBeenCalledTimes(1);
+    const editorYaw = fly.pose().yaw;
+    moved();
+    expect(fly.pose().yaw).toBeCloseTo(editorYaw, 6);
+    lock(false);
+    fly.dispose();
+  });
+
   it('a release: the forge\'s camera looks with the captured mouse; the default camera does not', () => {
     vi.stubEnv('DEV', false);
     const look = (opts: { forgeKbm?: true }): number => {
@@ -348,23 +422,33 @@ describe('OT.R68: the forge editor\'s camera reads the keyboard and the captured
 
   it('the forge boosts movement with Shift at double-tap speed and stops it with Ctrl', () => {
     vi.stubEnv('DEV', false);
-    const distance = (modifier?: 'shiftleft' | 'controlleft'): number => {
+    const CODE = { shiftleft: 'ShiftLeft', controlleft: 'ControlLeft', controlright: 'ControlRight' } as const;
+    const distance = (modifier?: keyof typeof CODE, forgeKbm = true): number => {
       const canvas = document.createElement('canvas');
-      const fly = new FlyCamera(canvas, { forgeKbm: true });
+      const fly = new FlyCamera(canvas, forgeKbm ? { forgeKbm: true } : {});
       canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2 }));
-      if (modifier) globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: modifier === 'shiftleft' ? 'ShiftLeft' : 'ControlLeft' }));
+      if (modifier) globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: CODE[modifier] }));
       globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
       fly.update(1);
       globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));
-      if (modifier) globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: modifier === 'shiftleft' ? 'ShiftLeft' : 'ControlLeft' }));
+      if (modifier) globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: CODE[modifier] }));
       const x = fly.pose().x;
       fly.dispose();
       return x;
     };
 
     const normal = distance();
+    expect(normal).toBeGreaterThan(0);
     expect(distance('shiftleft')).toBeCloseTo(normal * 5);
+    // FP-1b (REVIEW-C 22): exact -- either Ctrl stops the forge camera dead (`forgeMovementFactor` 0), and Ctrl is the
+    // forge's alone: no other fly camera binds it (`camera.ts`' DOUBLE_TAP_MS note: nothing else is bound to Ctrl).
     expect(distance('controlleft')).toBe(0);
+    expect(distance('controlright')).toBe(0);
+    vi.stubEnv('DEV', true);                                     // a fly camera that is not the forge's takes keys in DEV only
+    const plain = distance(undefined, false);
+    expect(plain).toBeGreaterThan(0);
+    expect(distance('controlleft', false)).toBe(plain);
+    expect(distance('controlright', false)).toBe(plain);
   });
 
   it('the forge orbits and dollies around the point under the cursor with Alt-drag', () => {
@@ -443,11 +527,13 @@ describe('OT.R68: who opts in (source pins; the merge controller\'s care: the ot
     // The markers stay under the literal gate alone, so a release build holds none (`build_keyboard.test.ts`).
     // Plain text, not a regex: an escaped dot before the env word reads as the leak check's key-file name.
     const gate = 'import.meta.env.DEV';
-    const gates = cam.filter((l) => l.includes(`if (${gate} || this.forgeKbm)`) || l.includes(`if ((${gate} || this.forgeKbm) && this.locked)`));
+    // RB-8 (OT.R114): beside the forge's opt-in a `kbm` page's -- `this.kbm` at the attach, `kbmMouse` (asked at the press)
+    // at the locked click, `this.kbmNow()` at the locked look.
+    const gates = cam.filter((l) => l.includes(`if (${gate} || this.forgeKbm || this.kbm)`) || l.includes(`if (${gate} || this.forgeKbm || kbmMouse)`) || l.includes(`if ((${gate} || this.forgeKbm || this.kbmNow()) && this.locked)`));
     expect(gates.length).toBeGreaterThanOrEqual(4);                  // the keys, the lock listener, the locked click, the locked look
     expect(read('camera.ts')).toContain(`if (${gate}) keyboardSite('s2u-kb-fly-camera');`);
     expect(read('walk.ts')).toContain(`if (${gate}) keyboardSite('s2u-kb-walk');`);
-    expect(read('walk.ts')).toContain(`if (${gate} || this.camera.forgeKbm === true)`);
+    expect(read('walk.ts')).toContain(`if (${gate} || this.camera.forgeKbm === true || this.camera.kbm === true)`);   // RB-8: a kbm camera's Walk too
   });
 
   it('OT.R68\'s review F2-F5: no pointer lock API is not a lock; M hides the lobby\'s window first; the menu lets the mouse go; M\'s hint', () => {
@@ -474,5 +560,54 @@ describe('OT.R68: who opts in (source pins; the merge controller\'s care: the ot
     const edges = lines.flatMap((l, i) => (/classList\.(add|remove)\(FORGE_MATCHING_CLASS\)/.test(l) ? [[l, lines[i + 1] ?? ''] as const] : []));
     expect(edges.length).toBeGreaterThanOrEqual(5);
     for (const [l, next] of edges) expect(next.trim(), l.trim()).toBe(l.includes('.add(') ? 'holdEditor(true);' : 'holdEditor(false);');
+  });
+});
+
+describe('RB-1 (OT.R114, RB.R4): the camera\'s `kbm` opt-in, `forgeKbm` its alias; `WalkMode.kbm` (a browser adaptation)', () => {
+  it('no option: no keyboard and mouse opt-in; `kbm: true`: opted in, without the Forge editor\'s navigation', () => {
+    const plain = new FlyCamera(document.createElement('canvas'));
+    expect(plain.kbm).toBe(false);
+    expect(plain.kbmNow()).toBe(false);
+    expect(plain.forgeKbm).toBe(false);
+    plain.dispose();
+    const kbm = new FlyCamera(document.createElement('canvas'), { kbm: true });
+    expect(kbm.kbm).toBe(true);
+    expect(kbm.kbmNow()).toBe(true);
+    expect(kbm.forgeKbm).toBe(false);                                 // the test room's camera keeps its own scheme
+    kbm.dispose();
+  });
+
+  it('`forgeKbm: true` (the Forge editor\'s option, kept) is the opt-in too', () => {
+    const forge = new FlyCamera(document.createElement('canvas'), { forgeKbm: true });
+    expect(forge.forgeKbm).toBe(true);
+    expect(forge.kbm).toBe(true);
+    expect(forge.kbmNow()).toBe(true);
+    forge.dispose();
+  });
+
+  it('a predicate is asked at each ask, so a page that joins an online room goes deaf at once (RB.R4)', () => {
+    let url: string | undefined = 'loopback:';
+    const fly = new FlyCamera(document.createElement('canvas'), { kbm: () => url === 'loopback:' });
+    expect(fly.kbm).toBe(true);
+    expect(fly.kbmNow()).toBe(true);
+    url = 'wss://play.example.test/';
+    expect(fly.kbmNow()).toBe(false);
+    url = 'loopback:';
+    expect(fly.kbmNow()).toBe(true);
+    fly.dispose();
+  });
+
+  it('`WalkMode.kbm` reads its camera\'s opt-in when asked', () => {
+    let on = true;
+    const fly = new FlyCamera(document.createElement('canvas'), { kbm: () => on });
+    const walk = new WalkMode(fly, () => undefined);
+    expect(walk.kbm).toBe(true);
+    on = false;
+    expect(walk.kbm).toBe(false);
+    expect(new WalkMode(new FlyCamera(document.createElement('canvas')), () => undefined).kbm).toBe(false);
+    expect(new WalkMode(new FlyCamera(document.createElement('canvas'), { forgeKbm: true }), () => undefined).kbm).toBe(true);
+    // A bare `WalkCamera` with neither field (a test's stub) is not opted in.
+    expect(new WalkMode({} as unknown as ConstructorParameters<typeof WalkMode>[0], () => undefined).kbm).toBe(false);
+    fly.dispose();
   });
 });

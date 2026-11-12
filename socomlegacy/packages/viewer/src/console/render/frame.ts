@@ -1,7 +1,8 @@
 import { NARROW_PX } from '../fit';
 import { pageList } from '../grammar';
 import { morph } from '../morph';
-import { CATS, homeItems, type Adapters, type ConsoleState } from '../state';
+import type { MotionDir } from '../motion';
+import { CATS, homeItems, type Adapters, type ConsoleState, type Screen } from '../state';
 import { headerHtml, keepClock } from './header';
 import { fitDropup, homeHtml, keepRailCentred } from './home';
 import { legendHtml, legendReady } from './legend';
@@ -14,6 +15,7 @@ import { customHtml, lobbyGameHtml, lobbyRoomHtml } from './lobbies';
 import { replaysHtml } from './replays';
 import { roomsHtml } from './rooms';
 import { serverHtml } from './server';
+import { modsHtml } from './mods';
 import { signedOutHtml } from './signedOut';
 import { canDrawSheets, SheetBackdrop } from './sheets';
 import { applyTheme, clock24, pictureOn, themeOf, type Theme } from './theme';
@@ -151,6 +153,36 @@ function applyBrightness(doc: Document, s: ConsoleState, a: Adapters): void {
   if (root.style.filter !== want) root.style.filter = want;
 }
 
+/**
+ * RB-4 (the replay batch plan): how deep each screen is pushed from Home -- Home 0, a screen opened from a Home item 1,
+ * one pushed from that 2, and so on (`../grammar`'s pushes: Browse rooms -> a room -> a game, the Armory's sides -> a
+ * side's loadouts -> a loadout, Settings -> the button mapping, the Profile's personas -> the editor). A `Record` over
+ * every screen, so a new screen is given its depth where it is added. A browser adaptation.
+ */
+const SCREEN_DEPTH: Record<Screen, number> = {
+  home: 0,
+  rooms: 1, options: 1, replays: 1, loadoutSides: 1, persona: 1, record: 1, custom: 1, server: 1, mods: 1,
+  remap: 2, loadouts: 2, personaEdit: 2, personaNew: 2, room: 2,
+  loadout: 3, game: 3,
+};
+
+/** The screen each document drew last (RB-4). */
+const lastScreen = new WeakMap<Document, Screen>();
+
+/**
+ * RB-4: the stage's direction for this draw -- `forward` to a deeper screen, `back` toward Home, undefined for the first
+ * draw, a redraw of the same screen or a move at the same depth (the stage's last `data-dir` stands). `../morph` writes it
+ * on the stage and freezes it on a screen as it starts to leave, so an exit that opts in (`data-exit`) runs the way of
+ * the move. A browser adaptation.
+ */
+export function screenDir(doc: Document, screen: Screen): MotionDir | undefined {
+  const last = lastScreen.get(doc);
+  lastScreen.set(doc, screen);
+  if (last === undefined || last === screen) return undefined;
+  const d = SCREEN_DEPTH[screen] - SCREEN_DEPTH[last];
+  return d > 0 ? 'forward' : d < 0 ? 'back' : undefined;
+}
+
 /** LR-1: the sheet backdrop, one per document (`./sheets`). */
 const sheetsOf = new WeakMap<Document, SheetBackdrop>();
 
@@ -204,6 +236,7 @@ export function renderFrame(doc: Document, s: ConsoleState, a: Adapters): void {
   const stage = $('stage');
   // LR-1 (LR.R3): read at every draw, so the last place is always the one drawn before this press.
   const bump = edgeBump(doc, s, s.screen === 'home' ? homeItems(CATS[s.cat]?.id ?? '', s, a).length : 0);
+  const dir = screenDir(doc, s.screen);                               // RB-4: the stage's way, for an exit that opts in
   if (stage) morph(stage, s.screen === 'home' ? homeHtml(s, a, narrow, bump) : s.screen === 'rooms' ? roomsHtml(s, a) : s.screen === 'replays' ? replaysHtml(s, a)
     : s.screen === 'remap' ? remapHtml(s, a)                                            // CX-14: the button mapping screen
     : s.screen === 'loadoutSides' ? loadoutSidesHtml(s, a)
@@ -212,7 +245,8 @@ export function renderFrame(doc: Document, s: ConsoleState, a: Adapters): void {
     : s.screen === 'personaNew' ? personaNewHtml(s, a) : s.screen === 'record' ? recordHtml(s, a)
     : s.screen === 'room' ? lobbyRoomHtml(s, a) : s.screen === 'game' ? lobbyGameHtml(s, a) : s.screen === 'custom' ? customHtml(s, a)   // CX-LOBBIES
     : s.screen === 'server' ? serverHtml(s, a)   // CX-28
-    : optionsHtml(s, a));
+    : s.screen === 'mods' ? modsHtml(s, a)       // B206 ML-2
+    : optionsHtml(s, a), { dir });
   keepTabInView(doc);                                                // LR-18: the current tab in its strip's view, its edges marked
   keepRailCentred(doc);                                              // LR-38: the phone rail's current category to its centre
   keepAsideEdges(doc);                                               // LR-22: the description panel's scrollable edge marked (R2)

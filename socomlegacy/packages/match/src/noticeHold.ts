@@ -106,3 +106,40 @@ export function noticeHeldAt(n: KeptNotice, now: number): { severity: number; te
 
 /** The id after `last` for a notice made at `now`: at least `now` (so ids keep increasing across a file started over), above `last`. */
 export const nextNoticeId = (last: number, now: number): number => Math.max(last + 1, Math.floor(now));
+
+// ---- OA-1 (the operator announcement plan, OA.R1/OA.R5): the operator's say, a notice kind beside the restart notice ----
+// Product track, a browser adaptation with no original: SOCOM II's server never sent a player a free-text message in a
+// round. The restart notice above is untouched (OA.R1): its wording, severity, 60 s hold and 8-kept cap are its own.
+
+/**
+ * An operator's say as the poll carries it (`notice say`, central's `cli/sayMain.ts`): a closable panel on the page (OA-3),
+ * every page when `game` is absent, else only the pages in that game; told to newcomers until `until` (ms since the epoch).
+ * `severity` is 0 or `SAY_WARN_SEVERITY_ADAPTATION` (the panel's accent only; nothing routes on it). An adaptation.
+ */
+export interface Say { id: number; severity: number; text: string; game?: number; until: number; kind: 'say' }
+/** A say taken down before its `until` (`notice say --withdraw <id>`): a page closes it if open. An adaptation. */
+export interface SayWithdrawn { id: number; withdrawn: true }
+
+/** SAY_HOLD_DEFAULT_ADAPTATION: a say's time in force when `--until` names none, 10 min (spec 4.4, OA.R5). An adaptation, no original. */
+export const SAY_HOLD_DEFAULT_ADAPTATION = 10 * 60_000;
+/** SAY_HOLD_MAX_ADAPTATION: the longest a say may stay in force, 24 h past its writing (spec 4.4, OA.R5). An adaptation, no original. */
+export const SAY_HOLD_MAX_ADAPTATION = 24 * 3_600_000;
+/** SAY_LIVE_MAX_ADAPTATION: the says held live at most, beside the restart notices' own cap; the oldest dropped (spec 4.4, OA.R5). An adaptation, no original. */
+export const SAY_LIVE_MAX_ADAPTATION = 8;
+/** SAY_WARN_SEVERITY_ADAPTATION: a say's severity with `--warn`, else 0 -- the panel's accent only (spec 4.4, OA.R5). An adaptation, no original. */
+export const SAY_WARN_SEVERITY_ADAPTATION = 1;
+/** SAY_TEXT_MAX_BYTES_ADAPTATION: a say's text at most, in UTF-8 bytes -- the announcements' limit (spec 4.4, OA.R5). An adaptation, no original. */
+export const SAY_TEXT_MAX_BYTES_ADAPTATION = 999;
+
+/** Any control character (Unicode Cc: C0, DEL, C1): a newline or a tab included -- the panel is one paragraph. */
+const CONTROL = /\p{Cc}/u;
+
+/** A say's text checked: trimmed UTF-8, 1..999 bytes, no control characters; the reason or null. */
+export function sayTextRefusal(text: string): string | null {
+  if (CONTROL.test(text)) return 'the text holds a control character (a newline, a tab or another): a say is one paragraph';
+  const t = text.trim();
+  if (t.length === 0) return 'no text';
+  const bytes = new TextEncoder().encode(t).length;
+  if (bytes > SAY_TEXT_MAX_BYTES_ADAPTATION) return `the text is ${bytes} bytes, over ${SAY_TEXT_MAX_BYTES_ADAPTATION} bytes (SAY_TEXT_MAX_BYTES_ADAPTATION)`;
+  return null;
+}

@@ -3,7 +3,7 @@ import { descentBelow, FALL_MARGIN, fallThroughs, type FallFrame } from '../swee
 
 /**
  * The release sweep's fall-through check (release review PL-1, the MP1/MP11 survivor): the feet against the floor the
- * walk picks under them (`selectFloor(probeGround(x, z), from + STEP_PROBE_LIFT_READING, y)`, FUN_005b5d40 470163-470290; R86 s6.5), not the
+ * walk picks under them (`selectFloor(probeGround(x, z), from + probeLiftOf('stand'), y)`, FUN_005b5d40 470163-470290; R86 s6.5), not the
  * descent from the spawn. FUN_0059ad30 (456313-456322) puts the feet on that floor whenever they are under it, on the
  * ground and in the air; only the running jump's wind-up (actor+0x1360 > 0) lets them sink, 0.785 over two 30 Hz game
  * frames (`mover.ts` `fall`; research 208 section 4, PF-03). So feet more than `FALL_MARGIN` under the pick is a floor the mover went through.

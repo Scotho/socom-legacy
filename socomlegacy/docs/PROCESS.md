@@ -103,7 +103,7 @@ What each level takes and the test that pins it:
 
 ## Research notes as evidence
 
-Every non-obvious behaviour has a numbered note in [`research/`](research/) (71-385 for the web project, 160-167, 220 and 221 on `agent/online` until it lands; 300 records the Weapon Exchange audit, 301 the original taunts audit, 302 the original Options and the Chat menu's other branches, 303 the original victory dances and 304 the original gameplay audio, in Chris's range (300+); the PC project's
+Every non-obvious behaviour has a numbered note in [`research/`](research/) (71-399 for the web project, 160-167, 220 and 221 on `agent/online` until it lands; 300 records the Weapon Exchange audit, 301 the original taunts audit, 302 the original Options and the Chat menu's other branches, 303 the original victory dances and 304 the original gameplay audio, in Chris's range (300+); the PC project's
 notes are in `desktop@be557831:docs/research/`, the `ref/desktop` submodule). A note opens with its answers, then shows the work: the
 file offsets, the counts over all 22 maps, the functions and lines read, what is settled, what is not and what would
 settle it, and the placeholders by name. Code comments cite the note and section (`research 84 §3`) and the function

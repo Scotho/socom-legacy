@@ -1,8 +1,11 @@
 // @vitest-environment node
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { FsAssetSource } from '@s2u/archive/node';
 import { GAME_FRAME_DT, segmentHits, surfaceWord, SURFACE_SKIP } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
-import { simMapFromBytes } from '../src/simMap';
+import { loadSimMap, simMapFromBytes, type SimMap } from '../src/simMap';
 import { forkGround, WorldState } from '../src/worldState';
 import { DoorSet } from '../src/doors';
 import { groundGrid } from '../src/mover';
@@ -33,12 +36,14 @@ function frostfire() {
   const map = simMapFromBytes(MP2!, 'RUN/MP2.ZDB');
   const ground = forkGround(map.ground);
   const grid = groundGrid(ground);
-  const sounds: [string, string | null][] = [], debris: (string | null)[] = [];
-  const world = new WorldState(map.meta!, ground, grid, { sound: (name, path) => { sounds.push([name, path]); }, destruction: (path) => { debris.push(path); } });
+  const sounds: [string, string | null][] = [], debris: (string | null)[] = [], places: (readonly number[] | null)[] = [];
+  const world = new WorldState(map.meta!, ground, grid, {
+    sound: (name, path, _volume, at) => { sounds.push([name, path]); places.push(at ?? null); }, destruction: (path) => { debris.push(path); },
+  });
   world.applyInitial();
   // The probe's filter: the movement's skip surfaces (the frames' camera polygons) passed over.
   const witness = (i: number): string[] => segmentHits(grid, WITNESS[i]![0], WITNESS[i]![1], (q) => (surfaceWord(q) & SURFACE_SKIP) === 0).map((h) => h.owner.path);
-  return { map, ground, grid, world, sounds, debris, witness };
+  return { map, ground, grid, world, sounds, debris, places, witness };
 }
 
 describe(`Frostfire's breakable panes (SUP-02)${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
@@ -120,10 +125,13 @@ describe(`Frostfire's breakable panes (SUP-02)${MP2 ? '' : ` (${FIXTURES_ABSENT}
     page.world.applyWire(env, false);
     expect(page.sounds).toEqual([['.GLS_BRK_VSMALL', PANES[0]]]);
     expect(page.debris).toEqual([PANES[0]]);
-    // The sound's place (SCENE_SOUND_PLACE_READING): the pane's box centre -- x 580.269..584.245, y 155.843..158.782,
-    // z 1117..1117.525 (its two stored polygons, research 176 s4.1).
-    const at = page.world.placeOf(PANES[0]!)!;
-    [582.257, 157.3125, 1117.2625].forEach((v, k) => expect(at[k]).toBeCloseTo(v, 2));
+    // The sound's place (SCENE_SOUND_PLACE_READING): `pane1`'s world origin, `flattenScene`'s (588.757, 142, 1117) --
+    // `FUN_002659c0` through `FUN_00310980` (D:L112446-112462). Was its polygons' box centre (582.257, 157.3125,
+    // 1117.2625: x 580.269..584.245, y 155.843..158.782, z 1117..1117.525, research 176 s4.1), now `placeOf` alone.
+    expect(page.places).toHaveLength(1);
+    [588.757, 142, 1117].forEach((v, k) => expect(page.places[0]![k]).toBeCloseTo(v, 3));
+    const box = page.world.placeOf(PANES[0]!)!;
+    [582.257, 157.3125, 1117.2625].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 2));
     joiner.world.applyWire(env, true);
     expect(joiner.world.isActive(PANES[0]!)).toBe(false);
     expect(joiner.sounds).toEqual([]);
@@ -166,4 +174,65 @@ describe(`a round down each pane's witness line meets the pane, not its camera-o
       }
     }
   });
+});
+
+// DF-8 (research 387 s5): Fish Hook's four window panes are Frostfire's class (SUP-02) on MP71's own data -- each placed
+// `window01`'s `wframe` (flags 0x823, the same as Frostfire's `door_slab`) carries a kind-3 block (health 1, armour 0,
+// shield 0) on its own `wglass`, two stored polygons a pane; at health 0 `wframe` calls `breakapane` (`.GLS_BRK_MD`,
+// `DESTRUCTION_SOURCE`, its root `wglass` off). MP71 is no fixture until DF-2: SOCOM_DISC, else skipped (said, never a
+// pass).
+const MP71_DISC = process.env.SOCOM_DISC;
+const HAVE_MP71 = !!MP71_DISC && existsSync(resolve(MP71_DISC, 'RUN/MP71.ZDB'));
+const FH_PANES = ['h8wc1', 'h7wc4', 'h7wc3', 'h7wc2'].map((h) => `worldmodel/${h}/window01=window01/wframe/wglass`);
+/** A segment through each pane's first polygon, 8 u either side along its normal; and each pane's box centre. */
+const FH_WITNESS: [V3, V3][] = [
+  [[2497.076, 198, 591.305], [2497.076, 198, 607.305]],
+  [[2190, 198, 831.305], [2190, 198, 847.305]],
+  [[2130, 241, 831.305], [2130, 241, 847.305]],
+  [[2151.305, 198, 630], [2167.305, 198, 630]],
+];
+const FH_CENTRE: V3[] = [[2497.076, 198, 599.265], [2190, 198, 839.265], [2130, 241, 839.265], [2159.265, 198, 630]];
+
+describe.skipIf(!HAVE_MP71)(`Fish Hook's four window panes on the disc (DF-8)${HAVE_MP71 ? '' : ' (SOCOM_DISC with RUN/MP71.ZDB absent -- skipped; MP71 is no fixture until DF-2)'}`, () => {
+  let map: SimMap;
+  const load = async (): Promise<SimMap> => (map ??= await loadSimMap(new FsAssetSource(MP71_DISC as string), 'RUN/MP71.ZDB'));
+  const fishHook = (m: SimMap) => {
+    const ground = forkGround(m.ground);
+    const grid = groundGrid(ground);
+    const sounds: [string, string | null][] = [], debris: (string | null)[] = [];
+    const world = new WorldState(m.meta!, ground, grid, { sound: (name, path) => { sounds.push([name, path]); }, destruction: (path) => { debris.push(path); } });
+    world.applyInitial();
+    const witness = (i: number): string[] => segmentHits(grid, FH_WITNESS[i]![0], FH_WITNESS[i]![1], (q) => (surfaceWord(q) & SURFACE_SKIP) === 0).map((h) => h.owner.path);
+    return { world, sounds, debris, witness };
+  };
+
+  it('the four panes bind one per placement (1/0/0 on wglass, its saved reference); a round breaks one -- .GLS_BRK_MD once at its box centre, its two polygons out -- and the other three stand; a joiner takes it silently; the reset restores all four', async () => {
+    const m = await load();
+    expect(m.meta!.scene!.destructibles.filter((d) => d.anim === 'wframe').map((d) => [d.targetPath, d.health, d.armor, d.shield])).toEqual(FH_PANES.map((p) => [p, 1, 0, 0]));
+    for (const p of FH_PANES) expect(m.meta!.initial.find((e) => e.path === p)).toMatchObject({ deactivate: false, saveActive: true });
+    for (let i = 0; i < 4; i++) {
+      const room = fishHook(m);
+      for (let j = 0; j < 4; j++) expect(room.witness(j)).toEqual([FH_PANES[j], FH_PANES[j]]);
+      expect(room.world.health.c4TargetAt(FH_PANES[i]!, 18)).not.toBeNull();       // HP 1: a C4 target while it stands
+      expect(room.world.health.hitAt(FH_PANES[i]!, M4)).toEqual({ applied: true, died: true });
+      expect(room.sounds).toEqual([['.GLS_BRK_MD', FH_PANES[i]]]);
+      expect(room.debris).toEqual([FH_PANES[i]]);
+      const at = room.world.placeOf(FH_PANES[i]!)!;
+      FH_CENTRE[i]!.forEach((v, k) => expect(at[k]).toBeCloseTo(v, 2));
+      for (let j = 0; j < 4; j++) {
+        expect(room.world.isActive(FH_PANES[j]!)).toBe(j !== i);
+        expect(room.witness(j)).toEqual(j === i ? [] : [FH_PANES[j], FH_PANES[j]]);
+      }
+      expect(room.world.health.hitAt(FH_PANES[i]!, M4)).toEqual({ applied: false, died: false });   // spent
+      expect(room.world.health.c4TargetAt(FH_PANES[i]!, 18)).toBeNull();
+      const joiner = fishHook(m);
+      joiner.world.applyWire(room.world.wireAll(3), true);
+      expect(FH_PANES.map((p) => joiner.world.isActive(p))).toEqual(FH_PANES.map((_, j) => j !== i));
+      expect([joiner.sounds, joiner.debris]).toEqual([[], []]);
+      room.world.reset();
+      expect(FH_PANES.map((p) => room.world.isActive(p))).toEqual([true, true, true, true]);
+      expect(room.world.health.list.filter((d) => d.anim === 'wframe').map((d) => room.world.health.hp(d.id))).toEqual([1, 1, 1, 1]);
+      for (let j = 0; j < 4; j++) expect(room.witness(j)).toEqual([FH_PANES[j], FH_PANES[j]]);
+    }
+  }, 120_000);
 });

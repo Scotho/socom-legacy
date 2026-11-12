@@ -352,6 +352,26 @@ export const READY_LOADS_LATE_JOINER_READING = 'a late seat\'s READY sets the ma
 export const LATE_SEAT_NEVER_READY_PLACEHOLDER = 'a late seat waits for its READY; the room\'s lobby again clears the late state' as const;
 
 /**
+ * LATE_SEAT_MATCH_ENDING_OWNER (OT.R122: the owner's ruling, 2026-11-11, `socomlegacy/docs/MISSION.md`; a browser adaptation
+ * that departs from the original on his word, "the current path is unacceptable even if it matches the original"): a late
+ * seat is never sent out of the game while the game ends. What the original does stays recorded (research 315 §12.1 W5 /
+ * W6, §14, §15; LATER 238 and 241: a late console READY in the last round's result or in GAME COMPLETE loads, and at its
+ * load's end leaves for `dlgNetError.rdr` or `dlgNetAbandoned.rdr`, #528, then SOCOM II ONLINE). The port instead:
+ * - **READY held while ending** (here): the lobby keeps the game's end as it hears it -- set by the room's last
+ *   `roundOver` (`matchOver`) or a welcome whose standing result is the game's end (`join.result.matchOver`), heard while
+ *   the game is launched; cleared by a `roundStart`, the room's `abandoned` or a view not launched (the room's return).
+ *   While it stands, READY (`ReadyToLoad`) starts no load and posts nothing, and the native READY is drawn disabled with
+ *   one line (`MATCH_ENDING_READY_LINE`) in the help line's place (`./lobbyRecovery`, as the lobby's recovery draws its
+ *   controls). Let go, READY is as before: a late seat's load, or the normal ready once the room is in its lobby.
+ * - **A late load returned to the game lobby** (viewer `lobbyMatch.ts`): a late seat's load that meets the game's end
+ *   leaves at once for the same game's lobby with its client kept -- no bye, no close; the seat and central's seat stay.
+ * A seat that was not late, the abandon, the final closes and the host's update are unchanged.
+ */
+export const LATE_SEAT_MATCH_ENDING_OWNER = 'OT.R122: a late seat at the game\'s end -- READY held while ending; a late load returned to the game lobby, the client kept' as const;
+/** OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the held READY's line -- the browser's own text, no disc string. */
+export const MATCH_ENDING_READY_LINE = 'Match ending -- READY opens when the lobby returns.' as const;
+
+/**
  * EIGHTY_READY_SERVER_ADAPTATION: the master raises MP_EIGHTY_READY (`FUN_002c40c0` D:L165503-165507), which its
  * `launch_10sec_anim` answers with `ForceMPLaunch`, the countdown. The server is the master here (SVC-07a's `PreMatch`
  * starts that countdown itself), so no page raises the event: the countdown reaches every seat in `gameLobby`. The
@@ -562,7 +582,7 @@ export interface BotSettings { seal: BotSetting; terrorist: BotSetting }
 /** One seat of the bridge's `gameLobby` (`net/protocol.ts`, research 159 §4). */
 export interface GameLobbySeat { id: number; name: string; team: LobbySide | null; ready: boolean; host: boolean; readyIn: number; bot?: boolean }
 /** The bridge's `gameLobby` message. */
-export interface GameLobbyView { seats: readonly GameLobbySeat[]; countdown: number | null; launched: boolean; refused?: string; botSettings?: BotSettings }
+export interface GameLobbyView { seats: readonly GameLobbySeat[]; countdown: number | null; launched: boolean; refused?: string; botSettings?: BotSettings; nextMap?: string }
 
 /**
  * A game the lobby is entered for -- `enterGameLobby`'s argument: the record a listed game's join found (the briefing
@@ -667,6 +687,8 @@ export interface LobbyControlRecovery {
   switchTeams?: boolean;
   ready?: boolean;
   armory?: boolean;
+  /** OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the help line written (`MATCH_ENDING_READY_LINE`, or '' to clear it); absent, untouched. */
+  line?: string;
 }
 
 const sideTeam = (t: LobbySide | null): number => (t === null ? PLAYER_TEAM.spectator : PLAYER_TEAM[t]);
@@ -676,6 +698,12 @@ const switchTeamsOk = (affiliation: number): boolean => affiliation !== 1 && aff
 export class GameLobbyCommands {
   /** `DAT_0066a5f0`: the game being joined or stood in, -1 for none. */
   private worldId = -1;
+  /**
+   * LOBBY-MAP-STALE: the mission whose `UiVars` last landed (`loadMissionVars`), null in a newly held game -- so a move of
+   * the map onto the mission already held loads it again when its entries never landed (the original's `FUN_00279490`
+   * loads the mission it holds every time, D:L123881). The port's own bookkeeping for its asynchronous read.
+   */
+  private varsLoaded: string | null = null;
   private entry: GameLobbyEntry | null = null;
   /** The mission the game's play list starts on (`FUN_0027f810` with "mp%d", D:L197342-197344). */
   private mission = '';
@@ -693,6 +721,10 @@ export class GameLobbyCommands {
   private countdownAt: number | null = null;
   private recovery: { reset: boolean; interruptedEntry: boolean; switchTeams: boolean; ready: boolean; armory: boolean } | null = null;
   private lateJoiner = false;
+  /** OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the game's end heard while launched, until the room moves on; READY held. */
+  private ending = false;
+  /** OT.R122: the held READY drawn (its line written) on the dialog, so the release draws it open again once. */
+  private readyHoldDrawn = false;
   private started = false;
   /**
    * Whether a view's `launched` may start a hand-off: true from the lobby's entry; false from a match's return
@@ -860,10 +892,12 @@ export class GameLobbyCommands {
     this.affiliation = clanAffiliationOf(game.genericField3 ?? 0);
     this.worldId = game.mediusWorldId;
     this.mission = d[8] ? `mp${d[8]}` : '';
+    this.varsLoaded = null;
     this.setVar(GAME_NAME_VAR, { type: 'string', value: drawnGameName(game.gameName) });
     this.view = null; this.seatId = null; this.connected = false; this.inLobby = false; this.started = false; this.relaunchable = true; this.lateJoiner = false; this.hosting = false; this.reportState = 'none'; this.pass = null;
     this.readyAt = null; this.countdownAt = null;
     this.recovery = null;
+    this.ending = false; this.readyHoldDrawn = false;                   // OT.R122: a new game held ends nothing
     this.told = new Map(); this.clans = new Map();
     this.drawBotSettings();
   }
@@ -1154,18 +1188,25 @@ export class GameLobbyCommands {
    * the current mission (0x414e00, `this.mission`) through `CUIVariableSpec` (`FUN_00386ff0`) and `CUIVarManager_Add`
    * (`FUN_003857c0(0x437e80, ..)`) at the spec's longevity, with its node's type (`UiVarManager.loadUiVars`) --
    * `mission_title` among them, the title bar's `MPgamename`. Its Valves half (D:L152384-152420) and the rest of the load are not done here (research 165
-   * §9). An asynchronous read adds them when it resolves, if the lobby still stands on the mission
-   * (`MISSION_VARS_ASYNC_ADAPTATION`).
+   * §9). An asynchronous read adds them when it resolves, if the lobby still stands on that mission in the same game
+   * (`MISSION_VARS_ASYNC_ADAPTATION`). D:L123856's network test is the call's (`AdvanceMPMission`, `moveMission`), not the
+   * resolution's: the original's load is synchronous, so nothing stands between the test and the Add. LOBBY-MAP-STALE: a
+   * resolution that waited on the seat as well dropped the next map's entries when the rotation's 4021 had the seat down,
+   * and the welcome on that same map loaded nothing again -- the last map's `mission_title` stood in the title bar.
    */
   private loadMissionVars(): void {
-    const mission = this.mission;
+    const mission = this.mission, world = this.worldId;
     const read = this.o.missionVars;
     if (!read || mission === '') return;
-    const add = (entries: readonly UiVarEntry[] | null): void => { if (entries) this.o.uiVars.loadUiVars(entries); };
+    const add = (entries: readonly UiVarEntry[] | null): void => {
+      if (!entries) return;
+      this.o.uiVars.loadUiVars(entries);
+      this.varsLoaded = mission;
+    };
     let got: ReturnType<typeof read>;
     try { got = read(mission); } catch { return; }
     if (got instanceof Promise) {
-      got.then((entries) => { if (this.mission === mission && this.inSession()) add(entries); }, () => {});
+      got.then((entries) => { if (this.mission === mission && this.worldId === world) add(entries); }, () => {});
     } else add(got);
   }
   /** 0x2776b0 (D:L122948-122955): the host's world report -- the server reports a game's room itself (research 159 §2). 1. */
@@ -1180,9 +1221,32 @@ export class GameLobbyCommands {
   CheckForcedLaunch: UiCommandHandler = (cmd) => {
     this.voiceBar();
     this.clocks();
+    this.holdReady();                                     // OT.R122: before the recovery, which decides READY once let go
     this.recoverControls();
     return this.answer('CheckForcedLaunch', cmd, true);
   };
+
+  /**
+   * OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`; an adaptation): while the game ends, the native READY drawn disabled on each
+   * pass (the disc's own animations may light it) and the line written once; let go, READY drawn open and the line
+   * cleared once -- a recovery pending then (the room's lobby again) decides READY after it, as for a late seat's wait.
+   */
+  private holdReady(): void {
+    const recover = this.o.recoverLobby;
+    if (!recover) return;
+    const host = this.own()?.host ?? false;
+    if (this.ending) {
+      const drawn = recover({ reset: false, restartEntryTimers: false, host, ready: false, ...(this.readyHoldDrawn ? {} : { line: MATCH_ENDING_READY_LINE }) });
+      if (drawn) this.readyHoldDrawn = true;
+    } else if (this.readyHoldDrawn) {
+      // The review's F3: let go only once drawn on the lobby (another dialog standing, the ARMORY, answers false): retried
+      // on the lobby's next pass, so READY is drawn open and the line cleared when the lobby is next shown.
+      if (recover({ reset: false, restartEntryTimers: false, host, ready: true, line: '' })) this.readyHoldDrawn = false;
+    }
+  }
+
+  /** OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): READY held -- the game's end heard while launched, the room not yet moved on. */
+  readyHeld(): boolean { return this.ending; }
 
   /** Browser/server adaptation: finish explicit waiting transitions, never reconcile ordinary snapshots. */
   private recoverControls(): void {
@@ -1257,9 +1321,11 @@ export class GameLobbyCommands {
    * `lobbyReady`, which holds the 30 s gate and the 5 s itself and answers with the seat's READY. For a late joiner (the
    * late flag `+0xcc`, the valve `late_joiner`), the major state 2 and the minor 1, nothing posted, and the hand-off
    * (D:L125606-125608, `READY_LOADS_LATE_JOINER_READING`). The port's welcomed socket gates both branches (the hand-off
-   * carries it). 1.
+   * carries it). OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation): while the game ends, neither branch runs --
+   * no load, nothing posted, the 5 s not taken. 1.
    */
   ReadyToLoad: UiCommandHandler = (cmd) => {
+    if (this.ending) return this.answer('ReadyToLoad', cmd, true);
     this.recovery = null;
     const now = this.now();
     if (now > this.nextReady && this.connected) {
@@ -1297,13 +1363,34 @@ export class GameLobbyCommands {
 
   // ---- the socket's events (the page's host feeds them) ----
 
-  /** The room's `welcome`: this seat's id, the hello accepted. */
-  welcomed(id: number, map?: string): void {
+  /**
+   * The room's `welcome`: this seat's id, the hello accepted. OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): `matchOver`, the
+   * welcome's standing result the game's end (`join.result.matchOver`) -- the game ending, unless the lobby already
+   * stands not launched; a welcome without it, the room's now, ends nothing.
+   */
+  welcomed(id: number, map?: string, matchOver = false): void {
+    this.ending = matchOver && this.view?.launched !== false;
     this.seatId = id; this.connected = true;
     this.seatSide = null;                                         // R4B-08: a new seat's first view is no move
-    if (map && /^MP[0-9]{1,2}$/i.test(map)) {
-      this.mission = map.toLowerCase();
-    }
+    this.moveMission(map);
+  }
+
+  /**
+   * LOBBY-ONE-BEHIND (v0.4.14): the room's map moved under a standing lobby -- the rotation's new welcome, or the returned
+   * view's `nextMap`. The original's host writes the play list's next map into 0x414e00 before loading it (`FUN_00279490`
+   * D:L123863-123877, the load `FUN_002acc10(0x4364e0, 0x414e00)` at D:L123881; research 309 §2.2), so its lobby draws the
+   * next map from its entry; the port's `AdvanceMPMission` ran on the map just played, so the move loads the new map's
+   * variables again (`mission_title`, `MPgamename`), behind the same asynchronous guard. A reading, pending review; a
+   * non-host console's moment is not read (research 309 §2.1). LOBBY-MAP-STALE: a move onto the mission already held is
+   * nothing only once its entries have landed (`varsLoaded`); otherwise the welcome on that map loads it again, as the
+   * original never holds a mission apart from its load (D:L123864-123881; `FUN_0027eb50` D:L126673-126674).
+   */
+  private moveMission(map: string | undefined): void {
+    if (!map || !/^MP[0-9]{1,2}$/i.test(map)) return;
+    const next = map.toLowerCase();
+    if (next === this.mission && this.varsLoaded === next) return;
+    this.mission = next;
+    if (this.inLobby && !this.started && this.inSession()) this.loadMissionVars();
   }
 
   /**
@@ -1317,7 +1404,13 @@ export class GameLobbyCommands {
     const first = this.view === null;
     const cancelled = this.view?.countdown != null && !this.view.launched && view.countdown === null && !view.launched;
     const lateEnded = this.lateJoiner && !view.launched;
+    // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the room's lobby again lets the held READY go, recovered as a late wait's end
+    const heldEnded = this.ending && !view.launched;
+    if (heldEnded) this.ending = false;
     this.view = view;
+    // LOBBY-ONE-BEHIND: the room's next map, the lobby standing; a launched view never moves the mission (the review's F2:
+    // the match starts below on the map the room plays, not the rotation's next).
+    if (!view.launched) this.moveMission(view.nextMap);
     this.drawLists();
     this.drawBotSettings();
     const own = this.own();
@@ -1351,7 +1444,7 @@ export class GameLobbyCommands {
     // LATE_SEAT_NEVER_READY_PLACEHOLDER: the game back in its lobby ends a late seat's late state (the port's stand-in).
     if (!view.launched && this.lateJoiner) { this.lateJoiner = false; this.setValve('late_joiner', 0); }
     if (view.launched || view.countdown !== null) this.recovery = null;
-    else if (cancelled || lateEnded) {
+    else if (cancelled || lateEnded || heldEnded) {
       // Browser/server adaptation: the original cancel stops clock writes (FUN_002a6b90, D:L149013-149016).
       // Our authoritative waiting view must also undo CountDown's locks. 11 is the native idle value
       // (dlgGameLobby check_loop/SetupSessionMaster); ./lobbyRecovery restores the existing controls.
@@ -1386,7 +1479,17 @@ export class GameLobbyCommands {
    * (`READY_LOADS_LATE_JOINER_READING`; was, until W19.R12, a late joiner's hand-off at the next round,
    * `LATE_JOINER_NEXT_ROUND_READING`). The page's host keeps the event for the hand-off's replay (viewer `gameLobbyHost.ts`).
    */
-  roundStart(): void { /* nothing in the lobby's rows: the original's late seat waits for no round */ }
+  roundStart(): void { this.ending = false; }   // OT.R122: a round under way again ends the held READY; nothing else in the rows
+
+  /**
+   * OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`; an adaptation): the room's `roundOver` heard in the lobby -- the game's last
+   * (`matchOver`) while the game is launched holds READY until the room moves on (`roundStart`, `abandoned`, its lobby
+   * again). A round's result holds nothing. The page's host feeds it (viewer `gameLobbyHost.ts`).
+   */
+  roundOver(matchOver: boolean): void { if (matchOver && this.view?.launched !== false) this.ending = true; }
+
+  /** OT.R122: the room's `abandoned` heard in the lobby -- the game's end it held READY for is over; READY let go. */
+  abandoned(): void { this.ending = false; }
 
   /**
    * The match's end back into the same game's lobby (`return_to_gamelobby`: `mp_x_sec_clock` 11, `CloseAndSwitch

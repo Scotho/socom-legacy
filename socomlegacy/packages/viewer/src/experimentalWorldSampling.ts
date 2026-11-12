@@ -10,17 +10,39 @@ import {isWorldFacadeProp} from './worldFacadeProps';
 let maximum = 1, derivative = false, biased = false, anisotropy = 1;
 const lodBias = uniform(0);
 const listeners = new Set<() => void>();
+/** VS-6: the keeper's anisotropy (`setWorldAnisotropy`) and the experiment's last settings (`updateWorldSampling`). */
+let ungatedAnisotropy = false;
+let lastSettings: ExperimentalSettings | null = null;
 export function setWorldSamplingMaximum(value: number): void {
   maximum = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+  recompute();   // VS-6 review F2: a flag left on across renderers takes the new renderer's maximum
 }
 export function worldSamplingMaximum(): number { return maximum; }
+/**
+ * VS-6 (the spec's §4.2 Texture filtering, a browser adaptation): the video keeper's `filtering` row -- the anisotropy
+ * part alone, switched independent of the experiment's `enabled` (the match applies it live under the Modern picture,
+ * never under PS2). Trilinear and the mip bias stay the experiment's (`updateWorldSampling`), gated as before.
+ */
+export function setWorldAnisotropy(on: boolean): void {
+  if (ungatedAnisotropy === on) return;
+  ungatedAnisotropy = on;
+  recompute();
+}
+/** Whether the keeper's anisotropy (`setWorldAnisotropy`) is on. */
+export function worldAnisotropyOn(): boolean { return ungatedAnisotropy; }
 export function updateWorldSampling(s: ExperimentalSettings): void {
-  const nextAnisotropy = s.enabled && s.worldAnisotropy ? maximum : 1;
-  const nextDerivative = !!(s.enabled && (s.worldTrilinear || nextAnisotropy > 1));
-  const nextBiased = !!(nextDerivative && s.worldLodBias);
+  lastSettings = s;
+  recompute();
+}
+function recompute(): void {
+  const s = lastSettings;
+  const gated = !!s?.enabled;
+  const nextAnisotropy = (gated && s?.worldAnisotropy) || ungatedAnisotropy ? maximum : 1;
+  const nextDerivative = !!((gated && s?.worldTrilinear) || nextAnisotropy > 1);
+  const nextBiased = !!(nextDerivative && gated && s?.worldLodBias);
   const changed = derivative !== nextDerivative || biased !== nextBiased || anisotropy !== nextAnisotropy;
   derivative = nextDerivative; biased = nextBiased; anisotropy = nextAnisotropy;
-  lodBias.value = biased && Number.isFinite(s.worldLodBiasValue) ? Math.max(-2, Math.min(2, s.worldLodBiasValue)) : 0;
+  lodBias.value = biased && s && Number.isFinite(s.worldLodBiasValue) ? Math.max(-2, Math.min(2, s.worldLodBiasValue)) : 0;
   if (changed) for (const listener of listeners) listener();
 }
 

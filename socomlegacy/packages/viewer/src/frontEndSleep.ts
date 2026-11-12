@@ -14,9 +14,12 @@
  *   menus' state on the return is the same as had they been drawn (the raster reads the draw list, never writes the
  *   session: `test/frontEndSleep.test.ts`), and the first tick after the return draws it.
  * - The movie worker (its WASM heap and frame pool) is ended when no movie is open (`./frontEndMovies`
- *   `FrontEndMovies.sleep`), under the Xbox preset only (PR #631): a worker asleep is a cold start on the return to the
- *   menus, a separate call from the raster's; the next movie's open makes a fresh one.
+ *   `FrontEndMovies.sleep`), under the Xbox preset (PR #631) and on a page of the Xbox class (VS-10 F1, the video spec
+ *   §4.4 item 2: the class takes the preset's set): a worker asleep is a cold start on the return to the menus, a
+ *   separate call from the raster's; the next movie's open makes a fresh one.
  */
+import { pageDeviceClass } from './deviceClass';
+import { readGraphicsBackend } from './graphicsBackend';
 
 /** The Xbox preset's word (`./graphicsBackend` `GraphicsBackendPreference`). */
 const XBOX = 'xbox';
@@ -29,7 +32,17 @@ export function menuRasterWanted(matchUp: boolean, _graphics: string): boolean {
   return !matchUp;
 }
 
-/** Whether the page ends the idle movie worker when a match takes over: under the Xbox preset only. */
+/** Whether the page ends the idle movie worker when a match takes over: under the Xbox preset, or on a page of the Xbox class (VS-10 F1). */
 export function movieWorkerSleeps(graphics: string): boolean {
-  return graphics === XBOX;
+  return graphics === XBOX || pageDeviceClass() === XBOX;
+}
+
+/**
+ * VS-10 F1 (a browser adaptation, product track; the video spec §4.4 item 2): whether the page takes the Xbox preset's
+ * memory measures (PR #631) -- the saved Xbox pick, or a page of the Xbox class with no pick saved (`./deviceClass`, VS.R1).
+ * The front end passes it to the outputs it builds (`./audio` `WebAudioOut`'s `releaseLoopSamples`), so the sound module
+ * reads no device class itself.
+ */
+export function xboxMemoryMeasures(): boolean {
+  return readGraphicsBackend() === XBOX || pageDeviceClass() === XBOX;
 }

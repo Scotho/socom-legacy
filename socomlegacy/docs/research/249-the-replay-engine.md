@@ -814,7 +814,7 @@ seek the page draws none until play reaches the next throw.
 :1632-1636). It emits no `explode`, `bounce` or `remoteRelease`, plays no blast, sound or effect, and lays no scorch.
 A charge removed by the clear is never set off. The welcome's hydrate of a charge runs no release either (§1).
 
-**Not cleared, as at a round's start:**
+**Not cleared** (a round's start, unlike a seek, has stopped the effects playing since 2026-11-09: research 283 §9):
 - the effects already playing (a blast's particles, an AN-M8's smoke already pouring) and the scorches. They are the
   page's effects and its `clearScorches`, not the air (`grenade.ts` :757-762, `clearAir`'s own doc). A smoke pouring
   at the old playhead keeps pouring after the seek, and the target's own smoke is not folded (§1, owed). It is owed

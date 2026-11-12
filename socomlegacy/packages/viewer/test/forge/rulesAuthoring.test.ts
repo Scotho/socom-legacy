@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { checkCreatorRecord, recordOfLayout, validatePack, ENGINE_CONTRACT_VERSION, PACK_TARGET_US, type RulesSpec } from '@s2u/creator-contracts';
+import { checkCreatorRecord, recordOfLayout, sha256Hex, validatePack, ENGINE_CONTRACT_VERSION, PACK_TARGET_US, type RulesSpec } from '@s2u/creator-contracts';
 import { planForgeLayout } from '../../src/forge/agent/commands';
 import { decodeHistoryStep, encodeHistoryStep, History, recordEdit } from '../../src/forge/history';
 import { emptyLayout, serializeLayout, type Layout } from '../../src/forge/layout';
 import { layoutOfRecord, readSaved, savedLayoutHasWork } from '../../src/forge/record';
 import {
   buildRulesPack, exportRulesPack, checkForgeRecord, checkForgeRules, FORGE_RULES_CODES, forgeAuthoringText, forgeModeList, importRulesPack,
-  parseForgeLayout, readForgeAuthoring, sealForgeRules, UNSEALED_HASH, type ForgeLayout,
+  parseForgeLayout, readForgeAuthoring, RulesPackError, sealForgeRules, UNSEALED_HASH, type ForgeLayout, type RulesPackFile,
 } from '../../src/forge/rulesAuthoring';
 import { FORGE_SAVES_KEY, readSaveList, saveNamedRules, writeSaves, type Store } from '../../src/forge/saves';
 
@@ -219,5 +219,37 @@ describe('FCW-32 export: the rules as a v2 rules pack, and back', () => {
     expect(out.rules!.pack.hash).toBe(back.pack.hash);                     // the Forge's own pack of the same spec
     expect(out.requires).toEqual([out.rules!.pack]);
     await expect(exportRulesPack(out.rules!)).resolves.toMatchObject({ ref: out.rules!.pack });   // no PACK_CHANGED
+  });
+
+  it('importRulesPack refuses a claim on the reserved chase brain (pack.HANDLER_UNKNOWN)', async () => {
+    const rules = JSON.stringify({
+      schema: 's2u-rules', vocabulary: 0, id: 'chase', name: 'Chase',
+      capabilities: [{ slot: 'behaviour.zombie', handler: 'behaviour.zombie.chase-melee' }],
+      rules: [{ id: 'start', when: 'round.start', then: [{ do: 'message.show', text: 'Chase' }] }],
+    });
+    const bytes = new TextEncoder().encode(rules);
+    const manifest = {
+      format: 's2u-pack', formatVersion: 2, id: 'example.chase-claim', version: '1.0.0', name: 'Chase claim',
+      target: PACK_TARGET_US, contract: '^0.1.1', kinds: ['rules'], sides: 'server', dependencies: [],
+      files: [{ path: 'rules/chase.json', sha256: await sha256Hex(bytes), size: bytes.length, role: 'rules' }],
+      intents: [{ kind: 'new-behaviour', files: ['rules/chase.json'] }],
+      handlers: [{ slot: 'behaviour.zombie', handler: 'behaviour.zombie.chase-melee' }],
+    };
+    const files: RulesPackFile[] = [
+      { path: 's2u-pack.json', text: JSON.stringify(manifest) },
+      { path: 'rules/chase.json', text: rules },
+    ];
+    const refused = await importRulesPack(files).then(() => null, (e: unknown) => e);
+    expect(refused).toBeInstanceOf(RulesPackError);
+    expect((refused as RulesPackError).report.diagnostics.map((d) => d.code)).toContain('pack.HANDLER_UNKNOWN');
+  });
+
+  it('sealForgeRules of a patrol claim resolves to a pack whose requires holds its ref', async () => {
+    const l = await sealForgeRules(withRules(twoRules({
+      capabilities: [{ slot: 'behaviour.npc', handler: 'behaviour.npc.patrol' }],
+    })));
+    expect(l.rules!.spec.capabilities).toEqual([{ slot: 'behaviour.npc', handler: 'behaviour.npc.patrol' }]);
+    expect(l.requires).toContainEqual(l.rules!.pack);
+    expect(l.requires).toEqual([l.rules!.pack]);
   });
 });

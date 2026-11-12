@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:s2u:creator:forge-map-bundle:1",
+  "title": "forge-bundle.json, version 1 (s2u.creator/forge-map-bundle)",
+  "description": "The envelope of a forge-map bundle (FP-4, FP.R2; a browser adaptation with no original): one zip carrying a Forge layout and the creator packs it stands on, forge-bundle.json at the zip's root or inside exactly one top folder. This schema is the envelope's shape only, for editors; the contract's validator (packages/creator-contracts/src/bundle.ts, validateForgeBundle) is the authority: it reads the layout through the record's own reader, validates each pack whole under its root as a v2 pack, checks each ref against the pack's digest, and lists the required packs the bundle does not carry.",
+  "type": "object",
+  "required": ["schema", "version", "layout", "packs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "s2u.creator/forge-map-bundle" },
+    "version": { "const": 1 },
+    "layout": { "$ref": "#/$defs/layoutRecordV3" },
+    "packs": {
+      "description": "Each pack the bundle carries, by its reference and the folder that holds it whole. A pack the layout requires and the bundle does not carry is listed missing by the validator, not refused.",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/packEntry" }
+    }
+  },
+  "$defs": {
+    "packRef": {
+      "description": "A pack's identity (PackRef): its id, its SemVer version, and its hash -- the pack digest (SHA-256 over the canonical manifest, digest s2u.pack version 1), 64 lower-case hex digits.",
+      "type": "object",
+      "required": ["id", "version", "hash"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 72, "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$" },
+        "version": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+        },
+        "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "packEntry": {
+      "type": "object",
+      "required": ["ref", "root"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": { "$ref": "#/$defs/packRef" },
+        "root": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 240,
+          "description": "The pack's folder under the envelope, ending /: s2u-pack.json at its top, every member under it. Each segment as a pack path's (packs.ts packPath): not empty, not . or .., not starting with a dot, not ending with a dot or a space, no / \\ : % < > \" | ? * or control character; the whole ending /. The validator also refuses a reserved device name and a depth over 16.",
+          "pattern": "^(?:(?:[^./\\\\:%<>\"|?*\\u0000-\\u001f\\u007f][^/\\\\:%<>\"|?*\\u0000-\\u001f\\u007f]*[^./\\\\:%<>\"|?*\\u0000-\\u001f\\u007f ]|[^./\\\\:%<>\"|?*\\u0000-\\u001f\\u007f ])/)+$"
+        }
+      }
+    },
+    "layoutRecordV3": {
+      "description": "A Forge layout record, version 3 (forge-layout). Only its identity is held here; every other field is the record's own reader's (packages/creator-contracts/src/layout.ts, readCreatorRecord).",
+      "type": "object",
+      "required": ["schema", "version", "name", "base"],
+      "additionalProperties": true,
+      "properties": {
+        "schema": { "const": "forge-layout" },
+        "version": { "const": 3 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "base": { "type": "string", "minLength": 1 },
+        "contentBase": {
+          "type": "object",
+          "required": ["mapId", "ref"],
+          "additionalProperties": false,
+          "properties": {
+            "mapId": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+            "ref": { "$ref": "#/$defs/packRef" }
+          }
+        },
+        "requires": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/packRef" } }
+      }
+    }
+  }
+}

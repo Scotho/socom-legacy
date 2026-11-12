@@ -157,11 +157,21 @@ test('all three extracted maps render from the served archives', async ({ page }
     await setToggle(page, 'fog', true);
   }
 
-  // The line strips and the shadows are on by default -- Desert Glory's power lines and Crossroads'
-  // guy ropes are in the two shots above -- and the alternate states and the engine order are off (W1.R3).
-  expect(await page.evaluate(() => window.__viewer.toggles())).toMatchObject({
-    linestrips: true, shadows: true, alternate: false, engineorder: false,
-  });
+  // The line strips are on by default -- Desert Glory's power lines and Crossroads' guy ropes are in the two shots
+  // above -- and the alternate states and the engine order are off (W1.R3). The shadows were "on by default" too until
+  // Automatic (VS-7): the panel's toggle follows the page's video settings (RB-16, `main.ts`'s `pageVideo`), so it
+  // shows the shadows Automatic resolved for this device -- Off on the software class (SwiftShader), Balanced's or
+  // Quality's Medium on a GPU's standard or high class (`autoQuality` CLASS_START_ADAPTATION). `__viewer.video()` is
+  // a test instrument reading the page's class and resolved rows (`perfLine` `pageVideoReadout`).
+  const toggles = await page.evaluate(() => window.__viewer.toggles());
+  expect(toggles).toMatchObject({ linestrips: true, alternate: false, engineorder: false });
+  const video = await page.evaluate(() => window.__viewer.video());
+  console.log(`video: class ${video.deviceClass}, preset ${video.preset}, shadows ${video.resolvedShadows}`);
+  expect(video.preset).toMatch(/^automatic /);                     // a fresh context: Automatic, the default
+  expect(video.shadows).toBe(video.resolvedShadows !== 'off');
+  expect(toggles.shadows).toBe(video.shadows);
+  if (video.deviceClass === 'software') expect(toggles.shadows).toBe(false);
+  if (video.deviceClass === 'standard' || video.deviceClass === 'high') expect(toggles.shadows).toBe(true);
 
   // The wireframe, on and off again, from the opening stand. It used to blank the frame on the second draw --
   // the check on `problems` at the end is what catches that, the screenshot is what shows it drew.
@@ -347,7 +357,9 @@ test.describe('fix round 1: the fullscreen fab clears the touch-lift buttons', (
     await page.waitForFunction(() => '__viewer' in window);         // main.ts has run (a dynamic import since OT.R12: after `load`)
     await unfoldPanel(page);
     const status = page.locator('#status');
-    await expect(status).toContainText('webgl2'); // a narrow status abbreviates "triangles" to "tris"
+    // The renderer up, whichever Automatic chose (MEGA.R8, the owner 2026-11-09: WebGPU the default, WebGL2 its
+    // fallback); the case is the fab's layout, not the backend. A narrow status abbreviates "triangles" to "tris".
+    await expect(status).toContainText(/webgpu|webgl2/);
     await page.locator('#maps').selectOption('RUN/MP2.ZDB');
     await expect(status).toContainText('FROSTFIRE (MP2)');
     await expect(page.locator('#touch-lift')).toBeVisible();

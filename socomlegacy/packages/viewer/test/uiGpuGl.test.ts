@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { e2eRenderer } from '../e2e/renderer';
-import { UI_GPU_GL_NATIVE_ARGS, uiGpuGlLeg, uiGpuGlRefusal, uiGpuLaunchOptions } from '../e2e/uiGpuGl';
+import { NATIVE_SETTINGS_CANVAS, NATIVE_SETTINGS_GPU_CANVAS, UI_GPU_GL_NATIVE_ARGS, frontGpuCanvasFailure, nativeSettingsShown, uiGpuGlLeg, uiGpuGlRefusal, uiGpuLaunchOptions } from '../e2e/uiGpuGl';
 import { UI_PERF_NATIVE_GL_ARGS } from '../e2e/uiPerfLeg';
 
 /**
@@ -60,5 +60,64 @@ describe('GM-11b: the native leg\'s precondition, read off the renderer string',
   it('never refuses the config leg', () => {
     expect(uiGpuGlRefusal(uiGpuGlLeg({}, 'linux'), SWIFTSHADER)).toBeNull();
     expect(uiGpuGlRefusal(uiGpuGlLeg({}, 'linux'), LLVMPIPE)).toBeNull();
+  });
+});
+
+// The 4070 evidence run's finding 3 (the flip, GM.R18): menuflow.spec.ts's check of the front end's GPU canvas follows the
+// page's renderer.
+describe('the 4070 run finding 3: #front-end-gpu by renderer', () => {
+  const STANDBY = { standby: true, visibility: 'hidden' }, SHOWN = { standby: false, visibility: 'visible' };
+  it('a software adapter or no WebGL2: absent or in standby; shown is a failure', () => {
+    for (const r of ['ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', 'llvmpipe (LLVM 15.0.7, 256 bits)', null]) {
+      expect(frontGpuCanvasFailure(r, 'absent'), String(r)).toBeNull();
+      expect(frontGpuCanvasFailure(r, STANDBY), String(r)).toBeNull();
+      expect(frontGpuCanvasFailure(r, SHOWN), String(r)).toMatch(/absent or in standby/);
+    }
+  });
+  it('a hardware renderer: present and visible; absent or in standby is a failure', () => {
+    const r = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    expect(frontGpuCanvasFailure(r, SHOWN)).toBeNull();
+    expect(frontGpuCanvasFailure(r, STANDBY)).toMatch(/present and visible/);
+    expect(frontGpuCanvasFailure(r, 'absent')).toMatch(/present and visible/);
+    expect(frontGpuCanvasFailure(r, { standby: false, visibility: 'hidden' })).toMatch(/present and visible/);
+  });
+});
+
+// The A4500 red (nativeSettings.spec.ts :208 on a hardware renderer, after the flip, GM.R18): the in-match Settings overlay
+// is shown by exactly one of its two canvases -- the software one on a software adapter (L4, the gate's SwiftShader), the
+// GPU one (`canvas[data-native-settings-gpu]`) on a hardware renderer, the software one then hidden under it
+// (`s2u-ui-gpu-under`). A browser-test adaptation: the spec's check follows the renderer; nothing of the page changes.
+describe('the A4500 red: the native Settings overlay\'s shown canvas by renderer', () => {
+  const A4500 = 'ANGLE (NVIDIA, NVIDIA RTX A4500 (0x00002232) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+  const SOFT_SHOWN = { under: false, visibility: 'visible' }, SOFT_UNDER = { under: true, visibility: 'hidden' };
+  const GPU_SHOWN = { standby: false, visibility: 'visible' }, GPU_STANDBY = { standby: true, visibility: 'hidden' };
+  it('names the two canvases by the page\'s own attributes', () => {
+    expect(NATIVE_SETTINGS_CANVAS).toBe('canvas[data-native-settings]');
+    expect(NATIVE_SETTINGS_GPU_CANVAS).toBe('canvas[data-native-settings-gpu]');
+  });
+  it('a software adapter or no WebGL2: the software canvas shown, the GPU one absent or in standby', () => {
+    for (const r of [SWIFTSHADER, LLVMPIPE, null]) {
+      expect(nativeSettingsShown(r, { software: SOFT_SHOWN, gpu: 'absent' }), String(r)).toEqual({ selector: NATIVE_SETTINGS_CANVAS });
+      expect(nativeSettingsShown(r, { software: SOFT_SHOWN, gpu: GPU_STANDBY }), String(r)).toEqual({ selector: NATIVE_SETTINGS_CANVAS });
+      expect(nativeSettingsShown(r, { software: SOFT_UNDER, gpu: GPU_SHOWN }), String(r)).toMatchObject({ failure: expect.stringMatching(/software canvas shown/) });
+    }
+  });
+  it('a hardware renderer (the A4500, a 4070): the GPU canvas shown, the software one under it', () => {
+    for (const r of [A4500, 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)']) {
+      expect(nativeSettingsShown(r, { software: SOFT_UNDER, gpu: GPU_SHOWN }), r).toEqual({ selector: NATIVE_SETTINGS_GPU_CANVAS });
+      // before the surface lands and links: the software shows -- not yet the hardware's state, polled again
+      expect(nativeSettingsShown(r, { software: SOFT_SHOWN, gpu: GPU_STANDBY }), r).toMatchObject({ failure: expect.stringMatching(/GPU canvas shown/) });
+      expect(nativeSettingsShown(r, { software: SOFT_SHOWN, gpu: 'absent' }), r).toMatchObject({ failure: expect.stringMatching(/GPU canvas shown/) });
+    }
+  });
+  it('never both shown, never neither (an invisible overlay), never no software canvas (the overlay not open)', () => {
+    for (const r of [SWIFTSHADER, A4500]) {
+      expect(nativeSettingsShown(r, { software: SOFT_UNDER, gpu: GPU_STANDBY }), r).toMatchObject({ failure: expect.stringMatching(/neither canvas shown/) });
+      expect(nativeSettingsShown(r, { software: SOFT_UNDER, gpu: 'absent' }), r).toMatchObject({ failure: expect.stringMatching(/neither canvas shown/) });
+      expect(nativeSettingsShown(r, { software: SOFT_SHOWN, gpu: GPU_SHOWN }), r).toMatchObject({ failure: expect.stringMatching(/both canvases shown/) });
+      expect(nativeSettingsShown(r, { software: 'absent', gpu: GPU_SHOWN }), r).toMatchObject({ failure: expect.stringMatching(/no canvas\[data-native-settings\]/) });
+      // a computed visibility that disagrees with the classes counts as hidden
+      expect(nativeSettingsShown(r, { software: { under: false, visibility: 'hidden' }, gpu: { standby: false, visibility: 'hidden' } }), r).toMatchObject({ failure: expect.stringMatching(/neither canvas shown/) });
+    }
   });
 });

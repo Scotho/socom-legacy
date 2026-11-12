@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { expect, test, type APIRequestContext, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import { withCallbackServer } from '../../../tools/forge-agent-probe/callback';
 import { e2ePort } from './ports';
+import { beginPair, pairBody, PROBE_PAIR_TIMEOUT_MS } from '../../../tools/forge-agent-probe/pairing';
 
 /**
  * Product adaptation, LATER 424 (no original: the Forge agent connection is a browser tool): the gate's copy of the
@@ -66,7 +67,7 @@ async function guestToken(context: BrowserContext): Promise<string> {
     try {
       await auth.goto(`${metadata.authorization_endpoint}?${new URLSearchParams({ client_id: registered.client_id, redirect_uri: redirect,
         response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge, resource: `${GATEWAY}/mcp`, state: 'probe' })}`);
-      await auth.getByRole('button', { name: 'Continue as guest' }).click();
+      await auth.getByRole('button', { name: 'Approve' }).click();
       await auth.waitForURL(`${redirect}**`, { timeout: 5_000 });
       const code = new URL(auth.url()).searchParams.get('code');
       expect(code, 'the callback carries a code').toBeTruthy();
@@ -115,8 +116,8 @@ const shot = async (page: Page, name: string): Promise<void> => {
   await test.info().attach(name, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
 };
 
-/** The probe's flow up to the consent: the page, the copied invitation, the pair; the panel shows "Allow this connection?". */
-async function openConsent(context: BrowserContext, page: Page, pageOrigin: string, query: string): Promise<{ request: APIRequestContext; headers: Record<string, string> }> {
+/** The probe's flow up to the consent: the page, the copied connect line, the pair; the panel shows its Allow moment. */
+async function openConsent(context: BrowserContext, page: Page, pageOrigin: string, query: string): Promise<{ request: APIRequestContext; headers: Record<string, string>; pairing: Promise<APIResponse> }> {
   const token = await guestToken(context);
   const headers = { Authorization: `Bearer ${token}` };
   await routeToGateway(context, pageOrigin);
@@ -132,43 +133,53 @@ async function openConsent(context: BrowserContext, page: Page, pageOrigin: stri
   const agentSection = page.locator('.fx-right details[data-forge-panel="agent"]');
   if (!(await agentSection.evaluate((d) => (d as HTMLDetailsElement).open))) await page.getByText('Connect your agent', { exact: true }).click();
   const panel = agentPanel(page);
-  const copy = panel.getByRole('button', { name: 'Copy connection instructions' });
+  // AX-U: one card; the Connect moment's one primary button copies the one connect line.
+  const copy = panel.getByRole('button', { name: 'Copy connect link', exact: true });
   await copy.waitFor({ timeout: 60_000 });
   await shot(page, 'forge-connect.png');
   await copy.click();
   await panel.getByText('Waiting for your agent', { exact: true }).waitFor({ timeout: 10_000 });
   const blurb: string = await page.evaluate(() => navigator.clipboard.readText());
-  const match = blurb.match(/Use agent_pair with invitation ("[^"\r\n]+")/);
-  expect(match, 'the copied instructions carry an invitation').toBeTruthy();
+  const match = blurb.match(/^Connect to my SOCOM 2 Legacy page: \S+\/join\/([A-Za-z0-9_.:-]{1,128})$/);
+  expect(match, 'the copied line carries the join link').toBeTruthy();
   const request: APIRequestContext = context.request;
-  const paired = await request.post(`${GATEWAY}/api/v1/pair`, { headers, data: { invitation: JSON.parse(match![1]!),
-    permissions: PERMISSIONS, clientName: 'Native browser acceptance e2e' } });
-  expect(paired.ok(), `pair: ${paired.status()}`).toBe(true);
-  await panel.getByText('Allow this connection?', { exact: true }).waitFor({ timeout: 10_000 });
-  return { request, headers };
+  // REVIEW-1 finding 3: the gateway holds the pair until the page answers (AX-3), so the call is started here and
+  // awaited after the Allow click by the caller (`tools/forge-agent-probe/pairing.ts`).
+  const pairing = beginPair(() => request.post(`${GATEWAY}/api/v1/pair`, { headers, timeout: PROBE_PAIR_TIMEOUT_MS,
+    data: pairBody(match![1]!, PERMISSIONS, 'Native browser acceptance e2e') }));
+  await panel.locator('[data-agent-moment="allow"]').waitFor({ state: 'visible', timeout: 10_000 });
+  return { request, headers, pairing };
 }
 
-/** FUI-25 (checked here, the unit test cannot see the mounted page): six rows, the unrequested ones disabled. */
+/**
+ * FUI-25 and AX-U (AX.R2; checked here, the unit test cannot see the mounted page): six rows, every requested one a
+ * switch already on, the unrequested ones disabled.
+ */
 async function consentSixRows(page: Page): Promise<void> {
   const rows = agentPanel(page).locator('.agent-panel__permissions label[data-permission]');
   await expect(rows, 'the consent lists all six permissions').toHaveCount(6);
   for (const permission of ['inspect', 'edit', 'capture', 'import', 'test', 'diagnose']) {
     const box = agentPanel(page).locator(`.agent-panel__permissions label[data-permission="${permission}"] input`);
-    if (PERMISSIONS.includes(permission)) await expect(box, `${permission} was requested: offered`).toBeEnabled();
-    else await expect(box, `${permission} was not requested: greyed`).toBeDisabled();
+    if (PERMISSIONS.includes(permission)) {
+      await expect(box, `${permission} was requested: offered`).toBeEnabled();
+      await expect(box, `${permission} was requested: on by default (AX.R2)`).toBeChecked();
+    } else await expect(box, `${permission} was not requested: greyed`).toBeDisabled();
   }
   await shot(page, 'fui25-consent-six-rows.png');
 }
 
 /** The probe's flow up to the paired session: the page, the copied invitation, the pair, the consent; its command sender. */
 async function pair(context: BrowserContext, page: Page, pageOrigin: string, query: string): Promise<{ command: Command; headers: Record<string, string> }> {
-  const { request, headers } = await openConsent(context, page, pageOrigin, query);
+  const { request, headers, pairing } = await openConsent(context, page, pageOrigin, query);
   const panel = agentPanel(page);
   await consentSixRows(page);
   for (const box of await panel.locator('.agent-panel__permissions input:not(:disabled)').all()) await box.check();
   await shot(page, 'forge-approve.png');
-  await panel.getByRole('button', { name: 'Allow selected access' }).click();
-  await panel.getByText('Agent connected', { exact: true }).waitFor({ timeout: 30_000 });
+  await panel.locator('[data-agent-approve]').click();
+  const paired = await pairing;
+  expect(paired.ok(), `pair: ${paired.status()}`).toBe(true);
+  expect((await paired.json()).state, 'the held pair answers once Allow is clicked').toBe('paired');
+  await page.locator('.agent-panel[data-state="connected"]').waitFor({ timeout: 30_000 });
   const statuses = await (await request.get(`${GATEWAY}/api/v1/status`, { headers })).json();
   const session = statuses.sessions[0];
   expect(session, 'the status lists the paired session').toBeTruthy();
@@ -205,7 +216,7 @@ async function captureAndDisconnect(page: Page, command: Command, info: TestInfo
   await info.attach('agent-canvas.png', { body: bytes, contentType: 'image/png' });
   await shot(page, 'forge-connected.png');
   if (beforeDisconnect) await beforeDisconnect();
-  await agentPanel(page).getByRole('button', { name: 'Disconnect agent' }).click();
+  await agentPanel(page).getByRole('button', { name: 'Disconnect', exact: true }).click();
   const blocked = await command('forge.read', {});
   expect(blocked.code, JSON.stringify(blocked)).toBe('NOT_PAIRED');
 }
@@ -238,22 +249,17 @@ test.describe(`LATER 424: the native Forge agent pairing, end to end${ABSENT}`, 
     expect(errors, 'no page errors').toEqual([]);
   });
 
-  // FUI-25 (a second, small test, not a reload inside the paired one: a reload ends the page's paired session, which the
-  // tests after the pairing need): the short-form toggle is per viewer (localStorage), so it reads back on after a reload.
-  test('FUI-25: the short-form toggle of the consent survives a reload (per-viewer storage), on an unpaired consent', async ({ context, page, baseURL }) => {
+  // AX-U (a second, small test on an unpaired consent; a reload inside the paired one would end the session the tests
+  // after it need): the consent has every requested permission on, the code as small print, and no short-form toggle.
+  test('AX-U: an unpaired consent -- every requested permission on, the code as small print, Allow ready', async ({ context, page, baseURL }) => {
     test.setTimeout(120_000);
     await openConsent(context, page, new URL(baseURL!).origin, 'floor');
     await consentSixRows(page);
-    const toggle = agentPanel(page).locator('[data-agent-short-form]');
-    await expect(toggle).not.toBeChecked();
-    await toggle.check();
-    await expect(agentPanel(page).locator('.agent-panel__permissions label[data-permission="diagnose"]'), 'short form hides the unrequested row').toBeHidden();
-    await shot(page, 'fui25-short-form-on.png');
-    await page.reload();
-    await page.waitForLoadState('networkidle');
-    // The toggle is in the page's DOM whether or not a consent is pending (hidden then): read it back, not its visibility.
-    await expect(page.locator('[data-agent-short-form]')).toBeChecked();
-    expect(await page.evaluate(() => localStorage.getItem('forge.agent.permissions.shortForm'))).toBe('1');
+    const allow = agentPanel(page).locator('[data-agent-moment="allow"]');
+    await expect(allow.locator('[data-agent-short-form]')).toHaveCount(0);
+    await expect(allow.locator('.agent-panel__comparison')).toHaveText(/^Check: the code \S+ matches your agent's$/);
+    await expect(allow.locator('[data-agent-approve]')).toBeEnabled();
+    await shot(page, 'axu-consent-all-on.png');
   });
 
   test('--plant: an agent-built Demolition layout, pickup and plant by normal input in Forge Play', async ({ context, page, baseURL }, info) => {

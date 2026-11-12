@@ -55,11 +55,12 @@ export function overlayEnabled(kind: OverlayPageKind): boolean {
 /**
  * HD-4 review F2 (OT.R79, HD.R8; a browser adaptation): the pages whose match follows the page's picture (`../../picture`
  * `pagePicture`) -- the console (Home; its START mounts the front end), the front end and the disc page that mounts it --
- * so only there Options > Display offers its "Video" row. The test room, the forge and the launch settings draw their
- * own look; a row there would say a match follows it when none does.
+ * so only there Options > Display offers its "Video" row. RB-16 (PS-4, OT.R114): and the test room, whose look follows
+ * the same picture (`../../main`'s `ui.onLook(..., pagePicture())`). The forge and the launch settings draw their own
+ * look; a row there would say a match follows it when none does.
  */
 export function videoPictureFollows(kind: OverlayPageKind): boolean {
-  return kind === 'console' || kind === 'front-end' || kind === 'disc';
+  return kind === 'console' || kind === 'front-end' || kind === 'disc' || kind === 'viewer';
 }
 
 /**

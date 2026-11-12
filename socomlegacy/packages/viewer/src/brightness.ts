@@ -71,11 +71,24 @@ export function brightnessOfVars(vars: { find(name: string): { value: unknown } 
 
 const screens = new Set<HTMLElement>();
 let filter = 'none';
+/** VS-5 (VS.R6, `./colourFilter`, a browser adaptation): a screen's own term after the brightness, composed, never replacing it. */
+const tails = new WeakMap<HTMLElement, string>();
 
 /** One screen's filter: at the default no inline style at all (the screens are placed by CSS, `./styles.css`), else the factor. */
-function apply(el: HTMLElement, f: string): void {
+function apply(el: HTMLElement, b: string): void {
+  const tail = tails.get(el) ?? 'none';
+  const f = b === 'none' ? tail : tail === 'none' ? b : `${b} ${tail}`;
   if (f === 'none') { if (el.style.filter) el.style.removeProperty('filter'); }
   else if (el.style.filter !== f) el.style.filter = f;
+}
+
+/**
+ * VS-5 (`./colourFilter`): the term composed after the brightness on one element (`none` removes it); the brightness
+ * is the page's on a registered screen, none on another element.
+ */
+export function setScreenFilterTail(el: HTMLElement, tail: string): void {
+  if (tail === 'none') tails.delete(el); else tails.set(el, tail);
+  apply(el, screens.has(el) ? filter : 'none');
 }
 
 /** Register one of the game's own screens: it takes the current filter now and every change after (until removed). */

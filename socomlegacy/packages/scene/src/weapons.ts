@@ -127,6 +127,16 @@ export interface WeaponRecord {
   maximumRange: number;
   /** `Effective_Range`, metres (0 when absent). */
   effectiveRange: number;
+  /**
+   * THREAT-MARKS (research 321 section 2.6, research 94 C1 row 1): the record's stored `Sound_Radius`, world units -- the
+   * parser `FUN_003cda30` reads the key (0x3fcab0, 0 when absent: D:L322484-322487), multiplies it by `DAT_003dfe10` = 10
+   * and `FUN_003d2a00` stores it at `+0x30` and its square at `+0x34` (D:L325313-325320), the square the weapon release's
+   * threat gate compares (`FUN_005c5340` D:L479143; `viewer/src/threatMarks.ts`). The M4A1 1000, the M4A1 SD 100, the
+   * 552SD 50 (r0004's override, R4B-10a, research 384; over the disc's 40 x 10 = 400), the M14 1500. R4B-10a's
+   * override lands on this field. Optional: records built by hand
+   * before it carry none (no marks: an absent key is 0).
+   */
+  soundRadius?: number;
   /** `DecalSet`: the `decals.rdr` set its hits mark with. */
   decalSet: string;
   /** `Reticule_Modifiers STANCE_STAND`: `ReticuleKnock`, `ReticuleKnockReturn`, `ReticuleKnockMax` (= `stances.stand`'s). */
@@ -272,6 +282,9 @@ export const R0004_M60E3_STAND: Readonly<Pick<WeaponStance, 'dilateMove' | 'targ
  */
 export const M60E3_FIRE_WAIT_READING = 0.16;
 
+/** The r0004 initializer's exact `552SD` override (0x3e6bc8, research 384). */
+const SIG_552SD_SOUND_RADIUS_READING = 50;
+
 /**
  * R4B-01's step, the one both readers of `FireWait` take (R4B-06: `weaponRecord` and the arsenal's `arsenalOf`): the
  * record's `+0x50` as r0004's parser leaves it -- `M60E3_FIRE_WAIT_READING` for the M60E3 (r4 0x3f054c-0x3f057c, stored
@@ -333,6 +346,11 @@ export function weaponRecord(script: RdrNode, name: string, options: WeaponReadO
   if (standNode === undefined) throw new Error(`${where} has no Reticule_Modifiers STANCE_STAND`);
   // R4B-01 (OT.R97): r0004's parser stores 0.16f over the M60E3's read FireWait (r4 0x3f054c; M60E3_FIRE_WAIT_READING).
   const fireWait = parsedFireWait(name, n('FireWait'));
+  // THREAT-MARKS: `Sound_Radius` x 10, as `FUN_003cda30` stores it at `+0x30` (D:L322484-322488); 0 when absent.
+  const parsedSoundRadius = rdrGet(record, 'Sound_Radius') === undefined
+    ? 0
+    : rdrReal(record, 'Sound_Radius', UNITS_PER_METRE, where);
+  const soundRadius = name === '552SD' ? SIG_552SD_SOUND_RADIUS_READING : parsedSoundRadius;
   const knockAt = `${where} STANCE_STAND`;
   // ZoomMode%d for 0..NumZoomModes-1; a missing one is -1 (the parser's 0xbf800000).
   const zoomModes: number[] = [];
@@ -375,6 +393,7 @@ export function weaponRecord(script: RdrNode, name: string, options: WeaponReadO
     ammo, ammoId: roundless ? -1 : n('ID', round, `zweapon.rdr ZAMMO ${ammo}`), piercing: optReal(round, 'Piercing', `zweapon.rdr ZAMMO ${ammo}`) ?? 0,
     impactDamage: optReal(round, 'ImpactDamage', `zweapon.rdr ZAMMO ${ammo}`) ?? 0, damageModifier: optReal(record, 'Damage_Modifier', where) ?? 0,
     maximumRange: n('Maximum_Range'), effectiveRange: opt('Effective_Range', 0), decalSet: text(record, 'DecalSet', where),
+    soundRadius,
     knock: { knock: n('ReticuleKnock', standNode, knockAt), knockReturn: n('ReticuleKnockReturn', standNode, knockAt), knockMax: n('ReticuleKnockMax', standNode, knockAt) },
     stances, zoomModes,
     accuracyBurst: {
@@ -504,6 +523,7 @@ function stance(
 export const DEFAULT_RIFLE: WeaponRecord = {
   name: 'M4A1', id: 54, fireWait: 0.12, roundsPerMinute: 500, magazine: 30, mags: 3,
   ammo: '5.56 x 45mm', ammoId: 8, piercing: 3, impactDamage: 2.3, damageModifier: 0.3, maximumRange: 1000, effectiveRange: 600, decalSet: 'BULLET_MARK_SMALL',
+  soundRadius: 1000,
   knock: { knock: 12, knockReturn: 70, knockMax: 45 },
   stances: {
     stand: stance(12, 70, 45, [5, 4, 20, 24, -0.06], [7, 1, 1, 50, 1, 26], [0.5, 0.18, 0.09, 0.015], 1, 0.4),
@@ -534,6 +554,7 @@ export const DEFAULT_RIFLE: WeaponRecord = {
 export const HELD_RIFLE: WeaponRecord = {
   name: 'M4A1 SD', id: 62, fireWait: 0.14, roundsPerMinute: 429, magazine: 30, mags: 3,
   ammo: '5.56 x 45mm', ammoId: 8, piercing: 3, impactDamage: 2.3, damageModifier: 0.15, maximumRange: 800, effectiveRange: 550, decalSet: 'BULLET_MARK_SMALL',
+  soundRadius: 100,
   knock: { knock: 12, knockReturn: 70, knockMax: 45 },
   stances: {
     stand: stance(12, 70, 45, [6, 6, 20, 24, -0.04], [7, 1, 1, 50, 1, 26], [0.5, 0.18, 0.09, 0.015], 1, 0.4),
@@ -564,6 +585,7 @@ export const HELD_RIFLE: WeaponRecord = {
 export const HELD_SIDEARM: WeaponRecord = {
   name: 'Mark 23', id: 15, fireWait: 0.2, roundsPerMinute: 300, magazine: 12, mags: 3,
   ammo: '45 ACP', ammoId: 3, piercing: 4, impactDamage: 3, damageModifier: 0, maximumRange: 125, effectiveRange: 50, decalSet: 'BULLET_MARK_SMALL',
+  soundRadius: 600,
   knock: { knock: 20, knockReturn: 60, knockMax: 40 },
   stances: {
     stand: stance(20, 60, 40, [0, 0, 0, 0, 0], [20, 0.75, 1, 75, 10, 30], [0, 0, 0, 0], 1, 1),

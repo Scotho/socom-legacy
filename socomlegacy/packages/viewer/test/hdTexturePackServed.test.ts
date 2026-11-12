@@ -3,7 +3,9 @@ import {DataTexture} from 'three';
 import {HdTextureRegistry,type HdManifest} from '../src/hdTexturePack';
 import type {Rgba} from '@s2u/gs';
 import {decodeDds} from '../src/dds';
-import {HdServedPack,HD_ROOT} from '../src/hdTexturePackServed';
+import {HdServedPack,HD_ROOT,lazyHdPackDecoders} from '../src/hdTexturePackServed';
+import {HdMenuDecoder,type HdDecodeWorkerPort} from '../src/hdMenuTextures';
+import {PackApplier,type HdSwitch,type TextureChoiceKeeper} from '../src/packs/pagePacks';
 import {sha256} from '../src/texturePack';
 
 const image=(w:number,h:number,px:number[])=>({width:w,height:h,data:new Uint8ClampedArray(Array.from({length:w*h},()=>px).flat())});
@@ -88,5 +90,42 @@ describe('GM-13d: the DDS decode is injected',()=>{
     await pack.setEnabled(true);
     expect(t.image.width).toBe(2);
     expect(pack.runtime.skipped()[0]!.reason).toBe('payload unavailable (DDS: truncated image data)');
+  });
+});
+
+describe('PR #729 Codex P2 (matchMount.ts:900): a disposed pack ends its lazy decoder\'s worker',()=>{
+  // Each match makes its own `HdServedPack` over a lazy `HdMenuDecoder`, whose worker starts at the first payload; the
+  // match's teardown disposes its pack (`PackApplier.dispose`), which now ends that worker, so none is left per match.
+  const fakeWorker=()=>{
+    const w={terminated:0,posted:0,onmessage:null as unknown,onerror:null as unknown,onmessageerror:null as unknown,
+      postMessage(){w.posted++;},terminate(){w.terminated++;}};
+    return w;
+  };
+  it('the worker started by a payload is terminated once by the pack\'s dispose; a decoder never made is not made',async()=>{
+    const w=fakeWorker();
+    const decoders=lazyHdPackDecoders(async()=>new HdMenuDecoder(()=>w as unknown as HdDecodeWorkerPort,async()=>undefined));
+    const pack=new HdServedPack(undefined,undefined,new HdTextureRegistry(),null,decoders,{storeOnly:true});
+    const asked=decoders.png!(new Uint8Array(8),64).catch(e=>String(e));          // the first payload: the worker starts
+    await new Promise(r=>setTimeout(r,0));
+    expect(w.posted).toBe(1);
+    await pack.dispose();
+    expect(w.terminated).toBe(1);
+    expect(await asked).toMatch(/closed/);                                          // the waiting request refused
+    let made=0;
+    const idle=new HdServedPack(undefined,undefined,new HdTextureRegistry(),null,
+      lazyHdPackDecoders(async()=>{made++;return new HdMenuDecoder(()=>fakeWorker() as unknown as HdDecodeWorkerPort,async()=>undefined);}),{storeOnly:true});
+    await idle.dispose();
+    expect(made).toBe(0);
+  });
+  it('the page\'s applier disposes its HD switch when it has a dispose (the match\'s teardown, `packs.dispose()`)',async()=>{
+    const calls:string[]=[];
+    const hd:HdSwitch={setEnabled:async(on)=>{calls.push(`enabled:${on}`);},dispose:async()=>{calls.push('dispose');}};
+    let v:string|null='hd:'+'a'.repeat(64);
+    const choice:TextureChoiceKeeper={get:()=>v,ready:Promise.resolve(),observe:()=>()=>undefined,refresh:async()=>undefined,dispose:()=>undefined};
+    const packs=new PackApplier({choice,registry:new HdTextureRegistry(),hd:()=>hd});
+    await packs.ready;
+    await packs.dispose();
+    expect(calls).toEqual(['enabled:true','dispose']);
+    v=null;
   });
 });

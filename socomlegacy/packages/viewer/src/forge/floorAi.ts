@@ -12,8 +12,16 @@ import type { AiMaps, AiSubMap } from '@s2u/scene';
 
 /** The floor's soil: 3, the one `basicStepCost` (`match/src/hostagePath.ts`) adds no surcharge for. */
 export const FLOOR_AI_SOIL = 3;
-/** The floor's AI cell size (world units). An editor's value (FG.R2): the disc's sub-maps carry their own. */
-export const FLOOR_AI_CELL = 32;
+/**
+ * The floor's AI cell size (world units): the disc's -- a reading, 10 by 10 on every one of the 83 sub-maps of the
+ * disc's `AIMAPS.MPS` (research 75 section 3, the sub-map header's +0x24; read by `@s2u/scene` `parseAiMaps`, pinned over
+ * every map by `scene/test/spawnSlots.parity.test.ts`). FP-1a: the grid itself is the Forge's (FG.R2), its cell the
+ * disc's one value, so the hostage machinery's cell-count rules and its literals (`match/src/hostageFollow.ts`
+ * `FOLLOW_RULES_READING.cell` 10, `hostageSteering.ts` `cellInverse` 0.1) read the floor as they read a disc map; it was
+ * 32 (Crispy's editor value), on which those literals were wrong. 8000 units square is 800 x 800 cells (5.12 MB once a
+ * composition). `param` 0.5 and the 1024 ceiling stay the floor's own (no reader of either).
+ */
+export const FLOOR_AI_CELL = 10;
 
 /** The AI map for a blank floor `size` units square about the origin, at height 0. */
 export function floorAiMaps(size: number, cell = FLOOR_AI_CELL): AiMaps {

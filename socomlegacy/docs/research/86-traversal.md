@@ -158,7 +158,10 @@ The state is `seal+0x174` == 5 (reCOM `SEAL_STATE::stateClimbLadder`, `zSeal/zse
 0x2d "Climb ladder", 0x2e "Climb off ladder"; by name (`FUN_005e1df0`, decomp 495177-495348): `DAT_003def40` "Ladder
 -> slide", `DAT_003def50` "Ladderslide", `DAT_003def60` "Ladderslide land".
 
-- **The contact, no button.** `FUN_005b4b40` (decomp 469562) runs each tick (not in states 4, 5) on the wall contact
+- **The contact.** *Corrected 2026-11-11 (LC-1, section 2.6): this bullet's "no button" -- "Walking into the ladder
+  mounts it" -- is a misreading: it read `FUN_005b4b40` but not the gate around its call. `FUN_00550ef0` calls it only
+  under the controller's one-frame bit `+0x170` 0x4 (D:L418120-418155), which `FUN_00592d50` sets on the Action release
+  with CLIMB selected (D:L452181-452183). The contact OFFERS the ladder; the press mounts it.* `FUN_005b4b40` (decomp 469562) runs each tick (not in states 4, 5) on the wall contact
   the move solver records at `seal+0x1090` (point, polygon `+0xc`, normal `+0x10`, node `+0x1c`): in front
   (`dot(normalize(seal - contact).xz, n) >= 0.3`) and facing it (`dot(seal matrix row 2, n) >= 0.02`, row 2 the back
   axis: facing into the quad); for the short quad `|dot|`, either facing. `FUN_005b3890` (decomp 469000) drops the
@@ -230,7 +233,8 @@ climb-off and slide clips' `refPt` says; the hands land on the rungs in the brow
   steep-wall contact (`seal+0x1090`, held while `+0x10ac`), recorded from the move's own hit by `FUN_005483d0` through
   `FUN_005b0d30` (D:L413866, section 3.1). A ladder contact is one whose polygon's `(poly[+0xA] & 0x7f) >> 4 == 2`
   (`APP_LADDER`). On it: in front, `dot(normalize(seal - contact).xz, n) >= 0.3`; facing, `dot(back axis, n) >= 0.02`
-  (`|.|` for the short quad, at most 15 tall by `FUN_002dbfb0`). No button, no stick test, no radius.
+  (`|.|` for the short quad, at most 15 tall by `FUN_002dbfb0`). No stick test, no radius. *Was:* "No button" -- a
+  misreading, corrected by section 2.6: the call to `FUN_005b4b40` is gated on the Action press.
 - **The drop** (`FUN_005b3890`, D:L468957-469012): past 24 horizontally (576 = 24^2), behind the face, faced away
   from, and on a ladder polygon the short quad with the feet more than 10 under its bottom (D:L469001-469002), or bit 1
   of `seal+0x1061` (`<< 0x3e`, D:L469004-469005; `LADDER_DROP_FLAG_READING`: what sets it is unread; taken as never
@@ -238,9 +242,9 @@ climb-off and slide clips' `refPt` says; the hands land on the rungs in the brow
 - **The port** (`Traversal.touchLadder`): the contact from the walk's own hits (`contactFromHits`, as the climb's,
   PB-3b), the drop first and then the store; the ladder found by the contact's plane. *Was:* any ladder whose plane lay
   within the body's radius + 0.25 (`TOUCH`, uncited), in front by the ratio out / hypot(out, off-edge) -- a SEAL walking
-  into the wall beside a flush ladder mounted it up to ~10 past its edge. The port keeps a stick-into test
-  (`(wish . n) <= -0.02`) the original does not have (`LADDER_STICK_INTO_READING`: without it a contact held up to 24
-  would snap on a SEAL who brushed the rungs and backed off facing them; a capture settles it), and matches the contact
+  into the wall beside a flush ladder mounted it up to ~10 past its edge. *Was (to LC-1, 2026-11-11):* a stick-into test
+  (`(wish . n) <= -0.02`, `LADDER_STICK_INTO_READING`, retired) kept so a contact held up to 24 would not snap a SEAL on;
+  with the press gate (section 2.6) nothing mounts without the press, and the test went. The port matches the contact
   to its ladder record within 1 of the plane and half-width + 1 across (`LADDER_MATCH_READING`, no source).
 - **A still body's contact.** The port's walk casts nothing still (research 217 s2.3); the original casts a still
   body's segments along the facing (`FUN_0054aa30`, velocity under 0.0005 a component, D:L415135-415149; research 217
@@ -253,7 +257,69 @@ climb-off and slide clips' `refPt` says; the hands land on the rungs in the brow
   now packs it into the hull (a ladder is mounted on a contact). `botLadder.test.ts` LF3's "at least one mount" pinned
   two nearness mounts 8 and 6.4 past the quad's edge with no wall hit; the lower bound is dropped (the bot lane owes a
   leg that meets the rungs).
-- Pinned by `traversal.test.ts` "LDR-1" (5 past the edge: no mount; over the quad: mounts).
+- Pinned by `traversal.test.ts` "LDR-1" (5 past the edge: no mount; over the quad: mounts -- on the press since LC-1).
+
+### 2.6 The ladder is offered as CLIMB and mounted on the press (LC-1, 2026-11-11) [reading, pending review; U7 a capture]
+
+The owner's playtest of 2026-11-11 (~04:08Z, the original r0004 on PCSX2, FROSTFIRE / MP2 online on our local Medius,
+the shadow seat's rig): "Our client automatically grabs the ladder ... the player does NOT automatically grab the ladder
+in the reference. they are provided a CLIMB icon on both sides"; then "our ladder slide looks great, just the attachment
+issue automatically and no climb icon". Two reads, independent of each other and of the Fable seat's
+`DEEP-LADDER-RULE-SHEET.md` (`agent/fable-findings` 9ac55e9c8; reading, pending review), agree:
+
+- **The mount needs the Action press.** `FUN_00550ef0` calls the mount `FUN_005b4b40` only under the controller's
+  one-frame bit `+0x170` 0x4 (D:L418120-418133; and D:L418152-418155 through `FUN_0057f2a0` D:L441293-441310, which for one
+  controller kind reads that controller's `+0x172` bit 0x2 instead, D:L441303-441308: `LADDER_OFFER_CONTROLLER_READING`); `FUN_00592d50`
+  sets it on the Action release when action 2 (CLIMB, bit 4 of `+0xed4`) is selected, with the climb request
+  `FUN_005469e0` (D:L452181-452183, D:L452216-452217), reached from `FUN_00594cf0` through the controller's `+0x78`
+  (D:L453221-453243). Walking into a ladder never sets the bit. Research 313 section 2.1 reads the same gate for the
+  crate; the ladder goes through the same function. Sections 2.3 and 2.5's "no button" missed it (corrected above).
+- **The offer is CLIMB.** `FUN_00593500` asks `FUN_0059da60` -> `FUN_005b3ce0(actor, 2)` each frame (D:L452294-452301,
+  D:L457438-457441) and raises action 2 (`FUN_00544ca0(actor, 2, 1)`, D:L411193-411203): `action_climb.tif` / "CLIMB"
+  (`FUN_0021ded0` D:L73549, D:L73614-73621). `FUN_005b3ce0`'s ladder tests: the stored contact a ladder's polygon, in
+  front, facing `>= 0.02` (`|.|` at the short quad, so the head offers from either facing), no reservation pending
+  (`+0x1062`, D:L469166), nobody on the ladder (D:L469167-469173), and the same `FUN_005b4340(actor, 2)` common gates the
+  crate's offer asks (D:L469160). Both ends are class-2 contacts, so CLIMB shows at the foot and at the head.
+- **LADDER SLIDE** (action 0x10, `action_slide.tif`, offered every frame of state 5, D:L452304-452306; acting only while
+  "Climb ladder" plays, `FUN_0057f530` D:L441384-441410) is unchanged: the owner confirmed the port's slide.
+
+**The port (LC-1).** `Traversal.offerLadder` (was `touchLadder`) keeps the contact's geometry -- the drop, the store,
+facing `>= 0.02` (`|.|` at the short quad) -- with the offer's own "in front", `(pos - point) . n > 0` (`FUN_005b3ce0`
+D:L469233-469240), the mount's stricter `>= 0.3` of the normalised offset (`FUN_005b4b40`) asked at the press
+(`mountOffered`: a SEAL offered CLIMB at a steep angle presses and nothing mounts; review F2) -- adds the crate's common gates (`climbOffered`,
+`CLIMB_OFFER_GATE_READING`) and none prone, and no longer mounts: `climbPrompt()` reports `{ kind: 'ladder', automatic:
+false }`, so the HUD's action list draws CLIMB through the traversal's existing entry, and the mount (`mountOffered`) runs
+only on the action press that reaches `step` (the crate's own `pressed`; the room by the command's Action bit,
+`MoverSim.apply`). The step-up climb's automatic path is untouched (its own plan; `traversal.test.ts` NU-1c B12).
+Not modelled and named (review F3): `LADDER_OFFER_CONTROLLER_READING` (for one controller kind the offer also asks
+D:L469174-469189 and the mount reads `+0x172` 0x2), `LADDER_OFFER_MOTION_READING` (six motions refuse the offer,
+`FUN_00577e40` D:L469197-469210, beyond `climbOffered`'s), `LADDER_AIRBORNE_OFFER_READING` (`'ground only'`: the original
+offers CLIMB in a jump or landing, D:L452279-452290). Note: a walk toward the foot is offered CLIMB from ~19 out in the
+port (the segment records store the face's hit early; dropped past 24) -- U1 measures the original's reach.
+Retired: `LADDER_STICK_INTO_READING`. New: `LADDER_OCCUPANCY_READING` (`'not modelled'`: no per-ladder occupant, no
+ladder claim on the wire -- LC-3, a wire field for the main controller to approve). Bots (LC-2, a bot adaptation, OT.R81):
+`BotLadderDrive` and the navigation's mount probe press Action while the ladder offers CLIMB. Under a still reload clip
+the ladder, like the crate (NU-1b B1), is not offered: `roomStillReloadJump.test.ts`'s PAR-28 end 2 (a ladder mounted
+under the clip by the touch) is now "LC-1 (was PAR-28 end 2, ladder)".
+
+**U7 -- the capture (a capture comparison of frames, unscored).** The owner's own session on the original, r0004 on
+PCSX2 2.8.2 (the rig's patched PINE build), FROSTFIRE online on our local Medius, client A, 2026-11-11
+04:08:43Z: standing at the foot of a FROSTFIRE ladder, not grabbed, the HUD's action slot showing the ladder icon and
+"CLIMB" (`ladder-climb-prompt/desk-040843Z-3.png`, sha256 3d1aa676ab9e45a06803c668064b73d8da514674e178c67ea1b5c3f94c96b7c4);
+then one frame a second for 240 s of client A's window (`clientA-001.png` .. `clientA-240.png`; the sha256 of
+`sha256sum clientA-*.png`'s output: 4e482a207a5d39d1474cdd16e45622ee65ee89ffbff231f2c6c69005b3bafa66): CLIMB stays offered
+at the foot for ~70 s (round clock 01:12 to 00:00) with no mount. Whether the stick pushed into the rungs in that time is
+not recorded (no pad log), so this shows "offered and not grabbed", consistent with the press gate, not "pushed and
+refused". The frames are on the second PC (`evidence/ladder-climb-prompt/`), uploaded with the rest once the owner's AWS
+login is back.
+
+**Owed (captures the owner can play on the rig).**
+- **U1** (the offer's reach): walk slowly toward the foot head-on and at about 45 degrees, frame by frame: the frame
+  CLIMB first shows; the same backing away (the contact's drop, 24 across, `FUN_005b3890`); then at the head.
+- **U2** (the head facing away): at the top, facing the ladder and then facing away from the drop, Cross each time:
+  whether CLIMB shows facing away (the short quad's `|dot|`) and whether "180" plays first.
+- **U7 proper**: the stick held into the rungs 3 s with no Cross (expect no mount), with a pad log beside the frames.
+- **`LADDER_OCCUPANCY_READING`**: two consoles, one SEAL on the ladder: whether CLIMB shows for the second at its foot.
 
 ## 3. The climb
 
@@ -831,6 +897,12 @@ normal y 0.589). No prone roll, no mantle beyond the climbs, no rappel, zipline 
 
 ### 6.3 The jump up a slope: the floor in the air (round 4, 2026-09-29) [read, data]
 
+**Superseded for the airborne tick on the segment path (2026-11-10, AIR-PROBE): [research 399](399-the-airborne-floor-probe.md).**
+The per-sub-step refusal below (`airStep`: each sub-step of at most `MAX_SUBSTEP` whose column has no floor not taken)
+is not the original's cadence: it probes once a game frame at the end of the frame's whole move, and a miss puts x/z
+back at the last hit while the height goes on (`AIR_FLOOR_PROBE_READING` 'frame-end'; the refusal kept as its
+`'sub-step'` arm). The floor pick itself, the rise onto a slope and the landing below stand as written.
+
 **The owner's report** (2026-09-29, after playing): a jump while running up terrain went through the ground most of the
 time. **Reproduced** (`test/walk.test.ts`, "a running jump up a slope"): ramps of 15, 26.6, 40 and 48 degrees over a
 floor running on under them, a take-off on the flat just short of a ramp's foot, Frostfire's rail ramp `rmp1` (x
@@ -978,12 +1050,16 @@ Named in the code:
 | `PRONE_TOP_READING` (`mover.ts`, `STANCE.prone.bodyHigh`) | 9 | the prone body's column top: a body lying down is about 0.9 m high with the head and rifle up; the foot stays at 6, the step's band. The original has no column: its prone probe is a fan of segments along the travel (`FUN_0054aa30`, D:L415150-415240; research 180 §1.6), owed to PF-16. PF-05's first fix round read class 2 as a radius-8 disc at the feet + 3 -- a misreading (it froze a prone SEAL in any gap under 16), taken out in its third | retired 2026-10-05 (web sprint 28, PF-16): no column -- prone the probe at the feet + 3.0, 8.0 ahead along the travel and 3.12 across (`WALL_PROBE_READING`, `PRONE_FAN_READING`; `FUN_0054aa30` D:L415582-415621, research 217 §2) |
 | `PRONE_PROBE_HEIGHT_READING` (`mover.ts`) | 3 | PF-05's first fix round: one prone probe at the feet + 3 with a radius-8 disc (`PRONE_BODY_RADIUS`), read from `FUN_0054aa30` class 2 | removed 2026-10-04 (PF-05's third round): a misreading -- class 2's 8.0 sizes a fan of segments along the travel (D:L415150-415240), not a disc; the fan is PF-16's |
 | `PRONE_GATE_READING` (`mover.ts`, `Walker.proneRefused`) | 11.2 ahead, 8.0 behind, at the feet + 0.5 x step_height (3.25) | `FUN_00552ec0`'s prone gate (D:L418935-418940) through `FUN_0054d620` (D:L416194-416363): two segments, an obstacle on either refuses prone from stand or crouch; brought forward from PF-15 by PF-05's second fix round (research 180 §4.2) | **8.0 behind: proven** (2026-11-03) by ac's capture at M51's fence `worldmodel/noreg_343344/g15582` (PCSX2 r0004, 3 trials each, all identical, 2026-11-03T02:56-03:03Z; `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/results/SEGMENT-BODY.md`, "02:56-03:03Z" (a)): standing facing away, the press refused at 7.00 / 7.50 / 7.75 u from the plane and taken at 8.00 / 8.25 / 8.50 u, the limit between 7.75 and 8.00; held by `segmentBody.test.ts` "M51's fence g15582" (a), a dev-disc test (no harness spec or golden trace yet); a capture of one thin fence, level ground. **11.2 ahead and the 3.25 height: a reading** (neither varied by the capture): the segments' turn by the rotation from up to `actor+0x410` (`FUN_00306d40`) taken as none, level; `FUN_005ab590`'s material filter not transcribed (the mover's walls); research 217 §2.9 |
-| `STEP_PROBE_LIFT_READING` (`mover.ts`) | 5.5 | the mover's probe origin over the feet, every tick and the spawn: research 23 section 1.2's PCSX2 spawn image (+5.5; the origin is pose-dependent, +4.7 / +11.2 elsewhere), so the pick's window reaches `step_height` 6.5 (section 6.5; ported from Chris's browser-beta-v5) | open, a reading; W2.2c measures (a 6.25 kerb over a lower floor on PCSX2: walked at, spawned on, landed on) |
+| `STEP_PROBE_LIFT_READING` (`mover.ts`) | 5.5 | the mover's probe origin over the feet, every tick and the spawn: research 23 section 1.2's PCSX2 spawn image (+5.5; the origin is pose-dependent, +4.7 / +11.2 elsewhere), so the pick's window reaches `step_height` 6.5 (section 6.5; ported from Chris's browser-beta-v5) | retired 2026-11-09 (PROBE-ORIGIN, LATER 785): replaced by r0004's floored root per posture (`PROBE_LIFT_FLOOR_R0004`, `probeLiftOf`, `Walker.probeLift`; 11.48 standing, 5.504 crouched; the r0004 origin trace, research 80 s7) -- the PCSX2 spawn image's +5.5 was the crouched player's root |
 | `SLIDE_SPAN_MEASURE_READING` (`steepSlide.ts`) | `'column'` | how `FUN_0054f330` reads the polygon's top − bottom. Research 201 §3 leaves `FUN_002dbfb0`'s two points interpretive and reads them as top and bottom the way `climb.ts` `columnTop` does: the highest and lowest edge point whose xz-projection contains the feet, or null when none does (a failed extent read slides). On a planar quad under the feet that span is the polygon's full height, so a 3-tall face does not slide a standing body and does slide a prone one (the note's test). `'vertices'` is max y − min y of the polygon, ignoring where the feet are | open, a reading; the capture owed in research 201 §3 |
 | `HEADROOM_FROM_READING` (`mover.ts`) | 14 | the foot of `FUN_0057efe0(actor, 0)`'s headroom ray: the game casts from a skeleton node (`actor+0x304`) + 2 (decomp 441218) to the feet + 19 (441214); the node's height is not in hand, so the ray starts at the crouch column's top | retired 2026-10-05 (web sprint 28, PF-15): the node is the hips (`actor+0x304`, D:L419618-419619), the foot the stance's idle hips + 2 on both ends (`HEADROOM_HIPS_READING`, research 217 §1.2) |
-| `LADDER_STICK_INTO_READING` (`traversal.ts`) | `'pushing into the face'` | the ladder mount's stick test (a wish pushing into the contact's face, `(wish . n) <= -0.02`), which `FUN_005b4b40` (D:L469562-469676) does not have; kept so a contact held up to 24 (`FUN_005b3890`) does not snap on a SEAL who brushed the rungs and backed off facing them (section 2.5) | open, a reading; a capture of brushing a ladder and backing off |
+| ~~`LADDER_STICK_INTO_READING`~~ (`traversal.ts`) -- retired 2026-11-11 (LC-1, section 2.6: the mount is the press's) | `'pushing into the face'` | the ladder mount's stick test (a wish pushing into the contact's face, `(wish . n) <= -0.02`), which `FUN_005b4b40` (D:L469562-469676) does not have; kept so a contact held up to 24 (`FUN_005b3890`) does not snap on a SEAL who brushed the rungs and backed off facing them (section 2.5) | retired 2026-11-11 (LC-1): the mount is the Action press's; nothing mounts on a touch |
 | `LADDER_STILL_CAST_ACTORS_READING` (`traversal.ts`) | `'every actor'` | `ladderHits`' still cast along the facing runs for every actor, room bots and remotes included; the original casts for the local player only (D:L415036-415055: vtable +0x30, bit 0 of +0x268 under the 0x44d4d0 flag) (section 2.5) | open, a reading |
 | `LADDER_MATCH_READING` (`traversal.ts`) | 1 | `ladderOf`'s match of a contact to its ladder record: within 1 of the plane, half-width + 1 across; no source (the original reads the contact's polygon, no ladder list); 1 is `findLadders`' `SAME` (section 2.5) | open, the port's own |
+| `LADDER_OCCUPANCY_READING` (`traversal.ts`) | `'not modelled'` | `FUN_005b3ce0(a, 2)`'s refusal of a ladder another SEAL is on (D:L469167-469173) or whose reservation is pending (`+0x1062`, D:L469166), and online the host's ClimbAsk / ClimbOK (`FUN_002b9f60` D:L468438-468481): the port keeps no occupant and its wire no claim, so two SEALs may take one ladder (section 2.6) | open, a reading; LC-3 (a wire field, the main controller's); a two-console capture settles it |
+| `LADDER_OFFER_CONTROLLER_READING` (`traversal.ts`) | `'not modelled'` | for one controller kind (vtable +0x30 true) `FUN_005b3ce0` also asks +0x38's +0x3f4 == 7 and (+0x448 & 7) != 0 (D:L469174-469189), and `FUN_0057f2a0` reads +0x172 0x2 for the mount (D:L441303-441308); which controllers is unread (section 2.6) | open, a reading; read the vtables |
+| `LADDER_OFFER_MOTION_READING` (`traversal.ts`) | `'not modelled'` | `FUN_005b3ce0` refuses the offer while six motions play (`FUN_00577e40` on 0x2a, 0x21, 0x2c, `DAT_003dec80/90/a0`, D:L469197-469210), beyond `climbOffered`'s gates (section 2.6) | open, a reading; name the six, a capture of CLIMB during each |
+| `LADDER_AIRBORNE_OFFER_READING` (`traversal.ts`) | `'ground only'` | the port offers a ladder on the ground only; `FUN_00593500` offers CLIMB in a jump or landing (D:L452279-452290) and `FUN_00550ef0` has a mount path under the motion flag 0x40 (section 2.6) | open, a reading; a capture: a jump into the rungs, Cross in the air |
 | `LADDER_DROP_FLAG_READING` (`traversal.ts`) | `'never set'` | `FUN_005b3890`'s drop of a ladder contact on bit 1 of `seal+0x1061` (D:L469004-469005): what sets the bit is unread (section 2.5) | open, a reading; read the writers of `+0x1061` |
 | `WEAPON_LINE_LENGTH_READING` (`weaponLine.ts`) | 59 lengths by `WEAP_GEO` name; the M4A1 SD 22.9303 | the weapon line's length, `FUN_0054e8f0` D:L416892-416902: 2 x the held model's `|bbox x max - x min|` (its `nparams` +0x40 bounds), unless the model's byte +0x5f has bit 6 (0x40) set (D:L416894), when `FUN_00541510` walks the +100 chain (D:L408768 on) -- no weapon model on the disc sets it (the byte is 0x80 or 0xa0; `weaponLine.test.ts` over `WEAP_GEO`'s 59) (s3.8) | open, a reading (the disc's bounds through the repository's readers, Frostfire's and M51's archives alike); **the M4A1 SD's 22.930 proven** (`WEAPON_LINE_M4A1_SD_PROVEN`: ac's RDRAM read on r0004, 2026-11-04 09:16Z, its bounds x -3.679799 to 7.785366, the flag byte 0x80, bit 6 clear), inside the capture's 22.5-23.4 reach |
 | `WEAPON_LINE_ONE_SIDED_PLACEHOLDER` (`weaponLine.ts`) | true | whether the weapon line's query `FUN_0031e160` (D:L416642) meets a polygon from its front only; its crossing test is not transcribed, and the port takes the hull's one-sided test as the segment records do (research 281 s4.3); a line starting inside a collider would meet the far side's back face under `false` (s3.8). One-sidedness only: the set of polygons is `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` | open; a read of `FUN_0031e160`'s crossing test, or a capture with the line starting behind a face |

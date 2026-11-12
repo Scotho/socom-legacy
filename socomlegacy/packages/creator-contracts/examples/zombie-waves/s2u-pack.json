@@ -1,0 +1,22 @@
+{
+  "format": "s2u-pack",
+  "formatVersion": 2,
+  "id": "example.zombie-waves",
+  "version": "1.0.0",
+  "name": "Zombie waves (example)",
+  "description": "An example rules pack on the published creator rules contract: three patrol waves from one NPC spawner, a ten-second rest between them, cash and a point per kill. The layout places the spawner horde.",
+  "target": "SCUS-97275",
+  "contract": "^0.1.1",
+  "kinds": ["rules"],
+  "sides": "server",
+  "dependencies": [],
+  "files": [
+    { "path": "rules/waves.json", "sha256": "760ade872b2c15446ba08e3f12903bc31ae941aaf4a9f4969bda5490ab5a5ccb", "size": 5046, "role": "rules" }
+  ],
+  "intents": [
+    { "kind": "new-behaviour", "files": ["rules/waves.json"] }
+  ],
+  "handlers": [
+    { "slot": "behaviour.npc", "handler": "behaviour.npc.patrol" }
+  ]
+}

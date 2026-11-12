@@ -68,8 +68,11 @@ export interface NetWalk {
    * `after`. When the walk replays from that command it calls `replayed` with it (the predictions after it are the run's).
    */
   knock?(knock: Knock, after?: number, replayed?: (after: number) => void): boolean;
-  /** Dead as the server has it (`kill` or `deadAtLoad`) until the next `spawn`: the mover's death landing stays down. */
-  setDead?(on: boolean, opts?: { keepDeath?: boolean }): void;
+  /**
+   * Dead as the server has it (`kill` or `deadAtLoad`) until the next `spawn`: the mover's death landing stays down.
+   * `fall` (FALL-DEATH-LAND): the kill was the body's own fall (`Walker.diedOfFall`).
+   */
+  setDead?(on: boolean, opts?: { keepDeath?: boolean; fall?: boolean }): void;
   /**
    * OT.R59 (RECONNECT-GHOST, a labelled adaptation): the seat handed back alive -- the mover stood at `at` facing `yaw`
    * in `posture`, `weapon` in the hand, the launcher `held` (null: none on the body), with no spawn's reset. Absent: the
@@ -178,6 +181,15 @@ export function applySnapshotWorld(snap: { env?: EnvWire }, world: WorldState, s
 }
 
 /**
+ * V13-3c (`SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold', `../worldState`): a death the room told (`sceneDeath`) laid
+ * on the page's world -- the record spent and, unless `silent` (a joiner's, `JOIN_SILENT_READING`), its death run for
+ * presentation (PF.R26). The round epoch is the caller's to check (`NetClient`). False when it was spent already.
+ */
+export function applySceneDeath(ev: { id: number }, world: WorldState, silent: boolean): boolean {
+  return Number.isInteger(ev.id) && world.takeDeath(ev.id, silent);
+}
+
+/**
  * NET-WIRE's review: whether world revision `a` is later than `b` on the wire's 32 bits (a serial-number comparison, as
  * `epochNewer` on 16: a wrap is later).
  */
@@ -257,6 +269,11 @@ export class NetClient {
   team: Team | null = null;
   /** The room's trusted CREATE GAME restriction (research 362 §3); older welcomes mean unrestricted. */
   eqLimit = 0;
+  /**
+   * HUD-ALIVE B (`../hud` `INFO_SESSION_MASTER_READING`): this seat wears the game lobby's host star (its last `gameLobby`
+   * word), the stand-in for the original's session master (`DAT_0045a0c0`) -- the info box's "%dm". False before a word.
+   */
+  sessionMaster = false;
   state: NetState = 'connecting';
   /** The socket's close code as the page heard it (HARD-SEAT: a game's seat ended for good, or a drop), null while open. */
   closeCode: number | null = null;
@@ -753,6 +770,25 @@ export class NetClient {
     this.handedWorld = { get: world };
     const w = this.worldNow();
     if (w && this.lastEnv) applySnapshotWorld({ env: this.lastEnv }, w, JOIN_SILENT_READING);
+    if (w) for (const id of this.toldDead) applySceneDeath({ id }, w, JOIN_SILENT_READING);   // V13-3c
+  }
+
+  /** V13-3c: the deaths the room told in the page's round (`sceneDeath`, the welcome's `sceneDead`), for `setWorld`. */
+  private readonly toldDead = new Set<number>();
+
+  /**
+   * V13-3c: a told death (`sceneDeath`) of round `epoch`: one of an older round than the page's is dropped; one of a later
+   * round resets the page's world first (`newEpoch`), as a snapshot of it does (`takeEnv`); then it is laid on the world
+   * (`applySceneDeath`) -- silently for the welcome's (`JOIN_SILENT_READING`).
+   */
+  private takeSceneDeath(id: number, epoch: number, silent: boolean): void {
+    if (!Number.isInteger(id) || !Number.isInteger(epoch)) return;
+    if (this.epoch === null) return;
+    if (epochNewer(this.epoch, epoch)) return;
+    if (epochNewer(epoch, this.epoch)) this.newEpoch(epoch);
+    this.toldDead.add(id);
+    const world = this.worldNow();
+    if (world) applySceneDeath({ id }, world, JOIN_SILENT_READING && silent);
   }
 
   /**
@@ -765,6 +801,7 @@ export class NetClient {
     if (this.epoch !== null && !epochNewer(epoch, this.epoch)) return false;
     this.epoch = epoch & 0xffff;
     this.lastEnv = null;                               // the round's opening state: nothing of the last round to lay on
+    this.toldDead.clear();                             // V13-3c: nor its told deaths
     this.worldNow()?.reset();
     return true;
   }
@@ -796,6 +833,8 @@ export class NetClient {
         if (!(ev.env && this.namedEnv && !envNewer(ev.env, this.namedEnv))) {
           this.epoch = typeof ev.epoch === 'number' ? ev.epoch & 0xffff : null;
           if (ev.env) this.takeEnv(ev.env, true);
+          // V13-3c: the round's deaths so far, silently (a joiner's `skip_effects`).
+          if (Array.isArray(ev.sceneDead) && this.epoch !== null) for (const id of ev.sceneDead) this.takeSceneDeath(id, this.epoch, true);
         }
         this.type = ev.gameType ?? null;                // PF-40: the room's mode, a new socket's own
         this.welcomed = true;
@@ -817,6 +856,7 @@ export class NetClient {
       // others). Set before the listeners hear the view: the lobby's hand-off, made on it, hands on the side it names.
       case 'gameLobby': {
         this.eqLimit = equipmentLimit(ev.eqLimit);
+        this.sessionMaster = this.welcomed && ev.seats.some((s) => s.id === this.id && s.host);   // HUD-ALIVE B
         const seat = this.role === 'player' && this.welcomed ? ev.seats.find((s) => s.id === this.id) : undefined;
         if (seat?.team) this.team = seat.team;
         break;
@@ -829,7 +869,7 @@ export class NetClient {
         else this.markSpawn(ev.id);                     // NU-12 B2: another seat's, counted on the bodies drawn
         break;
       case 'kill':
-        if (ev.victim === this.id) { this.loadDeathAt = null; this.loadDeathPose = null; this.alive = false; this.walk.setLocked(true); this.markedDead = true; this.walk.setDead?.(true); this.markDeathTick(); }
+        if (ev.victim === this.id) { this.loadDeathAt = null; this.loadDeathPose = null; this.alive = false; this.walk.setLocked(true); this.markedDead = true; this.walk.setDead?.(true, { fall: ev.how === 'fall' }); this.markDeathTick(); }
         break;
       case 'deadAtLoad':
         if (ev.id === this.id && this.role === 'player') {
@@ -863,6 +903,8 @@ export class NetClient {
           this.voiceMembers = { channel: ev.channel, members: ev.members };
         }
         break;
+      // V13-3c (`SCENE_DEATH_ON_WIRE_READING`): a scene object's death the room ran, laid on the page's world.
+      case 'sceneDeath': this.takeSceneDeath(ev.id, ev.epoch & 0xffff, false); break;
       // LATER 362: the room's pick for a door's use, for the page's next followed swing (`takeDoorPicks`).
       case 'doorUse':
         if (Number.isInteger(ev.door) && (ev.pick === 0 || ev.pick === 1)) { this.doorPicks.push({ door: ev.door, pick: ev.pick }); if (this.doorPicks.length > 64) this.doorPicks.shift(); }

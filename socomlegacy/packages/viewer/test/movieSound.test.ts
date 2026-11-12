@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MOVIE_PCM_RING_BYTES, movieAudioTimeline } from '@s2u/fmv';
 import type { AssetSource } from '@s2u/archive';
 import {
-  MOVIE_SOUND_GESTURE_ADAPTATION, MOVIE_SOUND_LATENCY_ADAPTATION, MovieSound, readMovieSound, webAudioMovieOut, type MovieSoundOut,
+  MOVIE_SOUND_GESTURE_ADAPTATION, MOVIE_SOUND_LATENCY_ADAPTATION, MovieSound, movieDialogGain, readMovieSound, webAudioMovieOut, type MovieSoundOut,
 } from '../src/movieSound';
 
 /**
@@ -224,6 +224,7 @@ describe('MovieSound: the sound from picture 0, free of the pictures (research 1
  */
 function fakeContext() {
   const listeners: (() => void)[] = [];
+  const levels: {value:number}[] = [];
   const starts: { when: number; offset: number; loop: boolean }[] = [];
   const ctx = {
     state: 'suspended' as AudioContextState,
@@ -234,7 +235,7 @@ function fakeContext() {
     destination: {},
     getOutputTimestamp() { return this.stamp; },
     addEventListener(_: string, f: () => void) { listeners.push(f); },
-    createGain() { return { gain: { value: 1 }, connect() {} }; },
+    createGain() { const gain={value:1}; levels.push(gain); return { gain, connect() {} }; },
     createBuffer(_c: number, n: number) { return { length: n, copyToChannel() {} }; },
     createBufferSource() {
       const node = { buffer: null as unknown, loop: false, onended: null as unknown, connect() {}, disconnect() {}, stop() {},
@@ -242,7 +243,7 @@ function fakeContext() {
       return node;
     },
   };
-  return { ctx, starts, resume(t: number) { ctx.state = 'running'; ctx.currentTime = t; for (const f of listeners) f(); } };
+  return { ctx, starts, levels, resume(t: number) { ctx.state = 'running'; ctx.currentTime = t; for (const f of listeners) f(); } };
 }
 
 describe('webAudioMovieOut: the page clock against a real context\'s', () => {
@@ -326,5 +327,25 @@ describe('readMovieSound: the track read off the movie file and handed to the so
     expect(plain.map((x) => x.first)).toEqual(plain.map((x) => Math.round(x.when * RATE)));
     expect(plain.reduce((n, x) => n + x.frames, 0)).toBe(groups * 256);
     expect(r.voices.filter((x) => x.loop)).toHaveLength(1);
+  });
+});
+
+
+describe('movie Dialog volume (989snd PCM group 2)', () => {
+  it('uses the group master before the square law and restores full volume after mute', () => {
+    expect([1,.75,.5,.25,0,.25,.5,.75,1].map(movieDialogGain)).toEqual(
+      [23258,13082,5814,1453,0,1453,5814,13082,23258].map(v=>v/23258));
+  });
+  it('changes an already playing movie without changing its samples, phase or source', () => {
+    const f=fakeContext();
+    const out=webAudioMovieOut(f.ctx as unknown as AudioContext);
+    const samples=Float32Array.of(.1,-.1);
+    out.play({left:samples,right:samples,rate:RATE},0,0,true);
+    for (const value of [1,.5,0,.25,1,0,1]) {
+      out.setVolume!(value);
+      expect(f.levels[0]!.value).toBe(23258 / (2 * 32766) * movieDialogGain(value));
+      expect(f.starts).toHaveLength(1);
+      expect(samples).toEqual(Float32Array.of(.1,-.1));
+    }
   });
 });

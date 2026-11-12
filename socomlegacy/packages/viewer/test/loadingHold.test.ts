@@ -110,7 +110,9 @@ describe('BLACK-GAP (a browser adaptation): the loading screen held until the ma
 
   it("frontEnd.ts wires it: the screen's hide through the hold, the start holds, the mount's firstFrame and the return release", () => {
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/frontEnd.ts'), 'utf8');
-    expect(src).toMatch(/loadingHold\(\(\) => \{ loadingPanel\?\.hide\(\); \}\)/);
+    // The hold's own hide is the panel's, first; QUAD-CACHE-RELEASE (LATER 859, review F1) lets the menus' quad caches go
+    // in the same callback, after it -- calls only, nothing that could hide the panel some other way.
+    expect(src).toMatch(/loadingHold\(\(\) => \{ loadingPanel\?\.hide\(\);( [\w?.]+\(\);)* \}\)/);
     expect(src).toMatch(/hide: \(\) => \{ loadingHide\.hide\(\); \}/);
     expect(src).toMatch(/start: \(m\) => \{ loadingHide\.hold\(\);/);
     expect(src).toMatch(/firstFrame: \(\) => \{ loadingHide\.firstFrame\(\); \}/);

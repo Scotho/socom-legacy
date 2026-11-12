@@ -11,6 +11,9 @@ import { TauntEditor } from '../src/tauntEditor';
 import { FlyCamera } from '../src/camera';
 import { WalkMode } from '../src/walk';
 import { ScoreboardKeys } from '../src/scoreboardKeys';
+import { Fire } from '../src/fire';
+import { TraversalPage } from '../src/traversalPage';
+import { TacMap } from '../src/tacMap';
 import { attachRoundTextKeys, RoundTextLine } from '../src/roundTextLine';
 import { bootConsole } from '../src/console/app';
 import { sampleAdapters } from '../src/console/sampleAdapters';
@@ -67,6 +70,8 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // to the session service's inactivity clock. Neither reaches the game.
   ['playtestSession.ts', "doc.addEventListener('keydown', onKey)"],   // F8 marks the moment
   ['playtestSession.ts', "doc.addEventListener('keydown', onInput)"], // a key is human input: the heartbeat
+  // XBOX-DIAG's input sources (an instrument, every build): a key press counted, passive, its key never read; no game input.
+  ['inputSources.ts', "win.addEventListener('keydown', key, opts);"],
   // The test room's bar map dropdown (TR-1, the test room's maps plan TR.R2): a native <select> whose own keys move it;
   // these mark the key's task so a closed select's key-driven change is undone (no reload), and read no key as input.
   ['testroomMapBar.ts', "this.select.addEventListener('keydown'"],  // marks a key that moves the closed select
@@ -113,6 +118,7 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
 const OT_R62_ESCAPE: readonly [string, string][] = [
   ['console/input.ts', "doc.addEventListener('keydown', onEscape, true)"],      // :151 OT.R62: Escape closes a popup in every build
   ['mobileLayoutEditor.ts', "d.addEventListener('keydown', (e) => { if (e.key === 'Escape')"], // :143 OT.R62: Escape closes the touch layout editor, as Cancel
+  ['operatorToast.ts', "win?.addEventListener('keydown', onKey, true)"],     // OA-3 OT.R62: Escape closes the operator's say toast, ahead of the menu under it
 ];
 
 /**
@@ -142,10 +148,35 @@ const OT_R68_FORGE: readonly [string, string][] = [
   ['walk.ts', "target.addEventListener('keyup', this.onKeyUp as EventListener)"],
 ];
 
+/**
+ * RB-8 (the replay batch, KBM-2; OT.R114, RB.R4): the test room's own key listeners of every build -- `main.ts`'s, each
+ * wrapped in `testroomKeys` (the literal fold or the page's `kbmAllowed`, asked at each event; a release always runs), and
+ * the traversal's release, which `bindKeys` attaches only under the literal gate or a page's opt-in (its keydown asks the
+ * opt-in again). The case below holds each to its form.
+ */
+const OT_R114_TESTROOM: readonly [string, string][] = [
+  ['main.ts', 'testroomKeys('],
+  ['traversalPage.ts', "target.addEventListener('keyup', ((e: KeyboardEvent) => {"],
+];
+
 // LATER 86's two findings (the replay transport's playback keys, `replays/transport.ts`, and the viewer's Escape for Back,
 // `replays/view.ts`) were gated only by their caller's `keys` option; the seat's call (the owner's rule, 2026-10-04:
 // players use a controller only, the keyboard a local testing option compiled out of release) put a literal
 // `import.meta.env.DEV` at both sites, so the gate holds them with no findings list.
+
+
+/**
+ * FP-1b (REVIEW-C 18): the Forge page's accessibility exemptions are fragments, and `doc.addEventListener('keydown', ...)`
+ * would match any later listener of that form -- a game key slipped past the gate unseen. Each is pinned to its live lines
+ * exactly: how many lines it matches, and for the document's two forms the Escape-only guard that opens each handler.
+ */
+const FORGE_PAGE_EXEMPT_LINES: Readonly<Record<string, number>> = {
+  "end.addEventListener('keydown', (event) => {": 1,
+  "handle.addEventListener('keydown', (event) => {": 1,
+  "doc.addEventListener('keydown', event => {": 1,
+  "doc.addEventListener('keydown', (e) => {": 2,
+};
+const ESCAPE_ONLY = /^\s*if \((?:e|event)\.key !== 'Escape' \|\| \w+\.hidden\) return;$/;
 
 describe('every game keyboard listener is a development build\'s only (OT.R29, "Everywhere")', () => {
   it('each addEventListener of a key event sits under import.meta.env.DEV, or is listed as not game input', () => {
@@ -154,12 +185,23 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
       const lines = readFileSync(resolve(SRC, f), 'utf-8').split('\n');
       lines.forEach((line, i) => {
         if (!keyListener(line)) return;
-        if ([...NOT_GAME_INPUT, ...OT_R62_ESCAPE, ...LAUNCHER_START, ...OT_R68_FORGE].some(([file, frag]) => f === file && line.includes(frag))) return;
+        if ([...NOT_GAME_INPUT, ...OT_R62_ESCAPE, ...LAUNCHER_START, ...OT_R68_FORGE, ...OT_R114_TESTROOM].some(([file, frag]) => f === file && line.includes(frag))) return;
         if (lines.slice(Math.max(0, i - 14), i + 1).some((l) => l.includes('import.meta.env.DEV'))) return;
         bad.push(`${f}:${i + 1}: ${line.trim()}`);
       });
     }
     expect(bad).toEqual([]);
+  });
+  it("FP-1b: each of the Forge page's accessibility exemptions matches exactly its own lines; the document's two open on an Escape-only guard", () => {
+    const lines = readFileSync(resolve(SRC, 'forge/page.ts'), 'utf-8').split('\n');
+    for (const [frag, count] of Object.entries(FORGE_PAGE_EXEMPT_LINES)) {
+      expect(NOT_GAME_INPUT.some(([f, x]) => f === 'forge/page.ts' && x === frag), frag).toBe(true);
+      const at = lines.flatMap((l, i) => (l.includes(frag) ? [i] : []));
+      expect(at, frag).toHaveLength(count);
+      if (frag.startsWith('doc.')) for (const i of at) expect(lines[i + 1], `forge/page.ts:${i + 2}`).toMatch(ESCAPE_ONLY);
+    }
+    // Beside them only the native Settings range's keyup (FDL-1), pinned to its one line by `forge/releaseGate.test.ts`.
+    expect(NOT_GAME_INPUT.filter(([f, x]) => f === 'forge/page.ts' && x !== "lightIn.addEventListener('keyup'").map(([, x]) => x).sort()).toEqual(Object.keys(FORGE_PAGE_EXEMPT_LINES).sort());
   });
   it('CX-28: a helper\'s key listener is a listener -- the console\'s on() form is caught, as addEventListener is', () => {
     for (const l of ["if (opts.keymap) on(win, 'keydown', onKey);", "  on(doc, 'keyup', (ev) => {", "layer.addEventListener('keydown', stopAll, true);", "win.addEventListener?.('keyup', f)"]) expect(keyListener(l), l).toBe(true);
@@ -182,6 +224,7 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
     expect(OT_R62_ESCAPE.map(([file, frag]) => `${file} ${frag}`)).toEqual([
       "console/input.ts doc.addEventListener('keydown', onEscape, true)",
       "mobileLayoutEditor.ts d.addEventListener('keydown', (e) => { if (e.key === 'Escape')",
+      "operatorToast.ts win?.addEventListener('keydown', onKey, true)",
     ]);
     for (const [file, frag] of OT_R62_ESCAPE) {
       expect(NOT_GAME_INPUT.some(([f, g]) => f === file && g === frag), `${file}: in OT.R62's group, not the accessibility keys'`).toBe(false);
@@ -216,6 +259,20 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
       const before = lines.slice(Math.max(0, at[0]! - 2), at[0]!);
       expect(before.some((l) => l.includes(`${devFold} || this.forgeKbm`) || l.includes(`${devFold} || this.camera.forgeKbm`)), `${file}: ${frag}`).toBe(true);
     }
+  });
+  it("RB-8: the test room's group -- main.ts's wrapped listeners and the traversal's release, which bindKeys attaches only under the gate or the opt-in", () => {
+    const dev = 'import.meta.en' + 'v.DEV';
+    const trav = readFileSync(resolve(SRC, 'traversalPage.ts'), 'utf-8').split('\n');
+    const at = trav.flatMap((l, i) => (l.includes(OT_R114_TESTROOM[1]![1]) && keyListener(l) ? [i] : []));
+    expect(at).toHaveLength(1);
+    const bind = trav.findIndex((l) => l.includes('bindKeys(target: EventTarget = globalThis, kbm'));
+    expect(bind).toBeGreaterThan(0);
+    expect(bind).toBeLessThan(at[0]!);
+    expect(trav[bind + 1]).toContain(`if (!${dev} && kbm === null) return;`);
+    const main = readFileSync(resolve(SRC, 'main.ts'), 'utf-8').split('\n');
+    const wrapped = main.filter((l) => keyListener(l) && l.includes('testroomKeys('));
+    expect(wrapped.length).toBeGreaterThanOrEqual(6);
+    for (const l of wrapped) expect(l, l.trim()).toMatch(/addEventListener\??\.?\('key(down|up)', testroomKeys\(/);
   });
   it('the launcher START listeners are live on every build', () => {
     // The registration sits outside the development-build fold. The token is split so this file does not carry the
@@ -352,5 +409,185 @@ describe('a release build reads no key (vi.stubEnv DEV false)', () => {
     for (const code of ['ArrowUp', 'ArrowDown', 'F1', 'PageDown']) { key(window, code); expect(keys.next(), code).toBeNull(); }
     detach();
     walk.unbindKey();
+  });
+});
+
+/**
+ * RB-8 (the replay batch, KBM-2; OT.R114, RB.R4; a browser adaptation, product track): the test room reads the keyboard
+ * and the mouse in every build while no online room is joined. Each class's keys attach under the literal gate or the
+ * page's opt-in (`kbm`, the test room's `kbmAllowed('testroom', <its match client's URL>)`), and every press asks that
+ * opt-in at its event, so the room going online makes them deaf at once. A class given no opt-in -- the front end's match
+ * (`matchMount.ts`) -- reads no key in a release, as before. The markers stay under the literal gate alone.
+ */
+describe('RB-8: the test room reads its keys in a release build while its predicate holds (vi.stubEnv DEV false)', () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+  const down = (target: EventTarget, code: string, init: KeyboardEventInit = {}): KeyboardEvent => {
+    const e = new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(e);
+    return e;
+  };
+  const up = (target: EventTarget, code: string): void => { target.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true })); };
+
+  it('the camera built with a kbm predicate flies on W in a release; once the predicate is false, W is deaf and a held W is let go', () => {
+    vi.stubEnv('DEV', false);
+    let url: string | null = null;
+    const fly = new FlyCamera(document.createElement('canvas'), { kbm: () => url === null || url === 'loopback:' });
+    const flown = (): number => {
+      fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+      for (let i = 0; i < 30; i++) fly.update(1 / 60);
+      const p = fly.pose();
+      return Math.hypot(p.x, p.y, p.z);
+    };
+    down(globalThis, 'KeyW');
+    expect(flown()).toBeGreaterThan(0.1);
+    url = 'wss://play.example.test/room/1';                         // the room joined an online room
+    expect(flown(), 'a held W let go').toBe(0);
+    down(globalThis, 'KeyW');
+    expect(flown(), 'a fresh W deaf').toBe(0);
+    up(globalThis, 'KeyW');
+    url = 'loopback:';
+    down(globalThis, 'KeyW');
+    expect(flown()).toBeGreaterThan(0.1);
+    up(globalThis, 'KeyW');
+    fly.dispose();
+  });
+
+  it("a camera with no opt-in still reads no key in a release (the front end's match)", () => {
+    vi.stubEnv('DEV', false);
+    const fly = new FlyCamera(document.createElement('canvas'));
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    down(globalThis, 'KeyW');
+    for (let i = 0; i < 30; i++) fly.update(1 / 60);
+    up(globalThis, 'KeyW');
+    const p = fly.pose();
+    expect(Math.hypot(p.x, p.y, p.z)).toBe(0);
+    fly.dispose();
+  });
+
+  it('the walk on a kbm camera binds its keys in a release and asks the predicate at each press (G walks and flies)', () => {
+    vi.stubEnv('DEV', false);
+    let on = true;
+    const added: string[] = [];
+    const target = new EventTarget();
+    const add = target.addEventListener.bind(target);
+    const spy = vi.spyOn(target, 'addEventListener').mockImplementation(((type: string, f: EventListener) => { added.push(type); add(type, f); }) as typeof target.addEventListener);
+    const fly = new FlyCamera(document.createElement('canvas'), { kbm: () => on });
+    const walk = new WalkMode(fly);
+    walk.bindKey(target);
+    spy.mockRestore();
+    expect(added.filter((t) => t.startsWith('key'))).toEqual(['keydown', 'keyup']);
+    expect(down(target, 'KeyG').defaultPrevented, 'G read').toBe(true);
+    on = false;
+    expect(down(target, 'KeyG').defaultPrevented, 'G deaf once the predicate is false').toBe(false);
+    walk.unbindKey();
+    fly.dispose();
+  });
+
+  it("the scoreboard's Tab and the tactical map's M with the opt-in in a release, deaf when it is false, none without it", () => {
+    vi.stubEnv('DEV', false);
+    let on = true;
+    const board = new ScoreboardKeys(() => true);
+    board.bindKey(window, () => on);
+    down(window, 'Tab');
+    expect(board.held()).toBe(true);
+    up(window, 'Tab');
+    on = false;
+    down(window, 'Tab');
+    expect(board.held()).toBe(false);
+    up(window, 'Tab');
+    board.unbindKey();
+    on = true;
+    const map = new TacMap(() => true);
+    map.bindKey(window, () => 0, () => on);
+    down(window, 'KeyM');
+    expect(map.isOpen()).toBe(true);
+    on = false;
+    down(window, 'KeyM');
+    expect(map.isOpen(), 'M deaf').toBe(true);
+    map.unbindKey();
+    const plain = new TacMap(() => true);
+    plain.bindKey(window, () => 0);
+    down(window, 'KeyM');
+    expect(plain.isOpen(), 'no opt-in: no M in a release').toBe(false);
+    plain.unbindKey();
+  });
+
+  it("the fire's R and the traversal's Q/E attach with the opt-in in a release and ask it at each press; none without it", () => {
+    vi.stubEnv('DEV', false);
+    let on = true;
+    const kinds = (bind: (t: EventTarget) => void): string[] => {
+      const added: string[] = [];
+      const target = new EventTarget();
+      const spy = vi.spyOn(target, 'addEventListener').mockImplementation(((type: string) => { added.push(type); }) as typeof target.addEventListener);
+      bind(target);
+      spy.mockRestore();
+      return added.filter((t) => t.startsWith('key'));
+    };
+    const fire = new Fire({ grid: () => null, aim: () => ({ eye: [0, 0, 0], far: [0, 0, -1] }) } as unknown as ConstructorParameters<typeof Fire>[0]);
+    expect(kinds((t) => fire.bindKey(t, () => on))).toEqual(['keydown']);
+    expect(kinds((t) => fire.bindKey(t))).toEqual([]);
+    fire.unbindKey();
+    const walk = { mode: () => 'walk', useTraversal: () => undefined } as unknown as WalkMode;
+    expect(kinds((t) => new TraversalPage(walk).bindKeys(t, () => on))).toEqual(['keydown', 'keyup']);
+    expect(kinds((t) => new TraversalPage(walk).bindKeys(t))).toEqual([]);
+    const live = new TraversalPage(walk);
+    const target = new EventTarget();
+    live.bindKeys(target, () => on);
+    const held = (live as unknown as { held: Set<string> }).held;
+    down(target, 'KeyQ');
+    expect(held.has('KeyQ')).toBe(true);
+    up(target, 'KeyQ');
+    on = false;
+    down(target, 'KeyE');
+    expect(held.has('KeyE'), 'E deaf').toBe(false);
+  });
+
+  it("the source: main.ts builds its camera with the test room's predicate over its match client, and wraps each match key listener in it", () => {
+    const main = readFileSync(resolve(SRC, 'main.ts'), 'utf-8');
+    const lines = main.split('\n');
+    const dev = 'import.meta.en' + 'v.DEV';                           // split: the leak check's key-file name
+    expect(main).toMatch(/import \{ kbmAllowed, testroomKbmPage \} from '\.\/kbmScope';/);
+    // RPM-2: framed as the launcher's replay world (`REPLAY_WORLD`), the page asks as the launcher, controller-only.
+    expect(main).toContain("function testroomKbm(): boolean { return kbmAllowed(testroomKbmPage(REPLAY_WORLD !== null), net === null ? null : netUrl); }");
+    // RPM-2 (its review's F1): the round's keyboard line is not online in the replay world, whose 'replay:' NetPage joins
+    // no room, so a viewer's typing after a click on the frame is not swallowed by the frame's HUD line.
+    expect(main).toContain('online: () => net !== null && !solo && !REPLAY_WORLD,');
+    const ctor = lines.findIndex((l) => l.includes('new FlyCamera('));
+    expect(lines.slice(ctor, ctor + 6).join('\n')).toMatch(/\bkbm: testroomKbm,/);
+    // Every key listener main.ts attaches is under the literal gate or wrapped in the predicate's gate.
+    const listeners = lines.flatMap((l, i) => (keyListener(l) ? [i] : []));
+    expect(listeners.length).toBeGreaterThanOrEqual(6);
+    for (const i of listeners) {
+      const line = lines[i]!;
+      expect(line.includes('testroomKeys(') || lines.slice(Math.max(0, i - 14), i + 1).some((l) => l.includes(dev)), `main.ts:${i + 1}`).toBe(true);
+    }
+    const wrapped = listeners.filter((i) => lines[i]!.includes('testroomKeys('));
+    expect(wrapped.length).toBeGreaterThanOrEqual(6);                 // I and the exchange, its release, 1-5, B, X and its release
+    // Each NetPage the page makes records its URL beside it, so the predicate reads the room it joined.
+    const made = lines.flatMap((l, i) => (/\bnet = new NetPage\(/.test(l) ? [i] : []));
+    expect(made.length).toBeGreaterThanOrEqual(4);
+    for (const i of made) expect(lines.slice(Math.max(0, i - 3), i).some((l) => /netUrl = /.test(l)), `main.ts:${i + 1}`).toBe(true);
+    // The wrapper's gate: the literal fold or the predicate, asked at the event; a key's release always passes.
+    expect(main).toContain(`function testroomKeys<E extends Event>(f: (e: E) => void, release = false): (e: E) => void { return (e) => { if (release || ${dev} || testroomKbm()) f(e); }; }`);
+    // The page's chrome keys (the backtick, F) and its other classes' keys are handed the predicate.
+    expect(main).toContain('ui.onChromeToggle(testroomKbm);');
+    expect(main).toContain('ui.onFullscreen(testroomKbm);');
+    expect(main).toContain('traversal.bindKeys(globalThis, testroomKbm);');
+    expect(main).toContain('tacMap.bindKey(globalThis, () => fly.pose().yaw, testroomKbm);');
+    expect(main).toContain('scoreboardKeys.bindKey(globalThis, testroomKbm);');
+    expect(main).toContain('fire.bindKey(globalThis, testroomKbm);');
+  });
+
+  it("the source: each class's gate is the literal fold or its opt-in, and the press asks the opt-in again", () => {
+    const src = (f: string): string => readFileSync(resolve(SRC, f), 'utf-8');
+    const dev = 'import.meta.en' + 'v.DEV';
+    for (const f of ['fire.ts', 'scoreboardKeys.ts', 'tacMap.ts']) {
+      expect(src(f), f).toContain(`if (${dev} || kbm !== null) {`);
+      expect(src(f), f).toContain(`if (!${dev} && !this.kbm?.()) return;`);
+    }
+    expect(src('traversalPage.ts')).toContain(`if (!${dev} && kbm === null) return;`);
+    expect(src('traversalPage.ts')).toContain(`if (!${dev} && !kbm?.()) return;`);
+    expect(src('walk.ts')).toContain(`if (!${dev} && !this.kbm) return;`);
+    expect(src('ui.ts').split(`if (!${dev} && !kbm?.()) return;`)).toHaveLength(3);   // the backtick and F
   });
 });

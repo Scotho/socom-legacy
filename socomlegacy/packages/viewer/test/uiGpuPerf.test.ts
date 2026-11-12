@@ -173,7 +173,12 @@ describe('GM-02: the front end hands the instrument its times and changes nothin
   it('the loop: the instrument only on a development build under ?devmode, the HD path forced only under ?uiPerfHd', () => {
     const src = readFileSync(fileURLToPath(new URL('../src/frontEnd.ts', import.meta.url)), 'utf8');
     expect(src).toMatch(/const uiPerf = uiPerfRequest\(search, devBuild\(\) && devToolsEnabled\(search\)\);/);
-    expect(src).toMatch(/const menusHd = \(\): boolean => uiPerf\.hd \|\| pictureExperimentalSettings\(picture\.get\(\)\)\.hdPack;/);
+    // B206 ML-3 (ML.R11): the menus' HD is `menusHdOn` -- `?uiPerfHd` first, then the MODS choice (ML-6: no HD picture).
+    // GM-HDCAP: and only while the front end's GPU drawer may draw (GM-28: `frontGpuMayDraw`, dev shadow included); `?uiPerfHd` still forces it.
+    expect(src).toMatch(/const menusHd = \(\): boolean => menusHdOn\(\{ uiPerfHd: uiPerf\.hd, choice: packChoice\.get\(\), gpu: !frontGpuDown && frontGpuMayDraw\(uiGpu, uiGpuDevBuild\(\)\) \}\);/);   // the flip's review F2: not once the front surface is down
+    // GM-28: the instrument's forced HD keeps its HD software frame (GM-02's baseline at 2 and 4; a development build only).
+    expect(src).toMatch(/const hd = uiGpuFrontFrameOptions\(chosen, gpu \|\| uiPerf\.hd\);/);
+    expect(src).toMatch(/return o\.uiPerfHd \|\| \(o\.gpu && parseTextureChoice\(o\.choice\)\?\.kind === 'hd'\);/);
     expect(src).toMatch(/if \(uiPerf\.ring && perfLib\) \{/);
     // Review F2: the instrument's module is loaded only when the ring is asked for -- a release build ships none of it
     // in the front end's chunk: `./uiGpuPerf` is never imported statically (a type import is erased).

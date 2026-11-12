@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { expectBase, newLayoutOn } from './forgeBase';
 import { forgeAuthoringText } from '../src/forge/rulesAuthoring';
 import { vaultLayout } from '../test/forge/rulesFixture';
 
@@ -31,7 +32,7 @@ const shot = async (page: Page, name: string, out: string): Promise<void> => {
 const open = async (page: Page, size: { width: number; height: number }): Promise<void> => {
   await page.setViewportSize(size);
   await page.goto('/forge?devmode');
-  await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
+  await expectBase(page);                                              // OT.R112: the base named (`./forgeBase`)
   if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
 };
 const rules = (page: Page) => page.locator('.fx-right details.fx-panel[data-forge-panel="rules"]');
@@ -39,6 +40,34 @@ const control = (page: Page, key: string) => rules(page).locator(`[data-rules-ke
 const showRules = async (page: Page): Promise<void> => {
   await page.locator('.fx-right [data-forge-tab="object"]').click();
   if (!(await rules(page).evaluate((d) => (d as HTMLDetailsElement).open))) await rules(page).locator(':scope > summary').click();
+};
+/**
+ * The Settings' Game type select by its exact name: the forge menu's card stays in the DOM once opened (`expectBase`
+ * opens it), and its Game type row's steps are named "Game type: previous" / "Game type: next" (`../src/forge/menuView.ts`,
+ * LATER 230), which a loose label also matches.
+ */
+const gameType = (page: Page) => page.getByLabel('Game type', { exact: true });
+/**
+ * The layout named the one way the page names it now: Saves > Save as. The name field is shown, not typed, since the owner's
+ * 2026-11-06 ruling (`../src/forge/page.ts` `layoutNameIn.readOnly`, daed4f539); New rules takes its mode from that name.
+ */
+const nameLayout = async (page: Page, name: string): Promise<void> => {
+  if (!(await page.locator('[data-forge="saves"]').isVisible())) await page.locator('.fx-top button[aria-label="Docks"]').click();
+  await page.locator('[data-forge="saves"]').click();
+  await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
+  // The press's effect waited for, never retried around (the e2e-mega lost press, aws-20261109t2209z run3: Save as pressed
+  // while the boot's map still decoded opened nothing, and the fill below waited out the test's 300 s): the prompt's heading
+  // shown, else this fails here, fast, and says so -- a press refused while loading is said in the line (`page.ts`
+  // `layoutToSave`).
+  await expect(page.locator('.fx-modal form.fx-card h2'), 'Save as opened its prompt').toHaveText('Save this layout', { timeout: 10_000 });
+  // The Save as prompt's own field (`../src/forge/page.ts` `askText`: a `form.fx-card` on the card stack): the Saves card
+  // under it now holds a read-only share-link input too (`./savesPanel` `data-share-link`), which a bare `.fx-modal input`
+  // found first (the clean-box run at 5bb940f20: "element is not editable").
+  await page.locator('.fx-modal form.fx-card input').fill(name);
+  await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.fx-saves-list')).toContainText(name);
+  await page.locator('.fx-modal').getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByLabel('Layout name')).toHaveValue(name);
 };
 /** A virtual pad (the Gamepad API read by `../src/forge/pad`), before the page loads. */
 const withPad = async (page: Page): Promise<void> => {
@@ -66,13 +95,12 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await open(page, size);
-    await page.getByLabel('Layout name').fill('Vault');
-    await page.getByLabel('Layout name').press('Enter');
+    await nameLayout(page, 'Vault');
     await showRules(page);
     await expect(rules(page)).toContainText('No rules.');
     await control(page, 'new').click();
     await expect(control(page, 'rule-add')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByLabel('Game type')).toHaveValue('mode:vault@1.0.0');
+    await expect(gameType(page)).toHaveValue('mode:vault@1.0.0');
     // A rule as text: refused by its field first, then saved.
     await control(page, 'rule-add').click();
     await control(page, 'rule-text').fill(JSON.stringify({ id: 'hello', when: 'round.start', then: [{ do: 'no.such.action' }] }));
@@ -106,8 +134,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     const file = await (await download).path();
     if (!file) throw new Error('the layout file was not downloaded');
     await page.locator('.fx-modal').getByRole('button', { name: 'Close' }).click();
-    await page.getByRole('button', { name: 'Start a new layout' }).click();
-    await page.getByRole('button', { name: 'Start new' }).click();
+    await newLayoutOn(page, 'MP2');                                      // OT.R112: New's card, the work dropped unsaved
     await expect(rules(page)).toContainText('No rules.');
     await page.locator('input[type=file][accept=".json,application/json"]').setInputFiles(file);
     await showRules(page);
@@ -129,7 +156,7 @@ test('a configured mode: a value by the dock\'s stepper, then by the pad with no
   await page.locator('input[type=file][accept=".json,application/json"]').setInputFiles(file);
   await showRules(page);
   await expect(control(page, 'config:reward')).toHaveValue('9', { timeout: 60_000 });
-  await expect(page.getByLabel('Game type')).toHaveValue('mode:vault.run@1.0.0');
+  await expect(gameType(page)).toHaveValue('mode:vault.run@1.0.0');
   // By pointer: the stepper.
   await control(page, 'config:reward').fill('12');
   await control(page, 'config:reward').press('Tab');

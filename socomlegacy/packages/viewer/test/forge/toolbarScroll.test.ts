@@ -122,10 +122,13 @@ describe('R7-1: the mounted toolbar', () => {
     // Walk sits with Check and Create lobby: one group fewer in the row.
     const walk = top.querySelector('button[aria-label="Walk"]')!;
     expect(walk.parentElement).toBe(top.querySelector('button[aria-label="Check"]')!.parentElement);
-    // The base group: its select and the layout name are the row's own items (`display: contents`).
+    // The base group: New, Open, Saves and the layout name, the row's own items (`display: contents`). OT.R112: no base
+    // list on the toolbar (the owner, 2026-11-06) -- New asks for the base; the name is shown, not typed.
     const baseGroup = top.querySelector<HTMLElement>('.fx-group--base')!;
-    expect(baseGroup.querySelector('select[title^="The base"]')).not.toBeNull();
-    expect(baseGroup.querySelector('input.fx-name')).not.toBeNull();
+    expect(baseGroup.querySelector('select')).toBeNull();
+    expect(top.querySelector('select[title^="The base"]')).toBeNull();
+    expect(baseGroup.querySelector('button[title^="Start a new layout"]')).not.toBeNull();
+    expect(baseGroup.querySelector<HTMLInputElement>('input.fx-name')?.readOnly).toBe(true);
     // The brand's badge keeps its text.
     expect(top.querySelector('.fx-badge')?.textContent).toBe('EXPERIMENT');
   }, 90_000);

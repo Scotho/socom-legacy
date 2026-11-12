@@ -1,6 +1,6 @@
 import { perturb } from '../../../viewer/src/accuracy';
 import { cameraLook, type AimFrame } from '../../../viewer/src/net/shotCone';
-import { bodyVolumes, rayBody } from '../../../viewer/src/net/hitVolumes';
+import { placeholderVolumes, rayCapsule } from '../../../viewer/src/net/hitVolumes';
 import type { Room } from '../room';
 import { UNITS_PER_METRE, type WeaponRecord } from '@s2u/scene';
 
@@ -31,9 +31,10 @@ export function friendlyOnRay(room: Room, shooter: number, from: V3, dir: V3, re
     const p = room.player(member.id);
     if (!p?.alive) continue;
     const s = p.sim.walker.state;
-    // A deliberately conservative proxy is an AI decision only; the Room still owns the actual character hit volumes.
-    const capsules = bodyVolumes([s.x, s.y, s.z], s.yaw, p.sim.walker.posture).map((c) => ({ ...c, r: c.r + ALLY_RAY_MARGIN_ADAPTATION }));
-    if (rayBody(from, dir, reach, capsules)) return true;
+    // A deliberately conservative proxy is an AI decision only; the Room still owns the actual character hit volumes (the
+    // bone boxes, BONE-BOXES): the placeholder's capsules widened, as before, each tried alone (no body cull: a proxy).
+    const capsules = placeholderVolumes([s.x, s.y, s.z], s.yaw, p.sim.walker.posture).map((c) => ({ ...c, r: c.r + ALLY_RAY_MARGIN_ADAPTATION }));
+    if (capsules.some((c) => rayCapsule(from, dir, reach, c) !== null)) return true;
   }
   return false;
 }

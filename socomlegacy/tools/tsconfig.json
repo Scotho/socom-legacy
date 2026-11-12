@@ -8,6 +8,6 @@
   },
   // `zz-*.ts` are throwaway probes: written to answer one question, never committed, and often left
   // half-typed while the answer is being read off them. They must not be able to redden the gate.
-  "include": ["*.ts", "test/*.ts", "forge-agent-probe/**/*.ts", "eph/**/*.ts", "parity-pack/**/*.ts", "harness/**/*.ts", "parity/**/*.ts", "perf/**/*.ts"],
+  "include": ["*.ts", "test/*.ts", "forge-agent-probe/**/*.ts", "eph/**/*.ts", "parity-pack/**/*.ts", "harness/**/*.ts", "parity/**/*.ts", "perf/**/*.ts", "cards/**/*.ts"],
   "exclude": ["zz-*.ts"]
 }

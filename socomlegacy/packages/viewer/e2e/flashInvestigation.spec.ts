@@ -4,8 +4,9 @@ import { holdReleased } from './loadHold';
 
 test('all flash levels render their onset and recovery in native and PS2 pictures', async ({ page }, info) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', { configurable: true, value: undefined }));
-  await page.route('**/__flash-envelope', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
-  await page.goto('/__flash-envelope');
+  await page.route(/\/__flash-envelope(\?.*)?$/, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
+  // GLOW_TARGET_SCALE_ADAPTATION: the native glow read at the full target (this SwiftShader page would take half).
+  await page.goto('/__flash-envelope?glowscale=full');
   const rows = await page.evaluate(async () => {
     const path = '/e2e/flashInvestigationScene.ts';
     const scene: typeof import('./flashInvestigationScene') = await import(/* @vite-ignore */ path);
@@ -41,8 +42,9 @@ test('all flash levels render their onset and recovery in native and PS2 picture
 
 test('flash wash reaches uncovered background pixels in native and PS2 pictures', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', { configurable: true, value: undefined }));
-  await page.route('**/__flash-background', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
-  await page.goto('/__flash-background');
+  await page.route(/\/__flash-background(\?.*)?$/, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
+  // GLOW_TARGET_SCALE_ADAPTATION: the native glow read at the full target (this SwiftShader page would take half).
+  await page.goto('/__flash-background?glowscale=full');
   const results = await page.evaluate(async () => {
     const path = '/e2e/flashInvestigationScene.ts';
     return (await import(/* @vite-ignore */ path)).measureClear();

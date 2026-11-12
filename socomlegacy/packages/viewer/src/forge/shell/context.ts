@@ -1,5 +1,6 @@
 import type { Object3D } from 'three';
 import type { ForgeAgentApi } from '../agent/api';
+import type { AgentRunUndo, HistoryMeta } from '../history';
 import type { ExtensionHost } from '../../packs/systems/host';
 import type { CardHandle, CardOptions } from './cards';
 import type { ForgePulseKind, NotifyHandle, NotifyOptions } from './notify';
@@ -184,6 +185,23 @@ export interface ForgeEditor {
    * loaded, another once it is read again; null when it is not loaded here. A caller compares it, never reads it.
    */
   sourceIdentity(asset: string): object | null;
+  /**
+   * AX-15 (a browser adaptation, FG.R2): the agent's steps on top of the history undone through the page's own undo
+   * (`../history` `undoAgentRun`: that session's, or any agent's), stopping at the first step that is not the agent's.
+   * Absent where no page is mounted (a test's rig).
+   */
+  undoAgentRun?(sessionId?: string | null): AgentRunUndo;
+  /** AX-15: the top steps undone while `match` holds (one activity row's own step), through the page's undo; how many. */
+  undoWhile?(match: (meta: HistoryMeta) => boolean): number;
+  /** AX-15: the meta of the step an undo takes back now, or null with nothing to undo. */
+  historyTop?(): HistoryMeta | null;
+  /** AX-15: the agent's steps still in the history (that session's, or any agent's). */
+  agentStepCount?(sessionId?: string | null): number;
+  /**
+   * AX-15: the placements of the current layout the agent's steps still in the history made or changed (`../history`
+   * `agentChangedRefs`), for the editor's highlight -- whose rendering is owed (the page has no multi-placement outline).
+   */
+  agentChangedRefs?(sessionId?: string | null): string[];
 }
 
 /**

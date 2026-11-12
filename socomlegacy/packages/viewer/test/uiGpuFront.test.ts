@@ -13,7 +13,7 @@ import {
   FRONT_END_GPU_ID, FrontEndGpu, UI_GPU_STANDBY_CLASS, uiGpuFrontPath, uiGpuFrontWanted, type FrontEndGpuSurface,
 } from '../src/uiGpuFront';
 import { UiGpuSurfacePresenter, type UiGpuSurfaceOptions } from '../src/uiGpuPresenter';
-import { UiGpuSwitch, uiGpuPageTable } from '../src/uiGpuSwitch';
+import { UiGpuSwitch, uiGpuPageTable, type UiGpuSurfaceTable } from '../src/uiGpuSwitch';
 import type { UiPresented, UiPresenter } from '../src/uiPresenter';
 import { fakeGl } from './uiGpuFakeGl';
 
@@ -24,7 +24,9 @@ import { fakeGl } from './uiGpuFakeGl';
 // never a byte of it. Evidence kind: unit tests (jsdom; the surface on the fake WebGL2, `./uiGpuFakeGl.ts`, not a GPU)
 // and source inspection of the page's loop; the rendered run is `e2e/uiGpuSwitch.spec.ts` (written, the box's).
 
-const sw = (search = ''): UiGpuSwitch => new UiGpuSwitch({ search, storage: () => null, devTools: false });
+const sw = (search = '', table?: UiGpuSurfaceTable): UiGpuSwitch => new UiGpuSwitch({ search, storage: () => null, devTools: false, table });
+/** The flip (GM.R18): the landed table is every cell `on`; "nothing asked of the GPU" is shown on this all-off table. */
+const OFF: UiGpuSurfaceTable = { front: { hd: 'off', sd: 'off' }, armory: { hd: 'off', sd: 'off' }, overlay: { hd: 'off', sd: 'off' }, loading: { hd: 'off', sd: 'off' } };
 
 /** A surface stand-in: `lastPath` as the test sets it, every lifecycle call recorded. */
 class SurfaceRecorder implements FrontEndGpuSurface {
@@ -53,14 +55,14 @@ const twin = (): HTMLCanvasElement => {
 
 afterEach(() => { document.body.replaceChildren(); setBrightness(0.5); vi.restoreAllMocks(); });
 
-describe('GM-12b: the GPU canvas is made only when the switch asks `front` of the GPU (nothing changes for players)', () => {
-  it('the landed table (every cell off), a URL off, the stored kill: no canvas, no surface', () => {
-    expect(uiGpuFrontWanted(sw())).toBe(false);
+describe('GM-12b: the GPU canvas is made only when the switch asks `front` of the GPU', () => {
+  it('an all-off table, a URL off, the stored kill: no canvas, no surface (the flip, GM.R18: the landed table asks, below)', () => {
+    expect(uiGpuFrontWanted(sw('', OFF))).toBe(false);
     expect(uiGpuFrontWanted(sw('?uiGpu=off'))).toBe(false);
-    expect(uiGpuFrontWanted(sw('?uiGpu=on&uiGpuSurface=overlay'))).toBe(false);
+    expect(uiGpuFrontWanted(sw('?uiGpu=on&uiGpuSurface=overlay', OFF))).toBe(false);
     expect(uiGpuFrontWanted(new UiGpuSwitch({ search: '', storage: () => ({ getItem: () => 'off' }), devTools: false }))).toBe(false);
     const t = twin();
-    expect(FrontEndGpu.mount({ doc: document, twin: t, sw: sw(), place, load: () => Promise.reject(new Error('never asked')) })).toBeNull();
+    expect(FrontEndGpu.mount({ doc: document, twin: t, sw: sw('', OFF), place, load: () => Promise.reject(new Error('never asked')) })).toBeNull();
     expect(document.getElementById(FRONT_END_GPU_ID)).toBeNull();
   });
 
@@ -68,7 +70,8 @@ describe('GM-12b: the GPU canvas is made only when the switch asks `front` of th
     expect(uiGpuFrontWanted(sw('?uiGpu=on'))).toBe(true);
     expect(uiGpuFrontWanted(sw('?uiGpu=on&uiGpuSurface=front'))).toBe(true);
     expect(uiGpuFrontWanted(sw('?uiGpu=shadow'))).toBe(true);
-    expect(uiGpuFrontWanted(sw('?uiGpu=shadow&uiGpuSurface=overlay'))).toBe(false);
+    expect(uiGpuFrontWanted(sw('?uiGpu=shadow&uiGpuSurface=overlay', OFF))).toBe(false);
+    expect(uiGpuFrontWanted(sw())).toBe(true);                    // the flip (GM.R18): the landed table asks it of every page
     const hdOnly = new UiGpuSwitch({ search: '', storage: () => null, devTools: false, table: { front: { hd: 'on', sd: 'off' }, armory: { hd: 'off', sd: 'off' }, overlay: { hd: 'off', sd: 'off' }, loading: { hd: 'off', sd: 'off' } } });
     expect(uiGpuFrontWanted(hdOnly)).toBe(true);
   });
@@ -81,7 +84,8 @@ describe('GM-12b: which canvas draws a scale (the page\'s path)', () => {
     const hdOnly = new UiGpuSwitch({ search: '', storage: () => null, devTools: false, table: { front: { hd: 'on', sd: 'off' }, armory: { hd: 'off', sd: 'off' }, overlay: { hd: 'off', sd: 'off' }, loading: { hd: 'off', sd: 'off' } } });
     expect(uiGpuFrontPath(hdOnly, 4)).toBe('gpu');
     expect(uiGpuFrontPath(hdOnly, 1)).toBe('software');
-    expect(uiGpuFrontPath(sw(), 4)).toBe('software');
+    expect(uiGpuFrontPath(sw('', OFF), 4)).toBe('software');
+    for (const scale of [1, 2, 4]) expect(uiGpuFrontPath(sw(), scale), `${scale}x`).toBe('gpu');   // the flip (GM.R18): the landed table
   });
 
   it('the surface\'s own session kill (loss limit, restore wait) keeps the surface: its L3 software at 1x, the ladder\'s', () => {
@@ -114,7 +118,7 @@ describe('GM-12b: which canvas draws a scale (the page\'s path)', () => {
     for (const s of [
       new UiGpuSwitch({ search: '?uiGpu=off', storage: () => null, devTools: false, table }),
       new UiGpuSwitch({ search: '', storage: () => ({ getItem: () => 'off' }), devTools: false, table }),
-      new UiGpuSwitch({ search: '', storage: () => null, devTools: false }),
+      new UiGpuSwitch({ search: '', storage: () => null, devTools: false, table: OFF }),   // the flip: the landed table is on
     ]) {
       expect(uiGpuFrontWanted(s)).toBe(false);
       expect(FrontEndGpu.mount({ doc: document, twin: twin(), sw: s, place, load: () => Promise.reject(new Error('never asked')) })).toBeNull();
@@ -410,8 +414,8 @@ describe('GM-12b: mountFrontEnd makes the canvas behind the switch (jsdom: the p
   const audio = { setData: () => {} };
   const mount = (uiGpu: UiGpuSwitch) => mountFrontEnd('?menuflow', { kind: 'http', baseUrl: 'http://127.0.0.1:1/' } as never, document, { assets: pending as never, audio: audio as never, uiGpu })!;
 
-  it('the switch off (every player): the page is #front-end alone, as before', () => {
-    const m = mount(sw());
+  it('the switch off (an all-off table; before the flip, every player): the page is #front-end alone', () => {
+    const m = mount(sw('', OFF));
     expect(document.getElementById(FRONT_END_GPU_ID)).toBeNull();
     m.stop();
   });
@@ -443,11 +447,11 @@ describe('GM-12b: mountFrontEnd makes the canvas behind the switch (jsdom: the p
 
 describe("GM-12b: the page's loop and the session's close (source inspection: the loop needs a 2D canvas jsdom lacks)", () => {
   const src = readFileSync(resolve(fileURLToPath(import.meta.url), '../../src/frontEnd.ts'), 'utf8');
-  const loop = src.slice(src.indexOf('const loop = (now: number): void => {'));
-  const body = loop.slice(0, loop.indexOf('frameId = win.requestAnimationFrame(loop);'));
+  const loop = src.slice(src.indexOf('const step = (now: number): boolean => {'));
+  const body = loop.slice(0, loop.indexOf('const frontGuard = new FrameGuard();'));
 
   it('the path is chosen per tick, the hidden frame not drawn on it, the surface drawn there, the swap committed after the draw', () => {
-    expect(body).toMatch(/const gpu = gpuFront\?\.drawsOn\(hd\.scale\) \?\? false;/);
+    expect(body).toMatch(/const gpu = gpuFront\?\.drawsOn\(chosen\.scale\) \?\? false;/);   // GM-28: the pack's scale decides the path
     expect(body).toMatch(/if \(ticks > 0 && drawsMenuFrame\(s, hd\.scale, gpu\) && menuRasterWanted\(matchUp, matchGraphics\)\)/);
     expect(body).toMatch(/if \(gpu\) s\.render\(gpuFront!\.surface!, menuSampling \?\? undefined, hd\);/);
     expect(body).toMatch(/gpuFront\?\.drawn\(gpu\);[\s\S]*?\}\s*\n\s*gpuFront\?\.commit\(\);/);
@@ -481,23 +485,19 @@ describe('GM-12b: styles.css carries #front-end-gpu', () => {
   });
 });
 
-describe('GM-16b: the development table makes the canvas (shadow at HD); the release table makes nothing', () => {
-  it('a release build (every cell off): no canvas, no WebGL context asked', () => {
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
-    const release = new UiGpuSwitch({ search: '', storage: () => null, devTools: false, table: uiGpuPageTable(false) });
-    expect(FrontEndGpu.mount({ doc: document, twin: twin(), sw: release, place, load: () => Promise.reject(new Error('never asked')) })).toBeNull();
-    expect(document.getElementById(FRONT_END_GPU_ID)).toBeNull();
-    expect(getContext).not.toHaveBeenCalled();
-  });
-
-  it('a development build: the canvas made in standby (shadow shows the software); scale 1 stays today\'s path; no context at mount', () => {
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
-    const dev = new UiGpuSwitch({ search: '', storage: () => null, devTools: false, table: uiGpuPageTable(true) });
-    const g = FrontEndGpu.mount({ doc: document, twin: twin(), sw: dev, place, load: () => new Promise(() => {}) })!;
-    expect(g).not.toBeNull();
-    expect(g.canvas.classList.contains(UI_GPU_STANDBY_CLASS)).toBe(true);
-    expect(uiGpuFrontPath(dev, 1)).toBe('software');
-    expect(uiGpuFrontPath(dev, 4)).toBe('gpu');
-    expect(getContext).not.toHaveBeenCalled();
-  });
+// GM-16b made the canvas on the dev server only (`front.hd` shadow) and nothing on a built page. The flip (GM.R18): both
+// tables every cell `on` -- a built page and the dev server alike make the canvas in standby (the software shown until the
+// surface presents, GM-28: at 1x) and ask no context at mount; a software adapter is L4 at the surface's load, not here.
+describe('GM-16b, the flip: the built and the development tables both make the canvas, in standby, no context at mount', () => {
+  for (const [name, dev] of [['a release build (the flip, GM.R18; was no canvas)', false], ['a development build (the flip; was shadow at HD, scale 1 today\'s path)', true]] as const) {
+    it(`${name}: the canvas made in standby; the GPU path at every scale; no context at mount`, () => {
+      const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
+      const s = new UiGpuSwitch({ search: '', storage: () => null, devTools: false, table: uiGpuPageTable(dev) });
+      const g = FrontEndGpu.mount({ doc: document, twin: twin(), sw: s, place, load: () => new Promise(() => {}) })!;
+      expect(g).not.toBeNull();
+      expect(g.canvas.classList.contains(UI_GPU_STANDBY_CLASS)).toBe(true);
+      for (const scale of [1, 2, 4]) expect(uiGpuFrontPath(s, scale), `${scale}x`).toBe('gpu');
+      expect(getContext).not.toHaveBeenCalled();
+    });
+  }
 });

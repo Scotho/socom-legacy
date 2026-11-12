@@ -8,13 +8,13 @@ describe('Forge recipe plans use the existing layout and history', () => {
     let l = planForgeLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'type.set', { type: 4 }, []);
     l = planForgeLayout(l, 'extraction.place', { at: [0, 0, 0] }, []);
     l = planForgeLayout(l, 'spawn.place', { team: 'A', at: [5, 0, 5] }, []);
-    l = planForgeLayout(l, 'placement.set', { ref: 'zone:0', field: 'width', value: 240 }, []);
-    l = planForgeLayout(l, 'placement.set', { ref: 'zone:0', field: 'name', value: 'Safety2' }, []);
+    l = planForgeLayout(l, 'placement.set', { ref: 'xzone:0', field: 'width', value: 240 }, []);
+    l = planForgeLayout(l, 'placement.set', { ref: 'xzone:0', field: 'name', value: 'Safety2' }, []);
     l = planForgeLayout(l, 'placement.set', { ref: 'spawn:0', field: 'team', value: 'B' }, []);
     expect(l.extractionZones![0]).toMatchObject({ name: 'Safety2', size: [240, 100] });
     expect(l.spawns[0]!.team).toBe('B');
-    expect(() => planForgeLayout(l, 'placement.set', { ref: 'zone:0', field: 'width', value: 0 }, [])).toThrow(/width/);
-    expect(() => planForgeLayout(l, 'placement.set', { ref: 'zone:0', field: 'name', value: 'bad/name' }, [])).toThrow(/name/);
+    expect(() => planForgeLayout(l, 'placement.set', { ref: 'xzone:0', field: 'width', value: 0 }, [])).toThrow(/width/);
+    expect(() => planForgeLayout(l, 'placement.set', { ref: 'xzone:0', field: 'name', value: 'bad/name' }, [])).toThrow(/name/);
     expect(() => planForgeLayout(l, 'placement.set', { ref: 'spawn:0', field: 'width', value: 1 }, [])).toThrow();
     let e = planForgeLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'type.set', { type: 4 }, []);
     e = planForgeLayout(e, 'hostage.place', { at: [1, 0, 1] }, []);
@@ -28,8 +28,23 @@ describe('Forge recipe plans use the existing layout and history', () => {
     e = planForgeLayout(e, 'placement.set', { ref: 'hostage:0', field: 'character', value: 'thai_wife' }, []);
     expect(e.hostages![0]!.source).toBeUndefined();
     expect(() => planForgeLayout(e, 'placement.set', { ref: 'hostage:0', field: 'character', value: 'mp6:x' }, [])).toThrow(/character/);
-    const locked = planForgeLayout(l, 'piece.lock', { refs: ['zone:0'] }, []);
-    expect(() => planForgeLayout(locked, 'placement.set', { ref: 'zone:0', field: 'depth', value: 50 }, [])).toThrow(/locked/);
+    const locked = planForgeLayout(l, 'piece.lock', { refs: ['xzone:0'] }, []);
+    expect(() => planForgeLayout(locked, 'placement.set', { ref: 'xzone:0', field: 'depth', value: 50 }, [])).toThrow(/locked/);
+  });
+  it("FP-1b (REVIEW-A 14): placed extraction zones are keyed xzone:<index>, a rules zone zone:<id> -- one key per kind", () => {
+    let l = planForgeLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'type.set', { type: 4 }, []);
+    l = planForgeLayout(l, 'extraction.place', { at: [0, 0, 0] }, []);
+    // A rules zone whose authored id is "0" (`AUTHORED_ID` allows it): it no longer shares extraction zone 0's key.
+    l = planForgeLayout(l, 'zone.place', { id: '0', shape: 'cylinder', at: [50, 0, 50], radius: 5, height: 3 }, []);
+    l = planForgeLayout(l, 'piece.move', { refs: ['xzone:0'], delta: [1, 0, 0] }, []);
+    expect(l.extractionZones![0]!.at).toEqual([1, 0, 0]);
+    expect(l.zones![0]!.at).toEqual([50, 0, 50]);
+    l = planForgeLayout(l, 'piece.move', { refs: ['zone:0'], delta: [0, 0, 1] }, []);
+    expect(l.zones![0]!.at).toEqual([50, 0, 51]);
+    expect(l.extractionZones![0]!.at).toEqual([1, 0, 0]);
+    // A rules zone has no extraction zone's fields: refused by name, never a TypeError off a missing row.
+    expect(() => planForgeLayout(l, 'placement.set', { ref: 'zone:0', field: 'width', value: 240 }, [])).toThrow(/zone:0 has no field to set/);
+    expect(() => planForgeLayout(l, 'placement.set', { ref: 'zone:0', field: 'width', value: 240 }, [])).not.toThrow(TypeError);
   });
   it('a door is placed in any game type, Frostfire\'s bdoor_4 by default, its model set', () => {
     let l = planForgeLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'door.place', { at: [1, 0, 2], yaw: 0 }, []);
@@ -95,6 +110,20 @@ describe('Forge recipe plans use the existing layout and history', () => {
     expect(() => planForgeLayout(other, 'bomb.place', { kind: 'seal', at: [0, 0, 0] }, [])).toThrow(/Demolition/);
     const demolition = planForgeLayout(blank, 'type.set', { type: 2 }, []);
     expect(planForgeLayout(demolition, 'bomb.place', { kind: 'start', at: [1, 0, 2] }, []).objectives).toMatchObject({ gameType: 2, bomb: { start: [1, 0, 2] } });
+  });
+  it("Breach places the bomb start and the SEALs' site, as the page does; its Terrorists' site and Escort are refused", () => {
+    const blank = emptyLayout({ kind: 'blank', library: 'floor' });
+    const breach = planForgeLayout(blank, 'type.set', { type: 1 }, []);
+    const started = planForgeLayout(breach, 'bomb.place', { kind: 'start', at: [1, 0, 2] }, []);
+    expect(started.objectives).toMatchObject({ gameType: 1, bomb: { start: [1, 0, 2] } });
+    expect(planForgeLayout(started, 'bomb.place', { kind: 'seal', at: [3, 0, 4] }, []).objectives?.bomb?.sites.map((s) => [s.team, s.at])).toEqual([[0, [3, 0, 4]]]);
+    const code = (f: () => unknown): string | undefined => { try { f(); } catch (e) { return (e as { code?: string }).code; } return undefined; };
+    expect(code(() => planForgeLayout(breach, 'bomb.place', { kind: 'terrorist', at: [0, 0, 0] }, []))).toBe('GAME_TYPE');
+    expect(() => planForgeLayout(breach, 'bomb.place', { kind: 'terrorist', at: [0, 0, 0] }, [])).toThrow("The Terrorists' site plays no part in Breach; set the game type to Demolition to place it");
+    const escort = planForgeLayout(blank, 'type.set', { type: 3 }, []);
+    expect(code(() => planForgeLayout(escort, 'bomb.place', { kind: 'start', at: [0, 0, 0] }, []))).toBe('GAME_TYPE');
+    const demolition = planForgeLayout(blank, 'type.set', { type: 2 }, []);
+    expect(planForgeLayout(demolition, 'bomb.place', { kind: 'terrorist', at: [5, 0, 5] }, []).objectives?.bomb?.sites.map((s) => s.team)).toEqual([1]);
   });
   it('five edits and five undos restore the initial exact bytes and selection', () => {
     let layout = emptyLayout({ kind: 'blank', library: 'floor' });

@@ -25,6 +25,11 @@ and every internal `href` and `src` in every exported HTML file resolves to a fi
 index was exported to `out/api/search` and the search dialog's own client, loading that file, finds the anatomy page
 for "manifest". It reads files only, with no network. A build is a heavy run on a shared host: run one at a time and end its processes when it ends.
 
+`node --test scripts/drift.test.mjs` (plain Node, no install) passes when every page under `content/docs/` is listed in
+`public/llms.txt` and on the wiki map (`content/docs/map.mdx`), neither links a page that does not exist, and every page
+ends with its agent block: a `## For agents` section holding one fenced `json` object with exactly `page`, `audience`,
+`summary`, `inputs`, `outputs` and `see_also` (FP-12a, the Forge path's FP.R9).
+
 Next.js's telemetry is off for every script (`scripts/run-next.mjs` sets `NEXT_TELEMETRY_DISABLED`).
 
 ## Layout
@@ -42,6 +47,9 @@ Next.js's telemetry is off for every script (`scripts/run-next.mjs` sets `NEXT_T
 | `app/api/search/route.ts` | the search index, written once at build to `out/api/search` (Fumadocs' built-in search, static) |
 | `components/search.tsx` | the search dialog, searching that index in the browser |
 | `scripts/check-search.mjs` | the search check over `out/` |
+| `content/docs/map.mdx` | the wiki map (FP-12a): the information architecture, every page grouped for players, creators and agents |
+| `public/llms.txt` | the plain-text index served at `/llms.txt`, one line a page (kept by hand) |
+| `scripts/drift.test.mjs` | the wiki's shape: every page in `llms.txt` and on the map, each ending with a valid `## For agents` block |
 
 ## A page's status
 

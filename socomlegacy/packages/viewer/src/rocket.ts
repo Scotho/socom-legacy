@@ -64,6 +64,11 @@ export interface RocketLaunch {
   rounds: number;
   /** LATER 503: the launch's id in the launcher's journal (`RocketLauncher.refund`), page-local, never on the wire. */
   shot: number;
+  /**
+   * TRIGGER-SWAP fold: the round's FireWait, which the launch writes on the kit's one rate timer `kit+0x81c`
+   * (`FUN_005be9a0` D:L475514-475517) -- handed to the firearm at the lower (`./matchThrow`, `Fire.holdWait`).
+   */
+  fireWait: number;
 }
 
 /** LATER 503: the launches a stale may yet give back -- a page's bookkeeping, no game value (rockets leave 3 s apart). */
@@ -270,7 +275,7 @@ export class RocketLauncher {
     this.launched++;
     const e: RocketLaunch = {
       launcher: id, round: { id: roundId, name: round.record.name }, record: round.record, from, dir: out.dir, velocity: out.velocity, to,
-      rounds: this.roundsFor(id), shot,
+      rounds: this.roundsFor(id), shot, fireWait: round.fireWait,
     };
     this.lastLaunch = { from, velocity: out.velocity, to, round: round.record.name };
     this.emit('launch', e);

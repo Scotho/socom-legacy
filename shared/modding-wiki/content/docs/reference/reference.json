@@ -246,7 +246,7 @@
     },
     {
       "key": "ENGINE_CONTRACT_VERSION",
-      "value": "0.1.1",
+      "value": "0.1.2",
       "description": "The engine contract version this build publishes; a pack's `contract` range must include it."
     },
     {

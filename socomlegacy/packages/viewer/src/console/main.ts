@@ -5,6 +5,8 @@ import { startPwa } from '../pwa/boot';
 import { adaptersFor, liveAdapters } from './adapters';
 import { bootConsole } from './app';
 import { bootLauncher } from './launcherEntry';
+import { lobbyIdOfPath, mountLobbyLiveLink } from '../lobbyLiveLink';
+import { replayPageOf } from './routes';
 
 /**
  * The console launcher page's entry (`index.html`, served at the base path since CX-9a, CX.R8; `/console` its alias):
@@ -22,8 +24,20 @@ import { bootLauncher } from './launcherEntry';
 startPwa(window);
 watchSoftwareRenderer(document, window);   // CPS-4c: a software WebGL renderer named, after the first frame (browser adaptation)
 installClientErrorBeacon(window, pageClientErrorBeacon());   // CLIENT_ERROR_BEACON_ADAPTATION, part A (2026-11-05): what breaks is kept, named on the page and (part B) told to our server
-void bootLauncher(document, {
-  dev: import.meta.env.DEV,
-  base: import.meta.env.BASE_URL ?? '/',
-  console: () => { bootConsole(document, window, adaptersFor(window.location.search, () => liveAdapters(document, window)), { keymap: import.meta.env.DEV }); },
-}).catch(bootFailure);
+// LCM-8: a lobby link's page (`/online/lobby/<id>`) boots the launcher as before and shows "Live match stats" while
+// `/api/live` names its match. LCM-16: `/match/<id>` and `/player/<name>` are no longer this document's -- each is its own
+// (`leaderboard/match/index.html`, `leaderboard/player/index.html`), central's head injected, the dev server's rewrite.
+// LCM-RP (RB-12): `/replay/<id>` is the replay page in this document (central injects its head): the replay viewer on that
+// replay, loaded only there (`./render/replayPublic`); a malformed id goes Home from it.
+const replayPage = replayPageOf(window.location.pathname, window.location.search, import.meta.env.BASE_URL ?? '/');
+if (replayPage) {
+  void import('./render/replayPublic').then((m) => { m.bootReplayPage(document, window, replayPage); }).catch(bootFailure);
+} else {
+  const lobbyId = lobbyIdOfPath(window.location.pathname, import.meta.env.BASE_URL ?? '/');   // LCM-18d: it ends with the lobby's page
+  if (lobbyId) mountLobbyLiveLink(document, lobbyId, { base: import.meta.env.BASE_URL ?? '/' });
+  void bootLauncher(document, {
+    dev: import.meta.env.DEV,
+    base: import.meta.env.BASE_URL ?? '/',
+    console: () => { bootConsole(document, window, adaptersFor(window.location.search, () => liveAdapters(document, window)), { keymap: import.meta.env.DEV }); },
+  }).catch(bootFailure);
+}

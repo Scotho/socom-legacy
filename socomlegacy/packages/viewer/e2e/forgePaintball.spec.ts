@@ -6,6 +6,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, validatePack } from '@s2u/creator-contracts';
 import { withCallbackServer } from '../../../tools/forge-agent-probe/callback';
 import { e2ePort } from './ports';
+import { beginPair, pairBody, PROBE_PAIR_TIMEOUT_MS } from '../../../tools/forge-agent-probe/pairing';
 
 /**
  * FCW-13 (product track, OT.R53; re-cast by FCW.R18): the paintball example pack
@@ -57,7 +58,7 @@ async function guestToken(context: BrowserContext): Promise<string> {
     try {
       await auth.goto(`${metadata.authorization_endpoint}?${new URLSearchParams({ client_id: registered.client_id, redirect_uri: redirect,
         response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge, resource: `${GATEWAY}/mcp`, state: 'probe' })}`);
-      await auth.getByRole('button', { name: 'Continue as guest' }).click();
+      await auth.getByRole('button', { name: 'Approve' }).click();
       await auth.waitForURL(`${redirect}**`, { timeout: 5_000 });
       const code = new URL(auth.url()).searchParams.get('code');
       expect(code, 'the callback carries a code').toBeTruthy();
@@ -109,20 +110,25 @@ async function pair(context: BrowserContext, page: Page, pageOrigin: string, que
   const agentSection = page.locator('.fx-right details[data-forge-panel="agent"]');
   if (!(await agentSection.evaluate((d) => (d as HTMLDetailsElement).open))) await page.getByText('Connect your agent', { exact: true }).click();
   const panel = agentPanel(page);
-  const copy = panel.getByRole('button', { name: 'Copy connection instructions' });
+  // AX-U: one card; the Connect moment's one primary button copies the one connect line.
+  const copy = panel.getByRole('button', { name: 'Copy connect link', exact: true });
   await copy.waitFor({ timeout: 60_000 });
   await copy.click();
   await panel.getByText('Waiting for your agent', { exact: true }).waitFor({ timeout: 10_000 });
   const blurb: string = await page.evaluate(() => navigator.clipboard.readText());
-  const match = blurb.match(/Use agent_pair with invitation ("[^"\r\n]+")/);
-  expect(match, 'the copied instructions carry an invitation').toBeTruthy();
-  const paired = await context.request.post(`${GATEWAY}/api/v1/pair`, { headers, data: { invitation: JSON.parse(match![1]!),
-    permissions: PERMISSIONS, clientName: 'FCW-13 paintball e2e' } });
-  expect(paired.ok(), `pair: ${paired.status()}`).toBe(true);
-  await panel.getByText('Allow this connection?', { exact: true }).waitFor({ timeout: 10_000 });
+  const match = blurb.match(/^Connect to my SOCOM 2 Legacy page: \S+\/join\/([A-Za-z0-9_.:-]{1,128})$/);
+  expect(match, 'the copied line carries the join link').toBeTruthy();
+  // REVIEW-1 finding 3: the gateway holds the pair until the page answers (AX-3), so the call is started here and
+  // awaited after the Allow click (`tools/forge-agent-probe/pairing.ts`).
+  const pairing = beginPair(() => context.request.post(`${GATEWAY}/api/v1/pair`, { headers, timeout: PROBE_PAIR_TIMEOUT_MS,
+    data: pairBody(match![1]!, PERMISSIONS, 'FCW-13 paintball e2e') }));
+  await panel.locator('[data-agent-moment="allow"]').waitFor({ state: 'visible', timeout: 10_000 });
   for (const box of await panel.locator('.agent-panel__permissions input:not(:disabled)').all()) await box.check();
-  await panel.getByRole('button', { name: 'Allow selected access' }).click();
-  await panel.getByText('Agent connected', { exact: true }).waitFor({ timeout: 30_000 });
+  await panel.locator('[data-agent-approve]').click();
+  const paired = await pairing;
+  expect(paired.ok(), `pair: ${paired.status()}`).toBe(true);
+  expect((await paired.json()).state, 'the held pair answers once Allow is clicked').toBe('paired');
+  await page.locator('.agent-panel[data-state="connected"]').waitFor({ timeout: 30_000 });
   const statuses = await (await context.request.get(`${GATEWAY}/api/v1/status`, { headers })).json();
   const session = statuses.sessions[0];
   expect(session, 'the status lists the paired session').toBeTruthy();

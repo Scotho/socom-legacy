@@ -316,7 +316,10 @@ describe('GM-11a-1: GpuUiPresenter over the base', () => {
       const out = p.present(items, () => null, { scale, transparent });
       expect(p.last?.path).toBe('gpu');
       expect(f.names()).not.toContain('texSubImage2D');
-      expect(f.names()).toContain('blitFramebuffer');
+      // GM-19a re-pin: a transparent frame reaches its canvas by the premultiplied present's draw
+      // (`UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`, `test/uiGpuPremultipliedPresent.test.ts`); an opaque one by the blit.
+      if (transparent) expect(f.calls).toContainEqual(['drawArrays', GL.TRIANGLES, 0, 3]);
+      else expect(f.names()).toContain('blitFramebuffer');
       expect([out.width, out.height]).toEqual([ref.frame.width, ref.frame.height]);
       expect(diff(p.readFrame()!.data, ref.frame.data)).toBe(0);
     }
@@ -648,7 +651,7 @@ describe('GM-15b: the models pass\'s edges on the fake GL -- seams and ties draw
     }
   });
 
-  it('a tie (case 3): the first triangle\'s colour and depth on every pixel the two share (strict GREATER, UI_MODEL_DEPTH_FORMAT_READING), the software\'s bytes, at 1, 2 and 4', () => {
+  it('a tie (case 3): the later triangle\'s colour and depth on every pixel the two share (GEQUAL, UI_MODEL_DEPTH_FORMAT_READING; GM-15d, GREATER kept the first), the software\'s bytes, at 1, 2 and 4', () => {
     const c = UI_RASTER_CASES.find((x) => x.key === '3')!;
     for (const scale of UI_RASTER_CASE_SCALES) {
       const { items, textures, options } = caseRasterInputs(c, scale, 'opaque');
@@ -658,7 +661,7 @@ describe('GM-15b: the models pass\'s edges on the fake GL -- seams and ties draw
       expect(diff(got.data, rasterizeUiDrawList(items, textures, options).frame.data), `${scale}x`).toBe(0);
       for (const [x, y] of [[1, 1], [7, 7], [0, 15]] as const) {
         const o = (y * scale * got.width + x * scale) * 4;
-        expect([...got.data.subarray(o, o + 4)], `${scale}x (${x}, ${y})`).toEqual([128, 0, 0, 255]);
+        expect([...got.data.subarray(o, o + 4)], `${scale}x (${x}, ${y})`).toEqual([0, 128, 0, 255]);
         expect(depthOf(f).data![y * scale * got.width + x * scale], `${scale}x (${x}, ${y})`).toBe(0.5);   // invW 1, depthScale 1/2
       }
     }

@@ -1,11 +1,12 @@
 import {
   S3_alpha, S6_horizontal, S7_vertical, S8_modulate, S9_modulateAlpha, S10_frameAlpha, S11_additive, S11_source, S11ff_additiveOut,
-  S11ff_sourceOut, S12_store, S12ff_unorm, T2_third, T2_weight, T3_inside, T4_invW, T5_depth, T5_depthPasses, T6_perspective, T7_lerp, T8_lerp,
+  S11ff_sourceOut, S12_store, S12ff_unorm, T2_edge, T2_third, T2_weight, T3_inside, T4_invW, T5_depth, T5_depthPasses, T6_perspective, T7_lerp, T8_lerp,
   T9_modulateAlpha, T10_discard,
 } from '../src/uiGpuTwin';
 import { UI_GPU_AXIS_WIDTH, UI_GPU_QUAD_VERTEX_SOURCE, UI_GPU_SHADER_SOURCES, UI_GPU_TEXTURE_UNITS } from '../src/uiGpuShaders';
 import { UI_GPU_MODEL_VERTEX_SOURCE } from '../src/uiGpuModels';
 import { UI_GPU_MOVIE_FRAGMENT_SOURCE, UI_GPU_MOVIE_UNIT, UI_GPU_MOVIE_VERTEX_SOURCE } from '../src/uiGpuMovie';
+import { UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION, UI_GPU_PRESENT_FRAGMENT_SOURCE, UI_GPU_PRESENT_VERTEX_SOURCE } from '../src/uiGpuWebgl2';
 
 // GM-11a-1, GM-11a-2 (plan 2026-11-01-gpu-menus): a fake WebGL2 context for Node, where no GPU and no browser run on
 // this host. It records every call and keeps the images a real context keeps (textures by format, the default
@@ -42,19 +43,21 @@ import { UI_GPU_MOVIE_FRAGMENT_SOURCE, UI_GPU_MOVIE_UNIT, UI_GPU_MOVIE_VERTEX_SO
 // GM-15a: **the models**. A framebuffer may carry a depth renderbuffer (`DEPTH_COMPONENT32F`, a `Float32Array` image,
 // GL row 0 first); `clearBufferfv(DEPTH, 0, [v])` and `clear(DEPTH_BUFFER_BIT)` fill it under the depth mask and the
 // scissor. The `model-ff-src` / `model-ff-add` programs link only with `uiGpuShaders.ts`'s and `uiGpuModels.ts`'s exact
-// sources and run the twin's T steps (`T2_weight` .. `T10_discard`, `T5_depth`, `T5_depthPasses`, and `T8_lerp` within
+// sources and run the twin's T steps (`T2_edge`, `T2_weight` .. `T10_discard`, `T5_depth`, `T5_depthPasses`, and `T8_lerp` within
 // the GLSL's own REPEAT) over each instance's box at the integer point, from the per-instance attributes the vertex
 // shader hands on flat (`MODEL_VARYINGS`). A discarded fragment writes nothing; one that survives is tested against the
 // bound depth only while `DEPTH_TEST` is on and the framebuffer has a depth attachment (GL ES 3.0 section 4.1.6), with
-// `GREATER` the one function modelled, and writes its depth only under the depth mask; its colour goes through the
+// `GEQUAL` the one function modelled (GM-15d; `GREATER` before), and writes its depth only under the depth mask; its colour goes through the
 // S11ff/S12ff blender and the colour mask as a quad's does. A depth test on a draw that writes no `gl_FragDepth` (a quad,
 // the movie) is refused: a 2D quad never tests the models' depth (`UI_2D_QUAD_Z_READING`).
 
 const f = Math.fround;
 /** Every fragment source a program may link with, by program name, and the vertex source each pairs with. */
-const FRAGMENTS: Record<string, string> = { ...UI_GPU_SHADER_SOURCES, movie: UI_GPU_MOVIE_FRAGMENT_SOURCE };
+// GM-19a: `present`, the transparent frame's premultiplied present (`UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`).
+const FRAGMENTS: Record<string, string> = { ...UI_GPU_SHADER_SOURCES, movie: UI_GPU_MOVIE_FRAGMENT_SOURCE, present: UI_GPU_PRESENT_FRAGMENT_SOURCE };
 const isModel = (name: string): boolean => name.startsWith('model-');
-const VERTEX_OF = (name: string): string => (name === 'movie' ? UI_GPU_MOVIE_VERTEX_SOURCE : isModel(name) ? UI_GPU_MODEL_VERTEX_SOURCE : UI_GPU_QUAD_VERTEX_SOURCE);
+const VERTEX_OF = (name: string): string => (name === 'movie' ? UI_GPU_MOVIE_VERTEX_SOURCE : name === 'present' ? UI_GPU_PRESENT_VERTEX_SOURCE
+  : isModel(name) ? UI_GPU_MODEL_VERTEX_SOURCE : UI_GPU_QUAD_VERTEX_SOURCE);
 /** GM-15a: the model programs' REPEAT, as their GLSL writes it (`wrapRepeat`: no `%` on a negative operand). */
 const wrapRepeat = (i: number, n: number): number => (i >= 0 ? i % n : (n - 1) - ((-i - 1) % n));
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -71,7 +74,7 @@ export const GL = {
   UNPACK_FLIP_Y_WEBGL: 0x9240, UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241, UNPACK_COLORSPACE_CONVERSION_WEBGL: 0x9243, NONE: 0,
   PIXEL_PACK_BUFFER: 0x88eb, PIXEL_UNPACK_BUFFER: 0x88ec, BACK: 0x0405, TEXTURE0: 0x84c0,
   // GM-11a-2
-  VERTEX_SHADER: 0x8b31, FRAGMENT_SHADER: 0x8b30, COMPILE_STATUS: 0x8b81, LINK_STATUS: 0x8b82, TRIANGLE_STRIP: 0x0005,
+  VERTEX_SHADER: 0x8b31, FRAGMENT_SHADER: 0x8b30, COMPILE_STATUS: 0x8b81, LINK_STATUS: 0x8b82, TRIANGLE_STRIP: 0x0005, TRIANGLES: 0x0004,
   FUNC_ADD: 0x8006, ZERO: 0, ONE: 1, SRC_ALPHA: 0x0302, ONE_MINUS_SRC_ALPHA: 0x0303, DST_ALPHA: 0x0304, ONE_MINUS_DST_ALPHA: 0x0305,
   RGBA32F: 0x8814, RGBA8UI: 0x8d7c, RGBA_INTEGER: 0x8d99, FLOAT: 0x1406, MAX_TEXTURE_SIZE: 0x0d33,
   // GM-11a-3
@@ -84,7 +87,7 @@ export const GL = {
   OBJECT_TYPE: 0x9112, SYNC_FENCE: 0x9116, ALREADY_SIGNALED: 0x911a, TIMEOUT_EXPIRED: 0x911b,
   // GM-15a: the models' depth
   DEPTH_COMPONENT32F: 0x8cac, DEPTH_ATTACHMENT: 0x8d00, DEPTH_BUFFER_BIT: 0x0100, DEPTH: 0x1801, RENDERBUFFER: 0x8d41,
-  GREATER: 0x0204, LESS: 0x0201,
+  GREATER: 0x0204, GEQUAL: 0x0206, LESS: 0x0201,
 } as const;
 
 /**
@@ -415,12 +418,13 @@ export function fakeGl(o: FakeGlOptions = {}) {
     const tu = u.get('t_u')!, tv = u.get('t_v')!, ca = u.get('t_ca')!, cb = u.get('t_cb')!, cc = u.get('t_cc')!;
     const scale = u.get('u_depthScale')![0]!;
     // T2, T3
+    const e0 = T2_edge(bx, by, cx, cy, x, y), e1 = T2_edge(cx, cy, ax, ay, x, y), e2 = T2_edge(ax, ay, bx, by, x, y);
     let w0 = T2_weight(bx, by, cx, cy, x, y, inv), w1 = T2_weight(cx, cy, ax, ay, x, y, inv), w2 = T2_third(w0, w1);
-    if (!T3_inside(w0, w1, w2)) return null;
+    if (!T3_inside(e0, e1, e2, ax, ay, bx, by, cx, cy, inv < 0 ? -1 : 1)) return null;   // GM-15d: the top-left rule
     // T4, T5 (gl_FragDepth; the test is the raster's, against the bound depth)
     const invW = T4_invW(w0, w1, w2, aw, bw, cw), z = T5_depth(invW, scale);
-    // GM-15b: a GPU may flush a subnormal to 0 (ESSL 3.00 section 4.5.1), and its clear's 0 never passes GREATER; the
-    // plan refuses such a pass (UI_GPU_MODEL_DEPTH_FLOOR), so a drawn fragment below f32's normal range is a bug here.
+    // GM-15b: a GPU may flush a subnormal to 0 (ESSL 3.00 section 4.5.1), where the software would store it; the plan
+    // refuses such a pass (UI_GPU_MODEL_DEPTH_FLOOR), so a drawn fragment below f32's normal range is a bug here.
     if (!(z >= 2 ** -126)) throw new Error(`fake: a model fragment's depth ${z} under f32's normal range (a GPU may flush it; the plan refuses it)`);
     // T6, T7
     w0 = T6_perspective(w0, aw, invW); w1 = T6_perspective(w1, bw, invW); w2 = T6_perspective(w2, cw, invW);
@@ -790,6 +794,7 @@ export function fakeGl(o: FakeGlOptions = {}) {
       rec('drawArrays', mode, first, count);
       const p = st.program;
       if (!p || !p.name) throw new Error('fake: drawArrays without a linked program');
+      if (p.name === 'present') { present(p, mode, first, count); return; }
       if (p.name !== 'movie') throw new Error(`fake: ${p.name} draws its quads instanced (drawArraysInstanced)`);
       if (mode !== GL.TRIANGLE_STRIP || first !== 0 || count !== 4) throw new Error('fake: a quad is a four-vertex strip');
       if (!st.vao) throw new Error('fake: drawArrays without a vertex array bound');
@@ -841,6 +846,32 @@ export function fakeGl(o: FakeGlOptions = {}) {
       }
     },
   };
+  /**
+   * GM-19a: the premultiplied present (`UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`) as its GLSL writes it -- one triangle over
+   * the viewport into the default framebuffer, each pixel the frame texture's texel at the flipped row, each colour
+   * channel at most its alpha. The state a real draw would honour is refused rather than modelled (blend, scissor, a
+   * partial colour mask, discard, cull, depth); dither on changes a byte as the quads' does.
+   */
+  const present = (p: Program, mode: number, first: number, count: number): void => {
+    if (mode !== GL.TRIANGLES || first !== 0 || count !== 3) throw new Error('fake: the present is one three-vertex triangle');
+    if (!st.vao) throw new Error('fake: drawArrays without a vertex array bound');
+    if (st.draw) throw new Error('fake: the present draws into the default framebuffer');
+    const unit = UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION.unit;
+    if (p.uniforms.get('u_frame')?.[0] !== unit) throw new Error(`fake: u_frame not on unit ${unit}`);
+    const t = sampled(unit, GL.RGBA8, 'u_frame');
+    for (const cap of [GL.BLEND, GL.SCISSOR_TEST, GL.RASTERIZER_DISCARD, GL.CULL_FACE, GL.DEPTH_TEST]) if (st.enabled.has(cap)) throw new Error(`fake: the present drawn with 0x${cap.toString(16)} on`);
+    if (!st.mask.every(Boolean)) throw new Error('fake: the present drawn under a partial colour mask');
+    const img = image(null), src = t.data as Uint8Array;
+    const [vx, vy, vw, vh] = st.viewport;
+    if (vx !== 0 || vy !== 0 || vw !== img.w || vh !== img.h) throw new Error('fake: the viewport is not the canvas');
+    if (t.w !== img.w || t.h !== img.h) throw new Error(`fake: the frame (${t.w} x ${t.h}) is not the canvas's size (${img.w} x ${img.h})`);
+    for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) {
+      const s0 = ((t.h - 1 - y) * t.w + x) * 4, d0 = (y * img.w + x) * 4, a = src[s0 + 3]!;
+      const bytes = [Math.min(src[s0]!, a), Math.min(src[s0 + 1]!, a), Math.min(src[s0 + 2]!, a), a];
+      if (st.enabled.has(GL.DITHER) && (x + y) % 2 === 1) for (let c = 0; c < 4; c++) bytes[c] = bytes[c]! ^ 1;
+      for (let c = 0; c < 4; c++) img.data[d0 + c] = bytes[c]!;
+    }
+  };
   /** One drawn quad or picture: its program's inputs `u`, over the integer rectangle `rect`. */
   const raster = (p: Program, u: Map<string, number[]>, rect: number[], instance: number, instances: number): void => {
     {
@@ -863,7 +894,7 @@ export function fakeGl(o: FakeGlOptions = {}) {
       // writes no gl_FragDepth, and a 2D quad never tests the models' depth: refused.
       const testing = st.enabled.has(GL.DEPTH_TEST) && !!depthBuf;
       if (testing && !model) throw new Error(`fake: ${p.name} drawn with DEPTH_TEST on (a 2D quad keeps no depth, UI_2D_QUAD_Z_READING)`);
-      if (testing && st.depthFunc !== GL.GREATER) throw new Error(`fake: depthFunc 0x${st.depthFunc.toString(16)} not modelled (GREATER only)`);
+      if (testing && st.depthFunc !== GL.GEQUAL) throw new Error(`fake: depthFunc 0x${st.depthFunc.toString(16)} not modelled (GEQUAL only)`);
       if (depthBuf && (depthBuf.deleted || !depthBuf.data)) throw new Error('fake: a draw into a framebuffer whose depth has no storage');
       const img = image(st.draw);
       // The vertex shader's strip: the corners are pixel edges, so the covered pixels are the rectangle's (centres inside).
@@ -880,7 +911,7 @@ export function fakeGl(o: FakeGlOptions = {}) {
           if (!frag) continue;                                     // discarded: no colour, no depth
           if (testing) {
             const at = y * depthBuf!.w + x;
-            if (!T5_depthPasses(frag.z, depthBuf!.data![at]!)) continue;   // GREATER failed: nothing written
+            if (!T5_depthPasses(frag.z, depthBuf!.data![at]!)) continue;   // GEQUAL failed: nothing written
             if (st.depthMask) depthBuf!.data![at] = f(frag.z);
           }
           out = frag.out;

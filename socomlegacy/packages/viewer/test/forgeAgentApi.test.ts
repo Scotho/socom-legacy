@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createForgeAgentApi, FORGE_AGENT_OPERATIONS, type ForgeAgentFacade } from '../src/forge/agent/api';
+import { createForgeAgentApi, FORGE_AGENT_OPERATIONS, type ForgeAgentFacade, validateForgeAgentArguments } from '../src/forge/agent/api';
 import { emptyLayout } from '../src/forge/layout';
 import { recordOfLayout } from '../src/forge/record';
 import { createOperationRegistry, forgeEditLabel, HUMAN, type OperationStep } from '../src/forge/shell/operations';
@@ -245,5 +245,14 @@ describe('Forge agent browser adaptation', () => {
       expect((await f.api.execute('layout.name', { name: 'Two' }, 1, 'two')).code).toBe('RECEIPT_CAPACITY');
       expect(f.commits()).toBe(1);
     }
+  });
+});
+
+describe("the agent schema's string pattern (a browser adaptation)", () => {
+  // flare.place names a disc archive (`MP72`, `C11`): the schema's pattern is published and held, not only shown.
+  it('admits an archive name and refuses one off the pattern', () => {
+    expect(() => validateForgeAgentArguments('flare.place', { source: 'MP72', name: 'flare01', at: [0, 0, 0] })).not.toThrow();
+    expect(() => validateForgeAgentArguments('flare.place', { source: '../x', name: 'flare01', at: [0, 0, 0] })).toThrow(/args\.source/);
+    expect(() => validateForgeAgentArguments('flare.place', { source: 'mp72', name: 'flare01', at: [0, 0, 0] })).toThrow(/args\.source/);
   });
 });

@@ -149,6 +149,7 @@ import CONSOLE_SHEET from '../../console/console.css?url';
 import { UI_POPUP_SOUND } from '@s2u/sound';
 import type { UiSoundCues } from '@s2u/ui';
 import { OVERLAY_ROUND_CUE_VOLUME_ADAPTATION, overlayRamp } from './motion';
+import { lobbyLinkCoverUp } from '../../lobbyLinkCover';
 import './overlay.css';
 
 /**
@@ -708,6 +709,9 @@ export function mountOverlay(doc: Document, opts: OverlayOptions): Overlay {
   const openDone = (): void => { phase = 'open'; mark('open'); settling(false); };
   const doOpen = (): void => {
     if (open || disposed) return;
+    // OT.R121 (the review's F1): never under a lobby link's cover -- it stands above the frame, so an overlay opened now
+    // would be blind; the press is spent (no open at the reveal), a new one opens it once the cover is gone.
+    if (lobbyLinkCoverUp(doc)) return;
     // MLS.R7: every entry path reaches this gate before making adapters or shadowing the game's input. Native
     // Settings keeps its lease while loading/unavailable; Home keeps its lease through the full close transition.
     if (!releaseEditor) {

@@ -1,5 +1,5 @@
 import type { Grid } from '@s2u/scene';
-import { STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
+import { probeLiftOf, Walker } from '../src/mover';
 import type { Team } from '../src/net/protocol';
 import { victoryEligibility, type VictoryActor } from '../src/victory';
 
@@ -33,7 +33,7 @@ export function findVictoryArrangement(grid: Grid, actor: VictoryActor, enemy: T
     const spawnAt: Position = [actor.position[0] + dx, actor.position[1], actor.position[2] + dz];
     const w = new Walker(grid);
     // Room.spawn uses the requested feet plus this same exported probe lift.
-    if (!w.place(spawnAt[0], spawnAt[1] + STEP_PROBE_LIFT_READING, spawnAt[2])) continue;
+    if (!w.place(spawnAt[0], spawnAt[1] + probeLiftOf('stand'), spawnAt[2])) continue;
     const placedAt: Position = [w.state.x, w.state.y, w.state.z];
     if (!placedAt.every(Number.isFinite)) continue;
     const distance = Math.hypot(...placedAt.map((n, i) => n - actor.position[i]!));

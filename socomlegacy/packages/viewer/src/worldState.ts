@@ -1,10 +1,12 @@
-import { NODE_CALLER, NODE_ROOT, type CollisionOwner, type EffectCondition, type EffectOp, type EffectProgram, type Grid, type ParticleSource } from '@s2u/scene';
+import { MOTION, NODE_CALLER, NODE_ROOT, type CollisionOwner, type EffectCondition, type EffectOp, type EffectProgram, type Grid, type ParticleSource } from '@s2u/scene';
 import { groundPolygons, type GroundData } from './mover';
 import { AUTOSTART_INITIAL_READING, under, type MapMeta } from './mapMeta';
 import type { EnvWire } from './net/protocol';
 import { EffectRun, opacityTick, type EffectHost } from './effectRunner';
 import { valveApply, valveTest } from './doors';
+import { apply4 } from './doorMath';
 import { placeRefs, SceneHealth, SKIP_EFFECTS_VALVE, type SceneMeta, type SceneProgram, type SceneRunContext } from './sceneHealth';
+import { NodeFrame, profileStrokeTick, runsProfileStroke, runsScroll, scrollTick, type Vec3 } from './sceneScroll';
 
 /**
  * The world's mutable state (MAP-02; socomlegacy/docs/research/209-the-mutable-world.md s8-s10): one per room and one per
@@ -45,13 +47,16 @@ export interface WorldHooks {
   visible?(path: string, on: boolean): void;
   /** The world changed: its revision now. */
   changed?(revision: number): void;
-  /** A program's `SOUND` (a new play only: `newPlay`), at the node's place, at the command's volume. */
-  sound?(name: string, path: string | null, volume: number): void;
+  /**
+   * A program's `SOUND` (a new play only: `newPlay`) at the command's volume: `path` the node it names (the run's root
+   * when it names none), `at` where it plays (`SCENE_SOUND_PLACE_READING`; null: without a place).
+   */
+  sound?(name: string, path: string | null, volume: number, at: [number, number, number] | null): void;
   /** A program's `PARTICLE_SOURCE`, at its root. */
   particles?(source: ParticleSource, path: string | null): void;
   /**
    * A program's `DESTRUCTION_SOURCE`, at its node: the node alone (`GLASS_FRAGMENTS_PLACEHOLDER` -- the command's payload
-   * beyond its node byte is undecoded, so no fragment is thrown).
+   * is decoded, `op.debris`, research 210 s6.1, but no fragment is thrown from it yet).
    */
   destruction?(path: string | null): void;
   /**
@@ -78,19 +83,46 @@ export interface WorldHooks {
    * the bases' pulse outlines. Drawing only: the room lends none.
    */
   opacity?(path: string, opacity: number): void;
+  /**
+   * LATER 782 (`SCROLL_MOTION_PLACEHOLDER`): a program's `SCROLL_MOTION` on a placed node -- the texture offset now of
+   * every visual at or under `path`, in texture repeats (`WorldView.setNodeUvOffset`): Fish Hook's washes and water.
+   * Drawing only: the room lends none.
+   */
+  scroll?(path: string, u: number, v: number): void;
+  /**
+   * Research 386 §3.2 (LATER 63): a program's `FIRE_WEAPON` (`FUN_0025ccb0` D:L107153-107326) -- the round started at the
+   * command's node (`path`; null for none, D:L107229-107244), its fuse and second timer the command's floats
+   * (D:L107312-107316) -- on the room's run only (a page's run of a death the room decided is presentation, PF.R26): the
+   * room fires it (`Room.sceneRound`). Was `BRIDGE_FIRE_WEAPON_READING` (PF.R32): the command fell through.
+   */
+  fire?(op: Extract<EffectOp, { op: 'fireWeapon' }>, path: string | null): void;
+  /**
+   * V13-3c (`SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold'): a destructible's death this world decided and ran -- its
+   * health at 0 (`SceneHealth`'s hit or blast, `FUN_00273a50` D:L120980-120989) -- by its record's id; never a death
+   * taken from the wire (`takeDeath`). The room tells every page (`Room`'s `sceneDeath`).
+   */
+  died?(id: number): void;
 }
 
 /**
  * GLASS_FRAGMENTS_PLACEHOLDER (SUP-02; research 210 s6, 176 s4.2): what a `DESTRUCTION_SOURCE` throws -- Frostfire's
- * `breakapane` emits one at its root `pane1` -- is not decoded past its node byte (`@s2u/scene` `effects.ts`: `{ op:
- * 'destruction', node }`), and no capture shows a pane break: a broken pane plays its `.GLS_BRK_VSMALL` and goes off,
- * and nothing more is drawn. The page's `destruction` hook logs the node once.
+ * `breakapane` emits one at its root `pane1` -- is decoded (`@s2u/scene` `effects.ts`: `{ op: 'destruction', node,
+ * debris }`, research 210 s6.1; LATER 850) but not thrown, and no capture shows a pane break: a broken pane plays its
+ * `.GLS_BRK_VSMALL` and goes off, and nothing more is drawn. The page's `destruction` hook logs the node once.
  */
 export const GLASS_FRAGMENTS_PLACEHOLDER = 'sound-and-pane-off' as const;
 
 /**
- * SCENE_DEATH_ON_WIRE_READING (SUP-02; research 210 s6): the room decides a destructible's death and sends only the
- * geometry (MAP-03's `EnvWire`: the instances off their opening state), not the health. A page's world takes a live
+ * SCENE_DEATH_ON_WIRE_READING (SUP-02; research 210 s6; V13-3c, research 386 §3.5): the room decides a destructible's
+ * death and tells every page two ways. (1) Its id, at once (`sceneDeath`, protocol 13 additive; a joiner's welcome names
+ * the round's dead, `sceneDead`): the page's world takes it (`takeDeath`) -- spent, and unless silent its death's
+ * sequences run for presentation (PF.R26). The original's own path for a flagged death has this shape: `FUN_002734b0`
+ * (D:L120782-120797) builds a type-8 record naming the animation and sends it through `DAT_00414bfc` (`FUN_002bb880`,
+ * message 0x40 to every console online; research 376 §3) -- for the animations whose flag bit 4 is set; for one without
+ * it (MP12's `ant_base1`, flags 0x23) every console kills its own copy from the replicated blast. The port's room is the
+ * one authority (`SCENE_DEATH_AUTHORITY_READING`), so the told death stands in for both. (2) The geometry (MAP-03's
+ * `EnvWire`: the instances off their opening state), not the health -- kept for a state with no told death (a `.s2r`
+ * recorded before V13-3c). A page's world takes a live
  * destructible whose target the room's state turns off as dead -- one a distinct target (the first record bound to it,
  * as the room's `SceneHealth.at` picks), none for a record whose target is under another dead one's or whose animation
  * another's death runs as a program -- its record spent
@@ -103,15 +135,59 @@ export const GLASS_FRAGMENTS_PLACEHOLDER = 'sound-and-pane-off' as const;
  * network path for a scene object's death (a damage message replayed on each console, or a valve) is not traced;
  * research 209 s11's valve replay is the nearest read].
  */
-export const SCENE_DEATH_ON_WIRE_READING = 'targetOff' as const;
+export const SCENE_DEATH_ON_WIRE_READING = 'targetOffOrTold' as const;
 
 /**
- * SCENE_SOUND_PLACE_READING (SUP-02; research 210 s6): a scene program's `SOUND` at a node is placed at the centre of
- * the box of the node's polygons as they stand now (a pane in a swinging leaf where the leaf is) -- `MapMeta` carries no
- * node's world origin; null for a node with no polygons, played unplaced [reading: the game plays it at the node's
- * position, `FUN_002659c0` (D:L112363-112416); a pane's own origin is not read].
+ * SCENE_SOUND_PLACE_READING (research 210 s7; the v0.4.18 gulls, 2026-11-10): where a scene program's `SOUND` plays --
+ * `FUN_002659c0`'s new play (D:L112411-112462): the place starts at 0; flag 4 adds the command's offset (+0x14,
+ * `FUN_00309240`, D:L112423-112426); flag 8 the context's point (D:L112427-112445: a scene run's context holds none);
+ * flag 2 resolves the node (+0x10, `FUN_0026f4e0`) and, when it resolves, carries the place through the node's matrices
+ * up to the world (`FUN_00310980`, D:L112446-112450, D:L212139-212147): the node's world origin plus the offset in its
+ * frame (`MapMeta.worlds`; a node under a moved one -- a door's leaf, `nodeMoved` -- where it stands now). Any of the
+ * three places the sound, played through the bank's +0x14 play with that point (D:L112458-112462: `FUN_00342670`'s
+ * RANGE and pan, D:L241907-241950); none plays it unplaced (+0x18, D:L112463-112475). Was `'polygonBoxCentre'`: the
+ * centre of the node's polygons' box, unplaced for a node with none -- MP71's four gulls at full volume over the whole
+ * map. [reading: transcribed, pending review; the moves of gates, cranes and turrets are not carried (only the doors'),
+ * `SCENE_SOUND_MOVING_NODE_PLACEHOLDER`; a node held at the camera plays unplaced, `SCENE_SOUND_CAMERA_NODE_PLACEHOLDER`]
  */
-export const SCENE_SOUND_PLACE_READING = 'polygonBoxCentre' as const;
+export const SCENE_SOUND_PLACE_READING = 'nodeOrigin' as const;
+
+/**
+ * SCENE_SOUND_CAMERA_NODE_PLACEHOLDER: a placed `SOUND` (flag 2) at the camera, or at a node the camera carries, plays
+ * as before the place was read -- without a place, at its volume:
+ * (1) A node named `camera` that no placement of the map carries, rather than at its bare offset. Desert Glory's
+ * `mp6_battlesounds` and Sandstorm's `mp73_battlesounds` place their near gunfire (`incoming`) at `camera` + (+-200,
+ * 100, 0); whether `FUN_0026f4e0`'s lookup finds the game's own camera node by that name (then the sound plays 200 u
+ * beside the listener, through its RANGE) or nothing (then at the bare offset by the map's corner, out of range) is not
+ * read.
+ * (2) A node a scene program holds at the camera -- the target (+6) of an `OBJECT_TRANSLATE_STATE` (18; tick
+ * `FUN_00263890`, D:L111263ff) whose reference node (+7) is `camera`, or a node under one (`cameraFollowers`): every
+ * offered map's sky (`translate_sky`, MP82's `move_sky`, MP52's `translate_dustfollow`; research 175 s5.1.1), looped
+ * in an autostart, so the node stands at the camera each frame. `FUN_00310980` carries the place through the node's
+ * matrix as it stands (D:L112446-112450, D:L212139-212147), so the original plays Sandstorm's `.EXP_DISTANT` (0x86) at
+ * `skydome` + (300, 0, 1000), (-800, 0, -120), (-600, 0, -120) that far from the LISTENER; the port's node stands at its
+ * rest (`SCENE_NODE_TRANSFORM_PLACEHOLDER`), where the place would be on the ground in the playable area ((640, 0, 1320)
+ * and two more on MP73). Only MP73's and MP6's battle sounds sit at such a node (MP6's run by the effect runner, `./effects`).
+ * [placeholder: (1) the node lookup's scope at run time; (2) the place at the listener plus the offset in the node's
+ * frame, as the original's moving node gives it (LATER 894) -- settled by a closer reading of `FUN_00310980` with the
+ * node's live matrix (the camera's frame or its position only, by `OBJECT_TRANSLATE_STATE`'s flags) and a capture of
+ * Sandstorm's and Desert Glory's battle sounds.]
+ */
+export const SCENE_SOUND_CAMERA_NODE_PLACEHOLDER = 'unplaced' as const;
+
+/**
+ * SCENE_SOUND_MOVING_NODE_PLACEHOLDER: a placed `SOUND` (flag 2) at a node a scene program moves -- a gate's
+ * `gate_moveN` (`~FENCE_GATE`, `.WOOD_DR_SLD_*` on MP11 and MP62; `./gates`), a crane's hook (`~CRANE` on MP81;
+ * `./cranes`) -- plays at the node's REST origin plus its offset (`SCENE_SOUND_PLACE_READING`): only a door's move
+ * reaches the world (`nodeMoved`). `FUN_00310980` reads the node's matrix as it stands (D:L112446-112450), so the
+ * original's sound follows the moving gate or hook; until `agent/fh-seagulls` the port's followed the node's polygons as
+ * the hull moved them (`placeOf`). [placeholder: the gates' and cranes' translation handed to `nodeMoved` (LATER 895);
+ * a capture of an MP81 crane swing or an MP11 gate's slide, the sound's pan across the travel, settles it.]
+ */
+export const SCENE_SOUND_MOVING_NODE_PLACEHOLDER = 'restOrigin' as const;
+
+/** `SOUND`'s flag 2: the command names its node at +0x10 (`FUN_002659c0` D:L112446). */
+const SOUND_NODE = 0x2;
 
 /**
  * DEBRIS_NODE_READING (XR-04, ruling PF.R29; research 213 s2.1, s2.3, s4): a node whose zAnim reference saves its parent
@@ -183,6 +259,88 @@ export const ROOM_SKIP_EFFECTS_READING = true;
 export const SI_SCRIPT_MOTION_PLACEHOLDER = 'returns at once' as const;
 
 /**
+ * SCENE_NODE_MOTION_PLACEHOLDER (V13-3c; research 386 §3.3, §3.5, §8; H99, PF.R29): a death's `OBJECT_MOTION` on a
+ * placed map node -- MP12's `ant_part_fly1` on each of `ant_parts`' five parts (lifetime 5 s), `spinner_hit`'s on
+ * `spinner_ant` (4 s), the Ruins tower's `tower_part_fly` -- flies the node in the original; the port draws no flight
+ * (the world's drawing has no per-node transform). Where the program that moves it never turns that node off itself, a
+ * page's run -- a death off the wire (PF.R26), or the page's own in offline play -- draws in the flight's stead the node fading from 1 to 0 over
+ * the motion's own `lifetime` and gone from the drawing at its end -- a motion with a launch only (`FLIGHT_FLAGS`; a spin
+ * or a turn in place, MP6's truck, draws nothing: the review's F1) -- the page's drawing only: the world's flags, the
+ * room's and the wire's, are untouched, and the round's reset draws it back at opacity 1. Where the program turns it off
+ * (Blizzard's `toilet_flypart1`, MP6's `crate_part_fly`: their own wait, fade and off) the motion draws nothing, as
+ * before. The room's run, a display run (an autostart's spin, `spinner_ant_start`) and a joiner's silent state draw
+ * nothing. Not the original's look: the part's flight, its landing and its resting place are not drawn. Settled by a
+ * page-side flight of a placed node from the decoded motion (`@s2u/scene` `effectMotion.ts`) and a capture of the Ruins'
+ * antenna blown (H421). DF-6 (research 175 §5.1.1): it covers the collision too -- the flown node's polygons ride its
+ * flight in the original (the collider is the node's, research 281 §4.3, research 92 §2) and stay where they stood in
+ * the port's hull, active (Desert Glory's 22 hp-1 props: an unseen cup or lamp still stops a round where it stood).
+ */
+export const SCENE_NODE_MOTION_PLACEHOLDER = 'fadeOverLifetime' as const;
+
+/**
+ * BOAT_ROCK_PLACEHOLDER (DF-9, research 387 §12): a scene program's `OBJECT_MOTION_FROM_TO` rotation (flag 0x40) on a
+ * placed node is not run -- the node is drawn, and its polygons stand in the hull, where the disc places them. Fish
+ * Hook's `boat_rocker1` / `boat_rocker2` (autostarts, flags 0x821) wait 1-2 s, then loop forever a 4 s slerp of the
+ * rocker's rotation from one absolute quaternion to another and back (flags 0x60: the begin sets the start at +0x10,
+ * `FUN_0025fe70` D:L109293-109297; the tick slerps by the elapsed time over +0x34 and sets the end, `FUN_0025f9b0`
+ * D:L109016-109017, D:L108955) -- 1.36 and 1.31 degrees off no turn at all, a 2.67 degree swing. The setter writes the node's own rotation
+ * whole (`FUN_00315790` -> `FUN_00307170` D:L206170ff), so the original replaces each rocker's disc yaw (26.9 and 147.0
+ * degrees) with that rock at the first begin -- a reading, not watched. The hull: each rocker holds `boat_red`, 57
+ * collision polygons; the original's collision is the node's (research 92 §2: the doors' leaves turn by the same
+ * command and setter), so the deck would turn with it -- the transform the collision query reads is not traced. The
+ * port draws and collides each boat still at its disc yaw, and its command ends at once (the loop spins to the effect
+ * runner's guard each tick). Settled by a capture of both boats from the shore and a stand on one (H431's shape), and
+ * the collision query's polygon transform read; then a fromTo case here and the hull's turned owners (`DoorSet`'s way).
+ */
+export const BOAT_ROCK_PLACEHOLDER = 'still' as const;
+
+/**
+ * SCROLL_MOTION_PLACEHOLDER (DF-9, research 387 §12; narrowed by LATER 782, §12.7): what of `SCROLL_MOTION` (command 24,
+ * `@s2u/scene` op `scroll`) the port does not draw. Since LATER 782 the page's world runs the travel form (flag 8 clear;
+ * `./sceneScroll` `scrollTick`: `FUN_00260fb0` D:L109681-109703, `FUN_00260b40` D:L109635-109674, the 1/4096 steps of
+ * `FUN_003bfee0` D:L313770-313839) on the moving node's place (`WorldState.nodePlace`), and hands the offset to the
+ * drawing (`WorldHooks.scroll`), which moves the texture of the scrolled node's world chunks (`MapMeta.motion.scrolled`,
+ * `LoadedMesh.scrollPath`, `WorldView.setNodeUvOffset`): Fish Hook's six washes and its water, on MP71 and M71. Still
+ * not drawn: (1) the projected form (flag 8, `FUN_00260b40` D:L109576-109631) -- MP52's `reflect_test`, whose mover is
+ * its `camera`; (2) the scroll table's two other walks (flags 2 and 4, `FUN_003bfee0`'s `FUN_003bae40` / `FUN_003bada0`,
+ * unread); (3) a scrolled node drawn as a prop rather than a world chunk -- M71's and M72's `tank_wheels` treads (which
+ * nothing moves in the port), the common `bullet_advance` belt (no viewer source runs it); (4) a world chunk's detail and
+ * environment passes, which keep the unscrolled coordinates where the original's re-run the scrolled vertices; (5) the
+ * coordinate's 16-bit wrap on the vertex (the offset is kept whole; the shore's stays within a repeat). Settled by a
+ * read of the walks and the projected form, and a capture of the shore (H226).
+ */
+export const SCROLL_MOTION_PLACEHOLDER = 'travelOnWorldChunks' as const;
+
+/**
+ * SCENE_NODE_TRANSFORM_PLACEHOLDER (DF-6; research 237 §6, 175 §5.1.1): a run's `OBJECT_TRANSLATE_STATE` (18),
+ * `OBJECT_ROTATE_STATE` (19) or `OBJECT_MOTION_FROM_TO` (22) on a placed map node -- Desert Glory's `translate_sky` (the
+ * dome held at the camera), `bug1..8` / `bee1..5` (their looped flights), `camera_jiggle` -- moves the node in the
+ * original; the port's world has no per-node transform, so it draws nothing and the node stands where it was placed.
+ * The callee's own -6 (a part-fly's reparenting before its `OBJECT_MOTION`) is `SCENE_NODE_MOTION_PLACEHOLDER`'s; the
+ * jets (`f181` / `f182`) are `SI_SCRIPT_MOTION_PLACEHOLDER`'s. Settled by a page-side per-node transform (the same
+ * build `SCENE_NODE_MOTION_PLACEHOLDER` owes, LATER 766's flight) from the decoded commands (research 106 §4's
+ * motion, `FUN_0025f9b0` / `FUN_0025fe70`) and a capture of Desert Glory's sky and bees.
+ */
+export const SCENE_NODE_TRANSFORM_PLACEHOLDER = 'drawsNothing' as const;
+
+/**
+ * INVALIDATE_ANIMATION_READING (DF-6; research 175 §5.1.1; reading, pending review): `INVALIDATE_ANIMATION` (49, tick
+ * `FUN_0025d2b0` D:L107355-107373) sets bit 0 of the named animation's instance `+0x34` (its own on all ten of
+ * Desert Glory's), which `FUN_00270ef0` reads first at every start and refuses it (D:L119142); only the set's start
+ * clears it (`FUN_0026c600` D:L116340-116344, to the flags' disabled bit: clear on Desert Glory's), and the round's reset
+ * starts the sets again (`AUTOSTART_RESET_READING`, `FUN_002232a0` D:L75850-75866). So in a round a start of an
+ * invalidated animation -- a call, a death, an action -- starts nothing; after the reset it starts again.
+ */
+export const INVALIDATE_ANIMATION_READING = { refusesLaterStarts: true, untilSetRestart: true } as const;
+
+/**
+ * The motions `SCENE_NODE_MOTION_PLACEHOLDER` fades: a launch -- `MOTION.FIXED_LAUNCH` (0x8), `RANDOM_LAUNCH` (0x10) or
+ * `CALLER_VELOCITY` (0x800), the flags under which `@s2u/scene` `effectMotion.ts`'s tick moves the node (`FUN_00262690`
+ * D:L110463, research 89 §2). A motion without one (a spin, `ANGULAR` 0x100; a roll) turns its node where it stands.
+ */
+const FLIGHT_FLAGS = MOTION.FIXED_LAUNCH | MOTION.RANDOM_LAUNCH | MOTION.CALLER_VELOCITY;
+
+/**
  * PB-9b: a scene program's context in the world (`SceneRunContext`), with `display` -- a run for the page's drawing alone
  * (`WorldState.runDisplay`): its active commands draw, the world's own flags untouched.
  */
@@ -202,6 +360,9 @@ type WorldRunContext = SceneRunContext & {
    */
   tree?: object;
 };
+
+/** LATER 782: a node's frame where the meta holds none (a map built by hand). */
+const IDENTITY16: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
 /** A map with no metadata (a hull built by hand): no actions, no instances, nothing initially inactive. */
 export function bareMeta(stem = ''): MapMeta {
@@ -232,6 +393,10 @@ export class WorldState {
   private readonly valves = new Map<string, number>();
   private readonly used = new Set<number>();
   private readonly hooks: WorldHooks[] = [];
+  /** The moved nodes (`nodeMoved`): a path's move from its rest, row-major. */
+  private readonly moves = new Map<string, number[]>();
+  /** The nodes a program holds at the camera (`SCENE_SOUND_CAMERA_NODE_PLACEHOLDER` (2)); built at the first sound. */
+  private followers: readonly string[] | null = null;
   /** MAP-06: the scene programs running (a death's sequence, an action's animation), with the action each runs for. */
   private runs: { run: EffectRun; action: number }[] = [];
   /** MAP-06: the map's destructibles and programs (`MapMeta.scene`; none on a map built by hand). */
@@ -242,8 +407,29 @@ export class WorldState {
   private readonly debris: ReadonlySet<string>;
   /** PB-9b: the nodes a display run (`runDisplay`) has drawn on, which the world's own flags leave off. */
   private readonly displayed = new Set<string>();
+  /** DF-6 (`INVALIDATE_ANIMATION_READING`): the animations invalidated this round, by name (case aside); none after the reset. */
+  private readonly invalidated = new Set<string>();
+  /** V13-3c (`SCENE_NODE_MOTION_PLACEHOLDER`): the nodes a death's motion has taken from the drawing, until the reset. */
+  private readonly flown = new Set<string>();
+  /** V13-3c: the motions fading now -- the node, the seconds run, the motion's lifetime. */
+  private fading: { path: string; t: number; lifetime: number }[] = [];
   /** PB-9b: each node's last opacity a program wrote (the `opacity` hook's, `WorldView.setNodeOpacity`'s): `basePulse`. */
   private readonly opacities = new Map<string, number>();
+  /**
+   * LATER 782 (`SCENE_PROFILE_MOTION_READING`): each node's own translation as a program's stroke set it, by path; a path
+   * not here stands at its own matrix's (`MapMeta.motion.frames`). Kept across the reset: no reference of the shore saves
+   * a transform (research 387 §12.7).
+   */
+  private readonly translations = new Map<string, Vec3>();
+  /**
+   * LATER 782 (`SCROLL_MOTION_PLACEHOLDER`): each scrolled node's texture offset, in 1/4096ths (the steps `FUN_003bfee0`
+   * adds to its visuals' vertices). Kept across the reset: the round's reset (`FUN_002ac0e0` D:L151976-151991) restores a
+   * node only through what a reference saved (`FUN_0026c4f0`, `FUN_0026b430` D:L115690-115721; research 209): its
+   * active state, parent, translation and rotation, as `FUN_0026b5e0` D:L115740-115807 saves them -- never a visual's
+   * vertices, so the stepped texture coordinates stand [reading, under research 209's `WORLD_RESET_SAVED_READING`: the
+   * rest of `FUN_002ac0e0`'s calls are not read for a vertex rebuild; research 387 s12.7].
+   */
+  private readonly uvOffsets = new Map<string, [number, number]>();
   /** P8's review F2: per predicted press (`WorldRunContext.tree`), each node's opacity before its runs first wrote it. */
   private readonly treeOpacity = new WeakMap<object, Map<string, number | undefined>>();
   /**
@@ -338,6 +524,7 @@ export class WorldState {
     // outline off.
     for (const r of [...this.runs]) r.run.stop();
     this.displayed.clear();
+    this.unfly();
     const was = new Map(this.own);
     const changed: string[] = [];
     for (const [path, on] of this.saved) {
@@ -353,6 +540,7 @@ export class WorldState {
     }
     this.valves.clear();
     this.used.clear();
+    this.invalidated.clear();                // DF-6: the sets' start clears +0x34 bit 0 (INVALIDATE_ANIMATION_READING)
     this.runs = [];
     this.health.reset();
     this.sync(was, changed, true);
@@ -476,6 +664,61 @@ export class WorldState {
   step(dt: number): void {
     for (const r of [...this.runs]) r.run.update(dt);
     this.runs = this.runs.filter((r) => !r.run.finished);
+    this.stepFades(dt);
+  }
+
+  /**
+   * V13-3c (`SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold'): a death the room told (`sceneDeath`; a joiner's welcome's
+   * `sceneDead`, `silent`): the record spent and, unless silent, its sequences run for presentation
+   * (`SceneHealth.takeDeath`, PF.R26). False when it was spent already -- the state's inference took it first, or the
+   * room told it twice.
+   */
+  takeDeath(id: number, silent: boolean): boolean {
+    return this.health.takeDeath(id, !silent);
+  }
+
+  /** `SceneHealth`'s: a death this world decided and ran (`WorldHooks.died`). */
+  diedHere(id: number): void {
+    for (const h of [...this.hooks]) h.died?.(id);
+  }
+
+  /**
+   * Whether the node at `path` is drawn: active (`isActive`) and not taken from the drawing by a death's motion
+   * (`SCENE_NODE_MOTION_PLACEHOLDER`), at or above it.
+   */
+  drawn(path: string): boolean {
+    if (!this.isActive(path)) return false;
+    for (const f of this.flown) if (under(path, f)) return false;
+    return true;
+  }
+
+  /** `SCENE_NODE_MOTION_PLACEHOLDER`: each fading node's opacity on, and at its lifetime's end, gone from the drawing. */
+  private stepFades(dt: number): void {
+    if (this.fading.length === 0) return;
+    const left: { path: string; t: number; lifetime: number }[] = [];
+    for (const f of this.fading) {
+      f.t += dt;
+      if (f.t < f.lifetime) {
+        for (const h of [...this.hooks]) h.opacity?.(f.path, 1 - f.t / f.lifetime);
+        left.push(f);
+        continue;
+      }
+      for (const h of [...this.hooks]) h.opacity?.(f.path, 0);
+      this.flown.add(f.path);
+      this.emit(f.path, false);
+    }
+    this.fading = left;
+  }
+
+  /** The round's reset of `SCENE_NODE_MOTION_PLACEHOLDER`: each faded or fading node drawn again, at opacity 1. */
+  private unfly(): void {
+    const paths = new Set([...this.flown, ...this.fading.map((f) => f.path)]);
+    this.flown.clear();
+    this.fading = [];
+    for (const path of paths) {
+      for (const h of [...this.hooks]) h.opacity?.(path, 1);
+      this.emit(path, this.isActive(path));
+    }
   }
 
   /** Whether a scene program is running (a death's sequence, an action's animation). */
@@ -491,9 +734,11 @@ export class WorldState {
 
   /**
    * Starts a scene program with its context (`FUN_00272bb0`): its timeless head runs now, as the game's first tick, the
-   * rest at `step`. `action` is the `MapMeta.actions` index it runs for (`executeAction`), -1 for none.
+   * rest at `step`. `action` is the `MapMeta.actions` index it runs for (`executeAction`), -1 for none. Null, and
+   * nothing run, when the program was invalidated this round (`INVALIDATE_ANIMATION_READING`: `FUN_00270ef0` D:L119142).
    */
-  runProgram(program: EffectProgram, ctx: WorldRunContext, action = -1): EffectRun {
+  runProgram(program: EffectProgram, ctx: WorldRunContext, action = -1): EffectRun | null {
+    if (this.invalidated.has(program.name.toLowerCase())) return null;
     const run = new EffectRun(program, this.sceneHost, ctx);
     this.runs.push({ run, action });
     run.update(0);
@@ -516,8 +761,8 @@ export class WorldState {
     const lib = this.program(name);
     if (!lib || this.running(name)) return false;
     const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, null, lib.parents);
-    this.runProgram(lib.program, { root: nodes[lib.program.root] ?? null, nodes, caller: null, valve: null, silent: false, display: true });
-    return true;
+    // DF-6 review F2: an animation invalidated this round starts nothing (INVALIDATE_ANIMATION_READING): false.
+    return this.runProgram(lib.program, { root: nodes[lib.program.root] ?? null, nodes, caller: null, valve: null, silent: false, display: true }) !== null;
   }
 
   /**
@@ -546,6 +791,24 @@ export class WorldState {
   displayOpacity(path: string, opacity: number): void {
     this.opacities.set(path, opacity);
     for (const h of [...this.hooks]) h.opacity?.(path, opacity);
+  }
+
+  /** LATER 782: the node's own translation as a stroke last set it (`SCENE_PROFILE_MOTION_READING`), or null (none ran). */
+  nodeTranslation(path: string): Vec3 | null {
+    const t = this.translations.get(path);
+    return t ? [...t] : null;
+  }
+
+  /** LATER 782: the scrolled node's texture offset, in texture repeats (`WorldHooks.scroll`), or null (no scroll moved it). */
+  scrollOffset(path: string): [number, number] | null {
+    const o = this.uvOffsets.get(path);
+    return o ? [o[0] / 4096, o[1] / 4096] : null;
+  }
+
+  /** LATER 782: the node's frame (`MapMeta.motion.frames`), the identity at the origin for a node the meta has none of. */
+  private frameOf(path: string): NodeFrame {
+    const f = this.meta.motion?.frames.get(path);
+    return f ? new NodeFrame(f.own, f.world) : new NodeFrame(IDENTITY16, IDENTITY16);
   }
 
   /** Whether a program of the name (case aside) is running. */
@@ -583,8 +846,8 @@ export class WorldState {
     const lib = this.program(a.anims[0] ?? '');
     if (!lib) return false;
     const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, a.path, lib.parents);
-    this.runProgram(lib.program, { root: nodes[lib.program.root] ?? null, nodes, caller: a.path, valve: a.valve, silent, presentation, ...(tree ? { tree } : {}) }, i);
-    return true;
+    // DF-6 review F2: an animation invalidated this round starts nothing (INVALIDATE_ANIMATION_READING): false.
+    return this.runProgram(lib.program, { root: nodes[lib.program.root] ?? null, nodes, caller: a.path, valve: a.valve, silent, presentation, ...(tree ? { tree } : {}) }, i) !== null;
   }
 
   /**
@@ -696,16 +959,28 @@ export class WorldState {
         case 'executeAction': this.executeAction(op.anim, ctx.silent, ctx.presentation === true, ctx.tree); return;
         case 'call': {
           if (this.ambientOwned(ctx)) return;
-          const lib = this.program(op.anim);
-          // COMMON_EFFECT_CALL_READING: an animation the set lacks is the page's effect, at the calling program's root.
-          if (!lib) { if (ctx.presentation) for (const h of [...this.hooks]) h.call?.(op.anim, ctx.root); return; }
-          const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, ctx.root, lib.parents);
-          this.runProgram(lib.program, { ...ctx, root: nodes[lib.program.root] ?? null, nodes });
+          // Research 386 §3.3: flag 4 hands the callee the node at +9 as its NODE_CALLER (`FUN_0025d5c0` D:L107605-107613,
+          // a type-3 context entry; `FUN_0026f4e0` D:L118164-118168) -- none when it names no placed node (no entry made);
+          // without the flag the caller's own is passed on. Blizzard's `toilet_flypart1` fades and turns off its own part.
+          this.callAnimation(op.anim, ctx, op.caller === undefined ? ctx.caller : at(op.caller));
           return;
         }
         case 'sound':
           if (this.ambientOwned(ctx)) return;
-          if (op.newPlay !== false) for (const h of [...this.hooks]) h.sound?.(op.sound, at(op.node) ?? ctx.root, op.volume);
+          // An autostart's `~` loop is the audio's emitter's (`@s2u/sound` `zanimEmitters`: placed, looped, with RANGE),
+          // as the effect runner's ambient runs leave theirs (`./effects`); played here too, it sounded once, unplaced, at
+          // the match's start (MP71's dogs, chimes and waves). The skip mirrors `zanimEmitters`: a program that starts with
+          // its set (`AUTOSTART_INITIAL_READING`), however its run is reached -- its own, or another autostart's call. The
+          // world no longer suppresses the `~` of a called program that is not one (MP81's `sound_hook_N`): no emitter holds
+          // it. Whether the crane's `~CRANE` is played at all stays `CRANE_SOUND_PLACEHOLDER`'s question (`./cranes`).
+          if (ctx.autostart && AUTOSTART_INITIAL_READING.startsWithSet(run.program.flags) && op.sound.startsWith('~')) return;
+          if (op.newPlay === false) return;
+          {
+            // Flag 2 names the node (a hand-built op, with no flags, names it when it names one).
+            const node = op.flags === undefined || (op.flags & SOUND_NODE) !== 0 ? at(op.node) : null;
+            const place = this.soundPlace(op, node, op.flags !== undefined && (op.flags & SOUND_NODE) !== 0 ? run.program.nodes[op.node] : undefined);
+            for (const h of [...this.hooks]) h.sound?.(op.sound, at(op.node) ?? ctx.root, op.volume, place);
+          }
           return;
         case 'particles':
           if (this.ambientOwned(ctx)) return;
@@ -716,14 +991,72 @@ export class WorldState {
           if (ctx.silent || op.text === null) return;
           for (const h of [...this.hooks]) h.message?.(op.text, op.colour);
           return;
+        // A disc program's FIRE_WEAPON (research 386 §3.2, LATER 63): the room's round (`WorldHooks.fire`); a presentation or
+        // a display run fires none. FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's own (`op.forge`) goes to the hooks'
+        // drawing and blast instead (`WorldHooks.scriptRound`, `blast`), as before -- never also a round.
         case 'fireWeapon': {
-          // BRIDGE_FIRE_WEAPON_READING (research 213 s2.2, s6; ruling PF.R32): a disc program's `fireWeapon` -- no blast,
-          // no damage. FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's to the hooks (`WorldHooks.scriptRound`, `blast`).
-          if (!op.forge || this.ambientOwned(ctx)) return;
-          const p = at(op.node) ?? ctx.root;
-          if (!ctx.silent) for (const h of [...this.hooks]) h.scriptRound?.(op, p);
-          if (!ctx.presentation) for (const h of [...this.hooks]) h.blast?.(op, p);
+          if (op.forge) {
+            if (this.ambientOwned(ctx)) return;
+            const p = at(op.node) ?? ctx.root;
+            if (!ctx.silent) for (const h of [...this.hooks]) h.scriptRound?.(op, p);
+            if (!ctx.presentation) for (const h of [...this.hooks]) h.blast?.(op, p);
+            return;
+          }
+          if (ctx.presentation || ctx.display) return;
+          const path = op.node === 0 ? null : at(op.node);
+          if (op.node !== 0 && path === null) return;                 // a node no placement carries: no round
+          for (const h of [...this.hooks]) h.fire?.(op, path);
           return;
+        }
+        // DF-6 (INVALIDATE_ANIMATION_READING): the named animation, or this one, refuses its later starts this round.
+        case 'invalidate': this.invalidated.add((op.anim ?? run.program.name).toLowerCase()); return;
+        // DF-6 (SCENE_NODE_TRANSFORM_PLACEHOLDER): a placed node's translate, rotate or from-to draws nothing -- but
+        // (LATER 782, SCENE_PROFILE_MOTION_READING) a speed-profile stroke from a given start moves the node's own
+        // translation here, which a SCROLL_MOTION reads (Fish Hook's `water_node*`). BOAT_ROCK_PLACEHOLDER: a rotation
+        // is not run.
+        case 'translate': case 'rotate': return;
+        case 'fromTo': {
+          const p = at(op.node);
+          if (p === null || !runsProfileStroke(op)) return;
+          const rest = this.frameOf(p).rest;
+          return profileStrokeTick(op, {
+            get: () => [...(this.translations.get(p) ?? rest)],
+            set: (t) => { this.translations.set(p, [...t]); },
+          });
+        }
+        // SCENE_NODE_MOTION_PLACEHOLDER (V13-3c): a page's presentation run of a death draws, in the flight's stead, the
+        // node fading over the motion's lifetime and gone at its end -- unless its program turns that node off itself.
+        // The command still ends at once, as every motion did before: what follows it in the sequence is not held.
+        case 'motion': {
+          // The review's F2: a page's own death (offline play, `SceneHealth.apply` on a world whose `skipEffects` is
+          // false) fades too; the room's runs are silent (`ROOM_SKIP_EFFECTS_READING`) and draw nothing.
+          if (ctx.display || ctx.silent) return;
+          const m = op.motion, p = at(m.node);
+          // The review's F1: a flight only -- a launch (`effectMotion.ts`'s tick moves the node only under these flags);
+          // a spin or a turn in place (MP6's `truck_rotate_parts`, the bases' `fire_effects`) stays drawn.
+          if ((m.flags & FLIGHT_FLAGS) === 0) return;
+          if (p === null || !(m.lifetime > 0) || this.flown.has(p) || this.fading.some((f) => f.path === p)) return;
+          if (run.program.sequences.some((s) => s.ops.some((o) => o.op === 'active' && !o.on && o.node === m.node))) return;
+          this.fading.push({ path: p, t: 0, lifetime: m.lifetime });
+          for (const h of [...this.hooks]) h.opacity?.(p, 1);
+          return;
+        }
+        // LATER 782 (SCROLL_MOTION_PLACEHOLDER): the travel form, its node's visuals moved by its mover's travel -- a
+        // node not placed ends it at once, as `FUN_00260b40` does (D:L109562-109570); the projected form ends at once.
+        case 'scroll': {
+          const node = at(op.node), mover = at(op.mover);
+          if (node === null || mover === null || !runsScroll(op)) return;
+          const frame = this.frameOf(mover);
+          const axis = frame.direction(op.axis);
+          return scrollTick(op, {
+            place: () => frame.place(this.translations.get(mover) ?? frame.rest),
+            axis: () => axis,
+          }, (su, sv) => {
+            const o: [number, number] = this.uvOffsets.get(node) ?? [0, 0];
+            o[0] += su; o[1] += sv;
+            this.uvOffsets.set(node, o);
+            for (const h of [...this.hooks]) h.scroll?.(node, o[0] / 4096, o[1] / 4096);
+          });
         }
         // SI_SCRIPT_MOTION_PLACEHOLDER (AS-1): `OBJECT_MOTION_SI_SCRIPT` (command 26) falls here too -- no motion, done
         // in the tick it begins (its begin and tick unread).
@@ -731,6 +1064,35 @@ export class WorldState {
       }
     },
   };
+
+  /**
+   * A `CALL_ANIMATION` of the set's animation `name` from a run of context `ctx` (`FUN_0025d5c0`), its callee's
+   * NODE_CALLER `caller`: the one path a scene program's call and a door program's (`doorCall`) take. The callee's
+   * references placed under the caller's root (`SCENE_INSTANCE_SCOPE_READING`), its run the caller's context otherwise.
+   * False when the set has no animation of the name -- the page's effect then (`COMMON_EFFECT_CALL_READING`), on a
+   * presentation run, at the caller's root.
+   */
+  private callAnimation(name: string, ctx: WorldRunContext, caller: string | null): boolean {
+    const lib = this.program(name);
+    if (!lib) { if (ctx.presentation) for (const h of [...this.hooks]) h.call?.(name, ctx.root); return false; }
+    const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, ctx.root, lib.parents);
+    this.runProgram(lib.program, { ...ctx, root: nodes[lib.program.root] ?? null, nodes, caller });
+    return true;
+  }
+
+  /**
+   * DF-4 (`./doors` `DOOR_CALL_READING`): a door program's `CALL_ANIMATION` of `name` (`DoorHooks.call`) run on this
+   * world as a scene program's is (`callAnimation`), with NO context: the door's program runs with its node and valve
+   * (`FUN_00272bb0`, research 92 s2), but `FUN_0025d5c0` hands the callee an entry only per flag bit it finds (bit 1
+   * copies the running context, D:L107577-107593; 2, 4, 8 a node each) and MP6's two calls carry flags 0, so the callee
+   * starts with none (`FUN_002734b0(anim, 0)`, D:L107763-107765): no caller, no context valve, no root (`door` is kept
+   * for the reader). `skip_effects` as this world reads it (`skipEffects`: the room's, ROOM_SKIP_EFFECTS_READING).
+   * MP6's `okforhostages` / `not_okforhostages` turn the jail bars (research 175 s5.1). False when the set has no
+   * animation of the name: nothing runs.
+   */
+  doorCall(_door: { path: string; valve: string }, name: string): boolean {
+    return this.callAnimation(name, { root: null, nodes: [], caller: null, valve: null, silent: this.skipEffects }, null);
+  }
 
   /**
    * PB-9b: a display run's `OBJECT_ACTIVE_STATE` (`runDisplay`): the node drawn on while every ancestor is active, or
@@ -748,8 +1110,60 @@ export class WorldState {
   }
 
   /**
-   * Where a program's sound at `path` plays (`SCENE_SOUND_PLACE_READING`): the centre of the box of the polygons at or
-   * under it, where they stand now in the hull; null when none are.
+   * Where a program's `SOUND` plays (`SCENE_SOUND_PLACE_READING`): the command's offset (flag 4), through `path`'s world
+   * matrix (`MapMeta.worlds`) and the move of the nearest moved node at or above it (`nodeMoved`) when `path` is placed;
+   * the bare offset when it is not; null -- no place -- with neither. `name` is the node's name in the program when the
+   * command names one by flag 2 (`SCENE_SOUND_CAMERA_NODE_PLACEHOLDER`). A node at or under one the camera carries
+   * (`cameraFollowers`) has no place (the same placeholder).
+   */
+  private soundPlace(op: { offset?: readonly number[] }, path: string | null, name?: string): [number, number, number] | null {
+    if (path !== null && this.cameraFollowers().some((f) => under(path, f))) return null; // SCENE_SOUND_CAMERA_NODE_PLACEHOLDER
+    const world = path === null ? undefined : this.meta.worlds?.get(path);
+    if (!world) {
+      if (name?.toLowerCase() === 'camera') return null;                // SCENE_SOUND_CAMERA_NODE_PLACEHOLDER
+      return op.offset ? [op.offset[0]!, op.offset[1]!, op.offset[2]!] : null;
+    }
+    const [x, y, z] = op.offset ?? [0, 0, 0];
+    let p = apply4(world as number[], x!, y!, z!);
+    let mover: string | null = null;
+    for (const m of this.moves.keys()) if (under(path!, m) && (mover === null || m.length > mover.length)) mover = m;
+    if (mover !== null) p = apply4(this.moves.get(mover)!, p[0], p[1], p[2]);
+    return p;
+  }
+
+  /**
+   * The placed nodes the map's scene programs hold at the camera: each `OBJECT_TRANSLATE_STATE` whose reference node
+   * (+7) is `camera` (`FUN_00263890`: the node takes the reference's world position), its node (+6) placed as the
+   * program's autostart run places it (`placeRefs`, no scope). Found from the data on every map: MP6/MP71/MP83's
+   * `skydome`s, MP73's `skydome` and `flashes`, MP8's `skydome` and `stars`, MP9/MP12/MP82's `sky`, MP51's
+   * `mp51_skydome`, MP52's `mp52_dustfollow`, MP53's `sky` and `thesun`, MP72's `mp72_sky` and `dust`, MP81's `skyplane`.
+   */
+  private cameraFollowers(): readonly string[] {
+    if (this.followers) return this.followers;
+    const out = new Set<string>();
+    for (const lib of this.scene.programs) {
+      const p = lib.program;
+      const moves = p.sequences.flatMap((q) => q.ops).filter((o) => o.op === 'translate' && p.nodes[o.ref]?.toLowerCase() === 'camera');
+      if (!moves.length) continue;
+      const nodes = placeRefs(this.meta, p.nodes, lib.search, p.root, null, lib.parents);
+      for (const o of moves) if (o.op === 'translate' && nodes[o.node]) out.add(nodes[o.node]!);
+    }
+    return (this.followers = [...out]);
+  }
+
+  /**
+   * A node moved from its rest -- a door's leaf (`DoorPage`'s `move`, the `DoorSet`'s `inv(W0) W`, row-major): every
+   * placement at or under `path` stands moved by `delta` (`soundPlace`; `FUN_00310980` reads each node's matrix as it is
+   * now). The latest move a path, kept until the next.
+   */
+  nodeMoved(path: string, delta: ArrayLike<number>): void {
+    this.moves.set(path, Array.from(delta));
+  }
+
+  /**
+   * The centre of the box of the polygons at or under `path`, where they stand now in the hull; null when none are: a
+   * common-set effect's place (the `call` hook, `COMMON_EFFECT_CALL_READING`). Was also the sound's place, until
+   * `SCENE_SOUND_PLACE_READING` read the node's origin.
    */
   placeOf(path: string): [number, number, number] | null {
     // FORGE_OBJECT_PLACE_ADAPTATION: a Forge object's place (an empty's, an ambient effect's: `MapMeta.forgePlaces`).
@@ -796,6 +1210,8 @@ export class WorldState {
       this.emit(path, true);
       // PB-9b: a node a display run has on stays drawn (`display`).
       for (const r of off) if (r !== path && under(r, path) && !this.displayed.has(r)) this.emit(r, false);
+      // V13-3c (`SCENE_NODE_MOTION_PLACEHOLDER`): a node a death's motion took from the drawing stays out of it.
+      for (const r of this.flown) if (under(r, path)) this.emit(r, false);
     }
     if (!bump) return;
     this.grid.revision++;

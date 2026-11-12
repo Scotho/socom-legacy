@@ -21,8 +21,12 @@ import * as rules from '../../packages/creator-contracts/src/rules';
  * - the prose pages that restate a value -- Pack anatomy, Pack kinds, Making your first pack (the MW-12 review's N4) --
  *   give each bound, version, list and table at the exported constant's value (`PROSE`, `PROSE_VERSIONS`), and the
  *   import's file types as the viewer's `localFiles.ts` holds them, at the line it cites;
- * - every page holds HD texture packs at one status, Planned and held, while the code's `VIDEO_PICTURE_HD_OFFERED` is
- *   false (the review's B1), and Testing a pack locally names both places a v2 pack is imported (N3).
+ * - every page holds HD texture packs at one status, Works, now that Home > Experiments > Mods applies them on every
+ *   page and the HD picture is gone (B206 ML-11; it held Planned while `VIDEO_PICTURE_HD_OFFERED` was false, the
+ *   review's B1); no page keeps the old loaders' words; Testing a pack locally describes the MODS screen in its own
+ *   words (the file input, the temporary button, the download's count, the decoded size, where each kind applies, the
+ *   overlay, the refusals); every `registry.ts` range a page cites holds the v2 refusal; and Testing a pack locally
+ *   names both agent places a v2 pack is imported (N3).
  *
  * It reads the code and the wiki's committed files only (never the wiki's own node_modules), so it runs in the gate's
  * tools suite with no Next.js installed.
@@ -274,35 +278,96 @@ describe('the modding wiki\'s prose pages restate the code\'s values (the MW-12 
   });
 });
 
-describe('the modding wiki holds HD texture packs at one status, and both v2 import places (the MW-12 review\'s B1, N3)', () => {
-  it('says Planned, held, wherever a page gives HD texture packs a status, while the code offers HD to no one', () => {
-    const ui = read(join(REPO, 'socomlegacy', 'packages', 'ui', 'src', 'screens', 'videoPicture.ts'));
-    expect(ui).toMatch(/^export const VIDEO_PICTURE_HD_OFFERED: boolean = false;$/m);
+describe('the modding wiki holds HD texture packs at one status, the MODS loader as the code has it, and both v2 import places (B206 ML-11; the MW-12 review\'s B1, N3)', () => {
+  const VIEWER = join(REPO, 'socomlegacy', 'packages', 'viewer', 'src');
+  const mods = read(join(VIEWER, 'console', 'adapters', 'mods.ts'));
+  /** A string constant's value as `console/adapters/mods.ts` declares it. */
+  const modsConst = (name: string): string => {
+    const m = new RegExp(`^export const ${name} = '([^']+)';$`, 'm').exec(mods);
+    expect(m, name).not.toBeNull();
+    return m![1]!;
+  };
+
+  it('says Works wherever a page gives HD texture packs a status, now that Home > Experiments > Mods applies them on every page', () => {
+    // the code: no HD picture any more (ML-6), and the MODS screen says an HD pack applies on every page, every map (ML-3)
+    expect(read(join(REPO, 'socomlegacy', 'packages', 'ui', 'src', 'screens', 'videoPicture.ts'))).not.toMatch(/^export const VIDEO_PICTURE_HD_OFFERED/m);
+    expect(mods).toContain("if (p.kind === 'hd') return 'Every page, every map';");
     const wrong: string[] = [];
     for (const rel of allPages()) {
-      const lines = page(rel).split('\n');
+      const text = page(rel);
+      for (const stale of ['lifts the hold', 'VIDEO_PICTURE_HD_OFFERED', 'experimentalGraphics.ts:437', 'videoPicture.ts:27-32', 'Enable mods', 'Add a mod (.zip)']) {
+        if (text.includes(stale)) wrong.push(`${rel}: "${stale}"`);
+      }
+      const lines = text.split('\n');
       lines.forEach((line, i) => {
         const where = `${rel}:${i + 1}`;
         if (line.startsWith('|') && /\bHD texture packs?\b/.test(line)) {
-          // an HD row's status is its last cell; a comparison table's `status` row names the hold in the cell that names HD
+          // an HD row's status is its last cell; a comparison table's `status` row gives it in the cell that names HD
           const cells = line.slice(1, -1).split('|').map((c) => c.trim());
           if (/\bHD texture packs?\b/.test(cells[0]!)) {
-            if (!/Planned/.test(cells.at(-1)!) || /Test room only|Works|Format only/.test(cells.at(-1)!)) wrong.push(where);
+            if (!/Works/.test(cells.at(-1)!) || /Planned|held|Test room only|Format only/.test(cells.at(-1)!)) wrong.push(where);
           } else if (/^status$/i.test(cells[0]!)) {
-            for (const c of cells.filter((x) => /\bHD texture packs?\b/.test(x))) if (!/\bheld\b/.test(c)) wrong.push(where);
+            for (const c of cells.filter((x) => /\bHD texture packs?\b/.test(x))) if (!/HD texture packs?: Works\b/.test(c)) wrong.push(where);
           }
         }
         if (/^#+ .*\bHD texture packs?\b/.test(line)) {
           const next = lines.findIndex((l, j) => j > i && /^#+ /.test(l));
           const status = lines.slice(i + 1, next < 0 ? undefined : next).find((l) => /^\**Status:?\**/.test(l.trim()));
-          if (status && (!/Planned/.test(status) || /Test room only/.test(status))) wrong.push(`${where} (its Status line)`);
+          if (status && (!/Works/.test(status) || /Planned|held/.test(status))) wrong.push(`${where} (its Status line)`);
         }
         if (/^\*Today:/.test(line) && lines.slice(Math.max(0, i - 4), i).some((l) => /^#+ .*\bHD texture packs?\b/.test(l))) {
-          if (!/Planned/.test(line) || /test room only/i.test(line)) wrong.push(`${where} (its Today line)`);
+          if (!/\bworks\b/i.test(line) || /planned|\bheld\b/i.test(line)) wrong.push(`${where} (its Today line)`);
         }
       });
     }
     expect(wrong).toEqual([]);
+  });
+
+  it('describes Home > Experiments > Mods in the screen\'s own words, on Testing a pack locally', () => {
+    const raw = page('guides/test-locally.mdx');
+    const text = flat(raw);
+    expect(text).toContain('Home > Experiments > Mods');
+    expect(text).toContain(`\`#${modsConst('MODS_FILE_INPUT_ID')}\``);
+    // the temporary button (ML-12, ML.R16): its label, its words, its refusal, and the constant that names its removal
+    for (const name of ['TEST_HD_PACK_LABEL', 'TEST_HD_PACK_ABOUT', 'TEST_HD_PACK_NOT_SERVED']) expect(text, name).toContain(modsConst(name));
+    expect(mods).toMatch(/^export const TEST_HD_PACK_BUTTON_ADAPTATION = /m);
+    expect(text).toContain('`TEST_HD_PACK_BUTTON_ADAPTATION`');
+    expect(mods).toMatch(/^export const HD_PACK_STORE_PAGE_PLACEHOLDER: string \| null = null;$/m);
+    expect(text).toContain('`HD_PACK_STORE_PAGE_PLACEHOLDER` is empty');
+    // the download counts files (ML-9's F3), the list gives an HD pack's size decoded
+    expect(mods).toContain('`Downloading the test HD pack… ${p.files} of ${p.ofFiles} files, ');
+    expect(text).toContain('"Downloading the test HD pack… *n* of *N* files, *x* MB downloaded"');
+    expect(mods).toContain("p.kind === 'hd' ? ' decoded' : ''");
+    expect(text).toContain('"… MB decoded"');
+    // where each kind applies, as the screen says it (ML.R5)
+    for (const w of ['Every page, every map', 'The test room']) {
+      expect(mods + read(join(VIEWER, 'console', 'render', 'mods.ts')), w).toContain(`'${w}'`);
+      expect(text, w).toContain(`"${w}"`);
+    }
+    // the overlay's words (ML-4) and the pacing's constants (ML-9), as the code names them
+    expect(read(join(VIEWER, 'packApplyOverlay.ts'))).toContain('`Applying pack... ${p.applied}/${p.total}`');
+    expect(text).toContain('"Applying pack... *n*/*N*"');
+    const hd = read(join(VIEWER, 'hdTexturePack.ts'));
+    for (const c of ['MODS_APPLY_FRAME_BUDGET_MS_ADAPTATION', 'HD_DRAW_TEXELS_PER_SLICE_ADAPTATION']) {
+      expect(hd, c).toMatch(new RegExp(`^export const ${c}=`, 'm'));
+      expect(text, c).toContain(`\`${c}\``);
+    }
+    expect(read(join(VIEWER, 'packApplyOverlay.ts'))).toMatch(/^export const PACK_APPLY_OVERLAY_ADAPTATION =/m);
+    // every refusal the page quotes is the classifier's or the registry's own text, up to its ellipsis
+    const said = read(join(VIEWER, 'packs', 'classify.ts')) + read(join(VIEWER, 'packs', 'registry.ts'));
+    const refusals = table(raw, '| refusal | what to do |').map(([r]) => /^"(.*?)(?: …)?"$/.exec(r!)?.[1] ?? r!);
+    expect(refusals.length).toBeGreaterThanOrEqual(6);
+    for (const r of refusals) expect(said.includes(r.replace(/'/g, "\\'")) || said.includes(r), r).toBe(true);
+  });
+
+  it('cites the registry\'s v2 refusal at the lines that hold it, on every page', () => {
+    const lines = read(join(VIEWER, 'packs', 'registry.ts')).split('\n');
+    for (const rel of allPages()) {
+      for (const m of page(rel).matchAll(/registry\.ts:(\d+)-(\d+)/g)) {
+        const held = lines.slice(Number(m[1]) - 1, Number(m[2])).join('\n');
+        expect(held, `${rel}: ${m[0]}`).toContain('A v2 pack is stored, not applied: no live driver applies one.');
+      }
+    }
   });
 
   it('names both places a v2 pack is imported on Testing a pack locally: the test room\'s agent dock and the Forge\'s', () => {

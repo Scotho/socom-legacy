@@ -4,7 +4,7 @@ import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { livePad } from '../../src/console/adapters/pad';
 import { liveRemap } from '../../src/console/adapters/remap';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
-import { REMAP_ACTION_ROW, REMAP_ROW, type Adapters } from '../../src/console/state';
+import { remapActionRow, REMAP_ROW, type Adapters } from '../../src/console/state';
 import { REMAP_FINISH_TOAST } from '../../src/console/render/remap';
 import { HOLD_TO_BIND_MS_ADAPTATION } from '../../src/padLayout';
 import { knownLayout } from '../../src/padKnownLayouts';
@@ -87,7 +87,7 @@ describe.each(Object.entries(PADS))('OBF-10: a remap end to end, live chain: %s'
     expect(ctl.S.screen).toBe('remap');
     tick(); tick();
     tap(p, 13); tap(p, 13); tap(p, 13);                      // down to Triangle's row
-    expect(ctl.S.rm.row).toBe(REMAP_ACTION_ROW + 3);         // STANCE-TOP: the Stance mode is row 0
+    expect(ctl.S.rm.row).toBe(remapActionRow() + 3);         // STANCE-TOP: the Stance mode is row 0
     tap(p, 0);                                               // Cross: listen
     expect(remap.current()!.listening()).toBe(3);
     holdToBind(p, 2);                                        // Square, held: the question (Square drives Square)
@@ -102,7 +102,7 @@ describe.each(Object.entries(PADS))('OBF-10: a remap end to end, live chain: %s'
     // The menus' reading follows at once: the physical Square is the logical Triangle.
     tick(); tick();
     tap(p, 13);                                              // the walker still moves
-    expect(ctl.S.rm.row).toBe(REMAP_ACTION_ROW + 4);
+    expect(ctl.S.rm.row).toBe(remapActionRow() + 4);
     tap(p, 1);                                               // Circle: back to Options
     expect(ctl.S.screen).toBe('options');
     // The match's reading (`GamePad`, as main reads it) through the same profile.
@@ -130,7 +130,7 @@ describe.each(Object.entries(PADS))('OBF-10: a remap end to end, live chain: %s'
     const m = remap.current()!;
     expect([m.label(8), m.label(9), m.label(16), m.label(extra)]).toEqual(names);
     expect(ctl.S.toast).toBe(`Square now uses ${names[3]}.`);
-    const glyph = document.querySelectorAll('#stage [data-act="remaprow"]')[REMAP_ACTION_ROW + 2]!.querySelector('.cx-item__state')!;
+    const glyph = document.querySelectorAll('#stage [data-act="remaprow"]')[remapActionRow() + 2]!.querySelector('.cx-item__state')!;
     expect(glyph.textContent).toBe(names[3]);
   });
 });
@@ -221,7 +221,7 @@ describe.each(Object.entries(RAW_PADS))('OBF-10b: a PlayStation pad without the 
     expect(m.teachState()).toBeNull();                       // no pass asked for
     tick(); tick();
     tapStd(p, 13); tapStd(p, 13); tapStd(p, 13);             // the d-pad (the hat) down to Triangle's row
-    expect(ctl.S.rm.row).toBe(REMAP_ACTION_ROW + 3);
+    expect(ctl.S.rm.row).toBe(remapActionRow() + 3);
     tapStd(p, 0);                                            // Cross: listen
     expect(m.listening()).toBe(3);
     holdStdToBind(p, 2);                                     // Square (raw 0), held: the question
@@ -305,8 +305,8 @@ describe('OBF-10b fold: the extra row just after the screen\'s own rows (18 in C
     tick();
     // STANCE-TOP, DEAD-UP: from Cross (row 2, where the screen opens) to the last of the screen's own rows (17, Right).
     // h59U9CLb: Extra binds (18) comes first among the extra rows; Teach again follows it (19).
-    expect(REMAP_ACTION_ROW).toBe(2);
-    for (let k = REMAP_ACTION_ROW; k < 19; k++) ctl.press('down');
+    expect(remapActionRow()).toBe(2);
+    for (let k = remapActionRow(); k < 19; k++) ctl.press('down');
     expect(document.querySelector('#stage [data-act="remaprow"].is-focused .cx-item__title')?.textContent).toBe('Teach again');
     for (const b of ['square', 'right', 'left', 'right'] as const) ctl.press(b);
     expect(controllerStanceMode()).toBe('pop');

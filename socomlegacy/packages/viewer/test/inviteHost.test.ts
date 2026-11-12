@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DIALOG_EVENTS, GAME_LOBBY, GAME_LOBBY_CHAT_VAR, INVITE_COPY_ANIMATION, INVITE_DESCRIBE_ANIMATION, UiVarManager, ValveStore, VALVE_TYPE, WORLD_OF_SOCOM, type GameListEntry, type InviteLink, type LobbyService } from '@s2u/ui';
+import { DIALOG_EVENTS, GAME_LOBBY, GAME_LOBBY_CHAT_VAR, INVITE_COPY_ANIMATION, INVITE_DESCRIBE_ANIMATION, UiVarManager, ValveStore, VALVE_TYPE, widgetPad, WORLD_OF_SOCOM, type GameListEntry, type InviteLink, type LobbyService } from '@s2u/ui';
+import { LOBBY_LINK_DIRECT_JOIN_FRAMES_ADAPTATION, LOBBY_LINK_DIRECT_STALL_FRAMES_ADAPTATION, markLobbyLinkDirect } from '../src/lobbyLinkDirect';
 import {
   INVITE_COPIED_LINE, INVITE_HANDOFF_ADAPTATION, INVITE_HANDOFF_CHANNEL, INVITE_HANDOFF_LINES, INVITE_HANDOFF_WAIT_MS_ADAPTATION, INVITE_TAKEN_MARK_ADAPTATION, INVITE_TAKEN_MARK_TTL_MS_ADAPTATION, answerInvites,
   clearInviteTaken, connectInvite, copyText, endHandOff, guardInviteLogin, handOff, markInviteTaken, offerInvite, pageInvite, withInviteButton, type InviteBusy, type InviteChannel, type InviteMount,
@@ -472,8 +473,10 @@ const game = (gameName: string, id: number): GameListEntry => ({
 const names = Object.fromEntries(Object.entries(DIALOG_EVENTS).map(([k, v]) => [v, k]));
 
 /** The session's surroundings, each a value the test sets: the dialog shown, the lobby, the universes, the rooms, the game held. */
-function session(o: { link?: InviteLink | null; universes?: { name: string; status: number }[] } = {}) {
-  const state = { dialog: 'dlgNetLogin.rdr', lobbyState: 0, ticket: null as string | null, rooms: [] as { mediusWorldId: number; lobbyName: string }[], held: null as GameListEntry | null, socket: false, blocked: false, round: null as number | null };
+function session(o: { link?: InviteLink | null; universes?: { name: string; status: number }[]; direct?: { account: string } | null; list?: GameListEntry[] } = {}) {
+  const state = { dialog: 'dlgNetLogin.rdr', lobbyState: 0, ticket: null as string | null, rooms: [] as { mediusWorldId: number; lobbyName: string }[], held: null as GameListEntry | null, socket: false, blocked: false, round: null as number | null,
+    popup: false, inputTimer: 0, enabled: new Set<string>(['login_btn', 'connect_btn', 'YesAccept']) };
+  const pressed: string[] = [];
   const started: string[] = [], events: { event: string; text: string | null }[] = [], joined: string[] = [], consumed: number[] = [], copies: string[] = [], nodes: string[] = [];
   const uiVars = new UiVarManager();
   const unis = o.universes ?? [{ name: 'SOCOM', status: 1 }];
@@ -484,19 +487,21 @@ function session(o: { link?: InviteLink | null; universes?: { name: string; stat
   const mount: InviteMount = {
     link: o.link === undefined ? LINK : o.link, id: 'S', open: () => null, wait, pending: () => pending,
     consumed: () => { pending = false; consumed.push(1); }, href: (l) => `https://n/main/online?invite=${l.mediusWorldId}&game=${l.game}`, copy: (t) => { copies.push(t); return Promise.resolve(copyOk); },
+    ...(o.direct ? { direct: o.direct } : {}),
   };
   const gates: ((b: { dialog: string; animation: string }) => boolean)[] = [];
-  const shell = { get currentName() { return state.dialog; }, switchState: -1, screen: null, popups: { shown: () => false } };
+  const shell = { get currentName() { return state.dialog; }, switchState: -1, screen: null, get inputTimer() { return state.inputTimer; }, popups: { shown: () => state.popup } };
   const menu = {};
   const lobby = { get up() { return state.lobbyState !== 0; }, state: () => state.lobbyState, ticket: () => state.ticket };
   const s = connectInvite({ setBindingGate: (_o: string, g: unknown) => { gates.push(g as never); } } as never, {
     mount, uiVars, valves: () => valves, event: (k, text) => { events.push({ event: names[k]!, text }); },
     machine: () => ({ states: { top: () => menu }, menu, queue: { count: 0 }, shell: () => shell }) as never,
-    parts: { current: { widgetHost: { animation: (n: string, a: string | null) => { started.push(a === null ? n : `${n}(${a})`); return true; } }, nodeCommand: (c: { node: string; loc: number; opcodeByte: number }) => { nodes.push(`${c.node} op${c.opcodeByte - 0xe8} #${c.loc}`); return { answer: true }; } }, o: { captions: null } } as never,
+    parts: { current: { widgets: { specOf: (n: string) => n, enabled: (n: string) => state.enabled.has(n), input: (n: string, pad: { bytes: readonly number[] }) => { pressed.push(`${n}:${pad.bytes.join('')}`); return true; } },
+      widgetHost: { animation: (n: string, a: string | null) => { started.push(a === null ? n : `${n}(${a})`); return true; } }, nodeCommand: (c: { node: string; loc: number; opcodeByte: number }) => { nodes.push(`${c.node} op${c.opcodeByte - 0xe8} #${c.loc}`); return { answer: true }; } }, o: { captions: null } } as never,
     universes: { entriesEnded: true, find: (n: string) => unis.find((u) => u.name === n) ? { universeStatus: unis.find((u) => u.name === n)!.status } : null } as never,
     lobby: () => lobby,
     briefing: {
-      service: { clearGameListFilter: () => Promise.resolve({ status: 0 }), gameList: () => Promise.resolve([game('friday$~Bravo', 7)]) },
+      service: { clearGameListFilter: () => Promise.resolve({ status: 0 }), gameList: () => Promise.resolve(o.list ?? [game('friday$~Bravo', 7)]) },
       commands: { joinRoomForRandomGame: (n: string) => { joined.push(n); return true; } },
     } as never,
     world: { commands: { rooms: () => state.rooms, clan: { clanId: -1 } } } as never,
@@ -505,7 +510,7 @@ function session(o: { link?: InviteLink | null; universes?: { name: string; stat
   });
   const frames = (n = 40): void => { for (let i = 0; i < n; i++) s.frame(); };
   const go = (dialog: string, n = 40): void => { state.dialog = dialog; frames(n); };
-  return { s, state, started, events, joined, consumed, copies, nodes, uiVars, valves, gates, go, frames, setCopy: (ok: boolean) => { copyOk = ok; } };
+  return { s, state, started, events, joined, consumed, copies, nodes, uiVars, valves, gates, go, frames, pressed, setCopy: (ok: boolean) => { copyOk = ok; } };
 }
 
 /** The game's own login, as the lobby client answers it: a refused password back to the persona form, a success logged in. */
@@ -712,5 +717,220 @@ describe('INVITE_FLOW_ADAPTATION and the join over the login path (a fake machin
     valves.acquire('ComeFromLan', VALVE_TYPE.PERM); valves.set('ComeFromLan', 1, VALVE_TYPE.PERM);
     expect(look(GAME_LOBBY)!.controls.map((c) => c.name)).toEqual(['PlayerReady']);
     expect(withInviteButton(() => design as never, () => undefined)(GAME_LOBBY)!.controls).toHaveLength(2);   // before the opener: online
+  });
+});
+
+// ---- LOBBY-LINK-DIRECT (OT.R121: a lobby link, the disc kept whole, signed in: straight into the GAME LOBBY) ----
+
+describe('LOBBY_LINK_DIRECT_ADAPTATION (OT.R121): the login path behind the cover (a fake machine)', () => {
+  const ID = 'TOwttYxGFFw';
+  const LOBBY: InviteLink = { mediusWorldId: 0, game: '', universe: null, lobbyId: ID };
+  const CROSS = widgetPad({ CROSS: 'FALLING' }).bytes.join('');
+  const live = (): GameListEntry => ({ ...game('friday$~Bravo', 7), lobbyId: ID });
+  const named = (t: ReturnType<typeof session>, name: string): void => { t.uiVars.add('PLAYERNAMEVAR', { type: 'string', value: name }, 1); };
+  const direct = (list: GameListEntry[] = [live()], universes?: { name: string; status: number }[]) =>
+    session({ link: LOBBY, direct: { account: 'Bravo' }, list, ...(universes ? { universes } : {}) });
+
+  it('covered from the mount; LOGIN\'s CROSS, CONNECT and ACCEPT pressed behind it, once each; the join; revealed on the GAME LOBBY', async () => {
+    const t = direct();
+    named(t, 'Bravo');
+    expect(t.s.covering()).toBe(true);
+    t.go('dlgNetLogin.rdr');
+    expect(t.pressed).toEqual([`login_btn:${CROSS}`]);                    // the button's own CROSS record: proceed_net_login is its binding's
+    t.go('dlgNetAuthenticate.rdr'); t.go(SERVER_SELECT);
+    expect(t.started).toEqual(['select_server(SOCOM)']);
+    t.go('dlgNetPlayerName.rdr');
+    expect(t.pressed).toEqual([`login_btn:${CROSS}`, `connect_btn:${CROSS}`]);
+    login(t, 'ok');                                                        // the original's login (the remember cookie's), CONNECTING, then USER AGREEMENT
+    expect(t.pressed.at(-1)).toBe(`YesAccept:${CROSS}`);
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM);
+    expect(t.started).toEqual(['select_server(SOCOM)', 'join_random_game']);
+    expect(t.s.searchArmed()).toBe(true);
+    expect(t.consumed).toEqual([1]);
+    await flush(40);
+    expect([t.state.held?.lobbyId, t.events, t.joined]).toEqual([ID, [{ event: 'MP_RANDOM_GAME_FOUND', text: null }], ['Bravo']]);
+    expect(t.s.covering()).toBe(true);                                    // the room's and the game's join still under way
+    t.go(GAME_LOBBY);
+    expect([t.s.covering(), t.pressed.length]).toEqual([false, 3]);
+  });
+
+  /** The login path walked and the link's join under way on SOCOM II ONLINE: found, the room asked, the state 0x0f. */
+  const joining = async (): Promise<ReturnType<typeof session>> => {
+    const t = direct();
+    named(t, 'Bravo');
+    t.go('dlgNetLogin.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr'); login(t, 'ok');
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM);
+    expect(t.s.searchArmed()).toBe(true);
+    await flush(40);                                                       // found, the room asked: the join under way
+    t.state.lobbyState = 0x0f;                                             // LOBBY_STATE_JOIN_GAME: JoinGame sent
+    return t;
+  };
+
+  it('a join that never answers (JoinGame lost: the state 0x0f for good, the disc\'s abort_join changing no state): covered past the stall bound, revealed at the join\'s bound on SOCOM II ONLINE', async () => {
+    const t = await joining();
+    t.frames(LOBBY_LINK_DIRECT_STALL_FRAMES_ADAPTATION + 300);
+    expect(t.s.covering()).toBe(true);                                     // a join under way is not the screen's stall
+    t.frames(LOBBY_LINK_DIRECT_JOIN_FRAMES_ADAPTATION - LOBBY_LINK_DIRECT_STALL_FRAMES_ADAPTATION - 300 - 60);
+    expect(t.s.covering()).toBe(true);                                     // not before the join's own bound
+    t.frames(60);
+    expect([t.s.covering(), t.state.dialog]).toEqual([false, WORLD_OF_SOCOM]);   // the review's SHOULD: never for good
+  });
+
+  it('a slow join that answers at 40 s: still covered then, and revealed on the GAME LOBBY (the bound does not cut a live join)', async () => {
+    const t = await joining();
+    t.frames(1200);                                                        // 40 s at the menus' 30 Hz
+    expect(t.s.covering()).toBe(true);
+    t.state.lobbyState = 0x11;                                             // LOBBY_STATE_IN_GAME
+    t.go(GAME_LOBBY);
+    expect(t.s.covering()).toBe(false);
+    t.go(WORLD_OF_SOCOM, LOBBY_LINK_DIRECT_JOIN_FRAMES_ADAPTATION);        // revealed for good: nothing covers again
+    expect(t.s.covering()).toBe(false);
+  });
+
+  it('the game socket gone while the join runs (its hello refused, or a final close such as 4021 before the lobby): revealed at once, not after the disc\'s waits', async () => {
+    const t = await joining();
+    t.frames(30);
+    expect(t.s.covering()).toBe(true);                                     // no socket yet: JoinGame not answered
+    t.state.socket = true;                                                 // the socket's client held (connecting, or welcomed)
+    t.frames(30);
+    expect(t.s.covering()).toBe(true);
+    t.state.socket = false;                                                // the seat's end: the client let go
+    t.frames(2);
+    expect(t.s.covering()).toBe(false);
+  });
+
+  it('the lobby gone: the join\'s own refusal (#528 through OnJoinRoomFailure) revealed on SOCOM II ONLINE, the player signed in there', async () => {
+    const t = direct([game('friday$~Bravo', 7)]);
+    named(t, 'Bravo');
+    t.go('dlgNetLogin.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr'); login(t, 'ok');
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM);
+    expect(t.s.searchArmed()).toBe(true);
+    expect(t.s.covering()).toBe(true);
+    await flush(40);
+    expect([t.events, t.joined, t.consumed, t.s.covering()]).toEqual([[{ event: 'MP_MEDIUS_JOIN_ROOM_FAILURE', text: '#528' }], [], [1], false]);
+  });
+
+  it('full or locked by a password: refused #441 and revealed -- never joined past it', async () => {
+    const t = direct([{ ...live(), securityLevel: 1 }]);
+    named(t, 'Bravo');
+    t.go('dlgNetLogin.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr'); login(t, 'ok');
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM);
+    t.s.searchArmed();
+    await flush(40);
+    expect([t.events, t.joined, t.s.covering()]).toEqual([[{ event: 'MP_MEDIUS_JOIN_ROOM_FAILURE', text: '#441' }], [], false]);
+  });
+
+  it('a JoinGame refused while the invite joins (the room filled since the list): revealed with the invite\'s line', async () => {
+    const t = direct();
+    named(t, 'Bravo');
+    t.go('dlgNetLogin.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr'); login(t, 'ok');
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM);
+    t.s.searchArmed();
+    await flush(40);
+    expect(t.s.refused(-948, 7)).toBe(true);
+    expect([t.events.at(-1), t.s.covering()]).toEqual([{ event: 'MP_MEDIUS_JOIN_ROOM_FAILURE', text: '#441' }, false]);
+  });
+
+  it('the persona form showing another name, or no password (CONNECT disabled): revealed there for the player; the join still follows the login', () => {
+    const other = direct();
+    named(other, 'Charlie');
+    other.go('dlgNetLogin.rdr'); other.go(SERVER_SELECT); other.go('dlgNetPlayerName.rdr', 60);
+    expect([other.pressed, other.s.covering()]).toEqual([[`login_btn:${CROSS}`], false]);
+    const typed = direct();
+    named(typed, 'Bravo');
+    typed.state.enabled.delete('connect_btn');
+    typed.go('dlgNetLogin.rdr'); typed.go(SERVER_SELECT); typed.go('dlgNetPlayerName.rdr', 60);
+    expect([typed.pressed, typed.s.covering()]).toEqual([[`login_btn:${CROSS}`], false]);
+    login(typed, 'ok');
+    typed.go('dlgUsagePolicy.rdr');
+    expect(typed.pressed).toHaveLength(1);                                 // revealed: the agreement is the player's again
+    typed.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    typed.go(WORLD_OF_SOCOM);
+    expect(typed.started.at(-1)).toBe('join_random_game');
+  });
+
+  it('a refused login (the cookie gone, -978) back on the persona form: revealed there, CONNECT not pressed again', () => {
+    const t = direct();
+    named(t, 'Bravo');
+    t.go('dlgNetLogin.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr');
+    login(t, 'refused');
+    t.frames(300);
+    expect([t.pressed.filter((p) => p.startsWith('connect_btn')).length, t.s.covering()]).toEqual([1, false]);
+  });
+
+  it('a popup up or the menu input suspended: no press until it is gone, still covered', () => {
+    const t = direct();
+    t.state.popup = true;
+    t.go('dlgNetLogin.rdr', 200);
+    t.state.popup = false; t.state.inputTimer = 3;
+    t.frames(200);
+    expect([t.pressed, t.s.covering()]).toEqual([[], true]);
+    t.state.inputTimer = 0;
+    t.frames();
+    expect(t.pressed).toEqual([`login_btn:${CROSS}`]);
+  });
+
+  it('the universe when the link settles none and two are up: the first one up, behind the cover; without the mark, the player\'s choice', () => {
+    const two = [{ name: 'A', status: 0 }, { name: 'B', status: 1 }, { name: 'C', status: 1 }];
+    const t = direct([live()], two);
+    t.go(SERVER_SELECT);
+    expect(t.started).toEqual(['select_server(B)']);
+    const plain = session({ link: LOBBY, universes: two });
+    plain.go(SERVER_SELECT);
+    expect(plain.started).toEqual([]);
+  });
+
+  it('a join_random_game that never reaches its search (its wait run out): revealed on SOCOM II ONLINE', () => {
+    const t = direct();
+    named(t, 'Bravo');
+    t.go('dlgNetLogin.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr'); login(t, 'ok');
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM, 200);                                             // armed, never asked by JoinMPGame(RANDOM)
+    expect(t.s.covering()).toBe(false);
+  });
+
+  it('no mark (not signed in, or no disc kept whole): never covered, nothing pressed -- today\'s flow, the join after the player\'s own login', () => {
+    const t = session({ link: LOBBY, list: [live()] });
+    named(t, 'Bravo');
+    expect(t.s.covering()).toBe(false);
+    t.go('dlgNetLogin.rdr'); t.go('dlgNetAuthenticate.rdr'); t.go(SERVER_SELECT); t.go('dlgNetPlayerName.rdr', 200);
+    login(t, 'ok');
+    t.frames(200);
+    expect(t.pressed).toEqual([]);
+    t.state.rooms = [{ mediusWorldId: 2, lobbyName: 'Bravo' }];
+    t.go(WORLD_OF_SOCOM);
+    expect(t.started.at(-1)).toBe('join_random_game');
+  });
+
+  it('an invite taken from another tab ends the cover and the presses (they are the address\'s own link\'s)', () => {
+    const t = direct();
+    t.state.lobbyState = 11; t.state.ticket = 'T';
+    expect(t.s.take(LINK)).toBe(true);
+    t.go('dlgNetLogin.rdr', 200);
+    expect([t.pressed, t.s.covering()]).toEqual([[], false]);
+  });
+
+  it('pageInvite: the launcher\'s direct mark for the address\'s lobby id is the mount\'s, once', () => {
+    const w = {
+      location: { origin: 'https://n.example', pathname: `/online/lobby/${ID}`, search: '', hash: '' },
+      history: { state: null, replaceState() {} }, navigator: {}, document: null,
+    };
+    markLobbyLinkDirect({ route: 'direct', lobbyId: ID, account: 'Bravo' });
+    expect(pageInvite('', w as never, { base: '/' }).direct).toEqual({ account: 'Bravo' });
+    expect(pageInvite('', w as never, { base: '/' }).direct ?? null).toBeNull();
+  });
+
+  it('the hand-off carries the lobby id: a lobby link offered across tabs is the same lobby, not a world id 0', async () => {
+    const bus = new Bus();
+    const taken: InviteLink[] = [];
+    const a = answerInvites({ open: bus.open, id: 'B', holds: () => true, busy: () => null, take: (l) => { taken.push(l); } });
+    expect(await handOff(LOBBY, { open: bus.open, id: 'A', wait })).toBe('taken');
+    expect(taken).toEqual([LOBBY]);
+    a.close();
   });
 });

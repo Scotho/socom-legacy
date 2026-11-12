@@ -5,7 +5,7 @@ import { createForgeAgentApi, type ForgeAgentApi, type ForgeAgentFacade, type Fo
 import { emptyLayout } from '../src/forge/layout';
 import { recordOfLayout } from '../src/forge/record';
 import { LocalPackError } from '../src/agent/localPacks';
-import { bytes, LIMITS } from '@s2u/forge-agent-protocol';
+import { bytes, FORGE_INPUT_OPERATIONS, LIMITS, REFUSAL_HINTS } from '@s2u/forge-agent-protocol';
 import type { LocalPackApi } from '../src/agent/localPacks';
 import type { AgentRequest } from '@s2u/forge-agent-protocol';
 
@@ -40,7 +40,11 @@ describe('Forge page capability adapter', () => {
   });
   it('prevents import/test permission escalation inside the generic edit tool', async () => {
     const r = rig(); const result = await r.target.dispatch(r.request('forge.edit', { operation: 'layout.import', arguments: { layout: {} } }), new AbortController().signal);
-    expect(result.code).toBe('PERMISSION_DENIED'); expect(r.execute).not.toHaveBeenCalled();
+    // REVIEW-1 9: an inner operation forge.edit does not admit is UNSUPPORTED_OPERATION with the admitted list (re-pairing never helps).
+    expect(result.code).toBe('UNSUPPORTED_OPERATION'); expect(r.execute).not.toHaveBeenCalled();
+    const admitted = (result.data as { admitted: string[] }).admitted;
+    expect(admitted).toContain('piece.place'); expect(admitted).not.toContain('layout.import');
+    expect(result.hint).toBe(REFUSAL_HINTS.UNSUPPORTED_OPERATION);
   });
   it('paginates large recipes with revision-bound cursors and refuses stale continuation', async () => {
     const r = rig(); r.snapshot.layout!.pieces = Array.from({ length: 220 }, () => [0, 0, 0, 0, 0]);
@@ -70,7 +74,7 @@ describe('Forge page capability adapter', () => {
     expect((next.data as { items: unknown[] }).items[0]).toEqual({ id: 'save-100', name: 'Map 100', savedAt: 100 });
     r.snapshot.revision++;
     expect((await r.target.dispatch(r.request('forge.catalogue', { section: 'saves', cursor: page.nextCursor }), signal)).code).toBe('REVISION_CONFLICT');
-    expect((await r.target.dispatch(r.request('forge.edit', { operation: 'saves.list' }), signal)).code).toBe('PERMISSION_DENIED');
+    expect((await r.target.dispatch(r.request('forge.edit', { operation: 'saves.list' }), signal)).code).toBe('UNSUPPORTED_OPERATION');
   });
   it('propagates native saves refusal and cancellation after a pending inspect read', async () => {
     const r = rig();
@@ -129,7 +133,9 @@ describe('Forge page capability adapter', () => {
   it('routes test-only normal inputs to private Play and rejects nested editor commands', async () => {
     const r = rig(); r.snapshot.mode = 'forge-play';
     expect((await r.target.dispatch(r.request('forge.input', { operation: 'input.set', arguments: { action: true } }), new AbortController().signal)).outcome).toBe('ok');
-    expect((await r.target.dispatch({ ...r.request('forge.input', { operation: 'layout.name', arguments: { name: 'No' } }), requestId: 'second' }, new AbortController().signal)).code).toBe('PERMISSION_DENIED');
+    const nested = await r.target.dispatch({ ...r.request('forge.input', { operation: 'layout.name', arguments: { name: 'No' } }), requestId: 'second' }, new AbortController().signal);
+    expect(nested.code).toBe('UNSUPPORTED_OPERATION');
+    expect((nested.data as { admitted: string[] }).admitted).toEqual([...FORGE_INPUT_OPERATIONS]);
   });
   it('blocks map/settings/import edits while any Forge play is active', async () => {
     const r = rig(); r.snapshot.mode = 'forge-play';
@@ -170,6 +176,53 @@ describe('Forge page capability adapter', () => {
     expect(driver.status()).toEqual({ shot: 'shot-1', t: 0, ended: 'revoked' });
     expect(r.api.stopShot).toHaveBeenCalledWith('revoked');
     expect(vi.mocked(r.api.stopShot!).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(r.api.resetSession).mock.invocationCallOrder[0]!);
+  });
+});
+
+/**
+ * AX-8 (AX.R4; a browser adaptation): a hidden tab keeps the pairing and pauses what runs -- the running camera shot ends
+ * `stopped`, a running Play scenario is cancelled and the agent's held Play inputs released (the play operations'
+ * `scenario.cancel`, which cancels the job and releases its inputs) -- never the session reset a revoke makes.
+ */
+describe('AX-8: the Forge target pauses when the tab is hidden', () => {
+  it('ends a running shot stopped and keeps the session (no reset, receipts kept)', () => {
+    const r = rig();
+    const driver = createShotDriver({ sampler: linearShotSampler, apply: () => undefined });
+    r.api.stopShot = vi.fn((reason: ShotEnded = 'stopped') => driver.stop(reason));
+    driver.start({ points: [{ at: [0, 1, 0], look: [0, 1, -5] }, { at: [4, 1, 0], look: [4, 1, -5] }], seconds: 1 }, 'shot-1');
+    r.target.pause?.('PAGE_HIDDEN');
+    expect(driver.status()).toEqual({ shot: 'shot-1', t: 0, ended: 'stopped' });
+    expect(r.api.stopShot).toHaveBeenCalledWith('stopped');
+    expect(r.api.resetSession).not.toHaveBeenCalled();
+    // In the editor there is no Play scenario or Play input to release.
+    expect(r.execute).not.toHaveBeenCalled();
+  });
+  it('in Play, cancels the scenario and releases agent-held inputs through scenario.cancel at the current revision', () => {
+    const r = rig();
+    r.snapshot.mode = 'forge-play'; r.snapshot.revision = 7;
+    r.target.pause?.('PAGE_HIDDEN');
+    expect(r.execute).toHaveBeenCalledTimes(1);
+    expect(r.execute).toHaveBeenCalledWith('scenario.cancel', {}, 7);
+    expect(r.api.resetSession).not.toHaveBeenCalled();
+  });
+  it('through the real facade: a running shot ends stopped and the target still answers afterwards', async () => {
+    const driver = createShotDriver({ sampler: linearShotSampler, apply: () => undefined });
+    const facade: ForgeAgentFacade = {
+      snapshot: () => ({ ready: true, mode: 'forge-editor', revision: 0, layout: recordOfLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'Test'),
+        selection: [], refs: [], catalogue: {}, issues: [], view: {}, canUndo: false, canRedo: false }),
+      prepare: async () => ({ commit: () => undefined, dispose: () => undefined }),
+      shotDriver: driver,
+      mapBounds: () => ({ min: [-10, -10, -10], max: [10, 10, 10] }),
+    };
+    const target = createForgePageTarget({ api: createForgeAgentApi(facade), build: 'test' });
+    const signal = new AbortController().signal;
+    const shot = { points: [{ at: [0, 1, 0], look: [0, 1, -5] }, { at: [4, 1, 0], look: [4, 1, -5] }], seconds: 2 };
+    const started = await target.dispatch({ version: 1, requestId: 'shot', sessionId: 's', targetId: 't', epoch: 'e', operation: 'camera.shot', args: shot, expectedRevision: 0 }, signal);
+    expect(started.outcome).toBe('ok');
+    target.pause?.('PAGE_HIDDEN');
+    expect(driver.status()).toMatchObject({ shot: (started.data as { shotId: string }).shotId, ended: 'stopped' });
+    const status = await target.dispatch({ version: 1, requestId: 'status', sessionId: 's', targetId: 't', epoch: 'e', operation: 'camera.status', args: {} }, signal);
+    expect(status.outcome).toBe('ok');
   });
 });
 

@@ -9,9 +9,9 @@ import {
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { LIMITS, object, type SignalToPage } from "@s2u/forge-agent-protocol";
-import { GuestOAuth } from "./oauth.js";
-import { GatewayState, type StateConfig } from "./sessions.js";
-import { createMcpServer, schema } from "./mcp.js";
+import { budgetAddress, CONSENT_STYLE, CONSENT_STYLE_HASH, GuestOAuth } from "./oauth.js";
+import { GatewayState, refusal, type StateConfig } from "./sessions.js";
+import { createMcpServer, fullSchema } from "./mcp.js";
 export interface GatewayConfig extends StateConfig {
   issuer: string;
   development?: boolean;
@@ -21,6 +21,36 @@ export interface GatewayConfig extends StateConfig {
   maxClientsPerAddress?: number;
   /** Browser adaptation (gateway policy): live bootstrap tokens one client address may hold (default 32). */
   maxTokensPerAddress?: number;
+  /**
+   * AX-11 (a browser adaptation, gateway policy): the file that keeps OAuth clients and token hashes across a restart
+   * (`FORGE_AGENT_STATE_FILE`). Unset: in memory only, the development default. Pairings and sessions are never kept.
+   */
+  stateFile?: string;
+}
+/** AX-U: the join route's bound on its one parameter, the protocol's identifier form (`identifier`). */
+const JOIN_INVITATION = /^[A-Za-z0-9_.:-]{1,128}$/;
+/** AX-U: the join page's CSP -- the consent page's style (its one inline sheet by hash), no form, no frames. */
+const JOIN_HTML_CSP = `default-src 'none'; style-src 'sha256-${CONSENT_STYLE_HASH}'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'`;
+const JOIN_PLAIN_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+/** AX-U (C6): the join link's words for an agent (text/plain): what to call, with what, and where. */
+export function joinText(issuer: string): string {
+  return [
+    "SOCOM 2 Legacy: a player's connect link for their Forge or test room page.",
+    "",
+    "If you are the agent: call agent_pair with this link (the whole URL) on the socom2legacy MCP server.",
+    "The permissions default to all; the player can turn any off on their page, then presses Allow there.",
+    "Call agent_guide first if you have not yet; once paired, call agent_capabilities, then agent_request target.status.",
+    `MCP endpoint: ${issuer}/mcp`,
+    "",
+    "If you are the player: paste this link into your agent, then approve it on your page.",
+    "The link works once and expires after a few minutes.",
+    "",
+  ].join("\n");
+}
+/** AX-U (C6): the same words as a short page for a person (text/html), in the consent page's sheet. */
+function joinPage(issuer: string): string {
+  const mcp = `${issuer}/mcp`.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Connect your agent</title><style>${CONSENT_STYLE}</style></head><body><main><p class="kicker">Connect your agent</p><h1>This is a SOCOM 2 Legacy connect link</h1><p>Paste it into your AI agent. Then approve it on your Forge or test room page.</p><p class="hint">For the agent: call agent_pair with this link on the socom2legacy MCP server. The permissions default to all; the player can turn any off before pressing Allow. Call agent_guide first if you have not yet.</p><p class="hint">MCP endpoint</p><code>${mcp}</code><p class="hint">The link works once and expires after a few minutes.</p></main></body></html>`;
 }
 export function createGateway(config: GatewayConfig) {
   const issuer = new URL(config.issuer);
@@ -52,13 +82,17 @@ export function createGateway(config: GatewayConfig) {
     console.warn(
       "Forge agent gateway: FORGE_AGENT_TRUSTED_PROXIES is 0, so behind a TLS edge every client shares one per-address budget",
     );
-  /** Browser adaptation (gateway policy): the client address keying the per-address budgets, X-Forwarded-For only from trusted hops. */
+  /**
+   * Browser adaptation (gateway policy): the client address keying the per-address budgets, X-Forwarded-For only from
+   * trusted hops; an IPv6 client keyed by its /64 (LATER 482, budgetAddress), so every per-address store -- the rate
+   * buckets, the SDK's limiters, the targets and sessions, the OAuth clients, tokens, consents and codes -- shares it.
+   */
   const clientAddress = (req: IncomingMessage): string => {
     const socket = req.socket.remoteAddress ?? "unknown";
-    if (hops === 0) return socket;
+    if (hops === 0) return budgetAddress(socket);
     const header = req.headers["x-forwarded-for"],
       entries = (Array.isArray(header) ? header.join(",") : (header ?? "")).split(",");
-    return (entries.length >= hops ? entries[entries.length - hops]!.trim() : "") || socket;
+    return budgetAddress((entries.length >= hops ? entries[entries.length - hops]!.trim() : "") || socket);
   };
   /** The request's client address for the SDK's OAuth handlers, which do not see the request (LATER 429). */
   const requestAddress = new AsyncLocalStorage<string>();
@@ -66,6 +100,8 @@ export function createGateway(config: GatewayConfig) {
     state = new GatewayState({
       ...config,
       publicCandidatesOnly: config.publicCandidatesOnly ?? !config.development,
+      // AX-10: the pending signal's `gatewayClientId`, from this gateway's own OAuth grants (read at pairing time).
+      clientIdOf: config.clientIdOf ?? ((principal) => oauth.clientIdOf(principal)),
     }),
     oauth = new GuestOAuth(
       new URL("/mcp", issuer),
@@ -76,6 +112,7 @@ export function createGateway(config: GatewayConfig) {
         clientsPerAddress: config.maxClientsPerAddress,
         tokensPerAddress: config.maxTokensPerAddress,
       },
+      { stateFile: config.stateFile },
     ),
     app = express(),
     server = createServer(app);
@@ -186,7 +223,30 @@ export function createGateway(config: GatewayConfig) {
   const principal = (req: express.Request) =>
     String(req.auth?.extra?.principalId ?? "");
   app.get("/health", (_req, res) => res.json({ ok: !closing }));
-  app.get("/api/v1/schema", (_req, res) => res.json(schema(state, base)));
+  // AX-U (C6; a browser adaptation, FG.R2): the page's one copied line carries `<issuer>/join/<invitation>`. Opened by a
+  // person or fetched by an agent, it answers the same short words: what the link is, what to call, the MCP endpoint.
+  // It never reads, validates, spends or reveals the invitation -- no state lookup, nothing echoed: a link the gateway
+  // never issued gets the same page as a live one. Only the form is bounded (the protocol's identifier).
+  app.get("/join/:invitation", (req, res) => {
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("X-Robots-Tag", "noindex");
+    res.setHeader("Vary", res.getHeader("Vary") ? `${res.getHeader("Vary")}, Accept` : "Accept");
+    const html = /\btext\/html\b/i.test(req.get("accept") ?? "");
+    if (!JOIN_INVITATION.test(String(req.params.invitation))) {
+      res.setHeader("Content-Security-Policy", JOIN_PLAIN_CSP);
+      res.status(400).type("text/plain").send("This is not a SOCOM 2 Legacy connect link.\n");
+      return;
+    }
+    if (html) {
+      res.setHeader("Content-Security-Policy", JOIN_HTML_CSP);
+      res.type("html").send(joinPage(base));
+    } else {
+      res.setHeader("Content-Security-Policy", JOIN_PLAIN_CSP);
+      res.type("text/plain").send(joinText(base));
+    }
+  });
+  // AX-1 (contract C1): the summary and, beside it, the full operation manual, before pairing.
+  app.get("/api/v1/schema", (_req, res) => res.json(fullSchema(state, base)));
   app.post("/api/v1/targets", (req, res) => {
     try {
       const p = state.register(
@@ -205,22 +265,43 @@ export function createGateway(config: GatewayConfig) {
   app.get("/api/v1/status", auth, (req, res) =>
     res.json(state.status(principal(req))),
   );
-  app.post("/api/v1/pair", auth, (req, res) => {
+  // AX-3 (C4): the REST mirror of agent_pair -- a join link or invitation, optional permissions, clientName and
+  // waitSeconds; it holds until the page answers or the wait ends. `POST /api/v1/wait` mirrors agent_wait.
+  app.post("/api/v1/pair", auth, async (req, res) => {
     try {
       const b = object(req.body);
-      if (typeof b.invitation !== "string" || typeof b.clientName !== "string")
+      if (b.clientName !== undefined && typeof b.clientName !== "string")
         throw Error("INVALID_PAIR");
       res.json(
-        state.pair(
+        await state.pairAndWait(
           principal(req),
           b.invitation,
           b.permissions,
           b.clientName,
+          b.waitSeconds,
           clientAddress(req),
         ),
       );
     } catch (e) {
-      res.status(400).json({ code: (e as Error).message });
+      res.status(400).json(refusal((e as Error).message));
+    }
+  });
+  app.post("/api/v1/wait", auth, async (req, res) => {
+    try {
+      const b = object(req.body);
+      if (typeof b.sessionId !== "string") throw Error("INVALID_SESSION");
+      res.json(await state.wait(principal(req), b.sessionId, b.waitSeconds));
+    } catch (e) {
+      res.status(400).json(refusal((e as Error).message));
+    }
+  });
+  // AX-14: the REST mirror of agent_notes -- the caller's session's notes from the page, returned and delivered.
+  app.post("/api/v1/notes", auth, (req, res) => {
+    try {
+      const b = object(req.body ?? {});
+      res.json(state.notes(principal(req), b.sessionId));
+    } catch (e) {
+      res.status(400).json(refusal((e as Error).message));
     }
   });
   app.post("/api/v1/disconnect", auth, async (req, res) => {
@@ -335,8 +416,15 @@ export function createGateway(config: GatewayConfig) {
           ws.close(4003, "SIGNAL_DENIED");
           return;
         }
-        // Page revocation has priority even while SDP processing is waiting on ICE/DTLS.
-        if ((message as { type?: unknown })?.type === "revoke") {
+        // Page revocation has priority even while SDP processing is waiting on ICE/DTLS. AX-12: the page's diagnosis,
+        // sent just before its revoke, rides the same lane so it is read before the revoke ends the target. AX-9: so does
+        // a pagehide, which the socket's close follows at once -- handled first, the grant is kept resumable before the
+        // close revokes it.
+        // RC1 (088766214, shadow's GPU view): a surface change and a note carry no SDP and take no await, so they ride
+        // this lane too -- in the queue they waited behind a trickle-ICE step the peer had not settled, and the gateway
+        // kept refusing Play operations on a page already in Play.
+        const kind = (message as { type?: unknown })?.type;
+        if (kind === "revoke" || kind === "diagnosis" || kind === "pagehide" || kind === "surface" || kind === "note") {
           void state
             .signal(attached.targetId, message)
             .catch(() => ws.close(4003, "SIGNAL_DENIED"));

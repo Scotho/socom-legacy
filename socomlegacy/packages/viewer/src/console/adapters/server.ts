@@ -156,6 +156,8 @@ export function liveServer(notify: () => void, deps: ServerDeps): LiveServer {
     },
     pages: () => [],
     refresh(): Promise<void> { return Promise.all([deps.rooms.refresh(), askUniverse(), central.refresh()]).then(() => undefined); },
+    // RB-5: a new tab opens only inside a user activation, and `noopener` makes `window.open` answer null either way, so
+    // the grammar calls this only for a click, a tap or a key (`../grammar` `NEW_TAB_POINTER_WORDS` for a pad's press).
     openPage(name: string): void { open(`${siteBase}${name.toLowerCase()}`, '_blank', 'noopener'); },
     news: () => news,
     loadNews(): void { void askUniverse(); askAnnouncement(); },

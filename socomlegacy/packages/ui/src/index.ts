@@ -53,6 +53,7 @@ export * from './screens/clanInvitations';
 export * from './screens/personaCommands';
 export * from './screens/worldOfSocomCommands';
 export * from './screens/optionsCommands';
+export * from './screens/optionsSchema';
 export * from './screens/onlineOptionsCommands';
 export * from './screens/onlineFiltersCommands';
 export * from './screens/ignoreListCommands';

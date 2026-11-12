@@ -2,7 +2,7 @@
 title: "Pack anatomy"
 description: "Inside a v2 pack: the zip's layout, the manifest s2u-pack.json part by part, member paths, identity, dependencies, intents and handler claims."
 status: "Format only"
-source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535", "socomlegacy/packages/viewer/src/packs/registry.ts:167", "socomlegacy/packages/viewer/src/agent/localFiles.ts:37"]
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/packs/registry.ts:224", "socomlegacy/packages/viewer/src/agent/localFiles.ts:37"]
 ---
 
 **Status: Format only.** Everything on this page is checked by the pack contract, and a pack that passes is stored;
@@ -72,7 +72,7 @@ Two values come from the build, not from you:
 
 - `target` must be exactly the build's disc revision, `SCUS-97275` (the contract's `PACK_TARGET_US`). An older
   spelling is refused, and the refusal names the right one.
-- `contract` is a version range that must include the build's engine contract version, `0.1.1` today (the contract's
+- `contract` is a version range that must include the build's engine contract version, `0.1.2` today (the contract's
   `ENGINE_CONTRACT_VERSION`). A pack of kind `rules` must not admit any version before `0.1.1`.
 
 `sides` is `client`, `server` or `both`. The check tests only that it is one of the three; nothing else reads it yet.
@@ -188,10 +188,34 @@ Only a `pass` is stored. The codes are on [Refusal codes](/reference/codes/), an
 
 The game's local import runs the check with this build's target and engine contract version, the packs you have
 already stored, an **empty** list of engine handlers, and **no** list of your disc archives (the viewer's
-`registry.ts`, line 167). Two things follow:
+`registry.ts`, line 224). Two things follow:
 
 - a pack with any `handlers` claim is refused at import (`pack.HANDLER_UNKNOWN`: the import offers no handler yet);
 - a pack with an `{archive, sha256}` dependency is `incomplete` at import, so it is not stored.
 
 Both are checked in full by the contract itself, given a build context that has them; the game's import does not
 give one yet.
+
+## For agents
+
+```json
+{
+  "page": "/anatomy/",
+  "audience": [
+    "creators",
+    "agents"
+  ],
+  "summary": "The parts of a v2 pack: the zip layout, the manifest s2u-pack.json part by part, member paths and roles, intents, identity (id, version, hash), dependencies, handler claims and the check result.",
+  "inputs": [
+    "a v2 pack folder or zip"
+  ],
+  "outputs": [
+    "a manifest whose parts fit together; the exact field rules are on the manifest reference"
+  ],
+  "see_also": [
+    "/reference/manifest/",
+    "/reference/bounds/",
+    "/reference/codes/"
+  ]
+}
+```

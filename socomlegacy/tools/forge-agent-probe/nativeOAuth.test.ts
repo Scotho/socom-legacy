@@ -5,10 +5,14 @@ import { authorizationFromLine, validateCallback, copiedSetup } from './nativeOA
 const gateway = 'http://127.0.0.1:5368';
 const auth = `${gateway}/authorize?state=synthetic-state&redirect_uri=${encodeURIComponent('http://127.0.0.1:54321/callback')}&code_challenge=synthetic-challenge&code_challenge_method=S256&response_type=code`;
 it('accepts only the copied local setup endpoint and invitation, never shell text as executable input', () => {
-  const blurb = `codex mcp add socom2legacy --url ${gateway}/mcp\ncodex mcp login socom2legacy\nUse agent_pair with invitation "synthetic-invitation"`;
+  // AX-U: the first-time disclosure's copied command, then the one connect line (its join link on this gateway).
+  const blurb = `codex mcp add socom2legacy --url ${gateway}/mcp\ncodex mcp login socom2legacy\nConnect to my SOCOM 2 Legacy page: ${gateway}/join/synthetic-invitation`;
   expect(copiedSetup(blurb, 'codex', gateway)).toEqual({ endpoint: `${gateway}/mcp`, invitation: 'synthetic-invitation' });
   expect(() => copiedSetup(blurb.replace(gateway, 'https://unrelated.invalid'), 'codex', gateway)).toThrow('COPIED_SETUP_MISMATCH');
   expect(() => copiedSetup(blurb.replace('/mcp', '/mcp?access_token=private'), 'codex', gateway)).toThrow('COPIED_SETUP_MISMATCH');
+  expect(() => copiedSetup(`${blurb}?x=1`, 'codex', gateway)).toThrow('COPIED_SETUP_MISMATCH');
+  expect(() => copiedSetup(blurb.replace('/join/synthetic-invitation', '/join/a b'), 'codex', gateway)).toThrow('COPIED_SETUP_MISMATCH');
+  expect(() => copiedSetup(blurb.replace(`${gateway}/join`, 'https://unrelated.invalid/join'), 'codex', gateway)).toThrow('COPIED_SETUP_MISMATCH');
 });
 it('validates CLI authorization origin, PKCE and loopback callback before opening any browser', () => {
   expect(authorizationFromLine(auth, gateway)?.href).toBe(auth);

@@ -75,6 +75,42 @@ export function coneSlackPx(s: Pick<WeaponStance, 'knockReturn'>): number {
  */
 export const ROOT_POSE_SLACK_PLACEHOLDER = 4;
 /**
+ * JUMP-AIM-ROOT (the ghost-bullet report on live v0.4.18, game 4180; research 80 s7, 2026-11-11; reading, pending
+ * review): which bodies' aim frames stand on the jump clip's posed root (`aimRoot`). The original plays the standing jump
+ * `seal_jump` from a crouch with the stance kept (research 80 s0, `FUN_005b4340`), and its camera reads the posed
+ * skeleton root (`FUN_0029a950` through `FUN_002869d0`), which the clip lifts 10.51 -> 15.08 (research 80 s0, key 12) --
+ * 9.6 u over the crouch's measured root 5.504, past `ROOT_POSE_SLACK_PLACEHOLDER`, so a crouched jumper's honest eye was
+ * refused 'eye'. 'crouched': a crouched body takes the posed root -- in the jump action, and (the fold's blend-out,
+ * the controller's ruling, 2026-11-11) whenever the posed root stands above the crouch root, so the ease back to the
+ * crouch idle after the clip is covered (shadow's capture of the original, r0004, 3/3: the root eases 11.258 -> 5.504
+ * over frames 30-44 with the stance kept; research 80 s7); its reach: the crouch walk's root (5.50-9.33) and a stance
+ * change into the crouch too, as the page's camera stands on them. The standing body keeps the stance's measured root,
+ * which `ROOT_POSE_SLACK_PLACEHOLDER` was sized to cover (10.51..15.08 within 11.484 +- 4), so its verdicts are today's.
+ * 'every' would carry the posed root on the standing jump too (the page's camera does, but the slack already holds it).
+ * Settles with the room's root slack re-sized against the posed root on every body (the slack is the page's own
+ * tolerance, no original).
+ */
+export const JUMP_AIM_ROOT_BODIES_READING: 'crouched' | 'every' = 'crouched';
+
+/**
+ * JUMP-AIM-ROOT: the root a command's aim frame stands its camera on (`AimMover.moveRoot`; the room's `Room.aimRootOf`,
+ * the page's `WalkMode.startBody`): a traversal move's own (`Traversal.rootY`) first, as before; else, for a body
+ * `JUMP_AIM_ROOT_BODIES_READING` names, the posed root `posed` gives -- the room's `HitPoser` (the page's `Animator` on the
+ * room's snapshot of the body, HIT-POSE's A = B), the page's own `Play` animator (`setPosedRoot`) -- for a crouched body
+ * in the jump action, or whose posed root stands above the crouch root (`rootY('crouch')`; the crouch idles pose at or
+ * under it: 5.5039, 5.0313, 4.7070, so a still crouch is today's). The root is the clips' own, so the eye rises only as
+ * far as their root plus the slack (`seal_jump`'s 15.08 at most). Else null (the stance's measured root stands in);
+ * `posed` null or not finite (no motion, no poser): null.
+ */
+export function aimRoot(moveRoot: number | null, body: { action: string | null; posture: Stance }, posed: () => number | null): number | null {
+  if (moveRoot !== null) return moveRoot;
+  const crouched = body.posture === 'crouch';
+  if (!crouched && !(JUMP_AIM_ROOT_BODIES_READING === 'every' && body.action === 'jump')) return null;
+  const r = posed();
+  if (r === null || !Number.isFinite(r)) return null;
+  return !crouched || body.action === 'jump' || r > rootY('crouch') ? r : null;
+}
+/**
  * PF-37 (research 236 s2, research 179 s"STANCE_CHANGE_TICKS", the flat 60 retired; ruling PF.R57): the ticks after a
  * posture change during which the posed root may be anywhere between the two stances' -- the change's own clip
  * (`../mover` `ACTION_CLIPS`: motion.rdr `playback`, MOTION_P.ZAR keys) run to its last key (`ACTION_SECONDS`,

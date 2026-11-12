@@ -3,6 +3,7 @@ import type { EquipmentSlotState } from '../equipmentSlots';
 import { HOLD_CODES, type HoldClip } from '../mover';
 import type { BombWire } from './objective';
 import type { TurretWire } from './emplacement';
+import type { ReloadItem, ReloadStance } from '../reloadClip';
 import { isDead, MP_HEALTH, overall, PARTS, type Health } from './damage';
 
 /**
@@ -127,8 +128,31 @@ import { isDead, MP_HEALTH, overall, PARTS, type Health } from './damage';
  * the event as before, an older room never sends it.
  * Additive since, the version kept: the `kitHeld` event (2026-11-06, KIT-HELD: the seat's held type, picks and kit, so
  * the front end's match page opens WEAPON EXCHANGE on them); an older page ignores it, an older room never sends it.
+ * 14 (2026-11-09, ENEMY-RAISE ER-2; reading, reviewed: REVIEW-ER2-AND-ER-BATCH.md 1): the owner's raise state, the original's one field -- its
+ * console packs its own body's `FUN_005e0010` (`body+0xf74 & 0xef`, 1 up or 2 down) into the player record's byte +0x7e
+ * every frame (`FUN_002bd640` D:L161978) and each receiver replays it on the copy (`FUN_002be150` D:L162310-162312).
+ * Page to room: the command's `raised` (`Command.raised`), bit 7 of its last byte, the weapon narrowed to the three bits
+ * below it (its codes 0 and 1); room to pages: `BodyFlag.Raised`, bit 16 of the u32. A per-tick binary field bumps the
+ * version (PF.R33): a 13 room would read the bit as weapon 8 or 9, so the two refuse each other at the hello
+ * (`Room.hello`, the page's version text). The binary wire is otherwise 13's: a 13 command never set bit 7 and a 13
+ * room never set bit 16, so a 13 `.s2r` plays on the live decoders (match `replay/format.ts` `DECODERS`), its copies on
+ * the old inference (`../remotePlayers` `setRaiseField`).
+ * 15 (2026-11-11, PROTO-15; V19.R10, the main controller under the owner's authority, from v0.4.19's version-skew
+ * review): the mover's rules, 12's and 13's class -- a rule the two sides must run alike and one side cannot perform.
+ * The room runs each page's commands through the page's own mover (`./moverSim`), and three of v0.4.19's mover changes
+ * make a 14 side and a 15 side take different steps from the same commands: LADDER-CLIMB LC-1 (a ladder is offered as
+ * CLIMB at its contact and mounted only on the Action press, `../traversal`; research 86 s2.3, s2.5), AIR-PROBE (the
+ * airborne tick probes the floor once a game frame at the move's end, a miss putting x/z back, `../mover` `Walker.fall`,
+ * `AIR_FLOOR_PROBE_READING`; research 399) and STEEP-LAUNCH (a steep floor's push a displacement, never a velocity a
+ * walk-off carries; research 217 s2.8, LATER 833). Reconciliation carries the feet and the facing only, so a ladder one
+ * side mounted and the other did not is never healed: the two refuse each other at the hello (`Room.hello`, the page's
+ * version text). The wire's shape is 14's -- no frame, field or event changed -- so a 14 `.s2r` plays on the live
+ * decoders (match `replay/format.ts` `DECODERS`).
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 15;
+
+/** ENEMY-RAISE ER-2: the first protocol whose bodies carry their owners' raise state (`BodyFlag.Raised`). */
+export const RAISED_SINCE_PROTOCOL = 14;
 
 /**
  * A hello's `session` token (S2 round 4): base64url, 22 characters (128 bits, the page's own) to 64. Anything else is
@@ -371,6 +395,14 @@ export interface Command {
    * said. Protocol 12 (`PROTOCOL_VERSION`'s history): an 11 peer is refused at the hello.
    */
   separate?: boolean;
+  /**
+   * ENEMY-RAISE ER-2 (protocol 14; reading, reviewed): the page's own raise state is up -- its `../weaponRaise`
+   * `WeaponRaise` after every term (the enemy count, the scope, the trigger's edges, the hand grenade's lower, the 5.0 s
+   * countdown), as the original's owner packs `FUN_005e0010` into byte +0x7e every frame (`FUN_002bd640` D:L161978). The
+   * room relays it on `BodyFlag.Raised`. On the wire bit 7 of the last byte (`./codec`); decoded only when set. Absent
+   * (a CPU's command, a test's, a 13 page's): down.
+   */
+  raised?: boolean;
 }
 
 /** A batch: the newest commands, oldest first; the server skips the ones it has run. */
@@ -407,7 +439,7 @@ export interface BodyState {
   /**
    * `BodyFlag` bits, a u32 on the wire since protocol 11 (NET-WIRE): bits 0-10 the flags below, 11-14 the kit's hold code
    * and 15 the hold's start parity (the equip-anim fix's `BODY_HOLD_SHIFT` and `BodyFlag.HoldSerial`, their meanings kept),
-   * 16-31 free. Protocol 10's u16 was full.
+   * 16 the owner's raise state (`BodyFlag.Raised`, protocol 14), 17-31 free. Protocol 10's u16 was full.
    */
   flags: number;
   /** `STANCE_CODES` index: the posture the body uses. */
@@ -461,6 +493,14 @@ export const BodyFlag = {
    * the hold code, `BODY_HOLD_SHIFT`); protocol 11's u32 keeps it here, with bits 16-31 free.
    */
   HoldSerial: 1 << 15,
+  /**
+   * ENEMY-RAISE ER-2 (protocol 14; reading, reviewed): the owner's raise state is up (`FUN_005e0010` 1; clear, 2 --
+   * down), the original's byte +0x7e of the player record (`FUN_002bd640` D:L161978), which the copy replays as a request
+   * (`FUN_002be150` D:L162310-162312 -> `FUN_005dfe30`) and runs its own envelope from (`../remotePlayers` ->
+   * `../weaponRaise` `RaiseInput.raised`). Set by the room from the page's `Command.raised`, or a bot's controller
+   * (`Player.raise`); never for a dead body.
+   */
+  Raised: 1 << 16,
 } as const;
 export type BodyFlag = (typeof BodyFlag)[keyof typeof BodyFlag];
 
@@ -897,9 +937,12 @@ export type ClientEvent =
    * or HOLD POSITION (5) -- with the page's aim (`eye`, `dir` unit, as `fire` carries them), at the command number it
    * was pressed on. The original forwards {issuer, hostage, cmd} to the host (`FUN_002bb970` D:L160726-160750, 8 bytes),
    * which applies it unchecked (`FUN_002bb8e0` D:L160706-160721); the room runs the issuer's console's test itself
-   * (`ORDER_VALIDATION_READING`: `./hostageOrder` `orderTestRefusal`) and tells the outcome as `hostageState`.
+   * (`ORDER_VALIDATION_READING`: `./hostageOrder` `orderTestRefusal`) and tells the outcome as `hostageState`. LATER 853
+   * (additive; the room's `ORDER_REWIND_ADAPTATION`): `viewTick`, the page's playout clock when it ordered
+   * (`NetClient.viewTick`, as a round carries it), so the room meets the hostages where the page drew them; absent, at
+   * their present.
    */
-  | { type: 'hostageOrder'; seq: number; hostage: number; cmd: 4 | 5; eye: [number, number, number]; dir: [number, number, number] }
+  | { type: 'hostageOrder'; seq: number; hostage: number; cmd: 4 | 5; eye: [number, number, number]; dir: [number, number, number]; viewTick?: number }
   /**
    * Protocol 7 (web sprint 4 M9; `PICK_WIRE_READING`): the weapon select's confirmed picks (`@s2u/scene` `Pick`: a slot
    * 0-4 and an item id), every one since the map's match began for the page's side, in order -- the room replays them
@@ -1334,6 +1377,12 @@ export type ServerEvent =
     /** Protocol 10: the round epoch (`EnvWire.epoch`; 0 before the first round starts). */
     epoch: number;
     /**
+     * V13-3c (additive under protocol 13; `SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold'): the scene objects whose death
+     * the room ran this round, by `MapMeta.scene` record id (`sceneDeath`'s), which the joiner takes silently
+     * (`JOIN_SILENT_READING`). Absent: none, or an older room.
+     */
+    sceneDead?: number[];
+    /**
      * Protocol 10 (for ONL-18): the room tick (`tick`'s clock) at which the current round began. ABSENT, never 0,
      * while no round has begun -- a classic room waiting for its sides or after an abandon (tick 0 is a tick: a respawn
      * room's first round begins at its construction, `startTick` 0).
@@ -1516,6 +1565,20 @@ export type ServerEvent =
    */
   | { type: 'detonate'; pid: number; by: number | null }
   /**
+   * Research 386 §3.2 (LATER 63): a scene program's `FIRE_WEAPON` round went off at `at` -- Blizzard's outhouse's `C4` at
+   * its toilet, Crossroads' bridges' and the bases' `MPBOMB` -- by the item's name (`kind`), for its explosion's effects and
+   * sound (`GrenadeThrower.fireScene`); the room dealt its blast. An older page ignores it.
+   */
+  | { type: 'sceneRound'; kind: string; at: [number, number, number] }
+  /**
+   * V13-3c (additive under protocol 13; research 386 §3.5, `SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold'): a scene
+   * object's death the room ran -- its `MapMeta.scene` record id, in round `epoch` (`EnvWire.epoch`) -- told to every
+   * page at once, as the original's flagged death sends its type-8 record to every console (`FUN_002734b0`
+   * D:L120782-120797; research 376 §3). The page takes it (`applySceneDeath`): spent, its death run for presentation
+   * (PF.R26). An older page ignores it (the target's state still tells it the deaths that switch their target off).
+   */
+  | { type: 'sceneDeath'; id: number; epoch: number }
+  /**
    * A round fired by another player, for its muzzle, tracer and sound (the hit's decal where it struck the world).
    * Protocol 7: `weapon` is the firing item's id (the record the page draws and hears it by), no longer a slot.
    *
@@ -1617,8 +1680,18 @@ export type ServerEvent =
    * (`+0x1c`, 477484-477537) in the kit's frame, which the actor update runs with no locality test (`FUN_005506a0` L417907;
    * REMOTE_RELOAD_SOUND_READING). `weapon` the item's id (as the shot's), `at` the room's feet of the body. Sent to every
    * page but the reloader's, whose own reload plays its sound already. Additive: an older page ignores it.
+   *
+   * REMOTE-RELOAD (additive under protocol 14, `PROTOCOL_VERSION` kept; REMOTE_RELOAD_MOTION_READING): the hand's reload
+   * also names the take the room's lock was set from -- `posture` the stance, `moving` the body over 20 a second
+   * (`reloadMoving`), `family` the clip family (`reloadFamily`), `seconds` the clip's length (`reloadLockSeconds`) -- so
+   * the page starts that body's reload clip (`RemotePlayers.reload`): `FUN_005c2a90` starts the motion (`FUN_005a82e0`,
+   * D:L477479) and plays the sound (D:L477484) in one step. A turret's reload sends none of them; an older page ignores
+   * them, and an event without them (an older room) plays the sound alone.
    */
-  | { type: 'reloadSound'; id: number; weapon: number; at: [number, number, number] }
+  | {
+    type: 'reloadSound'; id: number; weapon: number; at: [number, number, number];
+    posture?: ReloadStance; moving?: boolean; family?: ReloadItem; seconds?: number;
+  }
   /** A combat report (INT.R5): a playtest instrument with no original, sent only by a room with the option on. */
   | CombatReport
   /**

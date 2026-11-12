@@ -37,7 +37,8 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u.viewer.rules',                // rules.ts RULES_KEY: the test room's Rules setting (OT.R71)
   's2u.viewer.controlsTab',          // controlsList.ts CONTROLS_TAB_KEY: the Controls popover's tab
   's2u.viewer.panelOpen',            // ui.ts: the settings panel open or folded
-  's2u.viewer.graphicsBackend',      // graphicsBackend.ts: automatic, WebGL2 compatibility or Xbox preset, read at renderer creation
+  's2u.viewer.graphicsBackend',      // graphicsBackend.ts: automatic, WebGL2 compatibility, Xbox preset or WebGPU, read at renderer creation
+  's2u.viewer.graphicsDemoted',      // graphicsDemotion.ts GRAPHICS_DEMOTED_KEY: why Automatic was set to WebGL2 after a WebGPU error (WG-7)
   's2u.viewer.look',                 // ui.ts: the picture (ps2 / modern)
   's2u.viewer.picture',              // picture.ts PICTURE_KEY: the front end's picture, VIDEO MODE's (OT.R79: modern / ps2 / experimental)
   's2u.viewer.detailDistance',       // detailDistance.ts DETAIL_DISTANCE_KEY: the detail distance factor, launcher Options and the Forge (PF.R60)
@@ -48,6 +49,11 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u.viewer.mobileTipSeen',        // mobileTip.ts: the tip shown this visit (sessionStorage)
   's2u.viewer.showFps',              // matchFps.ts FPS_SHOWN_KEY: the match's SHOW FPS readout on or off (cq41E0VR, a browser adaptation)
   's2u.viewer.video',                // videoSettings.ts VIDEO_SETTINGS_KEY: render scale and shadows, one JSON value (CPS.R7, a browser adaptation)
+  's2u.viewer.video2',               // videoSettings.ts VIDEO_SETTINGS_KEY_V2: the video settings v2, one JSON value (VS-1, a browser adaptation)
+  's2u.viewer.videoAuto',            // autoQuality.ts VIDEO_AUTO_KEY: Automatic's first-match probe result, one JSON value (VS-7, a browser adaptation)
+  's2u.viewer.nameTags',             // nameTags.ts NAME_TAGS_KEY: the teammates' name tags' look, original / modern (SS-2, H422 (a), a browser adaptation)
+  's2u.viewer.rangeReadout',         // rangeReadout.ts RANGE_READOUT_KEY: the info box's range readout, off / on (HUD-ALIVE C, OT.R117, a browser adaptation)
+  's2u.viewer.glowScale',            // glowScale.ts GLOW_SCALE_KEY: the flashbang glow target's scale, auto / full / half (GLOW-STEPDOWN, a browser adaptation)
   's2u.startup.v1',                  // startupSettings.ts SETUP_KEY: the setup page's prefix
   's2u.startup.v1.pad.selection',    // setupPad.ts PAD_SELECTION_KEY (a pad's own profile is `s2u.startup.v1.pad.<id JSON>`, controllerInput.ts)
   's2u.startup.v1.stanceMode',       // startupSettings.ts STANCE_MODE_KEY: the Stance mode, the prone-pop or Separate (PP-5)
@@ -65,8 +71,13 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   FORGE_DOCK_LAYOUT_KEY,             // forge/shell/dockShell.ts: the workbench's docking tree (the owner, 2026-11-11)
   's2u-forge-favourites',            // forge/favourites.ts FAVOURITES_KEY: the starred props
   's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
-  'forge.agent.permissions.shortForm', // agent/panel.ts SHORT_FORM_KEY: the grant panel's "only what the agent asked for" (FUI-25)
+  'forge.agent.pairedClients',       // agent/setup.ts AGENT_PAIRED_CLIENTS_KEY: the agents this browser paired once; their setup folds (AX-U)
+  'forge.agent.resume',              // agent/connection.ts AGENT_RESUME_KEY: the gateway's one-time resume ticket, this tab only (sessionStorage, AX-9)
+  'forge.agent.gateway',             // agent/setup.ts AGENT_GATEWAY_KEY: the connection service's address, the Connect moment's field (LATER 423, FP-14)
+  'forge.agent.remembered',          // agent/remembered.ts AGENT_REMEMBERED_KEY: the agents this browser remembers, their last grants (AX-10, a browser adaptation)
   's2u.testroom.mods.v1',            // mods/store.ts MODS_PRESENT_KEY: this browser keeps a test-room mod (the store opens only then)
+  's2u.packs.enabled.v1',            // packs/modsState.ts PACKS_ENABLED_KEY: a texture pack is chosen in MODS (B206 ML-1; ML-10 F2)
+  's2u.packs.models.v1',             // packs/modsState.ts MODELS_ENABLED_KEY: a model slot is on in MODS (B206 ML-10 F2)
   's2u-forge-saves',                 // forge/saves.ts FORGE_SAVES_KEY: named layouts; since R3-B read once, moved to forge/savesStore.ts
   's2u-forge-saves-aside',           // forge/saves.ts FORGE_SAVES_ASIDE_KEY: a saved list this build cannot read, set aside
   's2u-forge-layout-aside',          // forge/saves.ts FORGE_AUTOSAVE_ASIDE_KEY: an autosave this build cannot read, set aside (LATER 193)

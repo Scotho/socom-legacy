@@ -1,0 +1,6 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE O4 on T3's timing (30, 2026-11-09), r0004 M51 --state 5, --raise-records 5: the re-mark lands while the post 0x13419a0 is still plainly in sight (before ~11 s). T3 (raise-t3-early.txt) is the standing, still baseline.
+# O4 crouched: a light Triangle (0.2, acts at its release: stand -> crouch) at 0.5 s, then turn away at 1.5 s and back at 7 s:
+# --yaw-turns "1500:+70:3,7000:0:0.5"
+500 triangle 0.2
+650 triangle 0
+20000 lup 0

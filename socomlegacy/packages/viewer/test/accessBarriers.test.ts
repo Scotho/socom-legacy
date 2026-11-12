@@ -633,3 +633,108 @@ describe.skipIf(!HAVE_MP51)(`Vigilance's five access barriers on the disc${HAVE_
     expect(walk(f.grid, 1493.0955, 50, 1065, 0, 150).state.z, 'opened: in from outside').toBeLessThan(1048);
   }, 120_000);
 });
+
+// ---- Fish Hook on the disc (DF-8, research 387 s3) ---------------------------------------------------------------------
+
+const HAVE_MP71 = !!DISC && existsSync(resolve(DISC, 'RUN/MP71.ZDB'));
+/** Each barrier's placed prototype under its root (`access_fencegate`, `access_point`, `access_frontgate`). */
+const FH = ['access_fencegate', 'access_point', 'access_frontgate'].map((p, k) => `worldmodel/access${k + 1}/${p}=${p}`);
+/** A segment through each barrier's first `di_good` polygon, 8 u either side along its normal: two polygons intact. */
+const FH_WITNESS: [V3, V3][] = [
+  [[1937.75, 151.561, 1159.451], [1937.75, 151.561, 1175.451]],
+  [[1707.888, 149.537, 816.532], [1707.816, 149.602, 832.532]],
+  [[2285.37, 189.497, 832], [2285.37, 189.497, 848]],
+];
+
+/**
+ * DF-8 (research 387 s3): Fish Hook's three access barriers are Vigilance's class (SUP-03) on MP71's own data -- each
+ * `accessN` a kind-3 block (flags 0x2b, health 1, armour 0, shield 17) on `good_parts/di_good` under its placed
+ * prototype, its sequence `EXECUTE_ACTION set_accessN`, the type-less `access_actionN` (points 2) running
+ * `destroy_accessN`; `access4..6` are stored and unplaced (diagnostics). MP71 is no fixture until DF-2: SOCOM_DISC, else
+ * skipped (said, never a pass).
+ */
+describe.skipIf(!HAVE_MP71)(`Fish Hook's three access barriers on the disc${HAVE_MP71 ? '' : ' (SOCOM_DISC with RUN/MP71.ZDB absent -- skipped; MP71 is no fixture until DF-2)'}`, () => {
+  let map: SimMap;
+  const load = async (): Promise<SimMap> => (map ??= await loadSimMap(new FsAssetSource(DISC as string), 'RUN/MP71.ZDB'));
+  const fresh = (m: SimMap, room = true) => {
+    const ground = forkGround(m.ground);
+    const grid = groundGrid(ground);
+    const sounds: string[] = [];
+    const w = new WorldState(m.meta!, ground, grid, { sound: (name) => { sounds.push(name); } });
+    if (room) w.skipEffects = ROOM_SKIP_EFFECTS_READING;
+    w.applyInitial();
+    const hits = (k: number): number => segmentHits(grid, FH_WITNESS[k]![0], FH_WITNESS[k]![1]).filter((h) => h.owner.path.startsWith(FH[k]!)).length;
+    const pen = (p: WorldPoly): number => surfaceMaterial(p.material, m.defaultMaterial ?? '').penetration;
+    /** A blast at `access_actionN`'s node, a unit up (AD-5's spot), through the reach gate (`blastLine`). */
+    const blast = (k: number, c: { rating: number; radius: number }): string[] => {
+      const a = m.meta!.actions.find((x) => x.node === `access_action${k + 1}`)!;
+      const at: V3 = [a.at[0]!, a.at[1]! + 1, a.at[2]!];
+      return w.health.blastAt(at, c.rating, c.radius, (to, target) => blastLine(grid, at, to, target, c.radius, pen)).map((id) => w.health.list[id]!.anim);
+    };
+    return { w, grid, sounds, hits, blast };
+  };
+
+  it('access1..3 bind (1/17 on di_good under their placed prototypes); access4..6 are unplaced diagnostics; access_actionN is type 8, points 2; every barrier node is a saved reference', async () => {
+    const m = await load();
+    const list = m.meta!.scene!.destructibles.filter((d) => d.anim.startsWith('access'));
+    expect(list.map((d) => [d.anim, d.root, d.targetPath, d.health, d.armor, d.shield])).toEqual(
+      [1, 2, 3].map((n) => [`access${n}`, `worldmodel/access${n}`, `${FH[n - 1]}/good_parts/di_good`, 1, 0, 17]),
+    );
+    expect(list.map((d) => m.ground.owners.filter((o) => o.path === d.targetPath).reduce((s, o) => s + o.count, 0))).toEqual([2, 7, 4]);
+    expect(m.meta!.scene!.unplaced).toEqual(['access4', 'access5', 'access6']);
+    for (const n of [4, 5, 6]) expect(m.meta!.diagnostics.some((d) => d.includes(`zAnim access${n}`) && d.includes('not placed'))).toBe(true);
+    const w = fresh(m).w;
+    for (let n = 1; n <= 3; n++) {
+      const a = m.meta!.actions.find((x) => x.node === `access_action${n}`)!;
+      expect([a.typeCode, a.valve, a.anims, a.points, a.range]).toEqual([8, `set_access${n}`, [`destroy_access${n}`], 2, 32]);
+      expect(actionAtPick(m.meta!.actions, { path: a.path, point: a.at }, a.at)).toBeNull();
+      expect(w.health.forAction(`set_access${n}`)?.anim).toBe(`access${n}`);
+      for (const node of ['good_parts', 'good_parts/di_good', 'whats_left', 'bad_parts']) {
+        expect(m.meta!.initial.find((e) => e.path === `${FH[n - 1]}/${node}`)?.saveActive, `access${n} ${node}`).toBe(true);
+      }
+    }
+  }, 120_000);
+
+  it("each barrier's witness segment goes 2 -> 0 when C4 (18) or an RPG round (20) opens it and stays 2 after an M67 (10); an M67 at access3 breaks plankaccess1 (HP 0) 83 u off", async () => {
+    const m = await load();
+    for (let k = 0; k < 3; k++) {
+      for (const charge of [C4, RPG]) {
+        const f = fresh(m);
+        expect(f.hits(k), `access${k + 1} intact`).toBe(2);
+        expect(f.blast(k, M67).filter((a) => a.startsWith('access')), `access${k + 1} after an M67`).toEqual([]);
+        expect(f.hits(k), `access${k + 1} after an M67`).toBe(2);
+        expect(f.blast(k, charge)).toContain(`access${k + 1}`);
+        expect(f.hits(k), `access${k + 1} after ${charge.rating}`).toBe(0);
+        expect([f.w.isActive(`${FH[k]}/good_parts`), f.w.isActive(`${FH[k]}/whats_left`), f.w.isActive(`${FH[k]}/bad_parts`)]).toEqual([false, true, false]);
+      }
+    }
+    // The planks take any blast that reaches them (shield 0, HP 0; research 387 s2): from access_action3's node the
+    // M67's 150 u reaches plankaccess1's midpoint.
+    expect(fresh(m).blast(2, M67)).toEqual(['plankaccess1']);
+  }, 120_000);
+
+  it('destroy_accessN runs once a round; a joiner with skip_effects 1 takes the geometry and no debris or sound; a page plays .WOOD_DEBRIS once; the next round restores good_parts, di_good, whats_left and bad_parts', async () => {
+    const m = await load();
+    const room = fresh(m);
+    for (let k = 0; k < 3; k++) expect(room.blast(k, C4)).toContain(`access${k + 1}`);
+    for (let k = 0; k < 3; k++) expect(room.blast(k, RPG).filter((a) => a.startsWith('access'))).toEqual([]);
+    expect(FH_WITNESS.map((_, k) => room.hits(k))).toEqual([0, 0, 0]);
+    expect(room.sounds).toEqual([]);
+    const joiner = fresh(m, false);
+    joiner.w.applyWire(room.w.wireAll(1), true);
+    expect(FH_WITNESS.map((_, k) => joiner.hits(k))).toEqual([0, 0, 0]);
+    expect(joiner.sounds).toEqual([]);
+    for (const p of FH) expect([joiner.w.isActive(`${p}/good_parts`), joiner.w.isActive(`${p}/whats_left`), joiner.w.isActive(`${p}/bad_parts`)]).toEqual([false, true, false]);
+    const page = fresh(m, false);
+    expect(page.blast(0, C4)).toContain('access1');
+    expect(page.sounds).toEqual(['.WOOD_DEBRIS']);
+    expect(page.w.isActive(`${FH[0]}/bad_parts`)).toBe(true);
+    room.w.reset();
+    expect(FH_WITNESS.map((_, k) => room.hits(k))).toEqual([2, 2, 2]);
+    for (const p of FH) {
+      expect([room.w.isActive(`${p}/good_parts`), room.w.isActive(`${p}/good_parts/di_good`), room.w.isActive(`${p}/whats_left`), room.w.isActive(`${p}/bad_parts`)])
+        .toEqual([true, true, false, false]);
+    }
+    expect(room.w.health.list.filter((d) => d.anim.startsWith('access')).map((d) => room.w.health.hp(d.id))).toEqual([1, 1, 1]);
+  }, 120_000);
+});

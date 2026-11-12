@@ -16,7 +16,7 @@ import { forgeLayoutModes, refusalWords, type ForgeLayout } from './rulesAuthori
  * one the map lacks is refused at enable by the host's own check. A layout without a rules mode plays as before: no host.
  */
 export const FORGE_PLAY_RULES_ADAPTATION =
-  "Forge Play runs a layout's rules mode on the page room's rule host, with the map's doors and switches; a fresh seed each Play; no rules mode, no host" as const;
+  "Forge Play runs a layout's rules mode on the page room's rule host, with the map's doors and switches; a fresh seed each Play; a release seats NPCs on that room; no rules mode, no host" as const;
 
 /**
  * The rules' seed for one Play (spec §6: "a rules round takes the room's seed"; the page's loopback room keeps none, so
@@ -110,10 +110,16 @@ export function forgeRuleHost(rules: Pick<ForgePlayRules, 'spec' | 'seed' | 'par
  * of a match runs, and the room's own outcomes (a kill, a door's swing) are whatever the script says.
  */
 export const RULES_TEST_ADAPTATION =
-  "rules.test runs a layout's rules mode on the room's rule host over a scripted run and a recording room: nothing applied, every room action and show recorded" as const;
+  "rules.test runs a layout's rules mode on the room's rule host over a scripted run and a recording room: nothing applied, every room action and show recorded; a release is given seat ids the host tracks" as const;
+/**
+ * The first seat id `rules.test` gives a released NPC. A script's own seats stay below `RULES_TEST_SEATS_ADAPTATION`.
+ * The next release continues after these. A scripted `player.death` of one of them is that spawner's `npc.death`.
+ */
+export const RULES_TEST_NPC_SEAT = 64;
 /** The most ticks one scripted run takes, and events per tick (the host's own per-tick budget then applies). */
 export const RULES_TEST_TICKS_ADAPTATION = 600;
 export const RULES_TEST_EVENTS_ADAPTATION = 64;
+/** A script's own seat ids are 0 to this less one (`checkRulesScript`), below `RULES_TEST_NPC_SEAT`. */
 export const RULES_TEST_SEATS_ADAPTATION = 16;
 
 export interface RulesTestSeat { id: number; team: 'seal' | 'terrorist'; at?: RuleV3; alive?: boolean }
@@ -142,7 +148,8 @@ export interface RulesTestResult {
 }
 
 /**
- * Why a script cannot run, or null (the round-2 re-look's F7): every tick's moves are seat ids to points (three finite
+ * Why a script cannot run, or null (the round-2 re-look's F7): each player's seat id below `RULES_TEST_SEATS_ADAPTATION`,
+ * every tick's moves are seat ids to points (three finite
  * numbers), its alive flags seat ids to booleans, each event an object of a name the vocabulary has
  * (`RULE_EVENT_SPECS`) with integer seats, a text id and number-or-text fields -- nothing else. The caller refuses
  * `INVALID_ARGUMENT`: a malformed script is the caller's mistake, not the pack's.
@@ -150,6 +157,15 @@ export interface RulesTestResult {
 export function checkRulesScript(script: RulesTestScript): string | null {
   const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
   const seatKey = (k: string): boolean => k !== '' && Number.isInteger(Number(k)) && Number(k) >= 0;
+  // The review's F2 (a maintainers' fix): a script's own seats stay below `RULES_TEST_SEATS_ADAPTATION`, so none is ever
+  // a release's id (`RULES_TEST_NPC_SEAT` on) and taken for that spawner's NPC.
+  const players = Array.isArray(script.players) ? script.players : [];
+  for (let i = 0; i < players.length; i++) {
+    const id = (players[i] as { id?: unknown } | null)?.id;
+    if (typeof id === 'number' && id >= RULES_TEST_SEATS_ADAPTATION) {
+      return `players[${i}].id is ${id}: a script's seats are 0 to ${RULES_TEST_SEATS_ADAPTATION - 1}; a release's ids start at ${RULES_TEST_NPC_SEAT}`;
+    }
+  }
   const ticks = script.ticks ?? [];
   for (let i = 0; i < ticks.length; i++) {
     const t = ticks[i] as unknown;
@@ -189,6 +205,23 @@ export function checkRulesScript(script: RulesTestScript): string | null {
   return null;
 }
 
+/**
+ * Seat ids for a scripted run's `spawner.release`. The recording room applies nothing and gains no body: the host still
+ * tracks the ids, so a scripted `player.death` of one is `npc.death` and the last of them is `spawner.empty`. Play's
+ * own seats are `forgePlayNpcSeats` (bodies on the map).
+ */
+function rulesTestNpcSeats(): RuleNpcSeats {
+  let next = RULES_TEST_NPC_SEAT;
+  return {
+    release: (_spawner, count) => {
+      const ids: number[] = [];
+      const n = Math.max(0, count);
+      for (let i = 0; i < n; i++) ids.push(next++);
+      return ids;
+    },
+  };
+}
+
 /** The recording room a scripted run's host sees: the script's seats; every room action recorded, never applied. */
 class RulesTestRoom implements RuleRoom {
   tick = 1;
@@ -218,7 +251,7 @@ export function runRulesTest(l: ForgeLayout, names: { doors: readonly string[]; 
   const seed = (script.seed ?? 1) >>> 0;
   const rules = forgePlayRules(l, seed, installed);
   if (!rules) return null;
-  const host = forgeRuleHost(rules, names);
+  const host = forgeRuleHost(rules, names, { npcs: rulesTestNpcSeats() });
   const room = new RulesTestRoom();
   for (const s of script.players ?? []) room.seats.set(s.id, { team: s.team, alive: s.alive ?? true, out: false, feet: [...(s.at ?? [0, 0, 0])] as RuleV3 });
   host.attach(room);

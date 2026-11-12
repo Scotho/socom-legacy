@@ -5,7 +5,7 @@ import { livePad } from '../../src/console/adapters/pad';
 import { liveOptions } from '../../src/console/adapters/options';
 import { remapAdapter } from '../../src/console/adapters/remap';
 import { prompts } from '../../src/console/render/legend';
-import { REMAP_ACTION_ROW, REMAP_CROUCH_ROW, REMAP_DEAD_ROW, REMAP_FINISH_TOAST, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapOwnRows } from '../../src/console/render/remap';
+import { remapActionRow, REMAP_CROUCH_ROW, remapDeadRow, REMAP_FINISH_TOAST, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapOwnRows } from '../../src/console/render/remap';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { REMAP_ROW, type Adapters } from '../../src/console/state';
 import { PadBinding } from '../../src/padBinding';
@@ -78,8 +78,11 @@ const ACTIONS = ['Cross', 'Circle', 'Square', 'Triangle', 'L1', 'R1', 'L2', 'R2'
 
 describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => {
   // DEAD-UP (the owner, 2026-11-03: "can we move stick dead zone up below stance mode"): the dead zone at 1, the actions 2-17.
-  it('the row numbers: Stance mode 0 (STANCE-TOP), dead zone 1 (DEAD-UP), actions 2-17, Crouch 18 and Prone 19 (SEPARATE only); 18 own rows in COMBINED, 20 in SEPARATE', () => {
-    expect([REMAP_STANCE_ROW, REMAP_DEAD_ROW, REMAP_ACTION_ROW, REMAP_CROUCH_ROW, REMAP_PRONE_ROW]).toEqual([0, 1, 2, 18, 19]);
+  // SEP-ROWS (the owner, 2026-11-11: "please open them directly under the special setting switch"): in SEPARATE, Crouch 1
+  // and Prone 2 under the Stance mode, the dead zone 3, the actions 4-19.
+  it('the row numbers: Stance mode 0 (STANCE-TOP); COMBINED dead zone 1 (DEAD-UP), actions 2-17; SEPARATE Crouch 1, Prone 2, dead zone 3, actions 4-19 (SEP-ROWS); 18 own rows in COMBINED, 20 in SEPARATE', () => {
+    expect([REMAP_STANCE_ROW, remapDeadRow('pop'), remapActionRow('pop')]).toEqual([0, 1, 2]);
+    expect([REMAP_CROUCH_ROW, REMAP_PRONE_ROW, remapDeadRow('separate'), remapActionRow('separate')]).toEqual([1, 2, 3, 4]);
     expect(remapOwnRows('pop')).toBe(18);
     expect(remapOwnRows('separate')).toBe(20);
   });
@@ -87,7 +90,7 @@ describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => 
   it('COMBINED (the default): the Stance mode first (STANCE-TOP), the dead zone under it (DEAD-UP), the actions, Finish -- no Crouch and no Prone row', () => {
     openMapping();
     expect(controllerStanceMode()).toBe('pop');
-    expect(titles()).toEqual(['Stance mode', 'Stick dead zone', ...ACTIONS, 'Extra binds', 'Finish']);   // h59U9CLb: Extra binds
+    expect(titles()).toEqual(['Stance mode', 'Pad dead zone (this browser)', ...ACTIONS, 'Extra binds', 'Finish']);   // h59U9CLb: Extra binds
     expect(rowValue(REMAP_STANCE_ROW)).toBe('COMBINED');
   });
 
@@ -98,9 +101,9 @@ describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => 
     expect(stored(p).prone).toBe(R3);
   });
 
-  it('SEPARATE: the Stance mode first (STANCE-TOP), the dead zone under it (DEAD-UP), Crouch and Prone after the actions, then Finish', () => {
+  it('SEPARATE: the Stance mode first (STANCE-TOP), Crouch and Prone under it (SEP-ROWS), the dead zone (DEAD-UP), the actions, then Finish', () => {
     openMapping({ mode: 'separate' });
-    expect(titles()).toEqual(['Stance mode', 'Stick dead zone', ...ACTIONS, 'Crouch', 'Prone', 'Extra binds', 'Finish']);
+    expect(titles()).toEqual(['Stance mode', 'Crouch', 'Prone', 'Pad dead zone (this browser)', ...ACTIONS, 'Extra binds', 'Finish']);
     expect(rowValue(REMAP_STANCE_ROW)).toBe('SEPARATE');
   });
 
@@ -117,16 +120,16 @@ describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => 
     // STANCE-TOP: the screen still opens on its first binding (Cross); DEAD-UP: the dead zone above it, the Stance mode first.
     expect(titles()[ctl.S.rm.row]).toBe('Cross');
     ctl.press('up');
-    expect(ctl.S.rm.row).toBe(REMAP_DEAD_ROW);
+    expect(ctl.S.rm.row).toBe(remapDeadRow());
     ctl.press('up');
     expect(ctl.S.rm.row).toBe(REMAP_STANCE_ROW);
     ctl.press('up');
     expect(ctl.S.rm.row).toBe(0);
     ctl.press('down');
-    expect(titles()[ctl.S.rm.row]).toBe('Stick dead zone');
+    expect(titles()[ctl.S.rm.row]).toBe('Pad dead zone (this browser)');
     ctl.press('down');
     expect(titles()[ctl.S.rm.row]).toBe('Cross');
-    ctl.S.rm.row = REMAP_ACTION_ROW + 15;                    // Right, the last action
+    ctl.S.rm.row = remapActionRow() + 15;                    // Right, the last action
     ctl.press('down');
     expect(titles()[ctl.S.rm.row]).toBe('Extra binds');      // h59U9CLb: the extras' row, folded, before Finish
     ctl.press('down');
@@ -147,8 +150,8 @@ describe('STM.R1: stepping the Stance mode on the Button mapping', () => {
     ctl.remapFrame(t += 16);
     expect(controllerStanceMode()).toBe('separate');
     expect(localStorage.getItem(STANCE_MODE_KEY)).toBe('separate');
-    expect(titles().slice(0, 2)).toEqual(['Stance mode', 'Stick dead zone']);   // DEAD-UP
-    expect(titles().slice(17)).toEqual(['Right', 'Crouch', 'Prone', 'Extra binds', 'Finish']);
+    expect(titles().slice(0, 4)).toEqual(['Stance mode', 'Crouch', 'Prone', 'Pad dead zone (this browser)']);   // SEP-ROWS, DEAD-UP
+    expect(titles().slice(19)).toEqual(['Right', 'Extra binds', 'Finish']);
     expect(stored(p)).toMatchObject({ prone: TRIANGLE, crouch: 17 });
     expect(ctl.S.toast).toBe('Crouch bound to Touchpad');
     expect(glyph(REMAP_PRONE_ROW).querySelector('.cx-btn--triangle')).not.toBeNull();

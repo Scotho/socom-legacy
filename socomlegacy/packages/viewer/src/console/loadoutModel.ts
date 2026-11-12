@@ -1,3 +1,4 @@
+import { mapDisplayName, mapLabel } from '@s2u/archive/mapNames';
 import { pick as pickItem, slotLocked, menuValves, type Loadout, type Pick, type Side } from '@s2u/scene';
 import {
   availableMissionRows, FIRST_RELEASE_MAPS, PLAY_LIST_MEDLEY, PLAY_LIST_RANDOM, playListNumbers,
@@ -67,7 +68,7 @@ export interface MissionRow { mission: string; number: number; name: string }
  * absent, `FIRST_RELEASE_MAPS`) -- so the editor stores records for exactly the maps its server's CREATE GAME offers,
  * in that screen's order and by its names. The offer is `../createGameHost` `CREATE_GAME_OFFER_ADAPTATION`'s read.
  * With no mission table (a disc reader that gives none, or one that will not read), the offered numbers in stem order,
- * named by their stems. A browser adaptation of the input (the editor is the launcher's own, MU.R1); the rows are the
+ * named by the one name table (MN-1, OT.R113; they were named by their stems). A browser adaptation of the input (the editor is the launcher's own, MU.R1); the rows are the
  * original's.
  */
 export const LOADOUT_EDITOR_MISSIONS_ADAPTATION = 'CREATE GAME\'s rows over the server\'s offer, respawn off; no table: the offer by stem' as const;
@@ -81,10 +82,10 @@ export function missionRowsOf(table: readonly MissionRecord[] | null, offer: rea
   const offered = offer ? (n: number) => n !== PLAY_LIST_MEDLEY.number && n !== PLAY_LIST_RANDOM.number && offer.includes(n) : undefined;
   if (table && table.length > 0) {
     const numbers = playListNumbers({ type: 'array', value: availableMissionRows(table, { respawn: false, offered }) });
-    return numbers.map((n) => ({ mission: `MP${n}`, number: n, name: table.find((m) => m.number === n)?.name ?? `MP${n}` }));
+    return numbers.map((n) => ({ mission: `MP${n}`, number: n, name: mapLabel(table.find((m) => m.number === n)?.name ?? `MP${n}`) }));   // MN-1 F1/F5
   }
   const numbers = offer ? offer.filter((n) => n !== PLAY_LIST_MEDLEY.number && n !== PLAY_LIST_RANDOM.number) : [...FIRST_RELEASE_MAPS];
-  return [...new Set(numbers)].sort((a, b) => a - b).map((n) => ({ mission: `MP${n}`, number: n, name: `MP${n}` }));
+  return [...new Set(numbers)].sort((a, b) => a - b).map((n) => ({ mission: `MP${n}`, number: n, name: mapDisplayName(n) }));   // MN-1 F1: named, never the stem
 }
 
 export const SIDES: readonly ArmoryLoadoutSide[] = ['seal', 'terrorist'];

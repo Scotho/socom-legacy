@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { liveControls } from '../../src/console/adapters/controls';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
-import { LAUNCH_PADSET_ROW, LAUNCH_SHARE_ROW, LAUNCH_CHECK_ROWS, type Adapters } from '../../src/console/state';
+import { LAUNCH_SEND_ROW, LAUNCH_SHARE_ROW, LAUNCH_CHECK_ROWS, type Adapters } from '../../src/console/state';
 import { prompts } from '../../src/console/render/legend';
 import {
   DISC_SHARE_ALPHABET, makeShareCode, readShareCode, shareLink, stubDiscShare,
@@ -74,9 +74,9 @@ describe('DSH-5: the "Request Game Files (XBOX)" row of Play\'s "Before you depl
   it('is the panel\'s last row, below "Controller settings", with its label, its line and its mark', () => {
     const { ctl } = boot(fake());
     ctl.press('cross');
-    expect(LAUNCH_SHARE_ROW).toBe(LAUNCH_PADSET_ROW + 1);
+    expect(LAUNCH_SHARE_ROW).toBe(LAUNCH_SEND_ROW + 1);   // DSH-10 (DSH.R17): "Send Game Files" directly above it (sendRow.test.ts)
     expect(LAUNCH_CHECK_ROWS).toBe(LAUNCH_SHARE_ROW + 1);
-    expect([...panel()!.querySelectorAll<HTMLElement>('.cx-r[data-id]')].map((r) => r.dataset['id'])).toEqual(['disc', 'pad', 'deploy', 'skipmenu', 'padsettings', 'share']);   // SKIP-MENU (LR.R33): its toggle above Controller settings
+    expect([...panel()!.querySelectorAll<HTMLElement>('.cx-r[data-id]')].map((r) => r.dataset['id'])).toEqual(['disc', 'pad', 'deploy', 'skipmenu', 'padsettings', 'send', 'share']);   // SKIP-MENU (LR.R33): its toggle above Controller settings
     const row = panel()!.querySelector<HTMLElement>('[data-id="share"]')!;
     expect(row.querySelector('.cx-r__label')!.textContent).toBe(SHARE_ROW_LABEL);
     expect(row.querySelector('.cx-r__hint')!.textContent).toBe(SHARE_ROW_HINT);

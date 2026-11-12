@@ -6,7 +6,7 @@ import { FsAssetSource } from '@s2u/archive/node';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
   encodeCommands, fallDamageFraction, groundGrid, KNOCK_LANDING_SPEED_FACTOR, loadSimMap, MP_ARMOUR, MP_HEALTH, packGround, PROTOCOL_VERSION,
-  STEP_PROBE_LIFT_READING, type ServerEvent, type SimMap,
+  probeLiftOf, type ServerEvent, type SimMap,
 } from '../../viewer/src/sim';
 import { PART } from '../../viewer/src/net/damage';
 import { Room, type Conn } from '../src/room';
@@ -166,6 +166,37 @@ describe('a fall the room measures (research 151; FUN_005ac1f0 D:L464866-464960)
     expect(kills[0]).toMatchObject({ voiced: true });
   });
 
+  // FALL-DEATH-LAND (the owner's v0.4.18 report: "when players fall to their death their character just crouches where
+  // they fell instead of being a dead body on the ground"). `FUN_005af590` runs the fall's damage `FUN_005ac1f0` FIRST
+  // (D:L466656), whose `FUN_005a54d0(actor, 3, 7)` (D:L464954) kills a wounded body; the body's alive bit then clear,
+  // the class is forced to 3 (D:L466658-466660), and class 3 pushes `Land forward` in the death state 8, no coin
+  // (D:L466663-466664). So a wounded player killed by a light (62-91 units) or a heavy (91-120 units) drop lands as one
+  // killed by a deadly drop: `Land forward`, held -- never `Jump land hard` or a hit, and never handed back to the ground.
+  for (const [label, height, cls, left] of [['light (class 1)', 85, 1, 0.3], ['heavy (class 2)', 100, 2, 0.5]] as const) {
+    it(`a wounded player killed by a ${label} drop lands in Land forward, held, and stays down (D:L466656-466664)`, () => {
+      const { room, a, b, settle } = setup();
+      const p = room.player(1)!;
+      const w = p.sim.walker;
+      p.health.hp = MP_HEALTH.map((m) => m * left);              // wounded: this drop's `max x f` takes the rest
+      drop(room, 1, height);
+      settle(90);
+      const landing = w.landing!;
+      expect(landing.cls).toBe(cls);                             // the speed's class: the landing's sound (D:L464896-464925)
+      expect(fallDamageFraction(landing.speed)).toBeGreaterThan(left);
+      expect(p.alive).toBe(false);
+      expect(a.of('kill')).toHaveLength(1);
+      expect(a.of('kill')[0]).toMatchObject({ victim: 1, how: 'fall', clip: null });   // no clip of its own: its landing is its pose
+      expect(b.of('kill')).toHaveLength(1);
+      expect(landing.clip).toBe('landDeath');                    // the class forced to 3 by the death (D:L466658-466660)
+      expect(w.action?.name).toBe('landDeath');
+      expect(w.action!.t).toBe(w.action!.seconds);               // held on its last key
+      settle(120, 1);                                            // the stick held: nothing gets the corpse up
+      expect(w.action?.name).toBe('landDeath');
+      expect(w.action!.t).toBe(w.action!.seconds);
+      expect(w.dead).toBe(true);
+    });
+  }
+
   it('one landing, one hurt: the ticks after the landing send nothing more, and a second fall is told again', () => {
     const { room, a, settle } = setup();
     const p = room.player(1)!;
@@ -235,7 +266,7 @@ describe('a fall on Frostfire (the MP2 fixture; research 151 §4)', () => {
     const { room, a, b, settle } = setup({}, m);
     const p = room.player(1)!;
     const w = p.sim.walker;
-    expect(w.place(531, 202 + STEP_PROBE_LIFT_READING, 905)).toBe(true);
+    expect(w.place(531, 202 + probeLiftOf('stand'), 905)).toBe(true);
     expect(w.state.y).toBe(202);
     w.state.yaw = 90;                                    // `Pose.yaw` faces (-sin yaw, -cos yaw): 90 degrees is -x, west
     settle(120, 1);

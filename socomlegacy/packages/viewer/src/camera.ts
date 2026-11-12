@@ -1,4 +1,5 @@
-import { capturePointer, releasePointer, requestLock } from './pointer';
+import { capturePointer, releasePointer } from './pointer';
+import { requestLock } from './pointerLock';
 import { MathUtils, OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
 import { GAME_FRAME_DT, GAME_FRAME_MAX_STEPS } from '@s2u/scene';
 import { padRaw, strongest } from './gamepad';
@@ -120,6 +121,23 @@ export const FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION = 100;
 const FORGE_DOLLY_RATE_ADAPTATION = 0.01;
 const FORGE_FOV_STEP_ADAPTATION = 5;
 const ORTHOGRAPHIC_REFERENCE_DEPTH_ADAPTATION = 100;
+/**
+ * The forge editor camera's own numbers, named (FP-1b, REVIEW-B 15; browser adaptations, FG.R2 -- the game has no editor
+ * camera): its collision radius in metres (world units `/ metersPerUnit`), the orthographic views' wheel zoom (a wheel
+ * pixel scales the zoom by `e^(-deltaY x rate)`), their zoom bounds, and Z / C's zoom step in an orthographic view.
+ */
+export const FORGE_CAMERA_RADIUS_M_ADAPTATION = 0.25;
+export const FORGE_ORTHO_WHEEL_ZOOM_ADAPTATION = 0.002;
+export const FORGE_ORTHO_ZOOM_MIN_ADAPTATION = 0.1;
+export const FORGE_ORTHO_ZOOM_MAX_ADAPTATION = 100;
+export const FORGE_ORTHO_ZOOM_STEP_ADAPTATION = 0.9;
+/**
+ * RB-8 (OT.R114, RB.R4; a browser adaptation): the name the camera writes where it asks the pointer lock under a page's
+ * `kbm` opt-in (the test room's), outside the literal gate, so the built chunk that asks it carries it and the build test
+ * allows that chunk by name beside the Forge's (`test/build_keyboard.test.ts`). Not a mouse site: those stay a
+ * development build's alone (`./mouseTesting`).
+ */
+export const KBM_POINTER_LOCK_SITE = 's2u-kbm-pointer-lock';
 
 export type ForgeViewportView = 'perspective' | 'top' | 'bottom' | 'left' | 'right' | 'front' | 'back';
 
@@ -163,6 +181,11 @@ export interface FlyCameraOptions {
   onSpeedChange?: (multiplier: number, source: 'wheel' | 'setting') => void;
   /** Called when the perspective field of view changes. */
   onFovChange?: (degrees: number) => void;
+  /**
+   * Called when the camera itself changes the Forge's viewport view, not at the page's own ask: a Walk started from an
+   * orthographic view returns to perspective (`setWalking`), so the page's view menu can say so. A browser adaptation, FG.R2.
+   */
+  onViewportViewChange?: (view: ForgeViewportView) => void;
   /** Called while Forge's RMB look gesture is held, even when pointer lock is unavailable. */
   onLookHoldChange?: (held: boolean) => void;
   /** Called when pointer lock is taken or released, so the page can show a hint. */
@@ -176,8 +199,17 @@ export interface FlyCameraOptions {
    * OT.R68 (the owner, 2026-10-21: keyboard and mouse for everything in the forge's creation UI, not once its matches
    * have started): the forge editor's camera reads its keys and the captured mouse's look in every build. A browser
    * adaptation; only `./forge/page` passes it -- every other camera keeps OT.R29 / OT.R38, a development build's alone.
+   * It also carries the Forge editor's navigation (RMB look, MMB pan, the orthographic views), and it implies `kbm`: the
+   * opt-in's older name, kept as its alias (the replay batch's RB-1).
    */
   forgeKbm?: true;
+  /**
+   * OT.R114 (the replay batch's RB.R4; a browser adaptation): the camera may read the keyboard and the captured mouse in
+   * every build, without the Forge editor's navigation -- `true`, or a predicate asked at each event (the page's
+   * `./kbmScope` `kbmAllowed` over its match client, so a test room that joins an online room goes deaf at once).
+   * Read as `kbm` / `kbmNow()`; the key, lock and look gates read it from RB-8.
+   */
+  kbm?: true | (() => boolean);
   /** The Forge's pointer-events overlay; pointer lock still belongs to the canvas. */
   pointerInput?: HTMLElement;
   /** View-space depth at an MMB press, used to pan the clicked point with the pointer. */
@@ -277,8 +309,12 @@ export class FlyCamera {
   private walkPitch: [number, number] = [-PITCH_LIMIT, PITCH_LIMIT];
   /** The left button pressed while locked and not yet let go (`onFire`). */
   private triggerHeld = false;
+  /** RB-8: what last asked the pointer lock outside a development build (`KBM_POINTER_LOCK_SITE`), else null. */
+  kbmLockAsked: string | null = null;
   /** OT.R68: the forge editor's camera, whose keys and captured look are every build's (`FlyCameraOptions.forgeKbm`). */
   readonly forgeKbm: boolean;
+  /** OT.R114 / RB.R4: opted in to the keyboard and the mouse at all (`FlyCameraOptions.kbm`, or `forgeKbm`, its alias). */
+  readonly kbm: boolean;
   /** Original BOBBING_1ST_PERSON applied by StoreOptions (ISO 0027b960). */
   originalHeadBob = true;
   /** Walking: the game's look law (`./look`), the screen shake, the view bob and what they last gave. */
@@ -323,6 +359,7 @@ export class FlyCamera {
     this.perspectiveCamera.rotation.order = 'YXZ';
     this.orthographicCamera.rotation.order = 'YXZ';
     this.forgeKbm = options.forgeKbm === true;
+    this.kbm = this.forgeKbm || options.kbm === true || typeof options.kbm === 'function';
     this.pointerInput.addEventListener('pointerdown', this.onPointerDown);
     this.pointerInput.addEventListener('pointermove', this.onPointerMove);
     this.pointerInput.addEventListener('pointerup', this.onPointerUp);
@@ -337,15 +374,27 @@ export class FlyCamera {
     // A right-click is a look-around on a fly camera, not a request for the browser's menu.
     canvas.addEventListener('contextmenu', this.onContextMenu);
     if (import.meta.env.DEV) keyboardSite('s2u-kb-fly-camera');      // OT.R29: the keys a development build's only,
-    if (import.meta.env.DEV || this.forgeKbm) {                      //   and the forge editor's in every build (OT.R68)
+    // RB-8 (OT.R114): and in every build the forge editor's (OT.R68) and a `kbm` page's, asked again at each key (`kbmNow`)
+    if (import.meta.env.DEV || this.forgeKbm || this.kbm) {
       globalThis.addEventListener('keydown', this.onKeyDown);
       globalThis.addEventListener('keyup', this.onKeyUp);
     }
     globalThis.addEventListener('blur', this.onBlur);
     if (import.meta.env.DEV) mouseSite('s2u-mouse-pointer-lock');   // OT.R38: the mouse's look a development build's only,
-    if (import.meta.env.DEV || this.forgeKbm) {                      //   and the forge editor's in every build (OT.R68)
+    // RB-8 (OT.R114): and in every build the forge editor's (OT.R68) and a `kbm` page's
+    if (import.meta.env.DEV || this.forgeKbm || this.kbm) {
       globalThis.document?.addEventListener('pointerlockchange', this.onLockChange);
     }
+  }
+
+  /**
+   * OT.R114 / RB.R4: whether the keyboard and the mouse may reach this camera now -- `forgeKbm` and `kbm: true` always,
+   * a `kbm` predicate as it answers at this ask, no opt-in never. A development build's own keys are not asked here.
+   */
+  kbmNow(): boolean {
+    if (this.forgeKbm) return true;
+    const kbm = this.options.kbm;
+    return kbm === true || (typeof kbm === 'function' && kbm());
   }
 
   /**
@@ -673,6 +722,12 @@ export class FlyCamera {
    * its rim must not carry across the switch (the walk has none, and flying starts unboosted).
    */
   setWalking(on: boolean): void {
+    // The Forge's Walk is on foot, in perspective: an orthographic view (Top, Front...) has no mouse look (`look`) and
+    // is not the walk's view, so it returns to perspective first, the page told (a browser adaptation, FG.R2).
+    if (on && this.forgeKbm && this.activeCamera === this.orthographicCamera) {
+      this.setForgeViewportView('perspective');
+      this.options.onViewportViewChange?.('perspective');
+    }
     this.walking = on;
     this.touchYaw = 0; this.touchPitch = 0;
     this.velocity.set(0, 0, 0);
@@ -791,6 +846,9 @@ export class FlyCamera {
    */
   update(dt: number): void {
     if (dt <= 0) return;
+    // RB-8 (OT.R114, RB.R4): a `kbm` page whose opt-in turned false (the test room joined an online room) holds no key
+    // and no pointer lock from here: what was held is let go at this frame, as a lost focus lets it go.
+    if (!import.meta.env.DEV && !this.forgeKbm && (this.keys.size > 0 || this.locked) && !this.kbmNow()) this.dropKbm();
 
     // The arrow keys turn at a steady rate; a frame's worth here, before the frame's forward is taken. A pad's right
     // stick (W2.7) turns at the same rate scaled by its push, and on each axis the larger of the two is taken.
@@ -833,8 +891,10 @@ export class FlyCamera {
     if (keyboardMove && this.keys.has('keya')) wish.sub(right);
     if (keyboardMove && (this.keys.has('space') || this.keys.has('keye'))) wish.y += 1;
     if (keyboardMove && ((!this.forgeKbm && this.down()) || this.keys.has('keyq'))) wish.y -= 1;
-    if (keyboardMove && this.keys.has('keyr')) wish.add(new Vector3(0, 1, 0).applyEuler(this.activeCamera.rotation));
-    if (keyboardMove && this.keys.has('keyf')) wish.sub(new Vector3(0, 1, 0).applyEuler(this.activeCamera.rotation));
+    // R and F, the view's own up and down, are the forge editor's (a browser adaptation, FG.R2; OT.R68): never the test
+    // room's fly camera or the match's fly fallback (FP-1b, REVIEW-B 9).
+    if (this.forgeKbm && keyboardMove && this.keys.has('keyr')) wish.add(new Vector3(0, 1, 0).applyEuler(this.activeCamera.rotation));
+    if (this.forgeKbm && keyboardMove && this.keys.has('keyf')) wish.sub(new Vector3(0, 1, 0).applyEuler(this.activeCamera.rotation));
 
     const moving = wish.lengthSq() > 0;
     // The walk has no boost (W2.R2: the game's run is 65 and nothing faster), so neither has its field of view.
@@ -866,7 +926,7 @@ export class FlyCamera {
       const collisionActive = this.forgeKbm && this.cameraCollisionEnabled
         && this.activeCamera === this.perspectiveCamera && this.rightMouseHeld;
       const constraint = collisionActive
-        ? this.options.constrainMovement?.(from, to, 0.25 / this.metersPerUnit)
+        ? this.options.constrainMovement?.(from, to, FORGE_CAMERA_RADIUS_M_ADAPTATION / this.metersPerUnit)
         : undefined;
       const resolved = constraint?.position ?? to;
       this.activeCamera.position.copy(resolved);
@@ -1110,23 +1170,27 @@ export class FlyCamera {
     if (focused instanceof HTMLElement && focused !== this.canvas) focused.blur();
     // OT.R38 / H115 ("Controller only"): the pointer lock, the locked mouse's trigger and look, and a mouse's or a pen's
     // drag look are a development build's only (`./mouseTesting`); a release keeps a finger's drag (the touch layer).
-    // OT.R68: the forge editor's page asks for its right-button look lock in every build.
-    if (import.meta.env.DEV || this.forgeKbm) {
+    // OT.R68: the forge editor's page asks for its right-button look lock in every build. RB-8 (OT.R114, RB.R4): a `kbm`
+    // page's camera (the test room's) takes the lock, its locked trigger and its drag look in every build too, while its
+    // opt-in answers true at this press.
+    const kbmMouse = this.kbm && this.kbmNow();
+    if (import.meta.env.DEV || this.forgeKbm || kbmMouse) {
       if (import.meta.env.DEV) mouseSite('s2u-mouse-pointer-lock');
       if (this.locked) {
         if (e.button === 0) { this.triggerHeld = true; this.options.onFire?.(true); }
         return;
       }
-      if (import.meta.env.DEV && !this.forgeKbm && e.pointerType === 'mouse') {
+      if (!this.forgeKbm && e.pointerType === 'mouse') {
         // Raw mouse input where the browser offers it: the OS's pointer acceleration is for a cursor, not for a look. A
         // refusal of the raw request falls back to the plain one, and a refusal of that to the drag; none of them may
-        // reach the console as an uncaught rejection (`./pointer`, `requestLock`).
+        // reach the console as an uncaught rejection (`./pointerLock`, `requestLock`).
+        if (!import.meta.env.DEV) this.kbmLockAsked = KBM_POINTER_LOCK_SITE;   // RB-8: the build test's allow-list, by name
         requestLock(this.canvas);
       }
     }
     if (e.pointerType !== 'touch') {
       if (import.meta.env.DEV) mouseSite('s2u-mouse-drag-look');
-      else if (!this.forgeKbm) return;                               // a release: only a finger drags the look
+      else if (!this.forgeKbm && !kbmMouse) return;                  // a release: only a finger drags the look (RB-8: or a `kbm` page's mouse)
     }
     if (this.dragging !== null) return;
     this.dragging = e.pointerId;
@@ -1174,8 +1238,9 @@ export class FlyCamera {
       e.stopImmediatePropagation();
       return;
     }
-    if ((import.meta.env.DEV || this.forgeKbm) && this.locked) {   // OT.R38: the locked look a development build's; OT.R68 the forge's
-      if (!this.forgeKbm || this.rightMouseHeld) this.look(e.movementX ?? 0, e.movementY ?? 0);
+    // OT.R38: the locked look a development build's; OT.R68 the forge's; RB-8 (OT.R114) a `kbm` page's while its opt-in holds
+    if ((import.meta.env.DEV || this.forgeKbm || this.kbmNow()) && this.locked) {
+      if (!this.editorFly() || this.rightMouseHeld) this.look(e.movementX ?? 0, e.movementY ?? 0);
       return;
     }
     if (this.dragging !== e.pointerId) return;
@@ -1212,7 +1277,7 @@ export class FlyCamera {
       this.options.onLookHoldChange?.(false);
       for (const key of ['keyw', 'keys', 'keya', 'keyd', 'keyq', 'keye', 'keyr', 'keyf', 'space', 'shiftleft', 'shiftright']) this.keys.delete(key);
       this.velocity.set(0, 0, 0);
-      if (globalThis.document?.pointerLockElement === this.canvas) globalThis.document.exitPointerLock?.();
+      if (this.editorFly() && globalThis.document?.pointerLockElement === this.canvas) globalThis.document.exitPointerLock?.();
     }
     if (e.button === 0) this.letGo();
     if (this.dragging !== e.pointerId) return;
@@ -1220,9 +1285,25 @@ export class FlyCamera {
     releasePointer(this.pointerInput, e.pointerId);
   };
 
+  /**
+   * The Forge editor's fly navigation (a browser adaptation, FG.R2): the lock and the locked look held only while RMB is
+   * (`onLockChange`, `onPointerMove`, `onPointerUp`). Its Walk is not the editor's fly: the lock Walk's own press asks
+   * (`./forge/page` `toggleWalk`, the toolbar or V) is kept, and the captured mouse looks as a walk's does elsewhere.
+   */
+  private editorFly(): boolean {
+    return this.forgeKbm && !this.walking;
+  }
+
+  /** RB-8: the keys let go and the pointer lock given back, once a `kbm` page's opt-in answers false. */
+  private dropKbm(): void {
+    this.keys.clear();
+    this.sprinting_ = false;
+    if (this.locked && globalThis.document?.pointerLockElement === this.canvas) globalThis.document.exitPointerLock?.();
+  }
+
   private readonly onLockChange = (): void => {
     this.locked = globalThis.document?.pointerLockElement === this.canvas;
-    if (this.forgeKbm && this.locked && !this.rightMouseHeld) globalThis.document?.exitPointerLock?.();
+    if (this.editorFly() && this.locked && !this.rightMouseHeld) globalThis.document?.exitPointerLock?.();
     if (!this.locked) this.letGo();
     if (this.locked && this.dragging !== null) {
       // The click that took the lock also started a drag; the lock owns the look from here.
@@ -1261,8 +1342,8 @@ export class FlyCamera {
           : e.deltaY;
       const movementFactor = this.forgeMovementFactor();
       if (this.activeCamera === this.orthographicCamera) {
-        const zoomFactor = Math.exp(-deltaY * 0.002);
-        this.orthographicCamera.zoom = MathUtils.clamp(this.orthographicCamera.zoom * zoomFactor, 0.1, 100);
+        const zoomFactor = Math.exp(-deltaY * FORGE_ORTHO_WHEEL_ZOOM_ADAPTATION);
+        this.orthographicCamera.zoom = MathUtils.clamp(this.orthographicCamera.zoom * zoomFactor, FORGE_ORTHO_ZOOM_MIN_ADAPTATION, FORGE_ORTHO_ZOOM_MAX_ADAPTATION);
         this.orthographicCamera.updateProjectionMatrix();
       } else if (movementFactor !== 0) {
         const forward = this.activeCamera.getWorldDirection(new Vector3());
@@ -1299,6 +1380,7 @@ export class FlyCamera {
       return;
     }
     if (this.suspended) return;                     // a menu holds the input (`setInputSuspended`)
+    if (!import.meta.env.DEV && !this.kbmNow()) return;   // RB-8 (OT.R114): a `kbm` page's opt-in, asked at each key
     if (e.target instanceof HTMLElement && (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT')) return;
     const code = e.code.toLowerCase();
     // While the Forge navigates -- RMB held to fly, or any other navigation drag (`forgeNavigating`) -- its fly keys are
@@ -1312,7 +1394,8 @@ export class FlyCamera {
       if (!e.repeat && this.activeCamera === this.perspectiveCamera) {
         this.setFov(MathUtils.clamp(this.perspectiveCamera.fov + (code === 'keyz' ? FORGE_FOV_STEP_ADAPTATION : -FORGE_FOV_STEP_ADAPTATION), FORGE_FOV_MIN_ADAPTATION, FORGE_FOV_MAX_ADAPTATION));
       } else if (!e.repeat) {
-        this.setMagnification(MathUtils.clamp(this.activeCamera.zoom * (code === 'keyz' ? 0.9 : 1 / 0.9), 0.1, 100));
+        const step = FORGE_ORTHO_ZOOM_STEP_ADAPTATION;
+        this.setMagnification(MathUtils.clamp(this.activeCamera.zoom * (code === 'keyz' ? step : 1 / step), FORGE_ORTHO_ZOOM_MIN_ADAPTATION, FORGE_ORTHO_ZOOM_MAX_ADAPTATION));
       }
       e.stopImmediatePropagation();
     } else if (OWNED.has(code)) e.preventDefault();

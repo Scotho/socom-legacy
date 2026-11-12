@@ -50,7 +50,9 @@ describe('FUI.R19: the page\'s own refusals give the toast and the line', () => 
     const input = document.querySelector<HTMLElement>('.fx-input')!;
     input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
     Object.assign(input, { setPointerCapture: () => undefined, releasePointerCapture: () => undefined, hasPointerCapture: () => false });
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit2', key: '2', bubbles: true }));   // the Place tool
+    // The Place tool: its button (`keys.ts`, the Forge Overhaul: the Place tool has no key; the number keys are the
+    // placing tools').
+    [...document.querySelectorAll<HTMLButtonElement>('.fx-tool')].find((t) => t.title === 'Place the chosen prop')!.click();
     input.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
     input.dispatchEvent(new MouseEvent('pointerup', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
     refusedBoth('choose a prop in the assets first');

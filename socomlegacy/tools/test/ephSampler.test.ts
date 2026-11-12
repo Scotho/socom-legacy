@@ -5,6 +5,7 @@ import {
   EE_RAM_END, PCSX_TILT_COLUMNS, TILT_ADDRESSES, guestPointer, unreadTiltFields,
   PCSX_STICK_COLUMNS, STICK_ADDRESSES, EXTRA_ADDRESSES, PCSX_EXTRA_COLUMNS,
   COLUMN_EVIDENCE, COLUMN_INFERRED, PAD_PROBE_ADDRESSES, PCSX_PAD_PROBE_COLUMNS,
+  ORIGIN_ADDRESSES, ORIGIN_EVIDENCE, ORIGIN_INFERRED, ORIGIN_MATCH_XZ, ORIGIN_RECORDS_MAX, ORIGIN_SLOT_SKIPPED, PCSX_ORIGIN_COLUMNS,
 } from '../eph/sampler';
 
 /**
@@ -745,5 +746,175 @@ describe('the pad probe (padProbe option)', () => {
     const p = console_();
     const row = (await new Sampler(p, 'r0001').sample())!;
     expect('triPeak' in row).toBe(false);
+  });
+});
+
+/**
+ * The probe origin (origin option): the floor probe's record FUN_005b0840 queues each actor tick (socom_pc research 23
+ * s1.1-1.3; r0001 D:L467199-467290) -- DAT_0044d588 a pointer to an array of record pointers, DAT_0044d590 its length
+ * (D:L467258-467272), the record's +4..+0xc the origin (D:L467278-467280) and +0x3c the actor's self object
+ * (FUN_0029ed20, D:L467289-467290). The actor's +0x2cc slot is -1 again by the time a row is read (FUN_005b0420), so the
+ * row finds the player's record by its origin's x/z next to the feet, then keeps it by its self object. r0004: the
+ * function placed at 0x5b6620 (217 of 217 r0001 instructions aligned, a 20-word insert after the lift; its one caller
+ * FUN_005506a0's twin), the globals by data_via_twin (r0004-offsets/probe_origin_place.out).
+ */
+describe('the probe origin (origin option; FUN_005b0840)', () => {
+  const ARR = 0x01f00000;
+  const REC = [0x01f10000, 0x01f10100, 0x01f10200] as const;
+  const SELF = 0x01f20000;
+  /** Three records: a teammate 40 u off (index 0), the player's (index 1: feet + 10.57, x/z 1 off), another (index 2). */
+  const withRecords = (rev: Revision = 'r0004'): FakePine => {
+    const p = console_(12.5, rev);
+    const o = ORIGIN_ADDRESSES[rev];
+    p.words.set(o.recordArray, ARR);
+    p.words.set(o.recordCount, REC.length);
+    REC.forEach((r, i) => p.words.set(ARR + 4 * i, r));
+    const at = [[140.5, 3, 640, 0x01f20100], [101.5, -2.25 + 10.57, 641, SELF], [100.5, 20, 900, 0x01f20200]] as const;
+    REC.forEach((r, i) => {
+      p.words.set(r + o.recOrigin, bits(at[i]![0]));
+      p.words.set(r + o.recOrigin + 4, bits(at[i]![1]));
+      p.words.set(r + o.recOrigin + 8, bits(at[i]![2]));
+      p.words.set(r + o.recSelf, at[i]![3]);
+    });
+    p.words.set(ACTOR + o.probeBase, bits(100));
+    p.words.set(ACTOR + o.probeBase + 4, bits(-2.5));
+    p.words.set(ACTOR + o.probeBase + 8, bits(639));
+    p.words.set(ACTOR + o.probeSlot, 0xffffffff);
+    p.words.set(o.probeY, bits(-2.25));
+    p.bytes.set(ACTOR + o.flags1061, 0x02);
+    return p;
+  };
+
+  it('cites the addresses per build: the r0004 array, its length and DAT_0066aab8 moved; the displacements unchanged', () => {
+    expect(ORIGIN_ADDRESSES).toEqual({
+      r0001: { recordArray: 0x0044d588, recordCount: 0x0044d590, recOrigin: 4, recSelf: 0x3c, probeBase: 0xf54, probeSlot: 0x2cc, flags1061: 0x1061, probeY: 0x0066aab8 },
+      r0004: { recordArray: 0x00450920, recordCount: 0x00450928, recOrigin: 4, recSelf: 0x3c, probeBase: 0xf54, probeSlot: 0x2cc, flags1061: 0x1061, probeY: 0x0066a438 },
+    });
+    for (const rev of REVISIONS) expect(Object.keys(ORIGIN_EVIDENCE[rev]).sort()).toEqual(Object.keys(ORIGIN_ADDRESSES[rev]).sort());
+    expect(ORIGIN_EVIDENCE.r0004.recordArray).toMatch(/probe_origin_place\.out/);
+    expect(PCSX_ORIGIN_COLUMNS).toEqual(['probeRecs', 'probeIdx', 'probeSelf', 'probeOx', 'probeOy', 'probeOz', 'probeLift', 'probeDxz',
+      'probeBaseX', 'probeBaseY', 'probeBaseZ', 'probeYGlobal', 'probeSlot', 'flags1061', 'originTorn', 'probeOriginStale']);
+    expect(ORIGIN_INFERRED).toEqual({ r0001: [], r0004: [] });
+    expect(ORIGIN_SLOT_SKIPPED).toBe(-999);
+    expect(ORIGIN_MATCH_XZ).toBe(8);
+    expect(ORIGIN_RECORDS_MAX).toBe(64);
+  });
+
+  it('off by default: a row carries none of the columns and reads no record', async () => {
+    const p = withRecords();
+    const row = (await new Sampler(p, 'r0004').sample())!;
+    expect('probeOy' in row).toBe(false);
+    expect(p.reads).not.toContain(ORIGIN_ADDRESSES.r0004.recordArray);
+  });
+
+  for (const rev of REVISIONS) {
+    it(`${rev}: finds the player's record by x/z next to the feet (not the teammate's), its lift over the feet, the base, the flags`, async () => {
+      const p = withRecords(rev);
+      const row = (await new Sampler(p, rev, { origin: true }).sample())!;
+      expect(row.probeRecs).toBe(3);
+      expect(row.probeIdx).toBe(1);
+      expect(row.probeSelf).toBe(`0x${SELF.toString(16)}`);
+      expect([row.probeOx, row.probeOz]).toEqual([101.5, 641]);
+      expect(row.probeOy).toBeCloseTo(8.32, 4);
+      expect(row.probeLift).toBeCloseTo(10.57, 4);
+      expect(row.probeDxz).toBeCloseTo(Math.hypot(1, 1), 4);
+      expect([row.probeBaseX, row.probeBaseY, row.probeBaseZ]).toEqual([100, -2.5, 639]);
+      expect(row.probeYGlobal).toBe(-2.25);
+      expect(row.probeSlot).toBe(-1);
+      expect(row.flags1061).toBe(0x02);
+      expect(row.originTorn).toBe(0);
+      expect(row.probeOriginStale).toBe(0);
+    });
+  }
+
+  it('a stale record (slot -999, the queue returned early this frame; not torn): the origin columns blank, probeSlot raw, probeOriginStale 1', async () => {
+    const p = withRecords();
+    const s = new Sampler(p, 'r0004', { origin: true });
+    await s.sample();
+    p.words.set(ACTOR + ORIGIN_ADDRESSES.r0004.probeSlot, ORIGIN_SLOT_SKIPPED >>> 0);
+    const row = (await s.sample())!;
+    expect(row.originTorn).toBe(0);
+    expect(row.probeSlot).toBe(-999);
+    expect(row.probeIdx).toBe(1);
+    expect(row.probeSelf).toBe(`0x${SELF.toString(16)}`);
+    for (const k of ['probeOx', 'probeOy', 'probeOz', 'probeLift', 'probeDxz'] as const) expect(row[k], k).toBeNull();
+    expect(row.probeOriginStale).toBe(1);
+    expect(row.probeBaseY).toBe(-2.5);
+  });
+
+  it('counts a frame whose length passes ORIGIN_RECORDS_MAX with no record matched within the cap (originBeyondCap)', async () => {
+    const p = withRecords();
+    p.words.set(REC[1] + 4, bits(130));   // the player's record no longer next to the feet: none matches in the cap
+    p.words.set(ORIGIN_ADDRESSES.r0004.recordCount, ORIGIN_RECORDS_MAX + 6);
+    const s = new Sampler(p, 'r0004', { origin: true });
+    expect(s.originBeyondCap).toBe(0);
+    const row = (await s.sample())!;
+    expect(row.probeIdx).toBeNull();
+    expect(s.originBeyondCap).toBe(1);
+    const q = withRecords();
+    q.words.set(ORIGIN_ADDRESSES.r0004.recordCount, ORIGIN_RECORDS_MAX + 6);
+    const t = new Sampler(q, 'r0004', { origin: true });
+    expect((await t.sample())!.probeIdx).toBe(1);   // matched within the cap: not counted
+    expect(t.originBeyondCap).toBe(0);
+    const u = withRecords();
+    u.words.set(REC[1] + 4, bits(130));   // no match, but the length within the cap: not counted
+    const v = new Sampler(u, 'r0004', { origin: true });
+    await v.sample();
+    expect(v.originBeyondCap).toBe(0);
+  });
+
+  it('keeps the record by its self object: the next row reads the kept index first and scans nothing else', async () => {
+    const p = withRecords();
+    const s = new Sampler(p, 'r0004', { origin: true });
+    await s.sample();
+    p.reads = [];
+    const row = (await s.sample())!;
+    expect(row.probeIdx).toBe(1);
+    expect(p.reads).not.toContain(REC[0] + 0x3c);
+    expect(p.reads).not.toContain(REC[2] + 0x3c);
+  });
+
+  it('follows the self object when the records reorder, even past the x/z radius (a jump moves the origin, not its owner)', async () => {
+    const p = withRecords();
+    const s = new Sampler(p, 'r0004', { origin: true });
+    await s.sample();
+    p.words.set(ARR + 4 * 1, REC[2]);
+    p.words.set(ARR + 4 * 2, REC[1]);
+    p.words.set(REC[1] + 4, bits(130));   // 29.5 u off in x: outside ORIGIN_MATCH_XZ, still the player's
+    const row = (await s.sample())!;
+    expect(row.probeIdx).toBe(2);
+    expect(row.probeOx).toBe(130);
+  });
+
+  it('no record within ORIGIN_MATCH_XZ and no self kept: the origin columns are null, the count and the actor words kept', async () => {
+    const p = withRecords();
+    p.words.set(REC[1] + 4, bits(130));
+    const row = (await new Sampler(p, 'r0004', { origin: true }).sample())!;
+    expect(row.probeRecs).toBe(3);
+    expect(row.probeIdx).toBeNull();
+    expect(row.probeOy).toBeNull();
+    expect(row.probeLift).toBeNull();
+    expect(row.probeBaseY).toBe(-2.5);
+    expect(row.x).toBe(100.5);
+  });
+
+  it('a bad array pointer or a length past ORIGIN_RECORDS_MAX reads no record past the bound; the row comes through', async () => {
+    const p = withRecords();
+    p.words.set(ORIGIN_ADDRESSES.r0004.recordArray, 0x03000000);
+    const row = (await new Sampler(p, 'r0004', { origin: true }).sample())!;
+    expect(row.probeIdx).toBeNull();
+    expect(row.x).toBe(100.5);
+    const q = withRecords();
+    q.words.set(ORIGIN_ADDRESSES.r0004.recordCount, 100000);
+    await new Sampler(q, 'r0004', { origin: true }).sample();
+    expect(q.reads).not.toContain(ARR + 4 * ORIGIN_RECORDS_MAX);
+  });
+
+  it('flags a row whose origin reads straddled a guest frame (originTorn 1), keeping the row', async () => {
+    const p = withRecords();
+    p.onRead = (a) => { if (a === ORIGIN_ADDRESSES.r0004.recordArray) p.words.set(R4.guestClock, bits(13)); };
+    const row = (await new Sampler(p, 'r0004', { origin: true }).sample())!;
+    expect(row.originTorn).toBe(1);
+    expect(row.probeIdx).toBe(1);
   });
 });

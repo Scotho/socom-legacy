@@ -3,6 +3,7 @@ import { btn, esc, ico } from '../icons';
 import { dialogHeadHtml } from './close';
 import { installAppHtml } from './installApp';
 import { senderDialogHtml } from './discShare';
+import { SHARE_CLOSE_CONFIRM, SHARE_DEPLOY_CONFIRM } from '../../discShareWords';
 import { extractHtml } from './extract';
 import { fieldMeta } from './profile';
 import { PERSONA_WORDS } from '../adapters/profile';
@@ -249,6 +250,8 @@ function confirmHtml(s: ConsoleState, a: Adapters): string {
   if (s.confirmKind === 'loadout-leave') return wordsConfirmHtml(s, LOADOUT_LEAVE_CONFIRM);        // CX-LOADOUTS
   if (s.confirmKind === 'loadout-defaults') return wordsConfirmHtml(s, LOADOUT_DEFAULTS_CONFIRM);
   if (s.confirmKind === 'persona-delete') return personaDeleteHtml(s, a);                       // CX-PERSONA
+  if (s.confirmKind === 'share-deploy') return wordsConfirmHtml(s, SHARE_DEPLOY_CONFIRM);        // DSH-10 (RB-26's Q11)
+  if (s.confirmKind === 'share-close') return wordsConfirmHtml(s, SHARE_CLOSE_CONFIRM);          // the DSH-10 review's F2
   const w = a.session.words?.();
   const decline = s.confirmKind === 'decline';
   const title = decline ? 'Decline?' : w?.signOutTitle ?? 'Sign out?';

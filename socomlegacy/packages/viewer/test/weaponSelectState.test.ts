@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { RdrNode } from '@s2u/archive';
 import { arsenalOf, ITEM, type Loadout } from '@s2u/scene';
 import {
-  CATEGORY_RING, canOpen, cards, categoryName, closedMenu, reset, step, type MenuContext, type MenuInput, type MenuState,
+  CATEGORY_RING, canOpen, cards, categoryName, closedMenu, reset, SPECTATE_KIT_CHANGE_OWNER, step, type MenuContext, type MenuInput,
+  type MenuState,
 } from '../src/weaponSelectState';
 
 /**
@@ -31,15 +32,28 @@ const drive = (ctx: MenuContext, s: MenuState, ...inputs: MenuInput[]): MenuStat
   inputs.reduce((st, i) => step(ctx, st, i).state, s);
 
 describe('WEAPON EXCHANGE, state by state (research 94 §B4)', () => {
-  it('S0/S1: opens only dead, in the match, on oneself, not a spectator (FUN_001f7ff0)', () => {
+  it('S0/S1: opens only dead, in the match, not a spectator -- on oneself (FUN_001f7ff0) or watching a teammate (SPECTATE_KIT_CHANGE_OWNER)', () => {
     expect(canOpen({ inMatch: true, alive: false, cameraOnSelf: true, spectator: false })).toBe(true);
     expect(canOpen({ inMatch: true, alive: true, cameraOnSelf: true, spectator: false })).toBe(false);
-    expect(canOpen({ inMatch: true, alive: false, cameraOnSelf: false, spectator: false })).toBe(false);
+    // The original refuses here (D:L56659-56660: the tick runs only with the camera on oneself); the owner's ruling opens it.
+    expect(canOpen({ inMatch: true, alive: false, cameraOnSelf: false, spectator: false })).toBe(true);
     expect(canOpen({ inMatch: true, alive: false, cameraOnSelf: true, spectator: true })).toBe(false);
     expect(canOpen({ inMatch: false, alive: false, cameraOnSelf: true, spectator: false })).toBe(false);
     const closed = closedMenu(kit(54, 15, 121, 126, 194));
     expect(step(seal, closed, 'inventory', false).state.screen).toBe('closed');
     for (const i of ['up', 'action', 'back', 'close'] as const) expect(step(seal, closed, i).state).toBe(closed);
+  });
+
+  it('SPECTATE_KIT_CHANGE_OWNER (the owner, 2026-11-11): watching a teammate opens it; nothing else of the gate moves', () => {
+    expect(SPECTATE_KIT_CHANGE_OWNER).toBe(true);
+    const watching = { inMatch: true, alive: false, cameraOnSelf: false, spectator: false };
+    expect(canOpen(watching)).toBe(true);
+    expect(canOpen({ ...watching, spectator: true })).toBe(false);          // a spectator: still refused (S7)
+    expect(canOpen({ ...watching, alive: true })).toBe(false);              // alive: R2 stays the in-hand inventory
+    expect(canOpen({ ...watching, inMatch: false })).toBe(false);           // no match: nothing to open
+    // Open while watching, the menu steps as on oneself: the gate's answer is the same `true`.
+    const closed = closedMenu(kit(54, 15, 121, 126, 194));
+    expect(step(seal, closed, 'inventory', canOpen(watching))).toEqual(step(seal, closed, 'inventory', true));
   });
 
   it('S2: Inventory opens the slot list on slot 0; Up/Down wrap; Triangle, Start or Inventory close', () => {

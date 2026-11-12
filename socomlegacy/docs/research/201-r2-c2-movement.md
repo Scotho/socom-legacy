@@ -590,14 +590,20 @@ cited at the `ref/desktop` pin.
   - meanwhile `FUN_0059b440` snaps the feet to the ground (D:L456510-456524).
 - Not attempted: `mover.ts:127` (the ground state during transitions) and `:1598` (the fall push one tick later).
 
-## 17. The raise readings (`weaponRaise.ts:40` `AIM_HOLDS_RAISE`, `U-ANIM-WEAPONPOSE-RAISE-THROW`)
+## 17. The raise readings (`weaponRaise.ts` `AIM_HOLDS_RAISE`, retired by ENEMY-RAISE ER-1; `U-ANIM-WEAPONPOSE-RAISE-THROW`)
 
 - D:L453087-453092: the controller asks for the raise (1) when `ctrl+0xc0` > 0, **or when `FUN_005be6c0` (zoom state
   ≥ 4) holds and it is not the binoculars**, that is, in any scope. Otherwise it asks for the lower (2).
 - `ctrl+0xc0` is zeroed by the constructor (D:L454805). `vtwrites.py 6694b0 c0` finds no store to `+0xc0` (other than
   to the stack) in any `CSealCtrl` vtable method.
 - **Answer:** the game holds the rifle up in a scope. No aim lane was found that holds it. BELIEVED: the writer search
-  covered the vtable methods only. `animator.ts:201,747`, `weaponPose.ts:43`, `throwPose.ts:16` were not attempted.
+  covered the vtable methods only.
+- **Corrected 2026-11-09 (ENEMY-RAISE ER-1; research 321 section 4.1.1 point 7; reading: ER-1's review PASS WITH FINDINGS, high, in the merge 0b6cf4a17, and the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2):** `ctrl+0xc0`
+  has a writer -- `FUN_005c9b30`, reached through the controller's slot +0x3c `FUN_005970b0` (D:L454091-454095), zeroes it
+  (D:L482090, stored int-indexed as `piVar9[0x30]`, which the "+ 0xc0" text search missed) and counts into it the marked
+  enemy records (D:L482101-482132). So the field is the count of enemies the body's perception has marked, not an aim lane:
+  the rifle comes up by itself while it is over 0 and lowers 5.0 s after it falls to 0. The port's `AIM_HOLDS_RAISE` is
+  retired; a copy's raise (the room's bots') still rides `BodyFlag.Aiming` -> `snap.aiming` -> `RaiseInput.aiming`. `animator.ts:201,747`, `weaponPose.ts:43`, `throwPose.ts:16` were not attempted.
 
 ## 18. `matrix_id` (`U-R78-MATRIXID-LIDS`)
 

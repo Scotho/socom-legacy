@@ -365,8 +365,11 @@ describe("OBF-31 (the review's F1): a scene program's sound under the round scre
 
   it("both pages wire the scene programs' sound through the gate (`./main`, `./matchMount`)", () => {
     const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf-8');
-    expect(src('main.ts')).toMatch(/sound: \(name, path, volume\) => \{ sound\.sceneSound\(name, /);
+    // The world's hook hands the place it read (SCENE_SOUND_PLACE_READING) on to the gated `sceneSound`, on both pages:
+    // `./main` directly, `./matchMount` through `./matchWorld`'s `buildPageWorld`.
+    expect(src('main.ts')).toMatch(/sound: \(name, _path, volume, at\) => \{ sound\.sceneSound\(name, at, volume\); \}/);
     expect(src('matchMount.ts')).toMatch(/sound: \(name, at, volume\) => \{ sound\.sceneSound\(name, at, volume\); \}/);
+    expect(src('matchWorld.ts')).toMatch(/sound: \(name, _path, volume, at\) => \{ hooks\.sound\(name, at, volume\); \}/);
   });
 });
 

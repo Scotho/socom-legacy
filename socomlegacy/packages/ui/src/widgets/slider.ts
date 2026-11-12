@@ -94,6 +94,18 @@ export class SliderWidget extends ButtonWidget {
     vars.set(v, { type: 'real', value: u });
   }
 
+  /** Browser pointer adaptation: use the native var mapping and SLIDER_MOVED notification. */
+  seek(position: number, host: WidgetHost): void {
+    if (!this.enabled || !Number.isFinite(position)) return;
+    const next = f32(Math.max(0, Math.min(1, position)));
+    if (next === this.position) return;
+    this.position = next;
+    this.writeVar(sliderToUiVar(next, this.centerValue));
+    this.hold = 0;
+    host.sound('SELECTION');
+    host.screenEvent(SLIDER_MOVED);
+  }
+
   private move(dir: -1 | 1): void {
     const d = fmul(this.step, SLIDER_STEP_UNIT);
     if (dir < 0) { this.position = fsub(this.position, d); if (this.position < 0) this.position = 0; }

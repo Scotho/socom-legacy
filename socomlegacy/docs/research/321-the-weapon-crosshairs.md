@@ -180,14 +180,70 @@ page can reach the lens plays at each such change and the per-frame ask draws wh
 Tests: `reticle.test.ts` "LATER 164: the scope's tube over set 0's cross in view state 2" (two),
 `matchFirearm.test.ts` "LATER 164 ..." (ZWEAPON). Owed: a rendered look on a THERMAL turret (no browser run here).
 
-### 2.6 Beside every set: the threat marks (noted)
+### 2.6 Beside every set: the threat marks (THREAT-MARKS, 2026-11-09)
 
-Eight `ret_threat` quads (`hud+0x19b0..`, research 84 section 15's "damage-direction markers") laid by `FUN_00215250`
-(D:L69842-69899): four on the axes, centred 15 beyond the arms' outer ends (`size + W + 15`, `W` the arm's width as
-`ChangeReticule` kept it in `hud+0x4534/+0x4538`: halved under set 4, 32 under set 5), four on the diagonals turned 45
-degrees, each one's length the bitmap's times a body float `+0xf00` .. `+0xf1c`, the diagonals drawn only while their
-alpha is above 0. What drives `+0xf00..` is not read here (`THREAT_MARKS_READING`); research 91 section 6's "no
-damage-direction markers" stands against this and is for that row's owner.
+Rewritten 2026-11-09 from the scope `agent-mail/evidence/threat-marks/SCOPE.md` (SHA256 3928ec4f5f5c99b7394628a70aff2144839c24b5dd2f2c5c468ab6efe88157b1, 2026-11-09: five readers, two adversarial skeptics and dot (Codex)'s independent r0004 reading and scope review) for the THREAT-MARKS build (`agent/threat-marks`; the owner's word, Craig in
+seat redotcom-30: "it's a real missing feature important to our users we should get it in"). Every value is a
+**reading** (re-read by its fresh review PASS WITH FINDINGS (high) and its fix's re-review (the merge fd387c958) and the THREAT-MARKS lane batch review, `agent-mail/evidence/mega/REVIEW-R4B-AND-THREAT-BATCH.md`, PASS WITH FINDINGS (high), 2026-11-09); the unread defaults are section 7.6's names. Was: "eight quads ... What drives `+0xf00..` is
+not read here (`THREAT_MARKS_READING`)" -- answered below.
+
+**What they are.** Eight red `ret_threat` marks about the reticle that light toward an enemy's **release** -- a round
+fired, a grenade thrown or launched -- within reach, whichever way it is aimed and whether or not it hits, and fade in
+50/120 = 0.417 s. They mark where enemy fire comes from, not where damage comes from.
+
+**The release** (`FUN_005c5340`'s threat block, D:L479135-479216; the r0004 twin 0x5cca50..0x5ccd88 unchanged but for
+relocations): for the local player only (`FUN_002b3580`, D:L479138), when the shooter shares no team bit with it
+(`(local+0xc8 & shooter+0xc8) == 0`, D:L479136), it is alive (`+0xe1` bit 4, D:L479137; `THREAT_ALIVE_BIT_READING`),
+`|d|^2 < 1.21e6` (1100 units, 3D, height counted; D:L479141) and `|d|^2 < record+0x34`, the release record's stored
+`(Sound_Radius x 10)^2` (`FUN_005c3740` of `kit+0x824`, D:L479142-479143; `FUN_003cda30` D:L322484-322488 with
+`FUN_003d2a00` D:L325313-325320) -- so **the reach is min(1100, 10 x Sound_Radius)**, d the release point less the body's
+translation. The magnitude `m = |1 - |d|^2 x 8.264463e-07|` (D:L479169). With R2 the body's row 2 (its +z, behind it) and
+C = R2 x (0, 1, 0) (D:L479165), y zeroed: `d . R2 > 0` writes the back float `+0xf18 = m` and `+0xf38 = |d . R2|`, else the
+front `+0xf08`, `+0xf28` (D:L479181-479198); `d . C < 0` writes the right `+0xf00`, `+0xf20`, else the left `+0xf10`,
+`+0xf30` (D:L479199-479216). Each write sets its flag (`+0xefc..+0xeff`) and zeroes the opposite pair's floats, not its
+flag; values are overwritten, never maxed. The components are absolute horizontal dot products, not angles
+(`THREAT_ALPHA_SPLIT_READING`, `THREAT_AXIS_SCALE_READING`). Who calls it: the firearm once a pellet from the muzzle
+(`FUN_005be9a0` D:L475604; the under-barrel round from `firepoint_203`, D:L475518-475529), the throw at release
+(TickExplosives D:L477133), the net throw (FireGrenade D:L474178; class 0x97 placements excluded, D:L474155-474180),
+the remote shot replay (the tail jump at 0x5c6520) and the death drop (D:L471828/471867); never a charge's placing.
+
+**The per-frame pass** (`FUN_00216de0`, D:L70472-70587, from the HUD update before ChangeReticule and the draw): for each
+pair of flags set, in the order right+front, left+front, right+back, left+back, the diagonal float is the mean of its
+two (`DAT_003dc578` 0.5) and two alphas are **set**: the cardinal with the larger component `(90 - a)/90 x 50` and the
+diagonal `a/90 x 50`, `a` = that component mod 90; the compare is strict, so a tie lights the front/back cardinal, and
+the smaller-axis cardinal gets breadth but no alpha. Then every alpha not 0 falls `120 x dt` to 0 (D:L70569-70581) and
+the flags clear. Peak 50 on the PS2's 128 scale (`THREAT_ALPHA_SCALE_READING`). The floats never decay.
+
+**The draw** (`FUN_00215250` D:L69842-69899): ret_threat (16 x 16, HUD2_TXR) as eight quads about the reticle's centre
+c with `r` its drawn size and `Aw`/`Ah` ChangeReticule's arm size (the set's floating bitmap, else its fixed; `Aw` halved
+under set 4, 32 x 32 under set 5; D:L69298-69316): right `(cx + r + Aw + 15, cy - 1)`, top `(cx + 1, cy - r - Ah - 15)`,
+left and bottom their mirrors, the diagonals from the reticle's corners by the factors `DAT_003dc5b8..f0` (0.9/0.6,
+0.65/0.5, 0.9/0.6, 0.65/0.52; the ELF's words); the float scales each mark's breadth; each mark's box is
+`FUN_00359260`'s (D:L254987-255003): a `w` x `h` box about its laid centre P, its six position slots the two triangles
+top-left, bottom-left, bottom-right, then top-left, bottom-right, top-right (two `FUN_00360fc0` calls, D:L255003-255004;
+`reticle.ts` `threatBox`; filed 2026-11-09 for the citation index, `citationIndex.test.ts`); the slot permutations (`cc0`,
+`e20`) and, for the diagonals, a turn of -45/+45/+45/-45 about a **pivot corner** (bottom-left after `cc0`, bottom-right
+after `cc0` + `e20`; `FUN_003589d0` D:L254725-254800), so a diagonal's drawn centre moves with its breadth. All eight
+wedges point one way: outward under `GRENADE_METER_BITMAP_READING` (`THREAT_QUAD_ORIENTATION_READING`). The diagonals are
+relaid only while their alpha is above 0; the block runs under sets 5-10 too (`THREAT_SCOPED_SETS_READING`) and is
+laid once at the change to set 4; at a death quads 0-3 hide with the reticle and 4-7 fade on
+(`THREAT_DEAD_FADE_READING`). No colour call: the red is the bitmap's.
+
+**The data.** `ret_threat.tif` is 16 x 16 with 76 inked texels on MP2, MP6 and MP72, alphas 86, 169 and 255, a wedge
+wide at row 4 and its tip at row 11; its ink is mirror-symmetric across, its alphas all but row 5's (169 at x 5-9 against
+255 at x 10-12; `hudBitmaps.test.ts`) -- the scope's "mirrored left to right" is the ink's; the page lays the columns mirrored with the rows, as
+`GRENADE_METER_BITMAP_READING`'s read gives them (the review's F3). `Sound_Radius` per record
+(`zweapon.rdr`): stored x 10 -- the M4A1 1000, the M4A1 SD 100, the 552SD 400 on the disc, 50 in r0004 (R4B-10a's override, merged into `agent/mega` at ba5716a5c:
+the scene record's `soundRadius` carries it; `THREAT_R4_RADIUS_READING`), the M14 1500 (capped at 1100), equipment none (0, never lit); the throwables' and rounds'
+raw on their projectile records (the AN-M8 3 -> 30, the M203 HE 200 -> the cap).
+
+**The port** (THREAT-MARKS): `viewer/src/threatMarks.ts` (the release, the pass, the reset), `reticle.ts`
+(`threatLayout` and the eight meshes), `matchFirearm.ts` (each remote round from `roundEffects`, gated by the fired
+record's `WeaponRecord.soundRadius`; the pass in `aimReticle`; the reset at the map's load), `matchNet.ts` (another's
+`grenade` at release through `threatThrow`), scene `weapons.ts` (`soundRadius`, the stored `+0x30`, with its golden).
+Nothing is on the wire: each page lights its own player's marks from the releases the room already sends, as each
+console does. Research 91 section 6's "no damage-direction markers" is answered: there are threat marks, and they mark
+releases, not damage (section 8).
 
 ## 3. The spread: its growth and its settle
 
@@ -549,8 +605,8 @@ wire field, a room change or a HUD change.
    D:L516248). The visibility itself takes, from 1, each surface the query met's material `+0x20` (clamped) and, for a
    foliage-like material, a random share by distance band (D:L516363-516382); an unknown material makes it 0. So the
    constants transcribed are the unseen -1, the scale 1, the clamp and the threshold; the seen rate, the visibility's
-   materials and the queries' schedule are named (`PERCEPTION_SEEN_RATE_PLACEHOLDER`, `PERCEPTION_SIGHT_PLACEHOLDER`,
-   `PERCEPTION_QUERY_PLACEHOLDER`).
+   materials and the queries' schedule are named (`PERCEPTION_SEEN_RATE_PLACEHOLDER`, `PERCEPTION_SIGHT_READING` --
+   was `PERCEPTION_SIGHT_PLACEHOLDER` until SIGHT-POINTS, point 8 --, `PERCEPTION_QUERY_PLACEHOLDER`).
 3. **The eligibility** (the controller's update `FUN_00594cf0`, slot +0xc of 0x6694b0: slot +0xa8 `FUN_005c9520` then
    `FUN_005ca9f0`, D:L453085-453086). `FUN_005c9520` (D:L481800-481863) lays the cone from the camera when it follows
    this body (`DAT_00415ff0`, its matrix `+0xb4`), else from the body's eye: its reach `+0x80` the controller's `+0xa8`
@@ -630,6 +686,77 @@ wire field, a room change or a HUD change.
 6. **A special actor's bar** (AD-3's review F3). The reticle draws the bar for a special actor as for a teammate
    (`bVar5 || bVar3`, D:L70213-70219) at the actor's own health; no page is sent a hostage's health (`NetClient.healthOf`
    holds seats only, NU-3c), so the page draws none (`SPECIAL_ACTOR_HEALTH_PLACEHOLDER`, note only).
+7. **The mark's second reader: the controller's count, which raises the rifle** (ENEMY-RAISE ER-1, 2026-11-09; the owner's
+   word, Craig in seat redotcom-30: "CERTAINTY this is in the original multiplayer"; from the scope
+   `agent-mail/evidence/enemy-raise/SCOPE.md`, SHA256 f1982bcdd63a18354379fe408a795e12fe4a5fdfa7dcf79fcfb604ab26ec0327,
+   its section 1; reading: ER-1's review in the merge 0b6cf4a17 and the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2). The dispatcher `FUN_005c9b30` -- the human's slot +0x3c `FUN_005970b0` calls it
+   with the controller while `DAT_003df1b0` is set (D:L454091-454095) -- first zeroes the controller's `+0xc0`
+   (D:L482090, `piVar9[0x30] = 0`) and adds one for each record (D:L482101-482132; the list at `body+0xd0`, `FUN_002a0190`
+   D:L145605-145620) whose target shares **no team bit** with the body (`(body+0xc8 & target+0xc8) == 0`, D:L482112), is
+   active (`+0xe1` bit 4, D:L482115), of kind 2 -- or 3 or 4 by their flags (D:L482116-482129) -- and carries the **mark**
+   bit 0x200 (D:L482131-482132): the mark this section's reticle reads. The player control `FUN_00594cf0` asks the rifle UP
+   while that count is over 0 or a scope is up (D:L453088-453092), and on the idle trigger re-arms the 5.0 s countdown
+   while it asks UP and runs it down once it asks DOWN (D:L453568-453601; `FUN_00598280` D:L454808-454809). So **the rifle
+   comes up by itself while the body's perception has an enemy marked, and lowers 5.0 s after the last mark clears**;
+   the reticle writes nothing back (D:L70122-70130). The words (point 4): the seats SEAL 0x40000001 and Terrorist
+   0x80000100 (`FUN_002c32c0` / `FUN_002c32e0` D:L164772-164793, exchanged under `DAT_004412d8`) never meet; a **free
+   hostage** (0xc0020000) meets both and never counts; an **ESCORT VIP** (0x40020000) meets the SEALs' word and not the
+   Terrorists' (0x40020000 & 0x80000100 = 0), so a Terrorist observer **counts a marked VIP**; under the swap its bits 30
+   and 31 are exchanged at the spawn (`FUN_002b28d0` D:L155859-155867) -- 0x80020000, counted by the observer whose word
+   is 0x40000001 -- as the seats' words are exchanged with it, so by side the VIP stays the Terrorists' count. A **led
+   hostage**'s word is rewritten to keep its leader's side bit (`FUN_00607d70` D:L514835, `FUN_00601910` D:L511801), so it
+   may count for the other side once marked -- the kept mask untraced. The port misread `+0xc0` as the aim lane
+   (`weaponRaise.ts` `AIM_HOLDS_RAISE`, retired; research 201 section 17 found no writer by its search). **Built** (ER-1):
+   `reticle.ts` `Perception.marked`, `enemyCount`, `seatWord`, `escorteeWord`; `matchFirearm.ts` counts after each HUD
+   pass and feeds `RaiseInput.enemies`; `weaponRaise.ts` asks UP on `enemies > 0 || aiming` (s7.7). The other viewers'
+   copies do not see it until the owner's raise state rides the wire (ER-2, LATER 584; `FUN_002bd640` D:L161978,
+   `FUN_002be150` D:L162310-162312). *(2026-11-09, ENEMY-RAISE COMPARE: the 5.0 s lower, the rise a frame after the count, the mark at
+   acc >= 1.0 with no hysteresis and the class-'y' override are **proven** for offline M51 slot 5 by capture, s7.7's
+   comparison; the count runs a frame behind a threshold mark there, one frame ahead in the port.)*
+8. **The sight query's two points and its hits** (SIGHT-POINTS, LATER 793, 2026-11-09; from dot (Codex)'s reading,
+   `agent-mail/evidence/r0004-gameplay-review/enemy-visibility-cone-20261109/REPORT.md`, SHA256
+   8b1f34e1b32ca0e009e069785bd7cab29b39cd4d4b820391a99d51cbf0b9c0fc, re-read at the source by a reader who did not write
+   it, `REREAD-99.md` beside it, SHA256 abe7af608b696b33bb168217e901fd756e7bca65a5524aac9be8f1bbb7c2b29b, PASS WITH
+   FINDINGS; the port's transcription reading: the review PASS, high, in the merge 394ac3273, and the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2). This is the human's controller's perception (CSealCtrl,
+   table 0x6694b0), not the offline AI's (CSealCtrlAi, whose cone updater `FUN_005c9400` D:L481718-481766 differs and is
+   not ported here).
+   - **The points.** The observer's point is its body's slot +0x34 (`FUN_005a31c0`, D:L460165-460171): the node pointer
+     at body+0x308; the target's is its slot +0x38 (`FUN_005a3160`, D:L460155-460161): body+0x30c (the kind-2 body table
+     0x6691a0, CZSealBody). The body's set-up names them (`FUN_00553ea0` D:L419620-419623, through `FUN_0028e7b0`'s name
+     compare D:L135536-135565): `head` (0x65c500) at +0x308, `neck` (0x65c508) at +0x30c. Each point is the node's
+     origin carried up its parent chain (`FUN_002869d0` with a null offset, D:L130737-130766: each node's local offset
+     rotated by its parent's, climbing `+0x1c`), then put in the world by the body's matrix with its translation
+     (`FUN_00308640(body+0x28, p, 1)`). No random point, no raised-rifle switch. `FUN_005cc120` takes the target's point
+     once (D:L483236-483237) for **both** the cone's test (`V = point - ctrl+0x90`) and the job's end (D:L483282); the
+     start is `DAT_0066b7a8`, filled from the observer's slot +0x34 once a sweep (D:L483275-483277). r0004 the same
+     (0x5a8d30, 0x5a8cd0; table 0x668b20). That the nodes are posed by the animation each frame, and when against the
+     sweep, is inferred (strong), not read.
+   - **The hits** (`FUN_0060b120` D:L516310-516386; the query `FUN_0060bc40` D:L516710-516729 submits: type 2, mask -1,
+     the observer's root excluded, `FUN_0031dd90` D:L219878-219898). A null query 0 (D:L516327-516330); a valid one with
+     no hit 1 (D:L516332-516337, D:L516360-516362); the hits sorted by squared start-to-hit distance, nearest first
+     (`FUN_002d4e10`, comparator 0x2d4f70); a hit on the target's root node or its descendants ends the walk before its
+     material applies (D:L516345-516353; the target node `FUN_0029ed20` = body+0x28's root, D:L516157-516158); a material
+     index past the table reads material 0 (D:L516340-516343); a null material 0 (D:L516354-516357); `FUN_0059acd0(hit
+     node)` not 0 skips the hit (D:L516363-516364); else material `+0x3c` bit 0 (VOLUMETRIC) clear subtracts `+0x20`
+     (OPACITY) clamped to [0, 1] (D:L516365-516369), set subtracts a random share by the squared start-to-hit distance --
+     under 2500 0.5u + 0.5, under 90000 0.39999998u + 0.25, under 250000 0.3u, else none, u the generator's integer
+     times 2^-31 (D:L516371-516382; 0x6510a8..0x6510b8) -- and the result is clamped to [0, 1] (0x6510c0/0x6510c8).
+   - **The cone** (`FUN_005c9520`, `FUN_005cc120`): its origin, direction, shape and 25-unit radius match the port's
+     (point 3, s7.5's `PERCEPTION`); its test point was the port's feet + `EYE_HEIGHT`, the same gap as the sight's end.
+     That the local human always takes the camera branch (`DAT_00415ff0` set and its `+0xbc` the body, D:L481807,
+     D:L481823-481847) is inferred, not traced per frame.
+   - **Built** (SIGHT-POINTS): the sight runs from the page's own posed `head` node (`play.ts` `Play.nodeWorld('head')`:
+     the skeleton's palette, model space, put in the world at the simulated feet and yaw as `eyeWorld` is) to the
+     target's posed `neck` node (`remotePlayers.ts` `RemotePlayers.neckAt`: the drawn body's bone named `neck`, as
+     `headAt`), and the cone tests that neck (`matchFirearm.ts` `perceive`). A body the page does not draw has no neck
+     to test: not active (a ghost, a rescued hostage at 0); a page whose own body is not built runs no pass, as with no
+     body. **Not built, the hits**: the page still takes 1 or 0 -- seen when no surface the eye's query keeps lies
+     between the two points (`pickSurfaces`, `aimPickBlocks`: a VOLUMETRIC surface passed whole, any other kept one
+     blocking whole) -- against the original's attenuation: the materials' OPACITY (`+0x20`) is not yet read off
+     `materials.rdr` (`SurfaceMaterial` carries no opacity), the random bands and `FUN_0059acd0` (a `CSealEx` /
+     `zdb::CNodeEx` node extension's `+4`) are not built, and the type-2 query's collision leaves are not closed (dot's
+     report, section 2). Named `PERCEPTION_SIGHT_READING` (s7.5; was `PERCEPTION_SIGHT_PLACEHOLDER`, its points the aim's
+     eye and the feet + `EYE_HEIGHT`), with the record's distance `+0x10` (feet to feet, unread).
 
 The port (AD-3): `reticle.ts` `PERCEPTION` (the constants above), `perceptionLook` (3), `Perception` (1, 2) and
 `reticleTargetState` (4); `matchFirearm.ts` steps the records once a HUD frame for every body the page knows (the room's
@@ -902,7 +1029,7 @@ holding no flag to read -- in section 7.5 and research 101, with three more its 
 | `TOP_PLAY_GREY_READING` | the top play's byte `+0x2b` = 5 that greys the reticle | a PINE trace of the top play's `+0x2b` over the stances and the clips; the source of the byte. Held by no code at NU-3b C5 (2026-10-15; section 7.5, *note only*) |
 | `RETICLE_COLOUR_SCALE_READING` | the page's one scale from the GS colours to the screen's, measured on the rest's yellow only | a capture of the green and the red (C4's frames). Held by no named constant at NU-3b C4 (2026-10-15): the green and the red take `reticleTint`'s one scale (section 7.5, *note only*) |
 | `SWAP_KNOCK_READING` | the knock's offsets across a swap (no writer in the switch) | a capture: a burst, a swap at once, the new reticle's place. **Built** (NU-3a C3, 2026-10-14; section 7.5): carried; the capture still owed |
-| `THREAT_MARKS_READING` | the eight `ret_threat` marks' driver `body+0xf00..+0xf1c` | a source read of the writers of `+0xf00..`; a capture being shot from the side |
+| `THREAT_MARKS_READING` | the eight `ret_threat` marks' driver `body+0xf00..+0xf1c` | a source read of the writers of `+0xf00..`; a capture being shot from the side. **Answered** (THREAT-MARKS, 2026-11-09; sections 2.6 and 7.6): the weapon release's threat block writes them (`FUN_005c5340` D:L479135-479216); built with its named readings; the capture still owed |
 
 One capture session settles most of them: the HUD with each firearm class up (a pistol, an SMG, a rifle, the 870, an
 MG, a sniper unscoped and scoped, the M79, the LAW), at rest, walking, firing, crouched and prone, aimed at a
@@ -954,7 +1081,7 @@ review.
 | `TEAMMATE_NAMES_OPTION_READING` (was: `TEAMMATE_NAME_HIDDEN_READING`, `false`, "the byte written by no line found by its offset; the page holds it clear, the teammate's name shown" -- replaced 2026-10-15 from research 329, reading, pending review) | online, a teammate's name is the blank `" "` while the HUD's (`DAT_00408e58`) byte `+0x17b64` is set (D:L70162-70170); that byte is the over-head tags' part's (`CMPTeammateNames`, HUD `+0x17580`, `FUN_00227340` D:L77524-77562) `+0x5e4`, set once at its set-up from the TEAMMATE NAMES option, the valve `DISPLAY_MP_TEAM_NAMES` not 0 (`FUN_00351ff0`, D:L77558-77559; research 329), whose default is 1 (the golden `global-valves.json`, `valves[152]`); NU-3b C4 | `{ valve: 'DISPLAY_MP_TEAM_NAMES', on: true }`: by default a teammate under the reticle shows the blank and his bar (his name is over his head, NU-9 (c)); with the option off his "[tag] name" (`reticleTargetState`'s `teammateNames`, the default when absent: no page path hands the valve yet, the wiring owed to NU-9 (c)'s T4) | a capture online aiming at a teammate with the option on and off |
 | `TARGET_KIND_PLACEHOLDER` (retired by AD-3, 2026-10-16; was: section 7.2's candidate `TARGET_KIND_READING`) | the flagged target (offline `+0xc8` bit 31 without bits 1 and 18, online bit 17, D:L70109-70118), green with its name and bar, or red under `DAT_00437ce8 + 0x111` = 3 and `FUN_002c30b0` (D:L70137-70158); AD-3 read the bodies (section 4.1.1): the hostages (0xc0020000) and the escort's VIPs (0x40020000) | was `'rest'`: a hostage at the rest, no name, no bar; now `ReticleTarget.kind` from the room's hostage list, green with its record's name (the VIP: no body in the room yet) | retired by AD-3: the constant removed |
 | `PERCEPTION_SEEN_RATE_PLACEHOLDER` | a seen query's rate a second (`FUN_0060aa20` D:L516162-516246): the scene's lighting (the mission's `.bss` terms, the light grid), the target's speed and stance, smoke, an item 0xbe's 0.1, the fog-like term, the record's `+0x100` bit's 2, through a composite (`FUN_0053ae20`, `FUN_0053abe0`) not read (section 4.1.1, 2); AD-3 | `Number.POSITIVE_INFINITY`: a seen query fills the record to 2 at once, so a seen other is marked on his first query (the acquisition the page had before AD-3, kept); the unseen -1, the clamp, the threshold and the clears are read | a capture or a PINE trace of the record's `+0x18` / `+0x1c` against the queries' timestamps, an enemy coming into view at a few distances, lit and in shade |
-| `PERCEPTION_SIGHT_PLACEHOLDER` | the query's visibility over 0 (`FUN_0060b120` D:L516326-516386: from the observer's eye `DAT_0066b7a8` to the target's slot +0x38 point, each surface's material `+0x20` off 1, foliage a random share by distance band) and the record's distance `+0x10`; AD-3 | `{ surfaces: "the eye query's kept surfaces", from: "the aim's eye", to: "the feet raised by EYE_HEIGHT", record: "feet to feet" }`: seen when `crosshairPick` finds no kept surface (`pickSurfaces`) between the aim's eye and the target's feet + `EYE_HEIGHT` 15.4; the reach tested on the feet-to-feet distance (`matchFirearm.ts` `perceive`) | a PINE trace of the query's two points and of the record's `+0x10`; the materials' `+0x20` read off the disc |
+| `PERCEPTION_SIGHT_READING` (re-filed by SIGHT-POINTS, LATER 793, 2026-11-09; was: `PERCEPTION_SIGHT_PLACEHOLDER`, its two points the aim's eye and the target's feet raised by `EYE_HEIGHT` 15.4, the cone tested at the same raised point) | the query's visibility over 0 and the record's distance `+0x10` (section 4.1.1, point 8): **its two points read** -- the observer's posed `head` node (slot +0x34 `FUN_005a31c0`, body+0x308) to the target's posed `neck` node (slot +0x38 `FUN_005a3160`, body+0x30c), D:L460155-460171, the nodes named at `FUN_00553ea0` D:L419620-419623, each up its parent chain (`FUN_002869d0` D:L130737-130766) and through the body's matrix; the cone's test point the same neck (`FUN_005cc120` D:L483236-483237); that the nodes are posed each frame is inferred. **Its hits read, not built** (`FUN_0060b120` D:L516310-516386: a null query 0, no hit 1, nearest first, the target or its descendants ending the walk, a missing material 0, an index past the table material 0, `FUN_0059acd0` skipping, VOLUMETRIC clear the OPACITY `+0x20` off clamped, VOLUMETRIC set the random bands < 2500 0.5u + 0.5, < 90000 0.39999998u + 0.25, < 250000 0.3u, clamped to [0, 1]). **The record's `+0x10` unread**; AD-3 | `{ surfaces: "the eye query's kept surfaces", from: "the observer's posed head node", to: "the target's posed neck node", record: "feet to feet" }`: the sight from `Play.nodeWorld('head')` to `RemotePlayers.neckAt` (`matchFirearm.ts` `perceive`), the cone tested at that neck; seen when `crosshairPick` finds no kept surface (`pickSurfaces`) between them (1 or 0, not the attenuation); the reach on the feet-to-feet distance | the materials' OPACITY read off `materials.rdr` and the hit rule built (the random bands, `FUN_0059acd0`, the type-2 query's collision leaves closed); a PINE trace of a query's hits and visibility and of the record's `+0x10` |
 | `PERCEPTION_QUERY_PLACEHOLDER` | the queries' schedule: `FUN_0060bc40` launches at most `DAT_0044d5e4` a frame from the queue `0x44d5f0`, each query's `+0x24` gaining the frame's time while it waits (D:L516700-516742), the dispatcher taking a completed one on the next pass; AD-3 | `"one query a body a frame, its elapsed time the frame's"`: the page steps every body's record once a HUD frame with that frame's `dt` (`Perception.step`), none when no time passed | a trace of the queries' timestamps and results with several bodies in view (the acquisition's latency; not claimed) |
 | `PERCEPTION_VETO_PLACEHOLDER` | the target body's `+0x105c` bit 4 that keeps the mark clear (D:L482214-482218), copied from the mission's flag word `CMission+0x140` bit 0x2000 (`FUN_002b28d0` D:L155878-155879, `FUN_00573130` D:L434809-434810), whose writer was not found by its offset; AD-3 | `false`: no body carries it (`Perception.step`'s `veto` absent) | a reader run over the 22 MP missions for the flag word's writer, or a PINE read of `CMission+0x140` in a match |
 | `PERCEPTION_RECORD_LIFE_READING` (re-filed by the re-check of AD-3's F2, 2026-10-16; was: "kept across a death, a respawn and a round", the page keeping its records for the mount -- the read had missed `FUN_00598b90`'s direct call of `FUN_00599b60`, D:L455158) | the records' life (section 4.1.1, 5): the observing body's list `+0xd0`, a record made zeroed at an actor's entry into the world (`FUN_002a0450` D:L145796-145806, `FUN_002a0200`); the whole list emptied and refilled zeroed at the observing body's rebuild (`FUN_00599b60`, research 179:503, 212:493: D:L455659 the destructor, `FUN_0029ff60` D:L144952; D:L455663 `FUN_00553ea0` -> `FUN_0029ee10` D:L144978-144980; `FUN_002a0a10`), at every online round start (`FUN_00223680` D:L75925-75931 -> `FUN_00598b90` D:L455158) and an online respawn (`FUN_00547350` D:L412721-412726 -> `FUN_00598b90(body, 1)` -> D:L455158; offline `FUN_005994a0` D:L455369, D:L455385; was: the respawn cited as `FUN_005994a0` alone); kept across the observed body's rebuild alone (`FUN_002a0f70`'s leave cancelled, D:L455668, D:L146058-146068) | `{ owner: "the observing body (+0xd0)", created: "zeroed at an actor's entry into the world and at the body's rebuild", emptied: "at the observing body's rebuild: every online round start, its respawn", kept: "across the observed body's rebuild alone (its leave cancelled)" }`: `Perception.clear` at the page's own spawn (`spawnKit`); another seat's record kept across his death and respawn; a seat gone from the room loses its record at once (`Perception.keepOnly`, the page's own earlier timing, not a reading: the original's leave is deferred to the next online round start, `FUN_005998b0` D:L455524 -> `FUN_0029fcb0` D:L75924 -> `FUN_0029fd80` -> `FUN_0029ed30` D:L419349 -> `FUN_002a0f70(body, 0)`; was: "the page's own bookkeeping") | a capture or a PINE read of an observer's `+0xd8` records across a round's start and across an enemy's respawn alone |
@@ -968,6 +1095,253 @@ review.
 | `SEAT_SCRIPT_TEAM_MASK_READING` (*note only*) | that no multiplayer map's script gives a seat the escortee bit or the other side's (section 4.2.1, part 2): `FUN_005cea40` (D:L484703-484711) ORs or clears a mask on an actor found by id; the MP maps' scripts were not read; NU-3c | *note only* (no constant: the room's recipients leave out the other side whatever a script does) | a reader run over the MP maps' scripts for that action and its targets |
 | `SWAP_FIRST_ROUND_WAIT_READING` | the first round after a hand grenade's return (section 3.4, "The first round after a grenade's return"; LATER 655): the read gives the raise from a cleared envelope alone, `RAISE_REFUSAL_FRAMES` after the press; ac's first-shot capture has the round about 0.23 s after a press 0.1 s after the return, about three game frames more than the read and the capture's own input lag | `'the raise from a cleared envelope alone'` (`weaponRaise.ts`) | capture Part E: the press's frame and the round's, with `actor+0xf74`, `actor+0x1160..0x116c` per frame |
 | `SWAP_RUN_FIRE_READING` | a round while running after a hand grenade's swap (section 3.4; LATER 656): the capture fires none in 2 s held, where a run with no swap fires about 0.15 s after the press; nothing read on the swap's path refuses it; unread candidates, all in `FUN_005a7de0` on the fire gate (D:L476442): a stale upper-body overlay `actor+0x1e4` (D:L462681), the action at `+0x1c0` and its `NoFire` window (D:L462620-462675, D:L462698-462706), `+0xeac` (D:L462682), `+0x1060` bit 4 (D:L462683); `actor+0x258` bit 0 (D:L494258) unlikely, its three clears (`FUN_00549c30` D:L414153, `FUN_00549f30` D:L414275, D:L465223) all wall and weapon-line checks | `'fires as with no swap'` (`weaponRaise.ts`) | capture Part E's running trials, with `actor+0x258`, `actor+0xf74` and the envelope per frame |
+
+### 7.6 Readings and placeholders (THREAT-MARKS' build)
+
+Filed 2026-11-09 by THREAT-MARKS (`packages/viewer/src/threatMarks.ts`, `reticle.ts`, `matchNet.ts`; the review's fold the
+same day added `THREAT_SCREENS_HIDE_READING` (F2), mirrored the columns with the rows (F3) and gave the throw's class test
+the live kit's table where the map has none (F4); section 2.6, from
+the scope `agent-mail/evidence/threat-marks/SCOPE.md` (SHA256 3928ec4f5f5c99b7394628a70aff2144839c24b5dd2f2c5c468ab6efe88157b1, 2026-11-09: five readers, two adversarial skeptics and dot (Codex)'s independent r0004 reading and scope review) sections 2 and 4); reading (or placeholder), reviewed: the fresh review and its re-review in the merge fd387c958 and the THREAT-MARKS lane batch review (`agent-mail/evidence/mega/REVIEW-R4B-AND-THREAT-BATCH.md`) -- bar `THREAT_ALPHA_SPLIT_READING` and `THREAT_SCOPED_SETS_READING`, whose re-read the batch review names for neither, so both stay reading, pending review. Research 101 holds their rows (its
+THREAT-MARKS group). A PCSX2 trace of an engagement (the eph harness's PINE probe, the scope's section 2) would promote
+what it measures.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `THREAT_ALIVE_BIT_READING` | the release's alive gate, `local+0xe1` bit 4 (D:L479137): the node constructor sets it (D:L145030), the death path clears it (D:L413024); two other writers, `FUN_003a9930` (D:L300741) and `FUN_003ad680` (D:L303037), unread as to actors | `'the page\'s alive state'` (`WalkMode.isDead`) | read those two functions' callers |
+| `THREAT_AXIS_SCALE_READING` | the components are dot products with the body's row 2 and its cross with up, unnormalized: world units only when row 2 is unit and horizontal | `'unit, yaw-only'`: R2 = (sin yaw, 0, cos yaw) | read the writer of the body matrix's rows `+0x20..+0x28`, or a memory trace of their norm (lean, prone on a slope) |
+| `THREAT_SIDE_HANDEDNESS_READING` | the `+0xf00` branch (`d . C < 0`) is the right-hand side; the draw puts its quad right of the reticle | `'+0xf00 is the right quad'` | one capture with an enemy to the player's right |
+| `THREAT_ALPHA_SPLIT_READING` | the mod-90 split acts on a world-unit component, not an angle (asm 0x5c5604-0x5c5690; four readers agree) | `'component mod 90'` (`ThreatMarks.frame`) | a reviewer's re-read of the release's asm; a capture of a mark's brightness at two ranges |
+| `THREAT_RESET_READING` | the floats and flags are zeroed only by the actor's constructor (`FUN_00553ea0` D:L419569-419588); whether the actor is rebuilt at a respawn or a round is unread | `'at the match load'` (`clearMap`) | read the creation callers D:L455567 / D:L455663 and when they run |
+| `THREAT_SPECTATE_READING` | whether the HUD's actor (`FUN_001fcd70`, the camera target) and the release's target (`FUN_002b3580`) are one actor while spectating, in a seat and across a swap | `'no marks without a team'` | read the camera target's writers (D:L412618, D:L412675) and `DAT_00440c38`'s (D:L455682-455685, D:L410612) |
+| `THREAT_BODY_ORIGIN_READING` | the body matrix's translation `+0x30` the original measures from, and its row 2 | `'the walker\'s feet and the look\'s yaw'` (`WalkMode.feet`, `FlyCamera.pose().yaw`) | redotcom's body-origin research (research 181); a trace of the body matrix against the walker |
+| `THREAT_R4_RADIUS_READING` | r0004's 552SD reach 50 (`+0x34` 2500) over the disc's 400; any other direct store unread | `'only the 552SD, through R4B-10a'`: the page's `soundRadius` is the reader's; R4B-10a's override is there since its merge (ba5716a5c) | scan r0004 for stores at `+0x30/+0x34`; a PCSX2 r0004 read of the records after load (R4B-10a's owed check) |
+| `THREAT_R4_DISC_READING` | whether r0004 ships a different `ret_threat.tif` or `Sound_Radius` table | `'the r0001 disc data'` | compare r0004's data files, or a PCSX2 r0004 read of the records' `+0x30` |
+| `THREAT_FIREARM_GATE_READING` | the meanings of `FUN_005be9a0`'s pre-loop gate (D:L475532-475542) and `owner+0x258` bit 0 (D:L475561), which decide which discharges reach the driver | `'every shot the room sends passes'` | read `FUN_005dee90` and the writers of `owner+0x105c` bit 2 and `owner+0x258` bit 0; a trace of a human and a bot firing |
+| `THREAT_SHOT_FROM_READING` | the release point: the original's GetFP muzzle (`FUN_005df370`, D:L475522) against the room's `shot.from` | `'the room\'s shot.from'` | read `room.ts` `fireAt`'s `from` against GetFP; a trace |
+| `THREAT_QUAD_ORIENTATION_READING` | which way the wedges point: the corner algebra is read (all eight one way); the one bit is `GRENADE_METER_BITMAP_READING`'s, whose one read mirrors the columns with the rows (u 0 the decoded last columns; the review's F3, 2026-11-09: visible on ret_threat's row 5, so the top mark shows its 255s at x 10-12 left of its 169s; `reticleThreat.test.ts`) | `'outward, from GRENADE_METER_BITMAP_READING'` (derived, not a free constant: `threatLayout`'s row order) | the capture that settles `GRENADE_METER_BITMAP_READING`, or one lit mark |
+| `THREAT_ALPHA_SCALE_READING` | the page's opacity for a PS2 alpha (128 opaque) | `128`: opacity = alpha / 128, the peak 0.39 | a capture of a lit mark |
+| `THREAT_SCOPED_SETS_READING` | the draw's guard under sets 4-10 reads `+0x150` of the overlay sprites (triangle 2's vertex-1 red, 128.0, no HUD writer), so the block runs under sets 5-10 (skeptic 2 said `+0x180`; the conclusion the same) | `'laid under sets 5-10'` | a reviewer's re-read of the offset arithmetic and the grep; a PCSX2 read of `hud + set x 0x1f0 + 0x2b10` |
+| `THREAT_SCREENS_HIDE_READING` | (the review's F2, 2026-11-09) whether the original draws the threat sprites under the scoreboard, the tactical map and the round screens: the HUD frame hides `hud+0x11df0` (its vtable +0x18) and calls `FUN_00215180(hud+0x11df0)`, which ends in list `+0x34`'s vtable +0x1c -- the show path's slot (D:L56804-56806), so +0x34 is likely drawn, not hidden -- when `DAT_003dc3e0` is 0 or (online) `FUN_0022cbf0()` answers (D:L56808-56816); which condition is which screen, and whether that hides the third list `+0x4c` (the arms and the threat sprites, D:L71013), are unread | `'hidden with the reticle'` (`reticleShown`'s gates but the death) | a capture of an enemy firing beside the player with the scoreboard (SELECT) and the tactical map up; a PCSX2 read of the sprites' shown flag |
+| `THREAT_DEAD_FADE_READING` | at a death ChangeReticule(-1) hides quads 0-3 only; the relayout runs under set -1 with the previous `Aw`/`Ah`; quads 4-7 fade on | `'quads 0-3 hide, 4-7 keep fading'` (drawn outside the reticle's dead gate) | a capture of a death under fire |
+| `THREAT_LAUNCHER_READING` | a standalone launcher's and a turret's rounds (MGL, M79, LAW, RPG, the MGL turret) light with the round's record (the under-barrel round is read) | `'light, with the round\'s Sound_Radius'` | trace `FUN_005be9a0`'s item-class branches and `FUN_005c5340`'s id switch after D:L479229 |
+| `THREAT_DEATH_DROP_PLACEHOLDER` | whether a remote body's death drop of a cooked grenade lights other consoles' marks (the local chain is read) | `'light'` | read who calls `FUN_00547af0` for a remote body |
+| `THREAT_DOUBLE_THROW_READING` | whether an observing console lights one throw twice (TickExplosives beside FireGrenade) | `'once per grenade event'` | read whether `CRemoteCtrl` kits reach `FUN_005c1970` |
+| `THREAT_RELEASE_GATES_READING` | the throw's `DAT_00650948` and the death drop's `DAT_00650988`: 0x01 in the r0001 ELF, no direct writer | `'pass'` | a pointer table holding either address, or a PCSX2 read of both bytes in a match |
+
+**For the reviewer** (the scope's section 4): re-read the absolute-dot-product components (asm 0x5c5604-0x5c5690), the
+corner pivot and the permutation algebra (D:L254725-254891, D:L254975-255003, D:L259743-259770), the scoped-set guard's
+offset (`+0x150` here against skeptic 2's `+0x180`) and its grep, and the death-drop bit-5 test's extent
+(D:L471762-471778: the scope takes it as wrapping only the ammunition decrement, skeptic 1 as a gate on the marks).
+
+### 7.7 Readings and placeholders (ENEMY-RAISE ER-1's build)
+
+Filed 2026-11-09 by ENEMY-RAISE ER-1 (`agent/er1` off `agent/mega` b70ce48c4; `packages/viewer/src/weaponRaise.ts`,
+`reticle.ts`, `matchFirearm.ts`, `play.ts`'s `WeaponInput`; section 4.1.1 point 7), from the scope
+`agent-mail/evidence/enemy-raise/SCOPE.md` (SHA256 f1982bcdd63a18354379fe408a795e12fe4a5fdfa7dcf79fcfb604ab26ec0327: five
+readers, two adversarial skeptics, dot (Codex)'s r0004 comparison and scope review) sections 1-3; reading (ER-1's fresh review
+PASS WITH FINDINGS (high), in the merge 0b6cf4a17; the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2).
+Research 101 holds their rows (its ENEMY-RAISE group). `AIM_HOLDS_RAISE` (`weaponRaise.ts`, no suffix, so in no ledger) is
+retired: `ctrl+0xc0` is the marked-enemy count, not the aim lane. The seen rate, the sight and the queries stay the named
+placeholders of section 7.5 (`PERCEPTION_SEEN_RATE_PLACEHOLDER` and its two beside it): **until U1 is read the port's
+rifle rises earlier and farther out than the original's, up to the reach** -- a playtest note, not a tuning.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `ENEMY_COUNT_FILTER_READING` | `FUN_005c9b30`'s tests beyond the team word and the mark (D:L482115-482129): every body the page perceives taken as kind 2 (D:L419419; kinds 3 and 4 not perceived, SCOPE U4); the room's alive flag for `+0xe1` bit 4 (SCOPE U15); a led hostage by its welcome-list word, without its leader's rewrite (D:L514835, D:L511801; SCOPE U4); the page's seats and escortees taken unswapped (no `DAT_004412d8` on the page; both exchange together, so the count by side is the same); a seated player only as the observer | `{ kind: 'every perceived body kind 2', active: "the room's alive flag", ledHostage: "the welcome list's word, no leader rewrite", swap: "the page's seats and escortees unswapped", observer: 'a seated player only' }` (`reticle.ts`, `enemyCount`) | the scope's capture (s2.1): runs 5 (a teammate never counted) and 9 (an ESCORT VIP counted for one side), the record columns with each target's kind, `+0xe1` and `+0xc8`; a led hostage in an enemy observer's view on MP6, MP10, MP11 or MP71 |
+| `RAISE_GATE_READING` | `DAT_003df1b0` == 0, under which `FUN_00594cf0` returns before the trigger and the raise (D:L453067-453070) and the count is not refreshed (D:L454091-454095): its one writer `FUN_00598840` (D:L454841) from `FUN_00228ee0` / `FUN_00229520` (D:L78454, D:L78609) and the script op `FUN_005cf800` (D:L485157) -- which screens reach them is unread (SCOPE U16) | `"the page's round screens; the original's screens unread"`: `RaiseInput.gated` fed from the round screens (`matchFirearm.ts` `screens`, OBF-31: only MPExitState ticked); no request, no countdown, no edge, the envelope held where it stands (reading, pending review: the second reader's finding, the level-3 round on the shadow PC, 2026-11-10 -- the raise tick `FUN_005dfc80` (D:L418611) runs only under `+0x417` bit 6 (D:L418531), stored from the controller's tick (vtable +0xc of 0x6694b0, `FUN_00594cf0`; D:L418526-418527), which answers 0 on the gated path (D:L453069, D:L453735); was: the envelope running); the squirm controller (table 0x6699f0, `FUN_005fe880`, used when `DAT_00440c30` is set) always returns 1, so under it the tick would run while gated -- no writer of `DAT_00440c30` found (two reads, D:L155833, D:L156419; an ELF and overlay scan by pattern only), so taken as unreachable in a played match; the page's count is fresh each frame, the original's one stale read at the reopen (U3) not modelled | read `FUN_00228ee0`'s caller (D:L62821) and `FUN_00229520`'s; or the scope's run 10 (r0004 `0x40a378` sampled through a menu with an enemy marked) |
+| `RAISE_TAIL_EXITS_READING` | (the review's F1, 2026-11-09; SCOPE U6 and U13) the player control's other exits before the idle raise tail (D:L453568-453601), not modelled: the mode word `DAT_0043668c + 4` at 1 or 2 (D:L453064), `FUN_005966a0` answering non-zero (D:L453172), and r0004's online freeze -- 0x59aa28's call to 0x32a220 with the network block 0x45d480 answering 0 while net+0x10e is 0 or net+0x100 < net+0x108, then freezing as r0001's `DAT_0045a1ca` does (D:L453125-453145; `R0004_ONLINE_FREEZE`); in each case **the port raises anyway** | `{ modeWord: 'DAT_0043668c+4 at 1 or 2 (D:L453064): not modelled, the port raises', exit005966a0: 'FUN_005966a0 answers non-zero (D:L453172): not modelled, the port raises', r0004Freeze: 'online, net+0x10e == 0 or net+0x100 < net+0x108 (0x32a220): not modelled, the port raises' }` (`weaponRaise.ts`) | `FUN_005966a0` and the mode word read; a writer scan of r0004's net+0x100 / +0x108 / +0x10e, or the scope's capture run 11 (0x45d580, 0x45d588, 0x45d58e through a round start, a respawn and a round) |
+
+**One pilot trial's trace, not yet compared value for value** (filed 2026-11-09; the controller's brief; `agent-mail/evidence/enemy-raise/capture/pilot-o21/` (`probe.csv` SHA256 88039847fbf1ff44ab4f46bf9fe4081078530a6063aa1c1b38364a3cff7ee8a7, `probe.json` 9f4bce8aea219d7e71f055e62b0afb4960fe36405eda4dcc87d166314c14f785; r0004, offline MP51 slot 5, one trial, the movement seat's first capture on the cloud PC through the eph harness's raise columns)). It
+is one trial of one case: nothing here is promoted to proven. *(Read again, row by row, among the 31 trials of the
+comparison below, which promotes what holds; this paragraph kept as written.)*
+- **Pilot trace agrees: the 5.0 s hold.** Turned away, `ctrl+0xc0` fell to 0 (sample at 1568 ms) and the raise state
+  `body+0xf74 & 0xef` went to 2 at 6539 ms, the idle countdown `ctrl+0x234` at -0.005 -- 5.0 s within the sampling; a second
+  clear (13145 ms) lowered at 18183 ms, 5.0 s again.
+- **Pilot trace agrees: the rise one frame after the mark.** Turned back, the count went 0 -> 1 and the state 2 -> 1 at the
+  next sample (12911 ms, both), the trigger edge `ctrl+0x118` at 0 throughout: nothing pressed.
+- **A known difference, named under U1: the flicker.** The original re-decides the mark on every completed query as
+  `+0x18 >= 1.0`, with no hysteresis (D:L482206-482220), so right after a fresh mark the count can fall back to 0 (the trace:
+  233 ms after the mark) and the rifle lowers 5.0 s later. The port's `PERCEPTION_SEEN_RATE_PLACEHOLDER` (Infinity)
+  saturates the record at 2 on the first seen query, so it cannot show that until U1 (the seen rate) is read.
+
+**The capture comparison: what is proven for the measured conditions** (filed 2026-11-09 by ENEMY-RAISE COMPARE,
+`agent/er-compare` off `agent/mega` b322c80b4; the controller's fresh reader, who wrote neither the harness, the captures,
+their records nor ER-1's build). *The evidence*: a live memory trace of the original running (PINE, one row a game frame,
+33.4 ms apart), r0004 (the r0001 disc with the rig's own memory cards) on PCSX2 2.8.2, **offline, MP51 (M51), save-state
+slot 5 restored before every trial** -- the player at (938.2, -145.5, 858.2), yaw 180.0, word 0x84000006, count 1 and the
+rifle up at the load; the marking enemy the post 0x13419a0 (word 0x40000020, kind 2, active), 705 units off (its record's
+`+0x10` 497,399 = 705.3 squared) at bearing 170.3, acc 2.000 and marked -- taken by the movement seat redotcom-30 on the
+owner's second PC, 2026-11-09 07:47-08:10Z, with the harness `agent/eph-raise-oruns` (887eceee9, 343e092e2;
+`tools/eph/probe.ts --raise --yaw-turns`): `agent-mail/evidence/enemy-raise/capture/pilot-o21/` (1 trial),
+`capture/timed/` (`RECORD.md`; `o21-rec1`, `o3-rec1`, `o4crouch-rec1`, `o4move-rec1`, `o5-rec1`, `o21-rec5`, 3 trials
+each; `probe.csv` SHA256 prefixes b1d0d024d666f9fe, 16a03e7820e1132b, 87ee87f885dd5238, a4f644557453f7df,
+ac75d4ef93eff560, 92dec663afa1e670) and `capture/diag/` (`RECORD.md`; `t1-idle`, `t2-exact`, `t3-early`, `t4-edge`, `o3b`,
+`o5b`, 3 trials each; 9d4e3a01b5f25922, 5f84b276945b642e, 8a8783852cf59563, 2e0bfa52d335bd23, 599ff764f033aa76,
+2cb38a14415c4004). *The method*: the CSVs read row by row with the reader's own scripts, not the records' summaries or
+`analyze.py`: untorn rows only (`raiseTorn` 0), each edge bracketed by the untorn row before it, per trial. What holds
+below is **proven for these conditions** (bar the last item, measured but a reading, pending review, until its re-derivation is reviewed) -- offline, one map, one slot, one enemy (the AI post 0x13419a0), a still player
+standing or crouched -- and no harness spec or golden trace holds it yet (`weaponRaise.test.ts` and `reticle.test.ts` hold
+the transcription).
+
+- **Proven: the lower 5.0 s after the count reaches 0, standing and crouched** (`LOWER_DELAY`: `ctrl+0x22c` 5.0 and
+  `+0x230` 0, `FUN_00598280` D:L454808-454809; the idle tail `FUN_00594cf0` D:L453568-453601). 43 lowers in 31 trials
+  (pilot 1, timed 18, `t1`-`t4` 12): on each ungapped fall the count's fall row shows the countdown `ctrl+0x234` still at 5.000 (on the 7 gapped falls the first row with the count at 0 already reads 4.967, the true fall on the missing row), and the
+  raise state goes 1 -> 2 (word 0x12, the 0.5 s out beginning: env3 0.445-0.478) on the first row the countdown reads below
+  0 -- -0.005 on 38, -0.022 on 5 -- with the edge byte `ctrl+0x118` 0 throughout. Row to row: 5.005 s on 31, 5.021-5.022 s
+  on 5 (the 3 crouched, and the 2 second lowers of `o5` trials 2-3 with the Start pause pressed during the countdown), 4.971
+  s on 7 (each with a 66.7 ms gap before the count's row, so the fall is bracketed and 5.005 lies inside it). The countdown
+  is run down by the game's frame time and the lower lands on the frame it is no longer over 0: 5.0 s plus under one frame.
+  **Tolerance: one game frame (33.4 ms) on 5.0 s**; every bracket holds it. The port (`WeaponRaise.update`: the countdown
+  run down by the frame's real seconds from the page frame after the count fell, UP while it is over 0) agrees.
+- **Proven: the rise one frame after the count's 0 -> 1, nothing pressed** (`FUN_00594cf0` D:L453088-453092). 12
+  re-marks (pilot 1, timed 6, diag 5): on the 9 with contiguous rows the count reads 1 with the state still 2 and the
+  countdown still running (-1.607 to -6.512), and on the next row (33.4 ms) the state is 1 (word 0x11, up and moving), the
+  countdown re-armed at 5.000, env3 100000.56; the other 3 straddle a 66.7 ms gap and agree within it. The edge byte 0 and
+  the pad's buttons idle from the row before the count's edge to the rise, in all 12. **Tolerance: +-0 frames on 9, one
+  frame on 3.** The port (the count from `matchFirearm.ts` `perceive`, run after `play.frame`, raised on the next page
+  frame) agrees at the count -- see the mark's lag below for the step before it.
+- **Proven: the mark at acc >= 1.0, with no hysteresis** (`PERCEPTION.threshold` 1, `DAT_00650990`, D:L482210). Over the
+  five-record runs (`o21-rec5`, `t1`-`t4`: 15 trials), on every one of 6,772 untorn rows where 0x13419a0's record was not
+  rejected (flags not 0x002), its mark bit (`+0x2c` 0x200) equals acc >= 1.0: the highest unmarked acc 0.99815, the lowest
+  marked 1.00157, the same bound on rising and on falling crossings (ungapped rises to 1.0016-1.0054 from 0.988-0.998 a row before, a gapped rise landing at 1.0345;
+  falls to 0.9791-0.9965 from 1.004-1.018, `t3-early` t1's ungapped clear 1.0076 to 0.9791 included). **Tolerance: the threshold within (0.99815, 1.00157], one value both ways.**
+  The timed `RECORD.md`'s "marked at acc 1.028 / 1.056, cleared at 0.930 / 0.959" are the acc on the count's edge rows, a
+  frame or two after the mark's own edge (below); the conclusion, no hysteresis, is the same. The port's `Perception.step`
+  agrees.
+- **Proven: the class-'y' override holds the rifle down while an enemy is counted** (`FUN_00594cf0` D:L453598; the port's
+  `input.grenade` taken before the count, `THROW_RIFLE_RAISE_READING`; SCOPE test 3). `diag/o3b`, 3/3, identical rows: the
+  MARK141 (item 123, class 0x79 'y'; the rig's kit has no M67) taken up from the held count, the take-up's Cross first
+  pressed on the 4.137 s row; the raise state 2 (word 0x02) on the next row, 4.170 s, with the count 1; held at 2 for 11.6
+  s while the count stayed 1, the countdown at 5.000 throughout (not run), and still 2 after the count fell at 15.814 s.
+  **Tolerance: +-0 frames, 3/3.** The port (`want = DOWN` whatever the count, the countdown untouched) agrees. Proven for
+  the MARK141; class 'y''s other members are SCOPE U5.
+- **Reading, pending review -- measured against the original running, its re-derivation not yet re-read by a reviewer who did not write it, so not yet proven: a rejected record's decay and its mark cleared at once** (no review of its re-derivation is
+  recorded; the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2 F2) (`PERCEPTION.rejectedDecay` -0.15, `DAT_006509e0`,
+  D:L482556-482566; not among the brief's four, read here because the rows hold it). Turned out of the cone, the record's
+  flags go 0x201 -> 0x002 and its mark clears on that first row (acc 1.990 or 1.980), the count 0 on the same row; then acc
+  falls by **-0.1500 of itself a second** on every one of 2,338 contiguous frame pairs in 12 trials (`o21-rec5`, `t2`-`t4`;
+  the per-pair relative rate's minimum and maximum equal to four places), 2.000 -> 0.937-0.938 at the lower 5.005 s on.
+  The records' "-0.21 /s" and "-0.2 /s" are this decay's mean over 2.0 -> 0.94, not a linear rate. **Tolerance: +-0.00005
+  /s relative.** The port (`acc += -0.15 * acc * dt; marked = false`) agrees.
+
+**A difference from the port, measured (not changed here; for the controller): the count one frame behind a threshold
+mark.** On the 9 crossings with contiguous rows (marks: `o21-rec5` t2, `t2-exact` t2 and t3, `t3-early` t2 and t3; clears:
+`o21-rec5` t3, `t2-exact` t3, `t3-early` t1, `t1-idle` t1) the mark bit changes one row (33.4 ms) before the count, +-0;
+the gapped crossings agree (a row with the mark clear and the count still 1, never the reverse). On a rejection (every turn
+away, the cone's edge) mark and count change on the same row. Consistent with the line order -- the dispatcher counts
+(D:L482101-482132) before it takes the completed queries and sets the marks (D:L482206-482220), while a rejection clears
+in the enqueue pass the player control runs first (D:L453085-453086, D:L482556-482566); that mechanism is an inference
+from the order, reading (ER-1b's review in the merge 6e502ad9f; the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2). The port's `perceive` steps the records and counts them in one pass
+(`matchFirearm.ts`, `enemyCount` after `Perception.step`), so after a threshold mark or clear the port's count -- and its
+rise, or its countdown's start -- runs **one game frame (33 ms) ahead** of the original's; after a rejection it matches.
+A fold would count the previous pass's marks before the step. *(Folded by ER-1b below; this paragraph kept as written.)*
+
+**The count's order, folded (ENEMY-RAISE ER-1b, filed 2026-11-09; `agent/er1b` off `agent/mega` 934a501b6; reading,
+reviewed in the merge 6e502ad9f and the lane batch, for the mechanism).** The port now follows the measured order: `matchFirearm.ts` `perceive` steps the
+enqueue pass's outcomes first (a rejected record decayed and its mark cleared, an inactive one cleared, one beyond the
+reach left), then takes the count (`enemyCount`) from the marks as they then stand, then steps the frame's completed
+queries (`seen` / `unseen`: the accumulator and the mark at `+0x18 >= 1`). The order is the source's: `FUN_005c9b30`
+zeroes `ctrl+0xc0` (D:L482090) and, per record, counts a mark bit 0x200 already set on an active target with no shared
+team bit (D:L482112, D:L482115-482132) before it takes that record's completed query, re-decides the mark and writes it
+through slot +0xac (D:L482204-482220); a target not active is not counted and is cleared (D:L482176); a rejection is
+cleared earlier in the frame by the enqueue pass the player control runs before the count is read (`FUN_00594cf0`
+D:L453085-453086 -> `FUN_005ca9f0` D:L482555-482566, which also drops the record's query). **Proven for the measured
+conditions** (the 9 ungapped threshold crossings above, the count a row after the mark, +-0; every rejection on the same
+row): after a threshold mark or clear the port's count, and the rise or the countdown's start it feeds, now lands one
+frame after the mark, as the original's does; after a rejection or a death mark and count fall together. The mechanism
+(the line order inside `FUN_005c9b30`, D:L482131 before D:L482220, is read) is a reading (ER-1b's review in the merge 6e502ad9f; the ENEMY-RAISE lane batch review, `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 2); the order BETWEEN the two passes -- the controller's slot +0xc (`FUN_00594cf0`, the enqueue/rejection pass) before the body update's slot +0x3c (`FUN_005506a0` D:L417905 -> `FUN_005970b0` -> `FUN_005c9b30`) within a frame -- is NOT traced in the source: it is inferred from the capture's same-row rejections only; what would settle it is the frame loop's caller of slot +0xc against its caller of `FUN_005506a0`. Held by `matchFirearm.test.ts` (the three
+ER-1b cases; the three RED 7 cases now take a second frame before the count reads 1). U1, the sight and the query
+schedule are untouched (`PERCEPTION_SEEN_RATE_PLACEHOLDER`, `PERCEPTION_SIGHT_PLACEHOLDER` -- since SIGHT-POINTS `PERCEPTION_SIGHT_READING`, its points the posed nodes, section 4.1.1 point 8 --, LATER 793).
+
+**Kept as readings, with the new evidence:**
+- **The cone** (`PERCEPTION.apex` 25, `fov` 80 degrees; `FUN_005c9520`, `FUN_005cc120` D:L483236-483254). `t4-edge` (2
+  degrees a step), 3/3: the count drops at 42.4 / 44.8 / 42.8 degrees off the post by the body's yaw (`raiseYaw`, body
+  `+0x50`), the last counted yaw 40.7 / 42.4 / 41.4 -- the edge in (40.7, 42.4], (42.4, 44.8], (41.4, 42.8], twice a frame
+  after the yaw's step. The reading is not a bare 40-degree half-angle: its radius 25 at the eye widening by tan 40 puts the
+  edge for a target 705 units off at 40 + asin(25 cos 40 / 705) = 41.56 degrees, 1-3 degrees inside the measured drops --
+  the side a camera trailing the body's turn would give. But the vector the cone measures from is unread: the camera's eye
+  and forward (the reading) against the body's yaw (the column); `raiseView` (body `+0x38..+0x40`) read 0, 0, 0 throughout,
+  not it. The fast turns' 49.1 degrees standing (timed, 18/18 at the same row) is that lag at speed; crouched the drop came
+  at 40.6 degrees (+30.9 from 180), under 41.56, unexplained. Stays a reading; a column of the camera's forward settles it.
+- **U1, the seen rate** (`PERCEPTION_SEEN_RATE_PLACEHOLDER`, Infinity, stays a placeholder). Samples, 0x13419a0 at 705
+  units, the player still: seen and unmarked while the post walks, +0.26 to +0.28 /s (per-frame medians, `o21-rec5` t2-t3,
+  `t2-exact` t3, 11.3-13.0 s); `t3-early` (back at 7 s, the post plainly in sight), 0.815 -> 0.998 in about 0.6 s (+0.3 /s)
+  then 1.0 -> 2.0 in about 0.8 s (+1.2 /s mean, per frame up to +2.4 /s) at a still yaw -- not one rate for one target,
+  as the reading's product (lighting, the target's motion and stance, smoke, the record's `+0x100` bit) allows. The diag
+  `RECORD.md`'s "+0.6 to +1 /s" is the 7-9 s mean. What they suggest: from empty the original marks this post in roughly
+  0.4-3 s where the port marks on the first seen query, so the port's rifle rises that much earlier; the post's own walk
+  ends every trial's sight by about 13 s. **A fold is owed** (the composite read, or a rate measured per condition); it is
+  not made from these samples. Beside it, the in-cone unseen fall (flags 0x001) ran -0.84 to -1.10 /s a frame (medians
+  -0.88 to -1.00) against the read -1 /s (`unseenRate` x `rateScale`): within about 15%, the shortfall unexplained
+  (the query's elapsed time, `PERCEPTION_QUERY_PLACEHOLDER`, or a visibility over 0); a reading.
+- **O4, stance and motion: untested.** No re-mark in the crouched (3) or moving (3) trials; crouched, only the lower
+  (above) and the cone's drop were measured. *(Tested since on T3's timing: the O4 block below; this bullet kept as written.)*
+- **O5, the gate: untested offline** (`RAISE_GATE_READING`). The sampler writes a row only when the guest clock moves, so
+  no row falls inside a pause; the gate byte reads 1 on every row of every trial, and across a 3 s pause (`o5b`) the count
+  and the state are unchanged.
+- **O1, the re-mark's timing: scene-limited.** **6 of the 18 timed trials re-marked** (`o21-rec1` t2-t3, `o5` t2-t3,
+  `o21-rec5` t2-t3; the timed `RECORD.md` says 4 of 15, but its own `summary.txt` lists `o21-rec1` t2-t3 re-marked at
+  12.979 s), all at 12.78-13.05 s case time, 1.50-1.54 s after the turn back came within 3 degrees, each count falling
+  again 0.17-0.50 s later with the yaw unchanged (0.500 s in `o21-rec1` t2-t3, which the record's "0.17-0.47" leaves
+  out). That is the clock of the post's own walk out of sight (diag `RECORD.md`: a scene effect), not a delay: `t1-idle`
+  holds acc 2.0 to about 12 s with the yaw fixed and loses the post from 13 s; `t3-early` (back at 7 s) re-marked at
+  8.11-8.17 s, about 1.1 s after its turn began. A re-mark delay is not claimed; time O1 only before about 11 s.
+- **The count's filter** (`ENEMY_COUNT_FILTER_READING`): with five of the body's 12 records read, the teammate 0x12ec780
+  (word 0x84000006, the body's own) marked on 4,516 rows with no enemy marked, and the count 0 on 4,510 of them (the 6 the
+  mark's one-frame lag), 15 trials: the shared-bit test observed for one teammate; kinds 3 and 4, a led hostage and an
+  ESCORT VIP untested. Stays a reading.
+
+**O4 on T3's timing: the observer crouched and moving** (filed 2026-11-09 by the movement seat redotcom-30 for the
+controller, from the rows of `agent-mail/evidence/enemy-raise/capture/o4/`: `o4-crouch/probe.csv` SHA256 prefix
+39b15ab43eb8990f, `o4-move/probe.csv` d57a4e37fb95bc25). The capture: r0004 offline, MP51 slot 5, five records, 3 trials
+each, scripts `raise-o4b-crouch.txt` and `raise-o4b-move.txt` on `agent/eph-raise-oruns` ee4b5d582. `o4-move` turns away
+at 1 s and `o4-crouch` at 1.5 s (`run.sh`'s `--yaw-turns`) to the slot's yaw + 70, and each turns back from 7 s to the
+slot's yaw. Crouched: a light Triangle at 0.5 s. Moving: the left
+stick left 8.0-9.5 s, then right 9.6-11.1 s. The method: untorn rows only, the post 0x13419a0's record, read with the
+seat's own script. Re-read by a fresh reader: `agent-mail/evidence/enemy-raise/reviews/O4-FILING-READS.md`, FAIL then PASS
+WITH FINDINGS (high), folded at a156a0e08; nothing here is promoted.
+
+- **The approach to the mark, standing, before the strafe** (`o4-move`, 3/3).
+  - The turn back came within 3 degrees at 7.77-7.81 s, with acc 0.876-0.887.
+  - The count went 0 -> 1 at 8.174 s. acc read 0.989-1.010 on the row before and 1.025-1.034 on the edge row.
+  - That is about +0.3 to +0.4 /s over 0.37-0.40 s, as `t3-early`'s +0.3 /s below the mark (above).
+  - It is one point: a standing AI target in plain sight about 705 units off, a still standing observer, below the mark.
+    Above the mark `t3-early` ran +1.2 /s, so it is not one rate.
+  - The movement seat's diag figure of "+0.6 to +1 /s" is superseded by these; it was the 7-9 s mean (above).
+- **Crouched observer: the post is not seen from that spot** (`o4-crouch`, 3/3).
+  - With the crouch done (posture 1 from 0.70-0.93 s), about 1.0 s in, acc leaves 2.000 and falls at about -0.6 to
+    -0.65 /s while the post is still in the cone and marked (flags 0x201; trial 2: 1.920 at 1.10 s, 1.664 at 1.50 s).
+    This happens before the turn away at 1.5 s; during the turn the fall steepens to about -0.73 /s.
+  - The turn away then clears the count at 2.0-2.2 s, with acc 1.27-1.33.
+  - Turned back (within 3 degrees at 7.77-8.11 s, acc 0.32-0.36) and in the cone (flags 0x001), acc falls to 0 within
+    about 0.5 s and stays 0 to the case's end: no re-mark.
+  - The reading's sight ray starts at the observer's posed head node (section 4.1.1 point 8, SIGHT-POINTS; dot (Codex)'s
+    report 8b1f34e1, LATER 793), which the crouch lowers. The capture is consistent with that; the occluder is not
+    identified (an inference).
+- **Moving observer: the post goes unseen for spells during the strafe** (`o4-move`, 3/3).
+  - The mark at 8.174 s came 0.17 s into the strafe.
+  - The count fell back at 8.408-8.441 s, acc 0.975-0.994 -> 0.925-0.966.
+  - acc fell to about 0.2 by 9.1 s, then rose again in the cone (flags 0x001) at about +0.15 to +0.21 /s from about 9.1
+    to 9.9 s (trial 1: 0.252 at 9.108 s to 0.401 at 9.809 s), then fell at about -0.9 to -1.3 /s to 0 by 10.21-10.28 s. No
+    re-mark; trial 1 shows a blip to 0.028 at 11.5-11.8 s with the count still 0. Standing still, `t3-early` climbed to
+    2.0 by 9 s.
+  - So the strafe both removed the sight for spells and, where the post was seen, came with about half the standing
+    approach rate. Inconclusive for the motion term: no read term of the composite takes the observer's motion (below), so this is
+    consistent with the head node moving with the body, or with the strafe's path crossing an occluder (not identified).
+- **U1's formula stays a reading** (`PERCEPTION_SEEN_RATE_PLACEHOLDER` stays).
+  - `FUN_0060aa20` (D:L516122-516250) starts the rate at -1.0 and takes the positive composite only when
+    `FUN_0060b120`'s visibility is over 0.
+  - Its stance term (`FUN_0058a720`: 1 gives x0.5, 2 gives x0) and its speed term (`+0x38..+0x40`) are the TARGET's, as
+    is the light sampled at the target's position (`FUN_0031d940`).
+  - The observer enters chiefly through the ray's start and a x0.1 while its body is in action 0xbe (`FUN_005b98c0`,
+    unidentified); also through `FUN_0053aef0`'s seed from its `+0x4` (D:L516161, unread) and `+0x18` of its controller's
+    `+0xd0`, i.e. `+0xe8` (D:L516248, `PERCEPTION.rateScale`).
+  - The offline AI captures cannot vary the target, so they give one point, not the terms.
+  - **Settles it:** run 8 of the scope's section 2.1 (two clients, a person at client B: dim and bright, crouched and
+    standing, still and moving), with a `+0x18` slope per condition.
+
+**For the reviewer** (the scope's section 4): re-read at the source D:L453088-453092, D:L482090-482132 (with D:L482112) and
+D:L453568-453601; the gate D:L453067-453070 and D:L454091-454095; and, for ER-2, the wire D:L161978 and D:L162310-162312.
 
 ## 8. Against earlier notes (history kept; those notes are not edited by this row)
 
@@ -983,7 +1357,9 @@ review.
   ground (x and z) and also gates the red (section 4.1). Its "(130, 130, 130) past a launcher's range" was corrected by
   research 94 R94.16; the two more greys and the empty black are new here.
 - **Research 91 section 6's "damage-direction markers ... none (no strings, no HUD element)"** meets the eight `ret_threat` marks
-  (2.6): not settled here; for that row's owner.
+  (2.6): **answered** by THREAT-MARKS (2026-11-09): there is no damage-direction marker, and there are eight threat marks
+  that light toward an enemy's release within reach -- fire and throws, hit or miss (section 2.6). Was: "not settled
+  here; for that row's owner".
 
 ## 9. Evidence, apart
 

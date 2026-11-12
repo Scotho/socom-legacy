@@ -1,8 +1,9 @@
 /**
  * The console launcher's marks and pad glyphs, as the S2U Briefing design system's "Console launcher" prototype draws
- * them (its `P` paths, `ico`, `GLYPH`, `btn`, `DP`, `dpad`, `shoulder`, `shoulders`, `EMBLEM`, `esc`). The design's own
- * set, kept apart from the modern launcher's (`../modern/icons`). A browser adaptation with no original (the project's
- * launcher page, OT.R28): nothing of the game is drawn.
+ * them (its `P` paths, `ico`, `GLYPH`, `btn`, `DP`, `dpad`, `shoulder`, `shoulders`, `esc`; RB-29 drew the brand as
+ * the logo image, and RB-45 took the prototype's `EMBLEM` out). The design's own set, kept apart from the modern
+ * launcher's (`../modern/icons`). A browser adaptation with no original (the project's launcher page, OT.R28): nothing
+ * of the game is drawn.
  */
 export const P = {
   home: '<path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/>',
@@ -32,6 +33,8 @@ export const P = {
   volume: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/>',
   news: '<rect x="4" y="4" width="16" height="16"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  /** DSH-10 (DSH.R17): "Send Game Files" and "SEND DISC" -- the download mark's line turned up (the files leave this device). */
+  upload: '<path d="M12 15V3m-5 5 5-5 5 5M4 16v5h16v-5"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
   lock: '<rect x="5" y="11" width="14" height="10"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   signout: '<path d="M10 4H4v16h6M15 8l4 4-4 4M19 12H9"/>',
@@ -40,6 +43,8 @@ export const P = {
   check: '<path d="m5 12 5 5 9-10"/>',
   alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  // B206 ML-2: the Mods row and screen -- a box, drawn in the set's own line (no outside art).
+  package: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>',
   // CX-PERSONA: the rank's stand-in before the disc is in -- the modern set's authored star (`../modern/icons` `star`,
   // MU-3), the same path; with the disc in, the disc's own medal picture is drawn instead.
   star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z"/>',
@@ -104,8 +109,6 @@ export const dpad = (dir: 'h' | 'v'): string =>
 export const shoulder = (k: string): string => `<span class="cx-shoulder ${/2$/.test(k) ? 'is-trigger' : ''}" data-menu-glyph="${esc(k.toLowerCase())}"><span class="cx-label">${k}</span></span>`;
 
 export const shoulders = (ks: string): string => `<span class="cx-shoulders" aria-hidden="true">${ks.split(' ').map(shoulder).join('')}</span>`;
-
-export const EMBLEM = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="2" y="2" width="60" height="60" rx="6" fill="#000e11" stroke="#c4a04a" stroke-width="3"/><circle cx="32" cy="32" r="21" fill="none" stroke="#786e3b" stroke-width="2.5" stroke-dasharray="26 7"/><path d="M15 32h6M43 32h6M32 11v5M32 48v5" stroke="#786e3b" stroke-width="2.5" stroke-linecap="round"/><path d="M21 45 29.5 19H36L27.5 45Z M31 45 39.5 19H46L37.5 45Z" fill="#dcb85c"/></svg>';
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 

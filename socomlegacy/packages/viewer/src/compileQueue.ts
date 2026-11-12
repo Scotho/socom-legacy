@@ -16,25 +16,39 @@ export interface CompileJob {
 
 export class CompileQueue {
   private readonly jobs: { job: CompileJob; resolve: () => void }[] = [];
+  /**
+   * FLASH-GLOW-BODIES (product track, a renderer warm-up): the low-priority tail -- the glow context's compiles
+   * (`./renderer` `prepare`), wanted only by a later flash -- run only while no ordinary job waits, within the same lanes.
+   */
+  private readonly tail: { job: CompileJob; resolve: () => void }[] = [];
   private running = 0;
 
   constructor(private readonly lanes: number) {}
 
   /** In flight now (for tests and the stats). */
   get active(): number { return this.running; }
-  /** Waiting. */
-  get waiting(): number { return this.jobs.length; }
+  /** Waiting, the tail's included. */
+  get waiting(): number { return this.jobs.length + this.tail.length; }
 
-  /** Queues `jobs` behind everything already asked for; resolves when all have run or been dropped as stale. */
-  add(jobs: readonly CompileJob[]): Promise<void> {
-    const done = jobs.map((job) => new Promise<void>((resolve) => { this.jobs.push({ job, resolve }); }));
+  /**
+   * Queues `jobs` behind everything already asked for -- or, with `tail`, behind every ordinary job, asked now or later;
+   * resolves when all have run or been dropped as stale.
+   */
+  add(jobs: readonly CompileJob[], options: { tail?: boolean } = {}): Promise<void> {
+    const into = options.tail ? this.tail : this.jobs;
+    const done = jobs.map((job) => new Promise<void>((resolve) => { into.push({ job, resolve }); }));
     this.pump();
     return Promise.all(done).then(() => {});
   }
 
+  /** The job that leads: the ordinary queue's first, else the tail's. */
+  private lead(): { job: CompileJob; resolve: () => void }[] | null {
+    return this.jobs.length > 0 ? this.jobs : this.tail.length > 0 ? this.tail : null;
+  }
+
   private pump(): void {
-    while (this.jobs.length > 0 && this.running < (this.jobs[0]!.job.lanes ?? this.lanes)) {
-      const { job, resolve } = this.jobs.shift()!;
+    for (let from = this.lead(); from && this.running < (from[0]!.job.lanes ?? this.lanes); from = this.lead()) {
+      const { job, resolve } = from.shift()!;
       if (job.stale?.()) { resolve(); continue; }
       this.running++;
       let work: Promise<void>;

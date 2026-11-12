@@ -319,7 +319,7 @@ service only. The proven level is ONL-32's transcript of the same action compare
   row's rank icons by the whole of GameStats byte 7, a game ends with its host seated or not (`gamesHostedBy`), the
   watcher's password and seats, OT.R16 through GameStats byte 8, the report checked as the create, BACK's two leaves
   on the endpoint, the `identify` contract (research 154 §1, §10). `maps: []` offers every map (`main.ts`'s
-  convention): **the first release's deployment MUST set `MAPS=MP2,MP7,MP51,MP72`** (OT.R16, OT.R45; `deploy/env.example`).
+  convention): **the release's deployment MUST set `MAPS=MP1,MP2,MP6,MP7,MP12,MP51,MP71,MP72`** (OT.R16, OT.R45, V13-2, V13-3, DF-14; the live line is the deploy's env).
 - **Gap:** the room set, the list, join rules, filters. *(Since research 154: the capture compare (ONL-32), the
   GameStats layout past the bytes the lists read, the endpoint's mounting with a session (SVC-07a).)*
 - **Acceptance:** server tests whose list rows equal what the recomp shows for the same games (`B_43`: "1 16 / 0 8 /

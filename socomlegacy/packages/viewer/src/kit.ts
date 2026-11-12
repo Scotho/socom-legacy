@@ -108,8 +108,9 @@ export interface KitHost {
   /** `m_item` changed: the anim set, the fire's record, the reticle, the icon, the sounds follow. */
   item(item: Firearm): void;
   /**
-   * A swap began (`FUN_005c4b10`): the trigger lets go and the zoom's record is the new slot's (`main.ts` `switchZoom`;
-   * a step into the scope this tick goes again against it, and the view it reaches stays up).
+   * A swap began (`FUN_005c4b10`): the zoom's record is the new slot's (`main.ts` `switchZoom`; a step into the scope this
+   * tick goes again against it, and the view it reaches stays up). The trigger stays held (TRIGGER-SWAP fold: the switch
+   * leaves +0x118 and the pull count +0x818, D:L478779-478936; research 211 §10).
    */
   started?(to: Firearm): void;
   /**

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { roundStreamGains, type RenderedSound } from '@s2u/sound';
+import { TUNER_DEFAULTS, roundStreamGains, type RenderedSound } from '@s2u/sound';
 import { WebAudioOut } from '../src/audio';
 
 /**
@@ -131,4 +131,30 @@ describe('WebAudioOut on another output\'s context (MATCH-SOUND: one AudioContex
     expect(Ctx.made).toHaveLength(1);
     expect(menus.unlocked).toBe(true);
   });
+});
+
+
+it('re-levels the existing stream matrix from silence and releases live callbacks on every stop path', () => {
+  g.AudioContext = Ctx;
+  const out = new WebAudioOut(); out.prepare();
+  const ctx = Ctx.made[0]!;
+  let level = 0, reads = 0;
+  const live = () => { reads++; return roundStreamGains(1, 2, { ...TUNER_DEFAULTS, music: level }); };
+  out.playStream(tone(), live(), 1, live);
+  out.playMusic(tone(), 0, live(), 1, live);
+  const matrix = ctx.nodes.filter(n => n.kind === 'gain' && (n.to[0] as FakeNode)?.kind === 'merge');
+  expect(matrix).toHaveLength(8);
+  const originalSources = sources(ctx);
+  for (const next of [0, 0.25, 0.5, 0.75, 1]) {
+    level = next; out.refreshStreams();
+    const gains = roundStreamGains(1, 2, { ...TUNER_DEFAULTS, music: level });
+    expect(matrix.map(n => n.gain!.value)).toEqual([...gains.left, ...gains.right, ...gains.left, ...gains.right]);
+    expect(sources(ctx)).toEqual(originalSources);
+  }
+  originalSources[0]!.onended!();
+  let before = reads; out.refreshStreams(); expect(reads - before).toBe(1);
+  out.stopMusic(); before = reads; out.refreshStreams(); expect(reads).toBe(before);
+  out.playStream(tone(), live(), 1, live); out.stopTransient(); before = reads; out.refreshStreams(); expect(reads).toBe(before);
+  out.playStream(tone(), live(), 1, live); out.playMusic(tone(), 0, live(), 1, live);
+  out.dispose(); before = reads; out.refreshStreams(); expect(reads).toBe(before);
 });

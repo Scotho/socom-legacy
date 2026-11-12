@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { probeGround, selectFloor } from '@s2u/scene';
-import { groundGrid, groundPolygons, STEEP_FLOOR_CONTACT_READING, STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
+import { groundGrid, groundPolygons, STEEP_FLOOR_CONTACT_READING, probeLiftOf, Walker } from '../src/mover';
 import { simMapFromBytes } from '../src/simMap';
 import { Traversal } from '../src/traversal';
 
@@ -58,13 +58,13 @@ describe('the near-vertical floor push (r0004)', () => {
     const body = (yaw: number): Walker => {
       const w = new Walker(grid);
       w.driver = new Traversal(grid, polys);
-      expect(w.place(SPOT[0], SPOT[1] + STEP_PROBE_LIFT_READING, SPOT[2])).toBe(true);
+      expect(w.place(SPOT[0], SPOT[1] + probeLiftOf('stand'), SPOT[2])).toBe(true);
       w.state.yaw = yaw;
       return w;
     };
 
     it('the spot\'s floor is the near-vertical face', () => {
-      const floor = selectFloor(probeGround(grid, SPOT[0], SPOT[2]), SPOT[1] + STEP_PROBE_LIFT_READING, SPOT[1]);
+      const floor = selectFloor(probeGround(grid, SPOT[0], SPOT[2]), SPOT[1] + probeLiftOf('stand'), SPOT[1]);
       expect(floor?.normal[1]).toBeLessThan(STEEP_FLOOR_CONTACT_READING.normalY);
     });
 
@@ -74,7 +74,7 @@ describe('the near-vertical floor push (r0004)', () => {
         w.tick({ forward: 0, right: 0, boost: false });
         const moved = Math.hypot(w.state.x - SPOT[0], w.state.z - SPOT[2]);
         expect(moved).toBeGreaterThan(3);
-        const floor = selectFloor(probeGround(grid, w.state.x, w.state.z), w.state.y + STEP_PROBE_LIFT_READING, w.state.y);
+        const floor = selectFloor(probeGround(grid, w.state.x, w.state.z), w.state.y + probeLiftOf('stand'), w.state.y);
         expect(floor!.normal[1]).toBeGreaterThan(0.9);                // on canal_wc11
       });
     }
@@ -105,7 +105,7 @@ describe('the near-vertical floor push (r0004)', () => {
     });
 
     it('the spot\'s floor is wc11\'s stair ramp, its corner at the snap\'s store, no near-vertical face', () => {
-      const floor = selectFloor(probeGround(grid, SPOT[0], SPOT[2]), SPOT[1] + STEP_PROBE_LIFT_READING, SPOT[1]);
+      const floor = selectFloor(probeGround(grid, SPOT[0], SPOT[2]), SPOT[1] + probeLiftOf('stand'), SPOT[1]);
       expect(floor!.owner.path).toBe('worldmodel/wc11');
       expect(floor!.normal[1]).toBeGreaterThan(0.8);
       const corner = [...floor!.poly.points].map((v) => Math.round(v * 1000) / 1000);
@@ -115,7 +115,7 @@ describe('the near-vertical floor push (r0004)', () => {
     it('the bot\'s case: its patrol leg walks off the spot, nothing held', { timeout: 60_000 }, () => {
       const w = new Walker(grid);
       w.driver = new Traversal(grid, polys);
-      expect(w.place(SPOT[0], SPOT[1] + STEP_PROBE_LIFT_READING, SPOT[2])).toBe(true);
+      expect(w.place(SPOT[0], SPOT[1] + probeLiftOf('stand'), SPOT[2])).toBe(true);
       w.state.yaw = (Math.atan2(-(1529.8 - SPOT[0]), -(696.1 - SPOT[2])) * 180) / Math.PI;
       for (let i = 0; i < 30; i++) w.tick({ forward: 0.85, right: 0, boost: false });
       expect(Math.hypot(w.state.x - SPOT[0], w.state.z - SPOT[2])).toBeGreaterThan(3);

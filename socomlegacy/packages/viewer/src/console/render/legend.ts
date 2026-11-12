@@ -1,15 +1,17 @@
 import { btn, dpad, esc, ico, shoulders, type FaceButton } from '../icons';
 import { closesOnly, extractButtons } from './extract';
-import { REMAP_DEAD_ROW, REMAP_STANCE_ROW, remapBindOfRow, remapExtraAt } from './remap';
+import { REMAP_STANCE_ROW, remapBindOfRow, remapDeadRow, remapExtraAt } from './remap';
 import { fieldMeta, personaItems } from './profile';
 import { customItems, lobbyRoomItems } from './lobbies';
 import { overlayDiscLine, sourceMenuHtml } from './home';
-import { senderButtons } from './discShare';
-import { SHARE_RETRY, SHARE_ROW_VERB } from '../../discShareWords';
+import { senderButtons, shareCrossWord } from './discShare';
+import { SEND_BACK, SEND_CLOSE, SEND_COPY_LINK, SEND_NO, SEND_ROW_VERB, SEND_STOP, SEND_YES, SHARE_ROW_VERB } from '../../discShareWords';
+import { COPY_LAUNCHER_ADDRESS, installCopyOffered } from '../../pwa/install';
 import {
-  CATS, DISC_SOURCES, PLAY_LABEL, PLAY_NEED_WORDS, RESUME_LABEL, canChangeRow, canResetRow, deployChecks, isToggleRow, optRowsNow, LOADOUT_SAVE_ROW, PERSONA_DELETE_ROW, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW, PERSONA_NEW_GENDER_ROW, cardNames, discSource, homeItems, inert, loadoutRows, loadoutSideItems, optCategories, overGame, playNeed, replayRows, replayStatus, roomFull, roundRunning, selectedRoom, serverItems, startLabel,
+  CATS, DISC_SOURCES, MODS_DROP_ROW, MODS_FIRST_PACK_ROW, MODS_TEXTURE_ROW, modsTestHdRow, PLAY_LABEL, PLAY_NEED_WORDS, RESUME_LABEL, canChangeRow, canResetRow, deployChecks, isToggleRow, optRowsNow, LOADOUT_SAVE_ROW, PERSONA_DELETE_ROW, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW, PERSONA_NEW_GENDER_ROW, cardNames, discSource, homeItems, inert, loadoutRows, loadoutSideItems, optCategories, overGame, playNeed, replayRows, replayStatus, roomFull, roundRunning, selectedRoom, serverItems, startLabel,
   startReady, visibleRooms, browseRows, BROWSE_CUSTOM, type Adapters, type Button, type ConsoleState, type LoadoutLocked,
-  DEPLOY_NEED_WORDS, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW,
+  DEPLOY_NEED_WORDS, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SEND_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW,
+  sendAt, sendInMenu, sendState, sendTargets, SEND_MENU_ROW,
 } from '../state';
 
 /**
@@ -84,7 +86,14 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
   }
   if (s.overlay === 'states') { add('cross', 'Toggle', 'cross'); add('circle', 'Close', 'circle'); return false; }
   if (s.overlay === 'confirm') { add('cross', 'Choose', 'cross'); add('circle', 'Cancel', 'circle'); return false; }
-  if (s.overlay === 'install') { add('dpad-v', 'Scroll', null); add('circle', 'Close', 'circle'); return false; }
+  if (s.overlay === 'install') {
+    // RB-45 (b): Cross is Copy launcher address where the dialog offers it (`../grammar`); elsewhere Cross does not
+    // install (a pad press is not a user activation) and no prompt names it.
+    if (installCopyOffered(a.options.installSurface?.() ?? 'other')) add('cross', COPY_LAUNCHER_ADDRESS, 'cross');
+    add('dpad-v', 'Scroll', null);
+    add('circle', 'Close', 'circle');
+    return false;
+  }
   if (s.overlay === 'share') {
     // DSH-5 (DSH.R12): the sender's dialog -- Cross the focused button, Circle the last (No, Stop or Close).
     const v = a.discShare?.sender();
@@ -108,13 +117,39 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
     const it = homeItems(cat.id, s, a)[s.item[s.cat] ?? 0];
     // CX-16: the disc source dropdown open (the confirm's words) -- over the overlay's Disc action, or (LR-23) beside the
     // launcher page's disc chip.
-    if (s.src.open) { add('cross', 'Choose', 'cross'); add('circle', 'Close', 'circle'); return false; }
+    if (s.src.open) {
+      // DSH-11: on SEND DISC, Cross is Send where it can (a disabled one's press says why, unprompted).
+      const send = s.src.row === SEND_MENU_ROW && sendInMenu(s, a);
+      if (!send) add('cross', 'Choose', 'cross');
+      else if (sendState(a).ok) add('cross', SEND_ROW_VERB, 'cross');
+      add('circle', 'Close', 'circle');
+      return false;
+    }
     if (s.thm.open) { add('cross', 'Choose', 'cross'); add('circle', 'Close', 'circle'); return false; }   // LR-13: the theme drop-up
     // LR-36 (LR.R30): Play's "Before you deploy" panel -- Cross named by the focused row (the disc's verb, Check, Deploy or
     // what Deploy still needs, Open), Circle Back; the panel holds the pad, so nothing else is offered.
+    if (s.chk.open && s.chk.send) {
+      // DSH-10 (DSH.R17; RB-27's map): the send area -- Cross by its focus (Copy link on the link, Yes on a request asked),
+      // Square No on a request, Triangle Stop while a copy runs, Up / Down between them, Circle closes it (the share ends).
+      const v = a.discShare?.host?.();
+      if (v) {
+        const at = sendAt(s, v);
+        const req = at?.startsWith('req:') ? v.pending.find((r) => `req:${r.id}` === at) : undefined;
+        if (at === 'link') add('cross', SEND_COPY_LINK, 'cross');
+        else if (req?.state === 'asked') add('cross', SEND_YES, 'cross');
+        if (req) add('square', SEND_NO, 'square');
+        if (v.active) add('triangle', SEND_STOP, 'triangle');
+        if (sendTargets(v).length > 1) add('dpad-v', 'Choose', null);
+      }
+      // The review's F2: Stop sharing only while there is a share (its link made or being made); else Back.
+      add('circle', v?.phase === 'open' || v?.phase === 'opening' ? SEND_CLOSE : SEND_BACK, 'circle');
+      return false;
+    }
     if (s.chk.open && s.chk.share) {
-      // DSH-5 (DSH.R12): the share's area -- Cross its Try again after a failure, Circle Back to the rows.
-      if (a.discShare?.receiver().phase === 'failed') add('cross', SHARE_RETRY, 'cross');
+      // DSH-5 (DSH.R12): the share's area -- Cross its Try again after a failure (RB-26: Ask again after a host's No),
+      // Circle Back to the rows.
+      const cross = a.discShare ? shareCrossWord(a.discShare.receiver()) : null;
+      if (cross !== null) add('cross', cross, 'cross');
       add('circle', 'Back', 'circle');
       return false;
     }
@@ -126,7 +161,9 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
           : row === LAUNCH_DEPLOY_ROW ? (need ? DEPLOY_NEED_WORDS[need] : 'Deploy')
             : row === LAUNCH_SKIP_ROW ? 'Toggle'   // SKIP-MENU (LR.R33): a toggle row's word (LR-13)
             : row === LAUNCH_PADSET_ROW ? 'Open'
-              : row === LAUNCH_SHARE_ROW && a.discShare ? SHARE_ROW_VERB : '';   // DSH-5 (DSH.R12)
+              // DSH-10: Send only where it can (a disabled row's Cross says why on the error line, unprompted).
+              : row === LAUNCH_SEND_ROW && a.discShare ? (sendState(a).ok ? SEND_ROW_VERB : '')
+                : row === LAUNCH_SHARE_ROW && a.discShare ? SHARE_ROW_VERB : '';   // DSH-5 (DSH.R12)
       if (cross) add('cross', cross, 'cross');
       // Setup onboarding (ZjCZXTTW): the Disc row's two sources, switched by Left / Right where the source can be.
       if (row === LAUNCH_DISC_ROW && deployChecks(s, a)[0]?.source) add('dpad-h', 'Disc source', null);
@@ -179,6 +216,17 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
     if (it) add('cross', it.verb, 'cross');
     add('circle', 'Back', 'circle');
     add('square', 'Refresh', 'square');
+  } else if (s.screen === 'mods') {
+    // B206 ML-2: the MODS screen. The focused row says what Cross does; a pack's Square removes it.
+    const v = a.mods?.view();
+    const row = v?.rows[s.md.row - MODS_FIRST_PACK_ROW];
+    if (s.md.row === MODS_DROP_ROW && a.mods) add('cross', 'Choose a file', 'cross');
+    else if (s.md.row === MODS_TEXTURE_ROW && a.mods) add('dpad-h', 'Texture pack', null);
+    else if (s.md.row === modsTestHdRow(v) && a.mods) add('cross', 'Add', 'cross');   // TEST_HD_PACK_BUTTON_ADAPTATION (ML-12)
+    else if (row && row.on !== null) add('cross', row.on ? 'Switch off' : 'Switch on', 'cross');
+    if (row) add('square', 'Remove', 'square');
+    if (row?.up || row?.down) add('dpad-h', 'Order', null);
+    add('circle', 'Back', 'circle');
   } else if (s.screen === 'options') {
     if (s.opt.zone === 'cats') { add('cross', 'Open', 'cross'); add('circle', 'Back', 'circle'); }
     else {
@@ -273,7 +321,7 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
     if ((rm?.listening() ?? -1) >= 0) { add('L1 R1', 'Cancel', 'circle'); return false; }
     // PP-5: the dead zone and the Stance mode are tuners; Crouch and Prone listen as an action's row, Square unbinds
     // (STM.R1: SEPARATE's rows only).
-    const tuner = s.rm.row === REMAP_DEAD_ROW || s.rm.row === REMAP_STANCE_ROW;
+    const tuner = s.rm.row === remapDeadRow() || s.rm.row === REMAP_STANCE_ROW;
     const bind = remapBindOfRow(s.rm.row) !== undefined;
     const extra = remapExtraAt(rm, s.rm.row);                     // OBF-10b's review: an extra row's Cross is its act
     // h59U9CLb: Extra binds shows or hides its rows (Square clears them); an Add row chooses its action and binds; a kept

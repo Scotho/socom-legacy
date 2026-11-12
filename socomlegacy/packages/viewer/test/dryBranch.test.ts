@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { buildGrid, DEFAULT_RIFLE, type CollisionOwner, type Grid, type GridParams, type WeaponRecord, type WorldPoly } from '@s2u/scene';
+import { buildGrid, DEFAULT_RIFLE, GAME_FRAME_DT, type CollisionOwner, type Grid, type GridParams, type WeaponRecord, type WorldPoly } from '@s2u/scene';
 import { fireInterval, roundsPerPull } from '../src/accuracy';
-import { Fire, RELOAD_DELAY, type FireEvent, type FireGun } from '../src/fire';
+import { Fire, type FireEvent, type FireGun } from '../src/fire';
 
 /**
  * LATER 179 with LATER 48 (research 94 §C1.1, research 312 §4.1; reading, pending review): the reload at empty. An
@@ -66,7 +66,7 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
     r.fire.pull(); r.fire.release(); r.frames(5);
     expect(r.fire.reload()).toBe(true);
     expect(r.types()).toEqual(['reloadPress']);
-    r.fire.update(RELOAD_DELAY + 0.001);
+    r.fire.update(GAME_FRAME_DT + 1e-6);                    // LATER 330: RELOAD_DELAY (0.01 s) is one whole game frame
     expect(r.types()).toEqual(['reloadPress', 'reloadStart']);
   });
 
@@ -136,7 +136,7 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: true });
     r.fire.update(0.5);
     expect(r.types()).toEqual(['reloadPress']);
-    r.fire.update(0.501);
+    r.fire.update(0.502);                                   // LATER 330: 1 s is 30 whole game frames, 1.0010 s
     expect(r.types()).toEqual(['reloadPress', 'reloadStart']);
   });
 });

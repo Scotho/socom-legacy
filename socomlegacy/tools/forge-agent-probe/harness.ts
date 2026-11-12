@@ -29,7 +29,7 @@ async function childAndConsent(options: HarnessOptions, page: Page, proxy: Await
   } finally { lifetime.abort(); options.signal?.removeEventListener('abort', abort); }
 }
 export function initialReconnectPrompt(code: string): string {
-  return `${MCP_RULES}\nCall agent_capabilities then agent_pair invitation ${JSON.stringify(code)},clientName:"FCW before reconnect",permissions:["inspect","edit"].
+  return `${MCP_RULES}\nCall agent_capabilities then agent_pair invitation ${JSON.stringify(code)},clientName:"FCW before reconnect",permissions:["inspect","edit"],waitSeconds:0.
 The browser will approve. Poll agent_status until paired. Read target.status. Send agent_request {version:1,requestId:"fcw-reconnect-old-edit",sessionId,targetId,epoch,expectedRevision:<status revision>,operation:"forge.edit",args:{operation:"layout.name",arguments:{name:"FCW reconnect baseline"}}}.
 Require outcome:ok, then forge.read {section:"metadata"} must confirm the name. Call agent_disconnect with this sessionId. Do not pair again.`;
 }

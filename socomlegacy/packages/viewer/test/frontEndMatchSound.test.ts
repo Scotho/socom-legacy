@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RangedAssetSource } from '@s2u/archive';
 import { frontEndSoundTable, roundStreamGains, soundHash, type RenderedSound } from '@s2u/sound';
@@ -7,6 +9,7 @@ import { GameAudio, WebAudioOut } from '../src/audio';
 import { frontEndMatchSound } from '../src/frontEnd';
 import { MATCH_RETURN_MUSIC_PLACEHOLDER, MenuMusic, VAGSTORE_PATH, type MusicOut, type MusicVoice } from '../src/menuMusic';
 import type { SoundData } from '../src/soundData';
+import { pageDeviceClass, resetPageRendererProbeForTest } from '../src/deviceClass';
 
 /**
  * MATCH-SOUND (web research 222 §7): the front end's half of the match's sound. The match plays on a `GameAudio` of
@@ -261,5 +264,59 @@ describe('MenuMusic.hold: the menus\' music stopped for the match, played again 
     mm.settleHeld(true);
     await settle();
     expect(playing()).toHaveLength(1);
+  });
+});
+
+describe('VS-10 F1 (the spec §4.4 item 2): the Xbox class releases the match\'s loop samples beside the saved pick', () => {
+  /** A page the Xbox class by certain signals (VS.R1) with no pick saved (`test/frontEndSleep.test.ts`'s own). */
+  const asXboxPage = (): (() => void) => {
+    const gl = { getExtension: () => null, getParameter: () => 'ANGLE (AMD, AMD Custom GPU 0405 Direct3D11 vs_5_0 ps_5_0, D3D11)', RENDERER: 0x1f01 };
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox One) Edg/130.0.2849.56' });
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => gl }) });
+    resetPageRendererProbeForTest();
+    return () => { vi.unstubAllGlobals(); resetPageRendererProbeForTest(); };
+  };
+  /** A loop warmed whole on the match's own output; true when its arrays were let go (LOOP_SAMPLES_RELEASE_ADAPTATION). */
+  const released = (): boolean => {
+    g.AudioContext = Ctx;
+    const out = new WebAudioOut(null, { releaseLoopSamples: false });
+    out.prepare();
+    const a = frontEndMatchSound({ out, vars: () => null, music: null }).audio()!;
+    const own = (a.game as unknown as { out: WebAudioOut }).out;
+    const s = tone();
+    while (!own.warm(s)) { /* whole */ }
+    a.release();
+    return s.left.length === 0;
+  };
+
+  it('the saved pick auto on a page classed xbox: released; the standard class: kept', () => {
+    const undo = asXboxPage();
+    try {
+      expect(pageDeviceClass()).toBe('xbox');
+      expect(released()).toBe(true);
+    } finally { undo(); }
+    expect(pageDeviceClass()).toBe('standard');
+    expect(released()).toBe(false);
+  });
+
+  it('the menus\' output reads the class lazily: not at its construction (the front end\'s start probes no WebGL), once at its first loop let go', () => {
+    g.AudioContext = Ctx;
+    const decide = vi.fn(() => true);
+    const out = new WebAudioOut(null, { releaseLoopSamples: decide });
+    out.prepare();
+    expect(decide).not.toHaveBeenCalled();
+    const s = tone();
+    while (!out.warm(s)) { /* whole */ }
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(s.left.length).toBe(0);
+    const t = tone();
+    while (!out.warm(t)) { /* whole */ }
+    expect(decide).toHaveBeenCalledTimes(1);                                     // read once an output
+  });
+
+  it('the menus\' own output is built with the same decision', () => {
+    const src = readFileSync(fileURLToPath(new URL('../src/frontEnd.ts', import.meta.url)), 'utf8');
+    expect(src).toContain('const out = opts.audio ? null : new WebAudioOut(null, { releaseLoopSamples: xboxMemoryMeasures });');
+    expect(src).toContain('const out = new WebAudioOut(o.out, { releaseLoopSamples: xboxMemoryMeasures() });');
   });
 });

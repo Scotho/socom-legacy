@@ -1,4 +1,5 @@
 import type { MissionRecord } from '@s2u/ui';
+import { mapLabel } from '@s2u/archive/mapNames';
 import { accountServiceBase } from '../../connectHost';
 import { launcherState, type LauncherState } from '../../modern/launcherState';
 import {
@@ -32,7 +33,7 @@ import { CLAN_GAME_WORDS, LOBBY_WORDS, gameDetail, lockWord, rankLimited, rankNa
  *   section listed is reached. A room's and a game's detail (`room`, `game`; `./lobbies` `roomDetail`, `gameDetail`)
  *   are read off the same answer: the games of a room, the players by name, GAME DETAILS. A game row's drawer facts are
  *   GAME DETAILS' (`lobbyGameDetails`: rounds, round time, friendly fire, respawn; the map's name and the mode word from
- *   the disc's mission list, else "MP<n> · needs disc" / "Needs disc"); players and spectators take the prototype's
+ *   the disc's mission list, else the one name table's name (MN-1, OT.R113) / "Needs disc"); players and spectators take the prototype's
  *   sides' tiles (the lobby reports no team split).
  * - Polled every 20 s while the page is visible (`LobbyPoller`, MU_LOBBY_POLL_ADAPTATION: backoff from 5 s on a
  *   failure; no socket) -- one poll, which Home's rooms line and the Server category read too (`./server`), so it runs
@@ -122,18 +123,18 @@ export function liveRooms(doc: Document, notify: () => void, deps: RoomsDeps = {
     missionsAsked = true;
     a.readMissions().then((m) => { missions = m; rebuild(); notify(); }, () => { missionsAsked = false; });
   };
+  // MN-1 (OT.R113): before the disc, the one name table's name (`@s2u/archive` `mapLabel`), never the stem.
   const mapName = (stem: string | null): string => {
     if (!stem) return 'No map';
     const n = /^MP(\d+)$/.exec(stem)?.[1];
     const m = n && missions ? missions.find((r) => r.multiplayer && r.number === Number(n)) : undefined;
-    return m ? m.name : `${stem} · needs disc`;
+    return mapLabel(m ? m.name : stem);                   // review F5: Title case before and after the disc
   };
 
   const publicRow = (r: PublicRoom): Room => {
     const map = mapName(r.map);
-    const title = map.endsWith(' · needs disc') ? r.map : map;
     return {
-      id: `room:${r.map}/${r.rules}`, name: `Game in ${title}`, map: title, mode: r.rules, n: r.players, cap: null,
+      id: `room:${r.map}/${r.rules}`, name: `Game in ${map}`, map, mode: r.rules, n: r.players, cap: null,
       spectators: { n: r.spectators, cap: null },
       facts: [['Map', map], ['Rules', r.rules], ['Round', String(r.round)], ['Ping', 'Unknown']],
       tiles: [['PLAYERS', String(r.players)], ['SPECTATORS', String(r.spectators)]],
@@ -141,7 +142,7 @@ export function liveRooms(doc: Document, notify: () => void, deps: RoomsDeps = {
   };
   const gameRow = (g: LobbyGame, view: LobbyView): Room => {
     const d = lobbyGameDetails(g, missions);
-    const map = d.mission?.mapName ?? mapName(g.map);
+    const map = d.mission?.mapName ? mapLabel(d.mission.mapName) : mapName(g.map);
     // CX-LOBBIES review F5: the type word in the section's case, as the game's screen draws it (`./lobbies` `sentence`).
     const typeWord = d.mission?.typeWord;
     const mode = typeWord != null ? sentence(typeWord) : missions ? 'Unknown' : 'Needs disc';
@@ -317,7 +318,7 @@ export function liveRooms(doc: Document, notify: () => void, deps: RoomsDeps = {
       const view = lastOk.view;
       return view
         ? { kind: 'ok', rooms: view.rooms.map((r) => ({ name: r.name, map: null, players: r.players })) }
-        : { kind: 'ok', rooms: (lastOk.publicRooms ?? []).map((r) => ({ name: r.map, map: r.map, players: r.players })) };
+        : { kind: 'ok', rooms: (lastOk.publicRooms ?? []).map((r) => ({ name: mapName(r.map), map: r.map, players: r.players })) };   // MN-1: named
     },
     dispose(): void { poller.stop(); pings.clear(); doc.removeEventListener('visibilitychange', onVisible); offSession(); offSelection(); offDisc(); },   // GAME-PING (review F3): a late probe answer rebuilds nothing
   };

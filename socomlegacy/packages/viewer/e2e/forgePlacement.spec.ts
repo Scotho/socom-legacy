@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { OUTLINER_USER_ROW } from './forgeBase';
 
 /**
  * FORGE placement aids (FG-5, FG-49; a browser adaptation, no original). The no-disc bench (`/forge?bench`) places
@@ -76,7 +77,9 @@ test.describe('forge placement on a blank floor', () => {
     expect(spread).toBeGreaterThan(1);
 
     await page.getByRole('button', { name: /^Select/ }).click();
-    const rows = page.locator('.fx-outliner > li');
+    // OT.R112: the Outliner is a tree (Map Data, User Data); the three placed pieces are User Data's rows
+    // (`./forgeBase` `OUTLINER_USER_ROW`), no longer the list's top-level items.
+    const rows = page.locator(OUTLINER_USER_ROW);
     await rows.nth(0).locator('span').first().click();
     await rows.nth(1).locator('span').first().click({ modifiers: ['Shift'] });
     await rows.nth(2).locator('span').first().click({ modifiers: ['Shift'] });

@@ -10,13 +10,14 @@ import { showInspectorData } from '../../src/forge/panels/inspectorPanel';
  */
 describe('the map census', () => {
   it("counts a map's doors, turrets and hostage characters", () => {
-    const map = { doors: [{}, {}], turrets: [{}], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }, null] } };
+    const map = { doors: [{}, {}], turrets: [{}], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }, null] } };
     expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
     expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
   });
 
   it("a map's copies: its hostage characters each once, by name; none of a kind, an empty list; their counts the census", () => {
-    const map = { doors: [], turrets: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }] } };
+    // A loaded map always carries its props (`LoadedMap.props`); the flares' copies are read off them.
+    const map = { doors: [], turrets: [], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }] } };
     const copies = copiesOf(map as never);
     expect(copies).toEqual({ door: [], turret: [], hostage: [['a', 'a'], ['b', 'b']], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [] });
     expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
@@ -50,6 +51,7 @@ describe.skipIf(!ISO || !existsSync(ISO))('the map census on the disc (SOCOM_ISO
     const { fsBlob } = await import('../../../../tools/fmv-spike');
     const { loadMap } = await import('../../src/loadMap');
     const source = new IsoAssetSource(fsBlob(ISO!));
+    // Its flare count is not pinned here (not yet read off the disc for this test): the other six kinds are.
     expect(censusOf(await loadMap(source, 'RUN/MP2.ZDB'))).toMatchObject({ door: 3, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0 });   // its 5 ladders are its buildings'
     expect(censusOf(await loadMap(source, 'RUN/MP6.ZDB'))).toMatchObject({ hostage: 3 });
     // The copies the Map choice switches to at once: the first of each list, named as the door's own node.

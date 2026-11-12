@@ -43,18 +43,12 @@ export const MP_TEAM_TAG_TALKER_ADAPTATION = 'heardTalker' as const;
  * the default"): by default the tags are drawn at `scale` (the original's is 0.9, `TEAM_TAG_LAYOUT.scale`, D:L77539)
  * and each tag's alpha is multiplied by a factor of its camera-to-head distance in world units -- 1 within `near`,
  * falling linearly to `minAlpha` at `far` and held there -- the death fade (100 - 20 t) still on top. The original has
- * no distance term (D:L77427-77433); TEAMMATE NAMES' "original" setting (`TEAMMATE_NAMES_ORIGINAL_VALUE`) keeps its
- * tags exactly. The values are the controller's starting call for the owner to tune (seat b6, 2026-11-06): 10 world
+ * no distance term (D:L77427-77433); the "original" look keeps its tags exactly (SS-2, H422 answered (a): this
+ * browser's Name tags, `./nameTags` `s2u.viewer.nameTags`; the card's TEAMMATE NAMES only turns the tags on and off). The values are the controller's starting call for the owner to tune (seat b6, 2026-11-06): 10 world
  * units a metre (`UNITS_PER_METRE`, research 84 §2; a standing body's headroom is the feet + 19, research 217), so full
  * to 25 m and 35% from 100 m.
  */
 export const TEAMMATE_NAME_DISTANCE_ADAPTATION = { scale: 0.7, near: 250, far: 1000, minAlpha: 0.35 } as const;
-/**
- * The TEAMMATE NAMES setting that keeps the original's tags (LATER 671, OT.R101; **a browser adaptation**): the valve
- * `DISPLAY_MP_TEAM_NAMES` at 2 -- beside the original's 0 (off) and 1 (on, here the adapted tags). Any value not 0
- * is on to the original's own read (`!= 0`, D:L77558-77559), so 2 shows the names there too.
- */
-export const TEAMMATE_NAMES_ORIGINAL_VALUE = 2;
 
 /** The adaptation's alpha factor at a distance (`TEAMMATE_NAME_DISTANCE_ADAPTATION`): 1 to `near`, linear to `minAlpha` at `far`. */
 export function teamTagDistanceFactor(distance: number): number {
@@ -104,7 +98,7 @@ export interface TeamTagInput {
   camera: Camera;
   /** The seat holding the listener's channel (`iStack_f0`, D:L77345-77350), as the voice indicators name it; null none. */
   holder: number | null;
-  /** LATER 671: TEAMMATE NAMES' "original" setting -- the original's tags, no distance term, 0.9; absent, the adaptation (OT.R101). */
+  /** LATER 671, SS-2: the "original" look (`./nameTags`) -- the original's tags, no distance term, 0.9; absent, the adaptation (OT.R101). */
   original?: boolean;
 }
 

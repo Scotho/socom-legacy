@@ -1,9 +1,9 @@
 import type { AssetSource } from '@s2u/archive';
 import {
-  MOVIE_AUDIO_GAIN_PLACEHOLDER, MOVIE_AUDIO_START_LATENCY_READING, SShdSplitter, demuxPssFile, movieAudioTimeline,
+  MOVIE_AUDIO_GAIN_READING, MOVIE_AUDIO_START_LATENCY_READING, SShdSplitter, demuxPssFile, movieAudioTimeline,
   primeMovieAudio, type MovieAudioPriming, type MovieAudioTimeline, type MoviePrimePacket, type SShdHeader,
 } from '@s2u/fmv';
-import { MoviePcmDecoder, moviePcmFloat, type MoviePcmPiece } from '@s2u/sound';
+import { MoviePcmDecoder, moviePcmFloat, streamGroupMaster, type MoviePcmPiece } from '@s2u/sound';
 
 /**
  * PLAT-20 in the page (web research 137 §4-§5): a movie's sound, played as the original holds it against the
@@ -43,6 +43,8 @@ export interface MovieSoundVoice { stop(): void }
  * `AudioContext`'s, stands still while it does not run -- beside the page's clock, which always runs.
  */
 export interface MovieSoundOut {
+  /** Group 2 (Dialog) on all queued/playing PCM; optional for recording outputs. */
+  setVolume?(value: number): void;
   readonly running: boolean;
   /** The output's clock, seconds; it does not advance while the output is not running. */
   readonly currentTime: number;
@@ -233,13 +235,25 @@ export class MovieSound {
 }
 
 /**
- * A `MovieSoundOut` over Web Audio: a gain (`MOVIE_AUDIO_GAIN_PLACEHOLDER`) into `destination`, a buffer source a
+ * PCM group 2's relative level (research 137 section 9). EE movie open D:L208361; IRX PCM pan table
+ * 0x1c8d0 has center 16383, giving 107 * 258 = 27606 before snd_AdjustVolToGroup (0x19b7c).
+ * The group master precedes its square law. Normalize by full-master BVOL 23258; the source-read
+ * full level is MOVIE_AUDIO_GAIN_READING. A console capture comparison is still owed.
+ */
+export function movieDialogGain(value: number): number {
+  const master = streamGroupMaster(Math.max(0, Math.min(1, value)));
+  const scaled = Math.trunc(27606 * master / 1024);
+  return Math.trunc(scaled * scaled / 32766) / 23258;
+}
+
+/**
+ * A `MovieSoundOut` over Web Audio: a gain (`MOVIE_AUDIO_GAIN_READING`) into `destination`, a buffer source a
  * piece. The page's clock is `pageNow` (seconds; `performance.now`, the pictures' clock); `heardAt` maps it to the
  * context's through `getOutputTimestamp` (the sample being heard and the `performance.now` it was heard at), or, before
  * the context has rendered one (both 0) or without it, through `currentTime` less `baseLatency` and `outputLatency`.
  */
 export function webAudioMovieOut(
-  ctx: AudioContext, destination: AudioNode = ctx.destination, gain = MOVIE_AUDIO_GAIN_PLACEHOLDER,
+  ctx: AudioContext, destination: AudioNode = ctx.destination, gain = MOVIE_AUDIO_GAIN_READING,
   pageNow: () => number = () => performance.now() / 1000,
 ): MovieSoundOut {
   const level = ctx.createGain();
@@ -248,6 +262,7 @@ export function webAudioMovieOut(
   const runs: (() => void)[] = [];
   ctx.addEventListener('statechange', () => { if (ctx.state === 'running') for (const r of runs) r(); });
   return {
+    setVolume(value) { level.gain.value = gain * movieDialogGain(value); },
     get running() { return ctx.state === 'running'; },
     get currentTime() { return ctx.currentTime; },
     get pageTime() { return pageNow(); },
@@ -283,12 +298,83 @@ export interface MovieSoundRead {
 /** The packets the priming is judged on: it stops within the first 60 on every disc movie (research 137 R137.3). */
 const PRIME_PACKETS = 256;
 
+/** What a track's reader hands its pieces to: a `MovieSound`, or the keep's tee in front of one. */
+export type MovieSoundSink = Pick<MovieSound, 'add' | 'finish'>;
+
+/**
+ * MOVIE_SOUND_KEEP_ADAPTATION: no original (the original streams a movie's sound off the disc at every play); bounds the
+ * browser's memory and pace for the decoded track it keeps (GM-32, plan `docs/plans/2026-11-01-gpu-menus.md`; research 380
+ * §6). PRODUCT TRACK. A dialog's background movie is opened again at every return to the dialog (MENULOOP behind
+ * `dlgMenu`: OPTIONS -> dlgMenu), and each open read the whole file a second time beside the picture worker and decoded
+ * its PCM on the page's main thread (GM-29's report of the warm return: `stream`, `moviePcm*`, `demuxPss`, `flush`, about
+ * 590 ms at 2x on the T4). `MovieSoundKeep` keeps the last track read **whole** (never one cut short by a close) of at most
+ * `maxBytes` of PCM -- MENULOOP's is 5,951,744 frames, 23,806,976 bytes of 16-bit stereo, 124.0 s (GM-32's dev-disc count),
+ * the same piece objects the open `MovieSound` already holds while it plays, so the cost is that track kept while
+ * another front-end dialog shows (the front end's sleep, match hand-off and stop clear it: `frontEndMovies.ts`) -- and an open of the same file hands those pieces to the new `MovieSound` again, in order, one
+ * every `replayPieceMs` (a piece is about 1 s of sound, so the track arrives four times faster than it plays and a
+ * restart never schedules the whole track in one frame), then its timeline. The sound itself is unchanged: it starts
+ * at picture 0 from frame 0, as a re-read's does, with the same samples. One track at a time: a different file read
+ * whole replaces it.
+ */
+export const MOVIE_SOUND_KEEP_ADAPTATION = Object.freeze({ maxBytes: 32 * 1024 * 1024, replayPieceMs: 250 } as const);
+
+/** A track read whole: its pieces in order, its timeline, its read's answer, its PCM bytes. */
+interface KeptTrack { path: string; pieces: MoviePcmPiece[]; timeline: MovieAudioTimeline; read: MovieSoundRead; bytes: number }
+
+/** GM-32: the last movie sound read whole (`MOVIE_SOUND_KEEP_ADAPTATION`), handed again to the next open of its file. */
+export class MovieSoundKeep {
+  private track: KeptTrack | null = null;
+  constructor(private readonly o: { maxBytes?: number; replayPieceMs?: number; wait?: (ms: number) => Promise<void> } = {}) {}
+
+  /** The kept track's file and bytes, or null. */
+  get kept(): { path: string; bytes: number; pieces: number } | null {
+    return this.track ? { path: this.track.path, bytes: this.track.bytes, pieces: this.track.pieces.length } : null;
+  }
+
+  /** Lets the kept track go. */
+  clear(): void { this.track = null; }
+
+  /** `read` (the track's reader) behind the keep: the kept track replayed when it is `path`'s, else read and kept when whole. */
+  reader(read: typeof readMovieSound = readMovieSound): typeof readMovieSound {
+    return async (source, path, sound, opts = {}) => {
+      const t = this.track;
+      if (t && t.path === path) return this.replay(t, sound, opts.signal);
+      const max = this.o.maxBytes ?? MOVIE_SOUND_KEEP_ADAPTATION.maxBytes;
+      const pieces: MoviePcmPiece[] = [];
+      const st: { bytes: number; over: boolean; timeline: MovieAudioTimeline | null } = { bytes: 0, over: false, timeline: null };
+      const tee: MovieSoundSink = {
+        add: (p) => {
+          if (!st.over) { st.bytes += p.left.byteLength + p.right.byteLength; if (st.bytes > max) { st.over = true; pieces.length = 0; } else pieces.push(p); }
+          sound.add(p);
+        },
+        finish: (tl) => { st.timeline = tl; sound.finish(tl); },
+      };
+      const r = await read(source, path, tee, opts);
+      // Whole: not cut short, the header read, the timeline given, within the cap.
+      if (!opts.signal?.aborted && !st.over && r.header && st.timeline) this.track = { path, pieces, timeline: st.timeline, read: r, bytes: st.bytes };
+      return r;
+    };
+  }
+
+  private async replay(t: KeptTrack, sound: MovieSoundSink, signal: AbortSignal | undefined): Promise<MovieSoundRead> {
+    const ms = this.o.replayPieceMs ?? MOVIE_SOUND_KEEP_ADAPTATION.replayPieceMs;
+    const wait = this.o.wait ?? ((n: number) => new Promise<void>((ok) => { setTimeout(ok, n); }));
+    for (let i = 0; i < t.pieces.length; i++) {
+      if (signal?.aborted) return t.read;
+      if (i > 0) { await wait(ms); if (signal?.aborted) return t.read; }
+      sound.add(t.pieces[i]!);
+    }
+    sound.finish(t.timeline);
+    return t.read;
+  }
+}
+
 /**
  * Reads `path`'s sound track from `source` (a second read of the file beside the picture worker's) and hands it to
  * `sound` in pieces of about `pieceFrames` frames as it comes, then its timeline. The page plays from picture 0 on
  * whatever has come; a piece that comes after its time is an underrun (`MovieSound.stats`).
  */
-export async function readMovieSound(source: AssetSource, path: string, sound: MovieSound, o: { signal?: AbortSignal; pieceFrames?: number } = {}): Promise<MovieSoundRead> {
+export async function readMovieSound(source: AssetSource, path: string, sound: MovieSoundSink, o: { signal?: AbortSignal; pieceFrames?: number } = {}): Promise<MovieSoundRead> {
   const split = new SShdSplitter();
   const pieceFrames = o.pieceFrames ?? RATE_DEFAULT;
   const early: MoviePrimePacket[] = [];

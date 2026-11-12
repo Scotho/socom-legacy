@@ -37,6 +37,8 @@ export interface LauncherSnap {
   rooms: { filter: number; row: number; selected: string | null; query: string; kind?: number };
   rp: { row: number; watching: string | null };
   sv: { row: number };
+  /** B206 ML-2: an entry written before the MODS screen has none (read as row 0). */
+  md?: { row: number };
   rm: { row: number };
   lo: { side: LoadoutSide; row: number; edit: number; slot?: string };
   pf: { row: number; id: string | null; edit: number; rec: number; nw: { name: string; town: string; gender: 0 | 1; row: number } };
@@ -89,6 +91,7 @@ export function captureLauncher(s: ConsoleState, a: Adapters): LauncherSnap {
     rooms: { ...s.rooms },
     rp: { ...s.rp },
     sv: { ...s.sv },
+    md: { ...s.md },
     rm: { ...s.rm },
     lo: { ...s.lo },
     pf: { ...s.pf, nw: { ...s.pf.nw } },
@@ -152,6 +155,13 @@ const gamePath = (pathname: string, base: string): boolean => {
   return segs.length > 0 && (segs[0] === 'main' || segs[0] === 'd');
 };
 
+/**
+ * LCM-19 (the LCM plan; an adaptation, product track): the event the launcher's history fires on its window after each
+ * of its own entry writes (`pushState` and `replaceState` fire no `popstate`), so a page part that lives only on one
+ * launcher address (the lobby's "Live match stats" link, `../lobbyLiveLink.ts`) sees the move at once. No detail.
+ */
+export const LAUNCHER_NAVIGATE_EVENT_ADAPTATION = 's2u:navigate';
+
 export interface LauncherNav {
   adopt(s: ConsoleState, a: Adapters): void;
   sync(s: ConsoleState, a: Adapters): void;
@@ -199,6 +209,7 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
     const state = { s2uLauncher: snap };
     if (kind === 'push') win.history.pushState(state, '', url);
     else win.history.replaceState(state, '', url);
+    win.dispatchEvent(new (win as Window & typeof globalThis).CustomEvent(LAUNCHER_NAVIGATE_EVENT_ADAPTATION));
   };
 
   const onPop = (ev: PopStateEvent): void => {

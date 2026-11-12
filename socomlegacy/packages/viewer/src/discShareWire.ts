@@ -16,6 +16,18 @@
  * | `POST /api/discshare/signal` | `{ id, secret, msg }` | 204 -- `msg` queued for the other side |
  * | `GET /api/discshare/signal?id=&after=` | header `x-discshare-secret` | `{ messages: [{ seq, msg }] }` -- a long-poll, empty at its bound |
  * | `GET /api/discshare/ice?id=` | header `x-discshare-secret` | `{ iceServers }` -- DSH.R15: this side's ICE servers, a claimed pair only |
+ * | `POST /api/discshare/host` | `{}` | `{ hostId, token, secret, expiresAt }` -- RB-25: a hosted share (the token goes in the link) |
+ * | `POST /api/discshare/request` | `{ host: token }` | `{ id, code, secret, expiresAt }` -- RB-25: a request bound to that host, its code kept |
+ * | `POST /api/discshare/approve` | `{ host: hostId, secret, id }` | `{ id, secret }` -- RB-25: the host's Yes; the sender's side, as a claim |
+ * | `POST /api/discshare/decline` | `{ host: hostId, secret, id }` | 204 -- RB-25: the host's No; the receiver told `declined` |
+ *
+ * **Hosted shares** (RB-25, the replay batch plan; DSH.R16, its Q9 default): the host polls the signal route by its
+ * `hostId` and secret and hears `{ type: 'asked', id, code, since }` for each request bound to it, in order, and
+ * `{ type: 'withdrawn', id }` when one ends unanswered; a `bye` posted to the signal route by its `hostId` ends the host.
+ * A host-bound request, until the host's Yes or No, lives while both sides poll (each within `DISCSHARE_HOST_IDLE_MS`
+ * of its last poll) and not by `DISCSHARE_LIFE_MS`; its receiver is told `declined` at a No and `withdrawn` when the
+ * host ends. `expiresAt` of a host and of a host-bound request is the bound if that side polls no more. A paired
+ * request keeps `DISCSHARE_LIFE_MS` from its Yes, as a claim. The receiver-made code path above is unchanged.
  *
  * The long-poll's secret travels in a header, not the query: a query string is written to a proxy's access log.
  */
@@ -28,7 +40,16 @@ export const DISCSHARE_CLAIM_ROUTE = '/api/discshare/claim';
 export const DISCSHARE_SIGNAL_ROUTE = '/api/discshare/signal';
 /** DSH.R15: the ICE servers for one side of a claimed pair (Cloudflare's STUN, and its TURN when central holds a key). */
 export const DISCSHARE_ICE_ROUTE = '/api/discshare/ice';
-export const DISCSHARE_ROUTE_LIST = [DISCSHARE_REQUEST_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_CLAIM_ROUTE, DISCSHARE_SIGNAL_ROUTE, DISCSHARE_ICE_ROUTE] as const;
+/** RB-25: a hosted share opened by the page with the disc. */
+export const DISCSHARE_HOST_ROUTE = '/api/discshare/host';
+/** RB-25: the host's Yes to one request bound to it, by id under the host's secret. */
+export const DISCSHARE_APPROVE_ROUTE = '/api/discshare/approve';
+/** RB-25: the host's No to one request bound to it. */
+export const DISCSHARE_DECLINE_ROUTE = '/api/discshare/decline';
+export const DISCSHARE_ROUTE_LIST = [
+  DISCSHARE_REQUEST_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_CLAIM_ROUTE, DISCSHARE_SIGNAL_ROUTE, DISCSHARE_ICE_ROUTE,
+  DISCSHARE_HOST_ROUTE, DISCSHARE_APPROVE_ROUTE, DISCSHARE_DECLINE_ROUTE,
+] as const;
 /** The long-poll's secret (GET carries no body; a query string reaches access logs). */
 export const DISCSHARE_SECRET_HEADER = 'x-discshare-secret';
 
@@ -40,16 +61,26 @@ export const DISCSHARE_LIFE_MS = 10 * 60 * 1000;
 /** The longest a long-poll is held before its empty answer (DSH.R13: a bounded hold). */
 export const DISCSHARE_POLL_HOLD_MS = 25_000;
 /**
+ * RB-25: how long a host, or a request bound to one, lives past its side's last poll (a held poll keeps it alive). A
+ * browser adaptation: one hold's length, so a page that answers each poll with the next never lapses, and one that has
+ * gone ends within a hold.
+ */
+export const DISCSHARE_HOST_IDLE_MS = DISCSHARE_POLL_HOLD_MS;
+/**
  * The bound of every body. The match server's door refuses a body declared past `HTTP_BODY_BYTES` (4096,
  * `packages/match/src/limits.ts`) before any handler reads it, so the routes' own bound is the same number: a larger one
  * would never be reached. A data-channel-only offer with its candidates trickled is well under it.
  */
 export const DISCSHARE_BODY_BYTES = 4096;
 
-/** The message types a page may post; `claimed` is the server's own, told to the receiver at the claim. */
+/**
+ * The message types a page may post. The server's own: `claimed`, told to the receiver at the claim (or the host's Yes);
+ * RB-25's `declined` (the host's No, to the receiver), `asked` and `withdrawn` (to the host: a request bound to it, and
+ * its end; to a receiver, `withdrawn` says its host has ended).
+ */
 export const DISCSHARE_PAGE_TYPES = ['offer', 'answer', 'candidate', 'bye'] as const;
 export type DiscSharePageType = (typeof DISCSHARE_PAGE_TYPES)[number];
-export type DiscShareMsgType = DiscSharePageType | 'claimed';
+export type DiscShareMsgType = DiscSharePageType | 'claimed' | 'declined' | 'asked' | 'withdrawn';
 /** A relayed message: its type and the page's own JSON fields (an SDP, a candidate), opaque to the server. */
 export interface DiscShareMsg { type: DiscShareMsgType; [field: string]: unknown }
 
@@ -61,6 +92,13 @@ export interface DiscShareClaimAnswer { id: string; secret: string }
 export interface DiscShareSignalBody { id: string; secret: string; msg: DiscShareMsg }
 export interface DiscShareQueued { seq: number; msg: DiscShareMsg }
 export interface DiscSharePollAnswer { messages: DiscShareQueued[] }
+/** RB-25: a hosted share. `token` is the link's (`request { host: token }`); `hostId` and `secret` are the host's own. */
+export interface DiscShareHostAnswer { hostId: string; token: string; secret: string; expiresAt: number }
+export interface DiscShareHostRequestBody { host: string }
+/** RB-25: the host's Yes or No to request `id`. */
+export interface DiscShareDecideBody { host: string; secret: string; id: string }
+/** RB-25: what the host hears: a request bound to it (`asked`), or its end unanswered (`withdrawn`). */
+export type DiscShareHostMsg = { type: 'asked'; id: string; code: string; since: number } | { type: 'withdrawn'; id: string };
 
 /** A typed code as the grammar reads it: upper case, spaces and dashes dropped; null if it is not one. */
 export function normaliseDiscShareCode(input: string): string | null {

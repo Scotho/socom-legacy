@@ -90,7 +90,7 @@ export function readDescriptions(file: string = DESCRIPTIONS_FILE): Descriptions
 
 /** What owns a reference page's status (MW.R6): repository paths the public export ships, a line or range after `:`. */
 const SPEC = 'socomlegacy/docs/specs/2026-10-25-pack-framework.md';
-const REGISTRY_REFUSES_APPLY = 'socomlegacy/packages/viewer/src/packs/registry.ts:527-535';
+const REGISTRY_REFUSES_APPLY = 'socomlegacy/packages/viewer/src/packs/registry.ts:612-620';
 const PACKS = 'socomlegacy/packages/creator-contracts/src/packs.ts';
 const THUNDERSTORE_NOTE = 'socomlegacy/docs/research/370-the-thunderstore-package-format.md';
 
@@ -98,7 +98,14 @@ const THUNDERSTORE_NOTE = 'socomlegacy/docs/research/370-the-thunderstore-packag
  * The reference pages, in the sidebar's order (`reference/meta.json`), each with its MW.R6 status and what owns it
  * (`source`, written into the page's frontmatter for the badge; `tools/test/moddingWikiStatus.test.ts` holds it).
  */
-export const PAGES: readonly { slug: string; title: string; summary: string; status: Status; source: readonly string[]; statusText: string }[] = [
+/**
+ * A page's agent block (FP-12a, FP.R9): the `## For agents` section that ends every wiki page, one JSON object an agent
+ * reads without rendering. Its `page` is the page's address; `shared/modding-wiki/scripts/drift.test.mjs` holds the
+ * shape on every page, this generator's three included.
+ */
+export type AgentBlock = { audience: readonly string[]; summary: string; inputs: readonly string[]; outputs: readonly string[]; see_also: readonly string[] };
+
+export const PAGES: readonly { slug: string; title: string; summary: string; status: Status; source: readonly string[]; statusText: string; agent: AgentBlock }[] = [
   {
     slug: 'manifest',
     title: 'Manifest reference',
@@ -108,6 +115,13 @@ export const PAGES: readonly { slug: string; title: string; summary: string; sta
     statusText:
       'A v2 pack is checked against these fields and stored on your device; nothing in the game applies one yet ' +
       '(the pack-framework spec, "Import": the registry refuses `apply`). Each kind has its own status on [Pack kinds](/kinds/).',
+    agent: {
+      audience: ['creators', 'agents'],
+      summary: 'Every field of s2u-pack.json, a files row and a handlers claim, with the kinds, sides, roles, intents and published values, generated from packs.ts.',
+      inputs: ['a draft s2u-pack.json'],
+      outputs: ['a manifest whose every field is one the validator knows, with values in the listed sets'],
+      see_also: ['/anatomy/', '/reference/bounds/', '/reference/codes/', '/kinds/custom-maps/'],
+    },
   },
   {
     slug: 'bounds',
@@ -119,6 +133,13 @@ export const PAGES: readonly { slug: string; title: string; summary: string; sta
       'The checker holds a pack to these bounds before it is stored; nothing in the game applies a v2 pack yet ' +
       '(the pack-framework spec, "Import"). Thunderstore\'s rules are the format only: no tool writes the store zip ' +
       'and nothing installs from the store (research 370; the store team is the owner\'s question H342).',
+    agent: {
+      audience: ['creators', 'agents'],
+      summary: "The pack contract's named limits and Thunderstore's package rules, each value generated from packs.ts.",
+      inputs: ['a pack to size: its member count, paths, bytes and manifest lists'],
+      outputs: ['the limit each part of the pack must stay within before it is stored'],
+      see_also: ['/reference/manifest/', '/reference/codes/', '/publishing/thunderstore/'],
+    },
   },
   {
     slug: 'codes',
@@ -129,6 +150,13 @@ export const PAGES: readonly { slug: string; title: string; summary: string; sta
     statusText:
       'These are the findings of the pack check and of the Thunderstore export and checker; a pack that passes is ' +
       'stored, not applied (the pack-framework spec, "Import").',
+    agent: {
+      audience: ['creators', 'agents'],
+      summary: 'Every refusal code of the pack check and of the Thunderstore export and checker, with when each is raised, generated from packs.ts.',
+      inputs: ['a refusal code from a pack check report'],
+      outputs: ['what raised it, to repair the pack'],
+      see_also: ['/troubleshooting/', '/reference/manifest/', '/reference/bounds/'],
+    },
   },
 ];
 
@@ -253,6 +281,16 @@ const HEAD = (page: (typeof PAGES)[number]): string =>
     '',
   ].join('\n');
 
+/** A page's agent block, the page's last section (FP-12a): its address and its `agent` fields, as fenced JSON. */
+const AGENT = (page: (typeof PAGES)[number]): string[] => [
+  '## For agents',
+  '',
+  '```json',
+  JSON.stringify({ page: `/reference/${page.slug}/`, ...page.agent }, null, 2),
+  '```',
+  '',
+];
+
 function table(head: string[], rows: string[][]): string {
   return [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
 }
@@ -334,8 +372,31 @@ function manifestPage(d: Descriptions): string {
       keys.targetAliases!.map((k) => [code(k), code(packs.PACK_TARGET_ALIASES[k]!), cell(d['targetAliases']![k]!, `targetAliases.${k}`)]),
     ),
     '',
+    ...CONTRACT_0_1_2,
+    ...AGENT(page('manifest')),
   ].join('\n');
 }
+
+/**
+ * FP-9 (FP.R9; product track): what engine contract 0.1.2 (the Forge path's FP-4) adds beside the manifest, in words, with
+ * no value of its own: the bundle's and the content map's fields are not `packs.ts`'s, so this generator does not list
+ * them; it points at the page that does (`kinds/custom-maps.mdx`) and at the bundle's JSON Schema.
+ */
+const CONTRACT_0_1_2: readonly string[] = [
+  '## Beside the manifest: contract 0.1.2',
+  '',
+  'Engine contract 0.1.2 changes no field above. It adds two formats beside the manifest, both new, so a pack that',
+  'worked before still works: a range such as `^0.1.0` or `^0.1.1` (any 0.1 version from that one on) takes 0.1.2.',
+  'A range pinned to exactly 0.1.1 (`0.1.1` or `=0.1.1`) does not: widen it to `^0.1.1`.',
+  '',
+  '- **The Forge map bundle**, `forge-bundle.json` (`s2u.creator/forge-map-bundle` version 1): one zip carrying a Forge',
+  "  layout and the v2 packs it stands on. Its fields, and the layout's `requires` and `contentBase`, are on",
+  '  [Custom maps](/kinds/custom-maps/); its JSON Schema, for an editor, is',
+  '  `socomlegacy/packages/creator-contracts/schemas/forge-map-bundle.v1.schema.json`.',
+  '- **Content map version 2** (`s2u.creator/content-map`): a map member `maps/<mapId>.json` may say',
+  '  `visual.includesProps`, whether its 3D model already draws its props. A version 1 map reads as before.',
+  '',
+];
 
 function boundsPage(d: Descriptions): string {
   return [
@@ -360,6 +421,7 @@ function boundsPage(d: Descriptions): string {
       storeRuleKeys().map((k) => [code(k), storeRuleValue(k), cell(d['storeRules']![k]!, `storeRules.${k}`)]),
     ),
     '',
+    ...AGENT(page('bounds')),
   ].join('\n');
 }
 
@@ -379,6 +441,7 @@ function codesPage(d: Descriptions): string {
     '',
     table(['code', 'when'], keys.storeCodes!.map((k) => [code(k), cell(d['storeCodes']![k]!, `storeCodes.${k}`)])),
     '',
+    ...AGENT(page('codes')),
   ].join('\n');
 }
 

@@ -14,7 +14,7 @@ import { RadioStripWidget } from '../../src/widgets/radioStrip';
 import { findNode, type UiNode } from '../../src/compositor/scene';
 import { ListboxWidget } from '../../src/widgets/listbox';
 import { LISTBOX_HOLD_REPEAT } from '../../src/widgets/listbox';
-import { SLIDER_HOLD_REPEAT } from '../../src/widgets/slider';
+import { SliderWidget, SLIDER_HOLD_REPEAT } from '../../src/widgets/slider';
 import {
   MENU_TICK_RATE_READING, MENU_TOUCH_READING, MenuInput, SUSPEND_MENU_INPUT, atofF32, type PadSlotName,
 } from '../../src/input/index';
@@ -530,5 +530,45 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
     expect(t.focus()).toBe('ConnectAnim');
     t.press('CROSS');                                              // nothing focused takes it: the screen's binding
     expect(t.take()).toEqual(['.back']);
+  });
+});
+
+
+describe('native slider pointer adaptation', () => {
+  const slider = () => rec('Volume', 'SLIDERBAR', 100, 200, r(
+    'XSIZE', '200', 'YSIZE', '8', 'NUM_INTERVALS', '2', 'KNOB_TEXTURE', 'knob.tif', 'KNOB_SIZE', ['30', '30'],
+  ));
+  it('clicks the track in both directions without sending CROSS to the screen', () => {
+    const t = rig(screen([...abc(), slider()], r('BUTTON', 'CROSS', 'ANIMATION', 'back')));
+    const bar = t.parts.current!.widgets.get('Volume') as SliderWidget;
+    t.take();
+    t.input.tap(150, 204); t.run(2);
+    expect(t.focus()).toBe('Volume');
+    expect(bar.position).toBeCloseTo(0.25);
+    expect(t.take()).not.toContain('.back');
+    t.input.tap(280, 204); t.run(2);
+    expect(bar.position).toBeCloseTo(0.9);
+  });
+  it('takes the visible knob below the thin track and clamps a drag outside the track', () => {
+    const t = rig(screen([...abc(), slider()]));
+    const bar = t.parts.current!.widgets.get('Volume') as SliderWidget;
+    expect(t.input.pointerDown(210, 222)).toBe('Volume'); t.run(2);
+    t.input.pointerMove(500, 300); t.run(2);
+    expect(bar.position).toBe(1);
+    t.input.pointerMove(0, 300); t.run(2);
+    expect(bar.position).toBe(0);
+    t.input.pointerUp();
+    t.input.pointerMove(250, 204); t.run(2);
+    expect(bar.position).toBe(0);
+  });
+  it('does not edit a disabled slider or carry a drag through disabling it', () => {
+    const t = rig(screen([...abc(), slider()]));
+    const bar = t.parts.current!.widgets.get('Volume') as SliderWidget;
+    t.input.pointerDown(150, 204); t.run(2);
+    t.m.queue.disableButton('Volume'); t.run();
+    t.input.pointerMove(300, 204); t.run(2);
+    expect(bar.position).toBeCloseTo(0.25);
+    expect(t.input.tap(280, 204)).toBeNull(); t.run(2);
+    expect(bar.position).toBeCloseTo(0.25);
   });
 });

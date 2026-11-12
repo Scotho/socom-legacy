@@ -50,8 +50,9 @@ describe('the map check beside the cards (FUI-2, IA-1)', () => {
   it('a Check followed by Saves: the check is done (the page ready) and the Saves card sits on a host that takes the pointer', async () => {
     const api = await mounted();
     toolbar('Check').click();
-    // The empty floor has no spawn (`checkMap`'s spawn-none), so the sheet may open on its problems: either heading.
-    await vi.waitFor(() => expect(document.querySelector('.fx-check-card h2')?.textContent).toMatch(/^(?:Map check|This map has problems)$/));
+    // The empty floor has no spawn (`checkMap`'s spawn-none), so the sheet opens on its problems (FP-1b, REVIEW-C 16:
+    // one heading pinned, not either).
+    await vi.waitFor(() => expect(document.querySelector('.fx-check-card h2')?.textContent).toBe('This map has problems'));
     const sheet = document.querySelector<HTMLElement>('.fx-check-card')!;
     expect(sheet.closest('.fx-modal'), 'the list is a sheet, not the dialog').toBeNull();
     expect(api.read().ready, 'the check is not left running behind its list').toBe(true);

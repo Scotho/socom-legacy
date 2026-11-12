@@ -4,7 +4,7 @@ import { groundGrid, packGround, PROTOCOL_VERSION, type SimMap } from '../../vie
 import { HOSTAGE_PRONE_TILT_READING, remoteTiltStep } from '../../viewer/src/remotePlayers';
 import type { V3 } from '../../viewer/src/net/hitVolumes';
 import { Room, type Conn } from '../src/room';
-import { ACTION_CLIPS, ACTION_SECONDS, STEP_PROBE_LIFT_READING, TICK } from '../../viewer/src/mover';
+import { ACTION_CLIPS, ACTION_SECONDS, probeLiftOf, TICK } from '../../viewer/src/mover';
 import { rootTiltStart, rotateByQuat, stepRootTilt, tiltTopOfSnapshot, tiltWindowOf } from '../../viewer/src/rootTilt';
 import { HostageFollow, type FollowPlanner } from '../src/hostageFollow';
 
@@ -43,7 +43,7 @@ describe('a knocked hostage on a slope (LATER 354 with FUN_00548090)', () => {
       const top = tiltTopOfSnapshot({ stance: 'stand', action: follow.action, hold: null, traversal: null }, frames, seconds);
       for (let f = clock.advance(TICK); f > 0; f--) copy = stepRootTilt(copy, {
         normal: () => {                                               // the page's pick (`remoteTilt`) under the feet
-          const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + STEP_PROBE_LIFT_READING, feet[1]);
+          const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + probeLiftOf('stand'), feet[1]);
           if (f) normal = [f.normal[0], f.normal[1], f.normal[2]];
           return normal;
         }, yaw: follow.yaw, span: tiltWindowOf(top.clip), phase: top.phase,
@@ -85,7 +85,7 @@ describe('PRONE-TILT-2 review F1: a prone (get-down) hostage caught by a blast o
       const feet = follow.feet;
       const snap = { stance: 'prone' as const, action: follow.action, hold: null, traversal: null, yaw: follow.yaw, airborne: follow.airborne };
       for (let f = clock.advance(TICK); f > 0; f--) copy = remoteTiltStep(copy, snap, () => {
-        const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + STEP_PROBE_LIFT_READING, feet[1]);
+        const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + probeLiftOf(snap.stance), feet[1]);   // `remoteTilt`'s lift: the stance word, prone (no stanceState), LATER 785
         return f ? f.normal : [0, 1, 0];
       }, true);
       expect(copy.q).toEqual(follow.rootTilt);
@@ -108,8 +108,10 @@ describe('PRONE-TILT-2 review F2: the room turns a knocked hostage\'s capsules b
     const room = new Room(map, null, { now: () => 0, random: () => 0.5, launchCountdownS: 0 }, null, null);
     room.hello(1, { send() {}, close() {} } as Conn, { type: 'hello', version: PROTOCOL_VERSION, name: '', map: 'MP99' });
     room.step();
-    // one hostage at the origin, a standing column of a body (one BODY capsule, y 1..15) about its root at the feet
-    const column = [{ part: 1, r: 1, a: [0, 1, 0] as V3, b: [0, 15, 0] as V3 }];
+    // one hostage at the origin, a standing column of a body (one box, x and z -1..1, y 1..15; BONE-BOXES, research 217
+    // s3.6b: the volumes are bone boxes, this one a hand-made bone at the identity, where it was one capsule of radius 1)
+    // about its root at the feet
+    const column = [{ part: 1, bone: 0, box: Float32Array.of(-1, 1, -1, 1, 15, 1), w: Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }];
     const vols = { stand: column, crouch: column, prone: column, pivot: { stand: [0, 0, 0] as V3, crouch: [0, 0, 0] as V3, prone: [0, 0, 0] as V3 } };
     const tilt = [Math.sin(Math.PI / 6), 0, 0, Math.cos(Math.PI / 6)];   // 60 degrees about x: the top swung along z
     const hostage = { id: 9000, at: [0, 0, 0] as V3, yaw: 0, motion: { rootTilt: tilt as unknown } };

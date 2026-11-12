@@ -14,10 +14,10 @@ import {
  * "New loadout". Every row keeps its act (`loside`, `lorow`, `loedit`) and index, the rollers' step marks stay the
  * pointer's (`lostep`), a locked or refused screen's one row its Cross (`press`, `data-b="cross"`). A browser adaptation.
  */
-const LIST: LoadoutListView = { kind: 'ok', rows: [{ mission: 'MP2', name: 'VIGILANCE', state: 'saved' }, { mission: 'MP3', name: 'CROSSROADS', state: 'default' }, { mission: 'MP9', name: 'FOXHUNT', state: 'unoffered' }], empty: null };
+const LIST: LoadoutListView = { kind: 'ok', rows: [{ mission: 'MP2', name: 'Vigilance', state: 'saved' }, { mission: 'MP3', name: 'Crossroads', state: 'default' }, { mission: 'MP9', name: 'Foxhunt', state: 'unoffered' }], empty: null };
 const ROLL = (label: string, fixed: string | null = null) => ({ label, values: ['A', 'B'], at: 1, open: [true, true], fixed });
 const EDITOR: LoadoutEditorView = {
-  kind: 'ok', mission: 'MP2', name: 'VIGILANCE', head: 'SEAL loadouts', held: 'Stored on the server: type 1', busy: false, dirty: false,
+  kind: 'ok', mission: 'MP2', name: 'Vigilance', head: 'SEAL loadouts', held: 'Stored on the server: type 1', busy: false, dirty: false,
   rows: [ROLL('Character type'), ROLL('Primary'), ROLL('Secondary', 'Locked: the ARMORY does not let this slot change'), ROLL('Equipment 1'), ROLL('Equipment 2'), ROLL('Equipment 3')],
 };
 function draw(o: { list?: LoadoutListView; editor?: LoadoutEditorView; screen?: 'loadoutSides' | 'loadouts' | 'loadout'; row?: number } = {}) {
@@ -51,14 +51,14 @@ describe('Profile: Loadouts (LR-4)', () => {
   it('a side\'s missions: a row per mission, its state the side value; not offered muted with its lock and its line; act, index, mission', () => {
     const { box } = draw({ row: 1 });
     const r = rows(box);
-    expect(r.map((x) => [label(x), value(x)])).toEqual([['VIGILANCE', 'SAVED'], ['CROSSROADS', 'DEFAULT'], ['FOXHUNT', 'NOT OFFERED']]);
+    expect(r.map((x) => [label(x), value(x)])).toEqual([['Vigilance', 'SAVED'], ['Crossroads', 'DEFAULT'], ['Foxhunt', 'NOT OFFERED']]);
     r.forEach((x, i) => expect([x.dataset['act'], x.dataset['i']]).toEqual(['lorow', String(i)]));
     expect(r.map((x) => x.dataset['mission'])).toEqual(['MP2', 'MP3', 'MP9']);
     expect(r.map(muted)).toEqual([false, false, true]);
     expect(r.map((x) => x.classList.contains('is-good'))).toEqual([true, false, false]);   // SAVED keeps the chip's ready tone
     expect(r[2]!.querySelector('.cx-r__icon')).not.toBeNull();
-    expect(r[2]!.querySelector('.cx-r__hint')!.textContent).toBe(`MP9 · ${LOADOUT_UNOFFERED_WORDS}`);
-    expect(r.filter((x) => x.classList.contains('is-focused')).map(label)).toEqual(['CROSSROADS']);
+    expect(r[2]!.querySelector('.cx-r__hint')!.textContent).toBe(LOADOUT_UNOFFERED_WORDS);
+    expect(r.filter((x) => x.classList.contains('is-focused')).map(label)).toEqual(['Crossroads']);
     expect(box.querySelector('h1.cx-title')!.textContent).toBe('SEAL loadouts');
     expect(box.querySelector('.cx-rlist')!.getAttribute('data-key')).toBe('lo-list-seal');
     expect(box.querySelector('.cx-screen__body > .cx-aside')).not.toBeNull();
@@ -88,7 +88,7 @@ describe('Profile: Loadouts (LR-4)', () => {
     expect(r[2]!.getAttribute('aria-label')).toContain('Locked: the ARMORY');
     expect(r[LOADOUT_SAVE_ROW]!.classList.contains('is-primary')).toBe(true);
     expect(box.querySelector('[data-lo-held]')!.textContent).toMatch(/stored on the server/i);
-    expect(box.querySelector('h1.cx-title')!.textContent).toBe('VIGILANCE');
+    expect(box.querySelector('h1.cx-title')!.textContent).toBe('Vigilance');
     expect(box.querySelector('.cx-roller, .cx-list')).toBeNull();
   });
 

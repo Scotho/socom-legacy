@@ -1,6 +1,6 @@
 {
   "name": "@s2u/shared",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "description": "The design system (tokens, base, components, fonts) shared by the SOCOM 2 Legacy launcher, game and project pages",
   "license": "GPL-3.0",

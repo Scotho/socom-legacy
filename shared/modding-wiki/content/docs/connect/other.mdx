@@ -1,0 +1,131 @@
+---
+title: "Connect another MCP client"
+description: "Add the socom2legacy connection service to any MCP client that speaks Streamable HTTP with OAuth and sign in as a guest, then connect it to the Forge or the solo test room you have open with one link and one Allow; what a client must support."
+status: "Forge, local only"
+source: ["socomlegacy/packages/viewer/src/agent/setup.ts", "socomlegacy/packages/viewer/src/agent/panel.ts", "socomlegacy/packages/viewer/src/agent/codes.ts", "socomlegacy/packages/viewer/src/agent/connection.ts", "socomlegacy/packages/forge-agent/src/oauth.ts", "socomlegacy/packages/forge-agent/src/gateway.ts", "socomlegacy/packages/forge-agent/src/mcp.ts", "socomlegacy/packages/forge-agent/src/tools/area.ts"]
+---
+
+**Status: Forge, local only.** Any client connects to the Forge or the solo test room open in your browser, never a
+lobby or an online match. Only Claude Code and Codex have been measured against the connection service (the
+compatibility record; their sign-in, on the earlier panel), and the one-link flow itself is not measured yet; another
+client works if it supports what the list below names.
+
+This page follows the card's three moments -- Connect, Allow, Connected -- for another MCP client. What connecting
+means, the permissions, staying connected and how to disconnect are on [Connect an agent](/connect/).
+
+## 1. Connect
+
+In the page, open **Connect an agent** and choose **Another MCP client**.
+
+### First time with Another MCP client?
+
+The box shows the address to add once (**Streamable HTTP server "socom2legacy"**; "Run this once where your agent
+runs."). In your client, add a Streamable HTTP MCP server named `socom2legacy` at that address. With the production
+connection service:
+
+```text
+https://agent.socom2legacy.com/mcp
+```
+
+The card's **Connection service** box shows the address in use: copy it rather than this page's when they differ. A
+developer running `npm run forge:agent` gets `http://127.0.0.1:5360/mcp` in its place.
+
+"Then sign in when your client asks. Your browser opens the connection service’s guest sign-in." That page asks
+"Allow … to sign in to SOCOM 2 Legacy as a guest?" with the name your client reports ("an unnamed MCP client" when it
+gives none) and says "This only lets it ask to connect. You still press Allow on your own page before it can do
+anything there." Press **Approve**. The request ends in five minutes.
+
+Once this browser has connected such a client, the box starts folded.
+
+### Copy connect link
+
+Press **Copy connect link**. It copies one line:
+
+```text
+Connect to my SOCOM 2 Legacy page: https://agent.socom2legacy.com/join/<code>
+```
+
+"Paste it into Another MCP client. You’ll approve here." -- that is, into your agent. The link works once and expires
+in five minutes; the card counts down ("Link expires in 4:59"). If the browser does not let the page write to the
+clipboard, the card shows the line to select and copy yourself ("Copy failed · Select and copy the link below").
+
+Paste the link only into your own agent, and never share it -- not in a chat, a stream or a screenshot. Anyone
+holding it can ask to connect within its five minutes, and the Allow card shows the name the caller reports for
+itself.
+
+*Screenshot: `connect/other-connect.png`, not on this site yet.* It is added in the screenshot pass.
+
+## 2. Allow
+
+The card says the name your agent reports and "wants to connect". Every permission it asked for is a switch, all on.
+Turn off any you do not want, then press **Allow** (or **Decline**). Tick "Remember … on this browser" to make the
+next connect a single Allow with the same switches. The small print "Check: the code … matches your agent's" is there
+if you want to compare it with the code your agent reports; it is not a step.
+
+*Screenshot: `connect/other-allow.png`, not on this site yet.*
+
+## 3. Connected
+
+The card shows the agent's name, each permission as a chip (on or off), the recent activity, the note box ("Tell your
+agent…"), the local files and **Disconnect**.
+
+*Screenshot: `connect/other-connected.png`, not on this site yet.*
+
+## What a client must support
+
+- **Streamable HTTP**, the MCP transport over one web address. A client that only starts local programs needs a
+  bridge, as [Claude Desktop](/connect/claude-desktop/) uses.
+- **OAuth sign-in with dynamic registration**: the client registers itself with the service, with no secret, and
+  returns to a web address that is HTTPS or on your own computer.
+- **PKCE**, the proof the sign-in was started by the same client.
+- **The one scope `bootstrap`**: any other scope is refused.
+- **A browser** for the sign-in page, and a way to hand your agent the pasted link (it calls `agent_pair` with it and
+  waits for your Allow).
+
+A sign-in lasts at most eight hours and is never renewed silently: after it ends the client asks you to approve the
+sign-in page again. A restart of the service keeps the sign-in when the service keeps its state file; without it, the
+client signs in again.
+
+## Troubleshooting
+
+| what the card says | what to do |
+|---|---|
+| "Connect failed: The connection service is not hosted for this page yet." | A production build: no service answers at this address. Check the **Connection service** box, or press **Try again** later. |
+| "Connect failed: Start the local connection service and page with npm run forge:agent, then try again." | A development build: no local service answers. Run `npm run forge:agent`, then **Try again**. |
+| "Connect failed: The connection service is busy. Try again shortly." (or "… is unavailable …", "… did not answer in time …") | The service is there but cannot take the request now. Wait, then **Try again**. |
+| "Connect failed: The connection service does not accept this page's address." | Press **Check the connection service address**: this page names a service that does not serve it. |
+| "The link expired. Copy a fresh one." | Five minutes passed before the agent connected. Press **Copy a fresh link** and paste the new line. |
+| "The direct route between this page and the connection service did not open. A firewall or this network may block it." | Press **Try again**; if it fails again, try another network (**Details** lists the routes tried). |
+| "Connect failed: Keep this page visible while connecting your agent." | Keep the tab in view while you press **Copy connect link**. |
+| "Paused while this tab is hidden: come back to run tests again." | Not a failure: the agent is still connected. Bring the tab back; a test that was running was stopped, and the agent sends it again. |
+| "Connect failed: Too long passed since the reload to reconnect. Connect again with a fresh link." | Reconnect lasts two minutes after a reload. Press **Copy connect link** again. |
+
+## For agents
+
+```json
+{
+  "page": "/connect/other/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "For any MCP client: socom2legacy is a Streamable HTTP MCP server at <origin>/mcp, OAuth with dynamic client registration and PKCE S256, the one scope bootstrap granted on a guest sign-in page; the person pastes one /join/ link and you call agent_pair with it, which waits for their Allow.",
+  "inputs": [
+    "the endpoint: the page's Connection service, production https://agent.socom2legacy.com/mcp, development http://127.0.0.1:5360/mcp; transport Streamable HTTP; server name socom2legacy",
+    "the authorization the service requires: discovery from the protected-resource metadata the 401 names (the MCP authorization spec); dynamic client registration with token_endpoint_auth_method 'none' and redirect URIs that are https or http on 127.0.0.1, localhost or [::1], with no fragment or credentials; authorization code with PKCE S256 (a 43-character base64url code_challenge); the resource parameter exactly <origin>/mcp (one trailing slash allowed); scopes only 'bootstrap' (anything else: 'Unsupported scope'); the access token lasts at most LIMITS.sessionAbsoluteMs 28800000 ms; no refresh grant ('Guest grants require fresh consent'): sign in again; a service with a state file (FORGE_AGENT_STATE_FILE) keeps registered clients and tokens across a restart",
+    "the pasted line: 'Connect to my SOCOM 2 Legacy page: <gateway origin>/join/<invitation>'"
+  ],
+  "outputs": [
+    "once signed in, the fourteen tools: agent_guide, agent_status, agent_capabilities, agent_pair, agent_wait, agent_notes, agent_disconnect, agent_request, forge_read, forge_edit, forge_play, testroom, capture, camera (their arguments and refusal codes on /connect/); the guide's topics also as resources socom2legacy://guide/<topic>, and four prompts; target.capture and the capture tool answer an MCP image content item (image/png or image/jpeg) beside their JSON, so a client that shows images sees the canvas",
+    "the sequence of /connect/: agent_guide first if you have not yet; agent_pair {invitation: the whole join link, clientName: your client's name} -- omit permissions to ask for all six; it waits (default 45 s, waitSeconds up to 90) and answers paired, declined or pending (then agent_wait {sessionId}; never repeat agent_pair); on pending, tell the person the comparisonCode (agent_pair returns it in `comparisonCode` and in `next`) so they can check it against the card's small print if they want; read the granted permissions; agent_capabilities, then agent_request target.status; agent_disconnect when done",
+    "on INVITATION_EXPIRED ask for a fresh connect link; on PERMISSION_DENIED ask the person, never work around it; every refusal's hint says the next step; a client the compatibility record has not measured says so plainly when a step fails"
+  ],
+  "see_also": [
+    "/connect/",
+    "/connect/claude-code/",
+    "/connect/codex/",
+    "/connect/claude-desktop/"
+  ]
+}
+```

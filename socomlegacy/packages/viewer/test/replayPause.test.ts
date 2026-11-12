@@ -65,3 +65,94 @@ describe('CPS.R9 (e): the replay\'s pause at the open', () => {
     c.close();
   });
 });
+
+/**
+ * The page's loading hold (RV2-03, `ReplayPageHooks.held`): the client opens held and the frame loop releases it the first
+ * frame the loading screen has gone -- after the segment opens, or before. `pause` survives that release in either order
+ * (the frame identity gate, 2026-11-09: the hold's release played on from the paused seek, "REPLAY playing ... tick 418").
+ * The frame loop is driven by hand (`frame`): each call runs the frame the loop last asked for.
+ */
+const openHeld = async (search: string, releaseBeforeOpen: boolean): Promise<{ c: ReplayClient; frame: () => void; hold: { on: boolean } }> => {
+  const hold = { on: true };
+  let next: (() => void) | null = null;
+  const frame = (): void => { const run = next; next = null; run?.(); };
+  const make = replayClient(search, {
+    document, location: { search, pathname: '/testroom', hash: '', replace: () => {} }, fetch: fakeFetch(fixtureBytes()),
+    frame: (run) => { next = run; },
+  }, { held: () => hold.on });
+  const c = make({ url: 'replay:', map: 'MP2', name: 'W', watch: true }, {} as never) as unknown as ReplayClient;
+  if (releaseBeforeOpen) {
+    hold.on = false;
+    frame();                                                // the loop releases the hold while the segment still loads
+    expect(c.state).toBe('connecting');
+    expect(c.held()).toBe(false);
+  }
+  await c.ready;
+  await wait(0);
+  return { c, frame, hold };
+};
+
+describe('CPS.R9 (e) beside RV2-03: the pause holds through the loading hold\'s release, in either order', () => {
+  it('released after the open (the loading screen hides once the paused seek has landed): still paused at the tick', async () => {
+    const { c, frame, hold } = await openHeld('?devmode&replay=http://localhost:5303/segments/11.s2r&tick=300&pause', false);
+    expect(c.state).toBe('open');
+    expect(c.serverTick()).toBe(300);
+    frame();
+    expect(c.held()).toBe(true);
+    hold.on = false;
+    frame();                                                // the loop releases the hold here
+    expect(c.held()).toBe(false);
+    expect(c.playing()).toBe(false);
+    await wait(60);
+    frame();
+    expect(c.serverTick()).toBe(300);
+    expect(c.dtScale()).toBe(0);
+    c.close();
+    frame();
+  });
+  it('released before the open (the loading screen gone before the segment arrives): paused at the tick', async () => {
+    const { c, frame } = await openHeld('?devmode&replay=http://localhost:5303/segments/12.s2r&tick=300&pause', true);
+    expect(c.state).toBe('open');
+    expect(c.playing()).toBe(false);
+    expect(c.serverTick()).toBe(300);
+    await wait(60);
+    frame();
+    expect(c.serverTick()).toBe(300);
+    c.close();
+    frame();
+  });
+  it('without tick=, released after the open: paused at the open', async () => {
+    const { c, frame, hold } = await openHeld('?devmode&replay=http://localhost:5303/segments/13.s2r&pause', false);
+    const at = c.serverTick();
+    hold.on = false;
+    frame();
+    expect(c.playing()).toBe(false);
+    await wait(60);
+    frame();
+    expect(c.serverTick()).toBe(at);
+    c.close();
+    frame();
+  });
+  it('Space after the release plays on (the pause is the open\'s, not a lock)', async () => {
+    const { c, frame, hold } = await openHeld('?devmode&replay=http://localhost:5303/segments/14.s2r&tick=300&pause', false);
+    hold.on = false;
+    frame();
+    expect(c.toggle()).toBe(true);
+    await wait(60);
+    frame();
+    expect(c.serverTick()).toBeGreaterThan(300);
+    c.close();
+    frame();
+  });
+  it('without pause, the hold\'s release plays as before (RV2-03)', async () => {
+    const { c, frame, hold } = await openHeld('?devmode&replay=http://localhost:5303/segments/15.s2r&tick=300', false);
+    expect(c.playing()).toBe(false);
+    hold.on = false;
+    frame();
+    expect(c.playing()).toBe(true);
+    await wait(60);
+    expect(c.serverTick()).toBeGreaterThan(300);
+    c.close();
+    frame();
+  });
+});

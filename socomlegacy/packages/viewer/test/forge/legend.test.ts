@@ -27,14 +27,17 @@ const tap = (button: number, crossHolds = false): PadAction[] => {
   return [...pad.frame(down, 16).actions, ...pad.frame(rest(), 32).actions];
 };
 
-/** The table: each context the page draws, and the prompts it must show, glyph and word. */
+/**
+ * The table: each context the page draws, and the prompts it must show, glyph and word. OT.R112 (the Forge's UI is its
+ * contributor's): his pad map gives R3 Frame with a selection and moves the Place tool's Snap to L3.
+ */
 const CONTEXTS: [string, LegendContext, [PadGlyphName, string][]][] = [
   ['Build, the Select tool, nothing selected', { kind: 'build', tool: 'select', selection: 0 },
     [['cross', 'Select'], ['cross', 'Hold: add'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['lstick', 'Fly'], ['rstick', 'Look'], ['select', 'Undo'], ['start', 'Menu']]],
   ['Build, the Select tool, a selection', { kind: 'build', tool: 'select', selection: 1 },
-    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['l1r1', 'Tool'], ['start', 'Menu']]],
+    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['r3', 'Frame'], ['l1r1', 'Tool'], ['start', 'Menu']]],
   ['Build, the Place tool', { kind: 'build', tool: 'place', selection: 0 },
-    [['cross', 'Place'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['r3', 'Snap'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
+    [['cross', 'Place'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['l3', 'Snap'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
   ['Build, the NPC tool', { kind: 'build', tool: 'npc', selection: 0 },
     [['cross', 'Place'], ['dpad-v', 'Character'], ['l1r1', 'Tool'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
   ['Build, a marker tool (spawn, bomb, site)', { kind: 'build', tool: 'spawnA', selection: 0 },
@@ -119,13 +122,15 @@ describe('FUI-3: the design system\'s glyphs (padGlyph) and the strip', () => {
     expect(host.firstElementChild!.className).toBe('fx-legend-note');
     expect(host.firstElementChild!.textContent).toBe('Choose a prop first');
     const items = [...host.querySelectorAll('.s2u-prompt')];
-    expect(items.map((i) => i.tagName)).toEqual(['BUTTON', 'BUTTON', 'LI', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON']);
+    expect(items.map((i) => i.tagName)).toEqual(['BUTTON', 'BUTTON', 'LI', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON']);
     const del = items[4] as HTMLButtonElement;
     expect(del.textContent).toBe('Triangle:Delete');
     expect(del.dataset['padPress']).toBe('delete');
     del.click();
     expect(pressed).toHaveBeenCalledWith('delete');
-    (items[6] as HTMLButtonElement).click();                              // L1 / R1: a tap is R1's, the next tool
+    (items[6] as HTMLButtonElement).click();                              // R3: Frame (OT.R112)
+    expect(pressed).toHaveBeenLastCalledWith('frame');
+    (items[7] as HTMLButtonElement).click();                              // L1 / R1: a tap is R1's, the next tool
     expect(pressed).toHaveBeenLastCalledWith('nextTool');
     drawLegend(document, host, legendFor({ kind: 'build', tool: 'select', selection: 0 }, 'keys'), { pad: false, onPress: pressed });
     expect(host.classList.contains('is-pad')).toBe(false);

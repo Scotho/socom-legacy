@@ -99,13 +99,19 @@ export function decidedReason(d: DecidedWire): DecidedReason | 'other' {
  * off the map's own script at run time (`./roundCues` `ESCORT_IN_ROUND_LINES_READING`), by the VIP's `<name>_valve_alive`
  * -- so a Forge escort (a map with no escort script, or VIPs placed under names its script does not test) posts none and
  * staging reads as nothing happening. There, RescueN's and EndRescueN's words are posted as the reading quotes them:
- * "A VIP IS IN THE EXTRACTION ZONE" at 0.7 (MP52 @3836); "A VIP HAS BEEN EXTRACTED" at `ESCORT_EXTRACTED_SCALE_PLACEHOLDER`
- * (its scale not quoted). No stream or music: those are each map's own. A disc escort map's VIPs keep their own lines.
+ * "A VIP IS IN THE EXTRACTION ZONE" at 0.7 (MP52 @3836); "A VIP HAS BEEN EXTRACTED" at `ESCORT_EXTRACTED_SCALE_READING`.
+ * No stream or music: those are each map's own. A disc escort map's VIPs keep their own lines.
  */
-export const ESCORT_EXTRACTED_SCALE_PLACEHOLDER = 0.7;
+/**
+ * ESCORT_EXTRACTED_SCALE_READING (`./roundCues` `ESCORT_IN_ROUND_LINES_READING`; research 175 §4, research 101's
+ * PLAT-22 row): the scale EndRescueN's first line, "A VIP HAS BEEN EXTRACTED", is posted at -- 0.7 on every VIP (MP52
+ * @4536-@4596, MP53 @4568-@4628, MP82 @4308-@4368), as the disc's `objectives` read through `roundCuesFromArchive` give it
+ * (`test/golden/round-cues.json`, re-derived off the disc by `test/roundCues.parity.test.ts`). [reading, pending review]
+ */
+export const ESCORT_EXTRACTED_SCALE_READING = 0.7;
 export const FORGE_ESCORT_LINES_ADAPTATION = {
   staged: { text: 'A VIP IS IN THE EXTRACTION ZONE', scale: 0.7 },
-  extracted: { text: 'A VIP HAS BEEN EXTRACTED', scale: ESCORT_EXTRACTED_SCALE_PLACEHOLDER },
+  extracted: { text: 'A VIP HAS BEEN EXTRACTED', scale: ESCORT_EXTRACTED_SCALE_READING },
 } as const;
 
 /**
@@ -122,8 +128,9 @@ export const ESCORT_KILL_COPY_FROM_JOIN_PLACEHOLDER = 'counted from the round st
 
 export class RoundAudio {
   /**
-   * FORGE_ESCORT_LINES_ADAPTATION's switch: on only for a Forge layout's match (`./matchMount`, a map the Forge composed),
-   * so a disc map whose script names no line for a VIP posts nothing, as the original does.
+   * FORGE_ESCORT_LINES_ADAPTATION's switch: on only for a Forge layout that places hostages or escort zones (`./matchMount`
+   * reads `forgeEscortZones`, which `./forge/playObjectives` names only then -- FP-1b, REVIEW-B 13), so any other map,
+   * a disc map played unchanged included, whose script names no line for a VIP posts nothing, as the original does.
    */
   forgeEscortLines = false;
   private cues: RoundCues | null = null;

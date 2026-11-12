@@ -2,6 +2,7 @@ import { ambientProgramsOf } from './forgeObjects';
 import type { LoadedMap } from '../loadMap';
 import { findLadders, type EffectProgram } from '@s2u/scene';
 import { groundPolygons } from '../mover';
+import { under } from '../mapMeta';
 import { hostageCharactersOf } from './hostages';
 import { accessTemplates, accessTriggerOf } from './placedAccess';
 import { doorTemplates } from './placedDoors';
@@ -19,7 +20,6 @@ export type CopyKind = 'door' | 'turret' | 'hostage' | 'ladder' | 'gate' | 'barr
 export type MapCensus = Record<CopyKind, number>;
 
 /** A map's doors, turrets and hostage characters (each character once). */
-const beneath = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}=`);
 
 /**
  * A map's ladder props (the owner, 2026-11-06; a browser adaptation, FG.R2): a ladder is no object of the game's -- the
@@ -31,11 +31,11 @@ export function ladderPropsOf(map: Pick<LoadedMap, 'ground' | 'props'>): { model
   if (!map.ground) return [];
   const out: { model: string; height: number; front: [number, number] }[] = [];
   for (const l of findLadders(groundPolygons(map.ground))) {
-    const prop = map.props.find((p) => (p.paths ?? []).some((q) => beneath(l.path, q) || beneath(q, l.path)));
+    const prop = map.props.find((p) => (p.paths ?? []).some((q) => under(l.path, q) || under(q, l.path)));
     if (!prop || out.some((o) => o.model === prop.modelName)) continue;
     // Its climbing side in the prop's own frame (`front`, x and z): the ladder's normal (`Ladder.nx`/`nz`, the side the
     // climber stands on) through its placement's turn -- Sandstorm's ladder35 and ladder50 +Z, ladder42 a quarter off.
-    const i = (prop.paths ?? []).findIndex((q) => beneath(l.path, q) || beneath(q, l.path));
+    const i = (prop.paths ?? []).findIndex((q) => under(l.path, q) || under(q, l.path));
     const m = prop.matrices.subarray(i * 16, i * 16 + 16);
     const sx = Math.hypot(m[0]!, m[2]!) || 1, sz = Math.hypot(m[8]!, m[10]!) || 1;
     const fx = (l.nx * m[0]! + l.nz * m[2]!) / sx, fz = (l.nx * m[8]! + l.nz * m[10]!) / sz, f = Math.hypot(fx, fz);

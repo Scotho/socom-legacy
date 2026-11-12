@@ -229,6 +229,12 @@ export class PineClient {
     });
   }
 
+  /**
+   * One request of any opcode (`encodeRequest`'s bytes), its reply's data -- at least `want` bytes when given; a non-zero
+   * result fails it. The extension's opcodes go through here (`./pineDebug`).
+   */
+  request(req: Uint8Array, want?: number): Promise<Uint8Array> { return this.call(req, want); }
+
   private static view(d: Uint8Array): DataView {
     return new DataView(d.buffer, d.byteOffset, d.byteLength);
   }

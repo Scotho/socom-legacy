@@ -499,7 +499,12 @@ export function idbExtractStore(factory: () => IDBFactory | null | undefined, di
   return store;
 }
 
-/** Deletes `EXTRACT_DB` whole (`./discExtract` `deleteExtraction`): every identity's files. No database is no error. */
+/**
+ * Deletes `EXTRACT_DB` whole (`./discExtract` `deleteExtraction`): every identity's files. No database is no error.
+ * Another tab holding the database open blocks the delete (`onblocked`): that is refused at once, `unavailable`, in words
+ * that name the cure (LATER 578: unanswered, the promise never settled, and a disc share receiver's `prepare` waited on
+ * it). The browser keeps the delete queued; it runs once the other tab lets go, and a later removal finds nothing.
+ */
 export function deleteExtractDb(factory: () => IDBFactory | null | undefined): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let idb: IDBFactory | null | undefined;
@@ -509,5 +514,8 @@ export function deleteExtractDb(factory: () => IDBFactory | null | undefined): P
     try { req = idb.deleteDatabase(EXTRACT_DB); } catch (e) { reject(storeError(e, 'failed', 'the stored files could not be removed')); return; }
     req.onsuccess = () => resolve();
     req.onerror = () => reject(storeError(req.error, 'failed', 'the stored files could not be removed'));
+    req.onblocked = () => {
+      reject(new ExtractStoreError('unavailable', 'another tab of this site holds the stored game files, so they could not be removed; close it and try again'));
+    };
   });
 }

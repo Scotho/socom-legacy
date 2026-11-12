@@ -168,7 +168,11 @@ PROFILE-PRIVACY is SVC-15's (research 268 §1.5 item 4).
    answer AccountGetID at `/lobby/account-id` (`accountGetId.ts`), a logged-in account of the name in a room or not
    (`ACCOUNT_GET_ID_PRESENCE_READING`, research 273 §7): #376 itself is the evidence, read as the original's own text
    over Horizon's offline-found answer (the merge controller's ruling between readings). The add's lookup asks it;
-   `IGNORE_NAME_LOOKUP_PLACEHOLDER` retired (§1.7).]*
+   `IGNORE_NAME_LOOKUP_PLACEHOLDER` retired (§1.7).]* *[2026-11-10, CLAN-INVITES: re-ruled by the owner against the best reading (`ACCOUNT_GET_ID_PRESENCE_OWNER`; HUMAN_TASKS
+   H441 for the ignore side) on the owner's
+   word, "ensure clan invites are sent to accounts that exist but are offline": AccountGetID answers any account of the name, logged
+   in or not (Horizon's), so the add now finds a logged-off player too; #376 is still shown for no such name (research
+   273 §7).]*
 2. **The reply's order** (`IGNORE_LIST_LATEST_REPLY_ADAPTATION`, a browser adaptation): a list reply is taken only for
    the latest request under the ticket still held.
 3. **The chains' ticket** (`IGNORE_ADD_TICKET_ADAPTATION`, a browser adaptation; the fresh review's finding, 2026-10-11):

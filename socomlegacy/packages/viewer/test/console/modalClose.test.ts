@@ -4,7 +4,7 @@ import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { remapAdapter } from '../../src/console/adapters/remap';
 import { extractStart, type ExtractAct, type ExtractView } from '../../src/console/render/extract';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
-import { REMAP_ACTION_ROW, REMAP_ROW, type Adapters, type ConsoleState } from '../../src/console/state';
+import { remapActionRow, REMAP_ROW, type Adapters, type ConsoleState } from '../../src/console/state';
 import { PadBinding } from '../../src/padBinding';
 import { HOLD_TO_BIND_MS_ADAPTATION } from '../../src/padLayout';
 import { mountShell } from './shell';
@@ -143,7 +143,7 @@ describe('MODAL-CLOSE: the modals drawn over their own adapters', () => {
     ctl.press('cross');
     expect(ctl.S.screen).toBe('remap');
     ctl.remapFrame(t += 16);
-    ctl.S.rm.row = REMAP_ACTION_ROW + 4;                         // L1's row (STANCE-TOP: the Stance mode is row 0)
+    ctl.S.rm.row = remapActionRow() + 4;                         // L1's row (STANCE-TOP: the Stance mode is row 0)
     ctl.press('cross');                                          // listening: no modal, Escape not read
     expect(ctl.capturing()).toBe(true);
     const e = escape(document);
@@ -155,7 +155,7 @@ describe('MODAL-CLOSE: the modals drawn over their own adapters', () => {
     expect([ctl.S.overlay, ctl.S.confirmKind]).toEqual(['confirm', 'conflict']);
     closeButton()!.click();
     expect(ctl.S.overlay).toBeNull();
-    ctl.S.rm.row = REMAP_ACTION_ROW + 4;                         // L1's row (STANCE-TOP: the Stance mode is row 0)
+    ctl.S.rm.row = remapActionRow() + 4;                         // L1's row (STANCE-TOP: the Stance mode is row 0)
     ctl.press('cross');
     hold(); ctl.remapFrame(t += 16);
     hold(7); ctl.remapFrame(t += 16); ctl.remapFrame(t += HOLD_TO_BIND_MS_ADAPTATION);

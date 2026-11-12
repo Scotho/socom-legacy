@@ -73,6 +73,40 @@ round's `tan(tan(hfov))/320` = 0.00263 is 1.39 x the port's shift. In y the same
 (`tan(tan(hfov) x 448/640)/224` over `tan(vfov)/224`); the original's own y factor is not derived here. The 0.933 is
 older than this task (the shake and the bob ride it too) and is LATER 621.
 
+*Corrected 2026-11-10 (LATER 621, `agent/scope-sway-x`; reading, pending review):* **the port's x factor is the
+original's: the cross sits 0.2 x the sway off the round across, as in the original.** `look.ts` `viewOffset` now moves
+the picture by `viewOffsetPerPixelX()` = `(tan(hfov)/320) / (tan(vfov)/224)` page pixels (of a frame 448 high) per PS2
+pixel across -- 1.0756 at the maps' fov (0.6109 0.4276, research 72), taken from `accuracy.ts` `MAP_FOV`, the one fov
+the round's `tangentPerPixel` and the page's `baseFov` read -- so a PS2 pixel of offset across is `tan(hfov)/320` =
+0.00219 in tangent, the original's projection's (`FUN_00294070` D:L138944-138945: the offset added to the centre; the
+scale across `cam+0x290` x `cam+0x470`, below). Measured through the page's own three.js camera (the scope
+FOV of `Zoom.fov`, `FlyCamera.setKitOffset`, at 4:3, 16:9 and 21:9 and 3x/5x/10x), the round's offset across is
+`tan(tan(hfov))/tan(hfov)` = 1.203 x the cross's shift (was 1.39 x) and down 1.1709 x, unchanged
+(`scopeSwayView.test.ts`). **y is left as it was**: the page's y factor (one page pixel of 448 per PS2 pixel down)
+puts the round 1.1709 x the cross down, and the original's own y factor (the projection's `cam+0x474`-side scale) is
+still not derived here -- the 1.1709 is the port's, pinned, not proven equal to the original's. The shake and the bob
+(research 83 §5, §6) ride the same offset, so their x is the original's projection's too (the bob has no x; the
+shake's x moves 1.0756 / 0.933 = 1.152 x as far across as before).
+
+*Corrected 2026-11-10 (the review of `agent/scope-sway-x`; `agent/scope-sway-docs`; reading, pending review):*
+**the down figure is 1.1709, not 1.168.** `tangentPerPixel().y / (tan(vfov)/224)` = `tan(tan(0.6109) x 448/640) /
+tan(0.4276)` = 1.17094 (recomputed); the 1.168 was a slip in the third decimal, passed by a pin at precision 2.
+`scopeSwayView.test.ts` now pins 1.1709 at precision 3 and names 1.171 x; commit e1fc55aea's subject still carries the
+old 1.168 (a commit subject is not rewritten). **The scale across, in full.** `FUN_00294070` hands `FUN_001c0410` both
+`cam+0x290` and `cam+0x470` (D:L138943-138944) as the matrix's x scales, so the original's pixels across per unit of
+tangent are `cam+0x290` x `cam+0x470`: `cam+0x290` = `cam+0x4b0` x `cam+0x1d8` (`FUN_002915f0` D:L137515), with
+`cam+0x1d8` = 1 / tan(`cam+0xe0`) (D:L137507-137514, `cam+0xe0` the half fov from `cam+0x210`) and `cam+0x4b0` =
+`DAT_004a44c4` >> 1 (D:L138780) = 320, half the frame's 640 (research 84 §2); `cam+0x470` = `DAT_004a44a8`
+(D:L138758), which `FUN_003b14a0` sets to 1.0 in all three video modes (D:L305360, D:L305372, D:L305387), rewritten
+as `DAT_004a44a8` x 1.0 by `FUN_00295260` (D:L139494, D:L139545), as the magnification x `DAT_004a44a8` by
+`FUN_0029b2f0` (D:L142703; the scope's zoom, research 84 §7), and as `cam+0x118` x `DAT_004a44a8` by `FUN_002964f0`'s
+branch for `cam+0xf4` == 2 (D:L140513-140526, a 1..30 factor). **The premise of the x fix**, reading, pending review:
+walking, `cam+0x470` is 1.0 (the applied magnification is 1 off the scope); scoped, it is the magnification, and the
+page carries the same factor in the scoped camera's tangent (`Zoom.fov`), so the page's `tan(hfov)/320` per PS2 pixel
+in the unzoomed camera's terms is the original's `1 / (cam+0x290 x cam+0x470)` at every power. Not settled by this
+reading: which camera state `FUN_002964f0`'s `cam+0xf4` == 2 branch is (not traced; if it runs in the walking or scoped
+view, `cam+0x470` there is `cam+0x118`, not 1.0 or the magnification).
+
 **The quirk.** In the 9x view the view sways vertically only; the rounds' cone there is as in a scope (both axes,
 item 4). Nothing in the original moves the x of the view in state 4.
 
@@ -87,7 +121,8 @@ item 4). Nothing in the original moves the x of the view in state 4.
   `aimReticle` then reads `screenShift()`, so the reticle and the scope's overlay stay at the frame's centre while the
   world moves (as for the shake and the bob, research 83).
 - Pinned by `packages/viewer/test/scopeSwayView.test.ts` (transcription; the cross-on-the-round identity in PS2 pixels;
-  the camera's offset; the page's hand-over before the aim point is read).
+  the camera's offset; the page's hand-over before the aim point is read; since 2026-11-10 the round against the page
+  camera's cross, 1.203 x across and 1.1709 x down, LATER 621).
 
 Was: the round swayed and the view did not (research 84 §15's reading), so the scoped round left the cross by the sway.
 

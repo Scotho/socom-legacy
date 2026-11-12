@@ -9,9 +9,12 @@
  *   nobody: `REPLAY_NOT_FOUND_OR_NOT_YOURS`).
  * - `unavailable`: anything else -- no answer, a redirect, another HTTP status, an address the page does not fetch.
  *
- * Its own module, with no import, so the modern Replays view (`../modern/replays/view`) reads a kind without taking the
- * loader and the format's decoders into the list's chunk (they are loaded on the first Watch: `../modern/replays/stage`).
+ * Its own module, with no import but the leaf name table (`@s2u/archive/mapNames`, itself import-free), so the modern
+ * Replays view (`../modern/replays/view`) reads a kind without taking the loader and the format's decoders into the
+ * list's chunk (they are loaded on the first Watch: `../modern/replays/stage`).
  */
+import { mapRow } from '@s2u/archive/mapNames';
+
 export type ReplayLoadKind = 'version' | 'corrupt' | 'missing' | 'unavailable';
 
 export const REPLAY_LOAD_KINDS: readonly ReplayLoadKind[] = Object.freeze(['version', 'corrupt', 'missing', 'unavailable']);
@@ -25,4 +28,23 @@ export function loadKindOf(e: unknown): ReplayLoadKind | null {
   if (!(e instanceof Error) || e.name !== 'ReplayLoadError') return null;
   const kind = (e as Error & { kind?: unknown }).kind;
   return (REPLAY_LOAD_KINDS as readonly unknown[]).includes(kind) ? kind as ReplayLoadKind : null;
+}
+
+/**
+ * The sentence a recording of another map than the page shows is refused with (`./mount` `replayMapAddress`,
+ * `../modern/replays/worldStage`'s `check`). MN-1 (OT.R113): the map is named by the one name table, never by its stem;
+ * a stem off the table is "an unknown map".
+ */
+export function replayMapRefusal(stem: string): string {
+  const row = mapRow(stem);
+  return `This recording is of ${row ? `map ${row.title}` : 'an unknown map'}, which the page could not open.`;
+}
+
+/**
+ * The line the page says while it reopens on a recording's map (`./mount`'s check, before `replayMapAddress`'s
+ * navigation): MN-1's review F2, the refusal's sibling -- the map named, never its stem.
+ */
+export function replayMapOpening(stem: string): string {
+  const row = mapRow(stem);
+  return row ? `Opening the recording's map, ${row.title}.` : 'Opening the recording\'s map.';
 }

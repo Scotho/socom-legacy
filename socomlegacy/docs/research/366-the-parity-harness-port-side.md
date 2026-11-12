@@ -218,7 +218,9 @@ any of them counts as a reading. A capture or a trace of the recomp would raise 
   scored.
 
 **Not found** (recorded and masked until read):
-- `vel.world`: there is no float use of `actor+0x64..+0x6c` in the seal code. The likely word is `+0x38..+0x40`,
+- `vel.world`: (corrected 2026-11-10, LATER 833: the decompiler prints the offset as decimal 100 -- `FUN_0054d9a0`
+  writes `+0x64` from the clip's velocity at D:L416515-416528, and the move copies it to `+0x38` at D:L413963-413965;
+  research 217 section 2.8) ~~there is no float use of `actor+0x64..+0x6c` in the seal code~~. The word is `+0x38..+0x40`,
   which is copied into the carry `+0x1350..+0x1358` (`FUN_005af930` D:L466972-466974); research 50 maps SOCOM 1's
   world velocity there.
 - `play.phase`: the plan names no offset (research 230 points to `play+0x1c`, unread).

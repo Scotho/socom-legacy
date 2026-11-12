@@ -33,15 +33,28 @@ test('the ladder, the climb and the peek on Frostfire (web research 86)', async 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
 
-  // The ladder: five on the map; walked into from +z facing it, mounted, climbed, off onto the deck.
+  // The ladder: five on the map; walked into from +z facing it -- not grabbed: CLIMB offered (LC-1, the owner's playtest on
+  // the original, research 86 s2.6) -- X mounts it, climbed, off onto the deck.
   await page.evaluate(() => window.__viewer.setCamera({ x: 547.5, y: 115.4, z: 869, yaw: 0, pitch: -5 }));
   expect(await page.evaluate(() => window.__viewer.traversal()?.ladders)).toBe(5);
-  const mounted = await page.evaluate(() => {
+  const offered = await page.evaluate(() => {
     const v = window.__viewer;
-    for (let i = 0; i < 90; i++) { v.walkFor(1 / 60, { forward: 1 }); if (v.traversal()?.kind !== 'none') return v.traversal()?.kind; }
+    for (let i = 0; i < 90; i++) { v.walkFor(1 / 60, { forward: 1 }); if (v.traversal()?.prompt?.kind === 'ladder') return { prompt: v.traversal()?.prompt, kind: v.traversal()?.kind }; }
     return null;
   });
-  expect(mounted).toBe('ladderMount');
+  expect(offered).toEqual({ prompt: { visible: true, kind: 'ladder', automatic: false }, kind: 'none' });   // RED before LC-1: grabbed
+  await page.evaluate(() => window.__viewer.walkFor(1, { forward: 1 }));
+  expect(await page.evaluate(() => window.__viewer.traversal()?.kind)).toBe('none');                    // pushed in, still not grabbed
+  await settle(page);
+  expect((await page.evaluate(() => window.__viewer.hud())).model.action).toBe('climb');               // the HUD's action_climb.tif
+  await page.keyboard.press('KeyX');
+  await settle(page, 2);
+  const mounted = await page.evaluate(() => {
+    const v = window.__viewer;
+    for (let i = 0; i < 30; i++) { if (v.traversal()?.kind !== 'none') return v.traversal()?.kind; v.walkFor(1 / 60, { forward: 0 }); }
+    return v.traversal()?.kind ?? null;
+  });
+  expect(['ladderMount', 'ladder']).toContain(mounted);
   await page.evaluate(() => window.__viewer.walkFor(3, { forward: 1 }));
   const onLadder = await page.evaluate(() => ({ t: window.__viewer.traversal(), feet: window.__viewer.feet(), anim: window.__viewer.stats().anim }));
   expect(onLadder.t?.kind).toBe('ladder');

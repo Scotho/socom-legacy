@@ -189,6 +189,7 @@ export function actionHands(of: () => Pick<MatchActions, 'pageHands'>): Required
     icon: () => of().pageHands.icon(), fireMode: () => of().pageHands.fireMode(), weapon: () => of().pageHands.weapon(), reload: () => of().pageHands.reload(),
     thermal: () => of().pageHands.thermal(), turret: () => of().pageHands.turret(),
     mountTaken: () => of().pageHands.mountTaken(), commandSeq: () => of().pageHands.commandSeq(),
+    heldPulls: () => of().pageHands.heldPulls(),                                                                              // TRIGGER-SWAP fold
   };
 }
 
@@ -527,6 +528,15 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
    */
   let turretPulled = 0;
   /**
+   * TRIGGER-SWAP fold (research 211 §10; reading, pending review): the turret's pull count of a hold still held at the
+   * dismount, handed to the rifle with the trigger (`pageHands.heldPulls`) -- the turret is a kit slot (the mount:
+   * `FUN_005463c0` D:L412214-412218 -> `FUN_005c4b10`), each round raising the kit's count (`FUN_005be9a0`
+   * D:L475514-475516), which the dismount's slot change leaves (`FUN_00545ee0`: `FUN_005c4b10` back to the slot kept at
+   * the mount, +0xebc, D:L412005, then `FUN_005b9bb0` clearing the turret's slot, D:L412006 -- neither writes +0x818) and
+   * only a let-go zeroes (`FUN_005c0ae0` D:L476380-476382, D:L476399-476400). 0 with none.
+   */
+  let handedPulls = 0;
+  /**
    * MAP-10b: one mounted round claimed of the room (`fire` -> `turretRound`): the command it rides and, TURRET-CONE (research
    * 215 s8.2), the page's own round -- `TurretPage.round()` first, its muzzle and its line rolled on the turret's cone
    * (`setSpread`) -- as `from` and `dir`, the eye and the aim the camera's; the room bounds that line inside its own run of
@@ -554,6 +564,7 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
 
   const hudAmmo = (): BoxMagazine | null => { const a = turrets.hudAmmo(); return a && { ...a, reloading: false }; };   // TURRET_AMMO_HUD_READING
   const trigger = (down: boolean): boolean => {
+    handedPulls = 0;                                     // TRIGGER-SWAP fold: a press or a let-go ends the dismount's count
     // MAP-10b: mounted, the trigger is the turret's (`turretTrigger`, the room fires its rounds), never the rifle's.
     if (turrets.mounted() !== null) {
       turretHeld = down;
@@ -649,6 +660,9 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
       turret: () => turrets.mounted(),                                                                                          // LATER 165
       mountTaken: () => turrets.mountTaken(),                                                                                   // LATER 237
       commandSeq: () => openClient()?.lastSeq() ?? null,                                                                        // LATER 237
+      // TRIGGER-SWAP fold: null while this part owns the trigger (mounted, its release clip, a press it keeps till let go --
+      // the release's or the dance's, `triggerTaken`), else the hold's count
+      heldPulls: () => (isMounted() || turrets.travelling() || triggerTaken ? null : turretHeld ? turretPulled : handedPulls),
     },
     follow: (client) => { roomEvents.follow(client); followSeek(client); },
     unlock: () => { turretLock = false; },
@@ -658,7 +672,10 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
     },
     turretFrame: (dt, dead) => {
       const mounted = turrets.mounted() !== null;
-      if (!mounted || dead) turretHeld = false;
+      if (!mounted || dead) {
+        if (turretHeld && !mounted && !dead) handedPulls = turretPulled;   // TRIGGER-SWAP fold: held through the dismount
+        turretHeld = false;
+      }
       // OBF-31b (research 122 §14, `ROUND_SCREENS_STOP_ALL_READING`): under the round screens a held trigger is let go and
       // no press taken (`FUN_002ce9e0` D:L171877-171888, MPExitState alone ticked); the hands swallow every edge there, so
       // a trigger held into them is let go here by the turret's own release, before this frame's rounds

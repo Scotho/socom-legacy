@@ -97,17 +97,26 @@ export const PLAY_LIST_RANDOM = { number: 0xff, name: 'Random' } as const;
 
 /**
  * The default maps, what CREATE GAME offers (OT.R16, OT.R32; OT.R45, the owner 2026-10-12: NIGHT STALKER the fourth):
- * MP2 Frostfire, MP7 Night Stalker, MP51 Vigilance, MP72 Crossroads -- the server's `FIRST_RELEASE_MAPS`, in stem order
- * (a set: the rows are drawn in `missionlist.rdr`'s order, `availableMissionRows`). The name is kept with the server's.
- * On every host, the nightly included (OT.R58): a server's offer only narrows them (`CreateGameCommandsOptions.offered`).
+ * MP2 Frostfire, MP7 Night Stalker, MP51 Vigilance, MP72 Crossroads; since V13-2 / V13-3 (OT.R58 amended by the owner
+ * 2026-11-07, plan V13.R1) MP12 The Ruins (V13-2) and MP1 Blizzard (V13-3), both DEMOLITION (`missionlist.rdr` TYPE 2; with RESPAWN on
+ * `availableMissionRows` leaves them out at the source, as `FUN_00274940` does, D:L121528-121530); since DF-14 (OT.R58
+ * amended a second time by the owner's word of 2026-11-08, the DF plan's DF.R1, pending his confirmation at the merge,
+ * H429) MP6 Desert Glory and MP71 Fish Hook, both EXTRACTION (`missionlist.rdr` TYPE 4, `FUN_002c9540` D:L168877-168906;
+ * research 192 G2), classic only (DF.R2): left out with RESPAWN on by the same filter, and a respawn create on either
+ * plays classic (`playedRules`, `FUN_002a7560` D:L149405-149431). In stem order (a set:
+ * the rows are drawn in `missionlist.rdr`'s order, `availableMissionRows`). **The one source**: central's
+ * `FIRST_RELEASE_MAPS` (`packages/central/src/lobby.ts`) is these numbers as `MP<n>` stems, not a second list. On every
+ * host, the nightly included (OT.R58): a server's offer only narrows them (`CreateGameCommandsOptions.offered`).
  */
-export const FIRST_RELEASE_MAPS = [2, 7, 51, 72] as const;
+export const FIRST_RELEASE_MAPS = [1, 2, 6, 7, 12, 51, 71, 72] as const;
 
 /**
- * PLAY_LIST_FIRST_RELEASE_READING (OT.R16; the owner's three-map list, 2026-10-07; OT.R45's fourth, 2026-10-12):
- * `GetAvailableMPMissions` lists only the maps the release offers -- Vigilance, Crossroads, Frostfire and Night Stalker,
- * in `missionlist.rdr`'s order (of its 22 multiplayer records MP51 is the 1st, MP72 the 8th, MP2 the 14th, MP7 the
- * 17th; `createGameCommands.test.ts` reads them off the disc) -- and leaves every other row out at the source, as the
+ * PLAY_LIST_FIRST_RELEASE_READING (OT.R16; the owner's three-map list, 2026-10-07; OT.R45's fourth, 2026-10-12; V13-2's
+ * fifth and V13-3's sixth, OT.R58 amended 2026-11-07; DF-14's seventh and eighth, OT.R58 amended 2026-11-08, DF.R1):
+ * `GetAvailableMPMissions` lists only the maps the release offers -- Vigilance, Fish Hook, Crossroads, Blizzard,
+ * Frostfire, Desert Glory, Night Stalker and The Ruins, in `missionlist.rdr`'s order (of its 22 multiplayer records MP51
+ * is the 1st, MP71 the 7th, MP72 the 8th, MP1 the 13th, MP2 the 14th, MP6 the 16th, MP7 the 17th, MP12 the 22nd;
+ * `createGameCommands.test.ts` reads them off the disc) -- and leaves every other row out at the source, as the
  * original's own `FUN_00274940` leaves out the maps a game cannot play (with respawn on, every mission not SUPPRESSION, D:L121528-121530; a mission whose archive is absent, D:L121535) rather
  * than disabling them: every row listed can be taken, and nothing the list binds is swallowed. Medley (0xfe) and Random
  * (0xff) are left out too: they are not maps the release offers, and they would play maps it does not -- the
@@ -118,7 +127,7 @@ export const FIRST_RELEASE_MAPS = [2, 7, 51, 72] as const;
  * in a grey `COLOR`, on which SQUARE, TRIANGLE and RIGHT were swallowed (research 164 §3). A deviation from the
  * original's rows for the first release. [reading]
  */
-export const PLAY_LIST_FIRST_RELEASE_READING = 'only the offered maps listed (Vigilance, Crossroads, Frostfire, Night Stalker); the rest, Medley and Random included, left out at the source' as const;
+export const PLAY_LIST_FIRST_RELEASE_READING = 'only the offered maps listed (Vigilance, Fish Hook, Crossroads, Blizzard, Frostfire, Desert Glory, Night Stalker, The Ruins); the rest, Medley and Random included, left out at the source' as const;
 
 /**
  * PLAY_LIST_NO_MEDLEY_ROW_READING: the set's `add_a_mission` takes row 0 for Medley whenever respawn is off

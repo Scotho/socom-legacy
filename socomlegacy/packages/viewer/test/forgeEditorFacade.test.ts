@@ -129,3 +129,52 @@ describe('LATER 422: the editor facade behind ForgeAgentEditor', () => {
     expect(r.editor.play.cancel).toHaveBeenCalledWith('target disposed');
   });
 });
+
+describe('AX-13: the point the player last clicked (lastPoint) and forge.focus', () => {
+  it('lastPoint is set by a pick, with its time, and told to the listeners without advancing the revision', () => {
+    let now = 1_000;
+    const r = rig({ now: () => now, selectionIds: () => ['piece:0'] });
+    expect(r.facade.lastPoint()).toBeNull();
+    const heard = vi.fn();
+    r.facade.subscribe(heard);
+    const revision = r.facade.layoutRevision();
+    now = 2_500;
+    r.facade.notePoint([120.004, 0, -40.5]);
+    expect(r.facade.lastPoint()).toEqual({ point: [120, 0, -40.5], at: 2_500 });
+    expect(heard).toHaveBeenCalledOnce();
+    expect(r.facade.layoutRevision()).toBe(revision);
+    // A click on nothing (the sky) is a click too: no point, its time kept.
+    now = 3_000;
+    r.facade.notePoint(null);
+    expect(r.facade.lastPoint()).toEqual({ point: null, at: 3_000 });
+  });
+
+  it('lastPoint is cleared on a layout reload (the base replaced), even onto the same map', () => {
+    let base: LayoutBase = { kind: 'blank', library: 'MP2' } as LayoutBase;
+    const r = rig({ base: () => base });
+    r.facade.notePoint([1, 2, 3]);
+    expect(r.facade.lastPoint()?.point).toEqual([1, 2, 3]);
+    base = { kind: 'blank', library: 'MP2' } as LayoutBase;      // a reload stages a new base object
+    expect(r.facade.lastPoint()).toBeNull();
+    expect(r.facade.focus().point).toBeNull();
+    r.facade.notePoint([4, 5, 6]);
+    expect(r.facade.lastPoint()?.point).toEqual([4, 5, 6]);
+  });
+
+  it('focus answers the point, its time, the selection refs, the camera and the layout revision they hold for', () => {
+    const r = rig({ now: () => 42, selectionIds: () => ['piece:0', 'spawn:1'], camera: () => ({ x: 10, y: 300, z: -400, yaw: 0.5, pitch: -0.6 }) });
+    expect(r.facade.focus()).toEqual({ point: null, pointAt: null, selection: ['piece:0', 'spawn:1'],
+      camera: { x: 10, y: 300, z: -400, yaw: 0.5, pitch: -0.6 }, revision: r.facade.layoutRevision() });
+    r.facade.notePoint([7, 8, 9]);
+    expect(r.facade.focus()).toMatchObject({ point: [7, 8, 9], pointAt: 42 });
+  });
+
+  it('the agent API reads it through the facade; a blocked or disposed target answers null', () => {
+    const r = rig();
+    const api = createForgeAgentApi(r.facade);
+    r.facade.notePoint([1, 1, 1]);
+    expect(api.focus?.()).toMatchObject({ point: [1, 1, 1], revision: api.status().revision });
+    api.dispose();
+    expect(api.focus?.()).toBeNull();
+  });
+});

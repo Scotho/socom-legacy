@@ -476,7 +476,7 @@ describe('HX-4a: the hostage order on the page', () => {
     // The send: the aim as `fire` carries it (the eye, the unit direction to the far point), the last command's seq.
     expect(p.net.hostageOrder(240, 4)).toBe(true);
     const sent = JSON.parse(p.socket().sent.at(-1)!) as Record<string, unknown>;
-    expect(sent).toEqual({ type: 'hostageOrder', seq: p.net.client.lastSeq(), hostage: 240, cmd: 4, eye: [10, 60, 20], dir: [0, 0, 1] });
+    expect(sent).toEqual({ type: 'hostageOrder', seq: p.net.client.lastSeq(), hostage: 240, cmd: 4, eye: [10, 60, 20], dir: [0, 0, 1], viewTick: p.net.client.viewTick() });
     // The YES: a unit change into or out of 17 -- not the first state seen, not a change that keeps the unit.
     const state = (unit: number, ai = 0x17): ServerEvent => ({ type: 'hostageState', id: 240, alive: true, ai, leader: unit === 17 ? null : 1, rescuer: null, opacity: 1, unit } as ServerEvent);
     p.server(state(17));

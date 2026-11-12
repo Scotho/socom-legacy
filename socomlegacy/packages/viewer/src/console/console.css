@@ -56,6 +56,8 @@
   :root[data-console] .cx-srcopt:hover { background: var(--s2u-row-veil); }
   :root[data-console] .cx-srcopt.is-focused { background: var(--s2u-tab-lit); box-shadow: inset 4px 0 0 var(--s2u-gold), inset 0 0 0 1px var(--s2u-gold); color: var(--s2u-text-strong); }
   :root[data-console] .cx-srcopt[aria-checked="true"] .cx-ico { color: var(--s2u-state-ready); }
+  /* DSH-11 (DSH.R17): SEND DISC muted while the disc cannot be sent (still focusable; its press says why). */
+  :root[data-console] .cx-srcopt.is-muted { color: color-mix(in srgb, var(--s2u-text) 45%, transparent); cursor: default; }
   @media (prefers-reduced-motion: reduce) { :root[data-console] .cx-srcmenu { animation: none; } }
 
   /* CX-15 (RV-12): the replay viewer over the console page (src/console/adapters/replays.ts watch): a child of the
@@ -334,7 +336,7 @@
   :root[data-console] .cx-crossbar__strip { left: 44px; right: 44px; width: calc(100% - 88px); }
   :root[data-console] .cx-header { gap: 8px; }
   :root[data-console] .cx-status { gap: 8px; }
-  :root[data-console] .cx-status .cx-lampword, :root[data-console] .cx-brand__sub { display: none; }
+  :root[data-console] .cx-status .cx-lampword { display: none; }
 }
 /* LR-19 (the LR.R11 side-by-side's P3, P5 and P14's legend; its pass 2's Q1-Q3; the plan's LR.R19). The legend is one
    line at every size: part G's prompts wrapped (`flex-wrap: wrap`; at 1024x768 "L1 R1 Category" under the hints) and the
@@ -510,6 +512,17 @@
 :root[data-console] .cx-remap__pad { position: relative; display: flex; flex-direction: column; gap: 0.5rem; padding: 1.25rem 1.5rem; background: var(--s2u-panel); box-shadow: inset 0 0 0 1px var(--s2u-highlight); }
 :root[data-console] .cx-remap .cx-aside { flex: 0 1 auto; align-self: stretch; }
 :root[data-console] .cx-remap .cx-list, :root[data-console] .cx-remap .cx-teach { flex: 1 1 0; min-width: 0; }
+/* SEP-ROWS (the owner, 2026-11-11: "please open them directly under the special setting switch with a nice slide down or
+   up animation"; a browser adaptation): SEPARATE's Crouch and Prone, one group under the Stance mode row, always drawn
+   (`render/remap.ts` `sepGroupHtml`). Folded, its track is 0fr and its clip holds nothing; open, 1fr -- the track's
+   transition is the slide, the rows under it carried down and back up, on the design system's base duration and ease
+   (200ms; shared/ds/base.css zeroes the token under reduced motion, and the media rule below stands still without it).
+   The group's own list keeps the rows' gap: it pulls up by one gap and its list pads one back, so folded it adds none. */
+:root[data-console] .cx-remap__sep { display: grid; grid-template-rows: 0fr; margin-top: -0.375rem; transition: grid-template-rows var(--s2u-dur-base) var(--s2u-ease); }
+:root[data-console] .cx-remap__sep.is-open { grid-template-rows: 1fr; }
+:root[data-console] .cx-remap__sep-clip { min-height: 0; overflow: hidden; }
+:root[data-console] .cx-remap__seplist { list-style: none; margin: 0; padding: 0.375rem 0 0; display: flex; flex-direction: column; gap: 0.375rem; }
+@media (prefers-reduced-motion: reduce) { :root[data-console] .cx-remap__sep { transition: none; } }
 :root[data-console] .cx-pad { display: block; width: 100%; height: auto; overflow: visible; }
 /* The body's silhouette a step lighter than the panel; Sony's line art (white line work for a dark ground) masks the
    rect over it, so its lines are the panel's text colour. */
@@ -638,8 +651,6 @@
   :root[data-console] .cx-install__benefit + p { text-align: center; }
   @media (width <= 760px) {
     :root[data-console] .cx-header__identity { gap: 1rem; }
-    :root[data-console] .cx-header__identity .cx-brand__name,
-    :root[data-console] .cx-header__identity .cx-brand__sub { display: none; }
     :root[data-console] .cx-header__identity .cx-brand { gap: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -814,15 +825,14 @@
 :root[data-console] .cx-backdrop.has-sheets::before { background: none; }
 :root[data-console] .cx-backdrop.has-sheets.is-deep::before { background: var(--s2u-veil-soft); }
 
-/* The brand header (render/header.ts): the emblem with SOCOM II over LEGACY beside it (the artifact's 36px mark, 19px
-   italic display name in the bright ink, 10px LEGACY in display gold at 0.42em), the version badge after (LP.R7); at the
+/* The brand header (render/header.ts): the project's logo PNG, 38px tall with its drop shadow, its width from its aspect
+   (RB-29: the owner's "S2 Launcher v2" export, D:28, in place of the emblem and the SOCOM II / LEGACY words), the version
+   badge after (LP.R7) and the server mark (LR-40) in the grid's third and fourth columns as before; at the
    right the date (14px at 60%) and the clock (22px, its colon blinking each second, still under reduced motion), the
    Discord mark (LATER 291, unchanged) and the account control as the artifact's pill: a 1px ink edge at 24%, the avatar
    with its status dot (good when signed in, dim when not), the name in 13px sentence case; hover lights the edge gold. */
 :root[data-console] .cx-header .cx-brand { display: grid; grid-template-columns: auto auto auto; grid-template-rows: auto auto; column-gap: 0.625rem; row-gap: 0.1875rem; align-items: end; }
-:root[data-console] .cx-header .cx-brand > svg { grid-row: 1 / 3; width: 2.25rem; height: 2.25rem; align-self: center; }
-:root[data-console] .cx-header .cx-brand__name { grid-column: 2; grid-row: 1; font: italic 800 1.1875rem/1 var(--s2u-font-display); letter-spacing: 0.02em; color: var(--s2u-lx-ink-hi); white-space: nowrap; }
-:root[data-console] .cx-header .cx-brand__sub { grid-column: 2; grid-row: 2; align-self: start; font: 500 0.625rem/1 var(--s2u-font-label); letter-spacing: 0.42em; color: var(--s2u-gold-display); white-space: nowrap; }
+:root[data-console] .cx-header .cx-brand__logo { grid-column: 1 / 3; grid-row: 1 / 3; align-self: center; display: block; height: 2.375rem; width: auto; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6)); user-select: none; }
 :root[data-console] .cx-header .cx-version { grid-column: 3; grid-row: 1 / 3; align-self: center; margin-left: 0.75rem; }
 :root[data-console] .cx-header .cx-status { gap: 1.375rem; text-transform: none; letter-spacing: 0; }
 :root[data-console] .cx-clock { display: flex; align-items: baseline; gap: 0.625rem; color: var(--s2u-lx-ink); white-space: nowrap; }
@@ -990,6 +1000,13 @@
 :root[data-console] .cx-r__thumb { position: absolute; top: calc(50% - 0.40625rem); left: var(--cx-r-pct); width: 0.8125rem; height: 0.8125rem; margin-left: -0.375rem; border-radius: 50%; background: var(--s2u-lx-accent-hi); }
 :root[data-console] .cx-r--slider .cx-r__value { width: 3.5rem; }
 :root[data-console] .cx-r--select .cx-r__ctl { gap: 0.375rem; }
+/* SEP-ROWS (a browser adaptation): a row's warning mark (`render/options.ts`: Options > Controller's Stance mode while
+   SEPARATE lacks a bind) -- the console's alert glyph in the design system's warning amber, before the row's control; the
+   same mark heads the row's tip in its aside. */
+:root[data-console] .cx-r__warn { flex: none; display: inline-flex; align-items: center; color: var(--s2u-warn); }
+:root[data-console] .cx-r__warn .cx-ico { width: 1.25rem; height: 1.25rem; }
+:root[data-console] .cx-aside .cx-aside__tip.is-warn { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--s2u-warn); }
+:root[data-console] .cx-aside .cx-aside__tip .cx-ico { width: 1.25rem; height: 1.25rem; margin-top: 0.0625rem; }
 :root[data-console] .cx-r__step { width: 1.625rem; height: 1.625rem; display: flex; align-items: center; justify-content: center; font: 400 calc(1.125rem * var(--cx-text-scale))/1 var(--s2u-font-body); color: var(--s2u-lx-accent); opacity: 0.3; cursor: pointer; transition: opacity 0.2s var(--s2u-ease); }
 :root[data-console] .cx-r.is-focused .cx-r__step, :root[data-console] .cx-r:hover .cx-r__step { opacity: 1; }
 :root[data-console] .cx-r__choice { min-width: 9.375rem; text-align: center; font: 400 calc(0.9375rem * var(--cx-text-scale))/1.3 var(--s2u-font-body); }
@@ -1039,6 +1056,15 @@
 :root[data-console] .cx-r__opt.is-on { border-color: var(--s2u-lx-accent); color: var(--s2u-lx-accent); background: color-mix(in srgb, var(--s2u-lx-accent) 14%, transparent); }
 :root[data-console] .cx-r__opt:focus-visible, :root[data-console] button.cx-r__chip:focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: 1px; }
 :root[data-console] button.cx-r__chip { cursor: pointer; }
+/* B206 ML-2 (ML.R6): the MODS screen -- a pack's switch and Remove as real buttons in its row, the outcome line, the store link. */
+:root[data-console] .cx-mods__pack .cx-r__ctl { display: flex; align-items: center; gap: 0.75rem; }
+:root[data-console] .cx-mods__switch { display: flex; padding: 0; border: 0; background: transparent; cursor: pointer; }
+:root[data-console] .cx-mods__remove { height: 1.625rem; padding: 0 0.75rem; border-radius: var(--s2u-radius-pill); border: 1px solid color-mix(in srgb, var(--s2u-lx-ink) 22%, transparent); background: transparent; color: color-mix(in srgb, var(--s2u-lx-ink) 70%, transparent); font: 400 calc(0.75rem * var(--cx-text-scale))/1 var(--s2u-font-body); letter-spacing: 0.06em; cursor: pointer; }
+:root[data-console] .cx-mods__switch:focus-visible, :root[data-console] .cx-mods__remove:focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: 1px; }
+:root[data-console] .cx-mods__message { padding: 0.5rem 1rem; font: 400 calc(0.8125rem * var(--cx-text-scale))/1.4 var(--s2u-font-body); }
+:root[data-console] .cx-mods__message.is-bad { color: var(--s2u-lx-bad); }
+:root[data-console] .cx-mods__message.is-good { color: var(--s2u-lx-good); }
+:root[data-console] .cx-mods__store { display: block; padding: 0.5rem 1rem; color: var(--s2u-lx-accent); }
 /* LR-28 (fact 2, the box's matrix-7 consoleAside.spec / probe13): the row slid in as a whole (a transform from 1.375rem),
    and the browser kept the list's scrollable overflow it laid out at the slide's first frame (3-6 px past the Settings
    list) after the slide ended, the animation running off the layout. The row now fades in place, clipped sideways; its
@@ -1059,6 +1085,10 @@
 :root[data-console] .cx-rlist > .cx-r:nth-child(12) { animation-delay: 275ms; }
 :root[data-console] .cx-rlist > .cx-r:nth-child(n+13) { animation-delay: 300ms; }
 @keyframes cx-lx-row-in { from { opacity: 0; } }
+/* Unified controller settings: an interactive track must not slide underneath an active pointer.
+   A preset changes a locked row into a slider; keep its coordinates stable from the first visible frame. */
+:root[data-console] .cx-screen[data-key="options"] .cx-rlist > .cx-r--slider,
+:root[data-console] .cx-screen[data-key="options"] .cx-rlist > .cx-r--slider > * { animation: none; }
 @keyframes cx-lx-row-slide { from { transform: translateX(1.375rem); } }
 @media (prefers-reduced-motion: reduce) {
   :root[data-console] .cx-rlist > .cx-r, :root[data-console] .cx-rlist > .cx-r > * { animation: none; }
@@ -1729,8 +1759,26 @@
    light ink (unreadable). Here it keeps the dialog's dark ground, lit by the accent's ring and a faint accent wash. */
 :root[data-console] .cx-share-send .cx-toggle.is-focused { background: color-mix(in srgb, var(--s2u-lx-accent) 16%, transparent); color: var(--s2u-lx-ink-hi); }
 :root[data-console] .cx-share-send .cx-share__code { margin: 6px 0 10px; }
+/* DSH-10 (the disc share plan, DSH.R17; RB-27's host screen): the send area (render/discShare.ts `sendAreaHtml`), in the
+   receiver's place and width (`.is-share`): the link's column (its QR on the light ground, the link in the mono face, Copy
+   link), then the lead, the copy under way (the receiver's status box and bar) and the requests -- each a row of the code
+   to match (the mono face), its age, and Yes / No or "Queued #n". The pad's focus (`is-focused`, on Copy link, Stop or a
+   request) is the panel's: the accent's ring and a faint accent wash, as the sender's dialog draws it. The lx tokens
+   only. test/console/sendArea.test.ts reads the markup. A browser adaptation: the launcher's look. */
+:root[data-console] .cx-share--send .cx-toggle { color: var(--s2u-lx-ink-hi); }
+:root[data-console] .cx-share--send .cx-toggle.is-focused, :root[data-console] .cx-send__req.is-focused { background: color-mix(in srgb, var(--s2u-lx-accent) 16%, transparent); box-shadow: inset 0 0 0 2px var(--s2u-lx-accent); color: var(--s2u-lx-ink-hi); }
+:root[data-console] .cx-share--send .cx-share__pair > .cx-toggle { align-self: stretch; justify-content: center; }
+:root[data-console] .cx-send__reqs { display: flex; flex-direction: column; gap: 10px; }
+:root[data-console] .cx-send__title { margin: 0; font: 500 calc(13px * var(--cx-text-scale))/1.2 var(--s2u-font-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--s2u-lx-section); }
+:root[data-console] .cx-send__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+:root[data-console] .cx-send__req { display: flex; align-items: center; gap: 16px; padding: 10px 14px; border: 1px solid var(--s2u-lx-edge); background: var(--s2u-lx-ring-ground); }
+:root[data-console] .cx-send__code { font: 600 calc(24px * var(--cx-text-scale))/1.1 var(--s2u-font-mono); letter-spacing: 0.14em; color: var(--s2u-lx-ink-hi); }
+:root[data-console] .cx-send__age { flex: 1 1 auto; font-size: calc(13px * var(--cx-text-scale)); color: var(--s2u-lx-ink); }
+:root[data-console] .cx-send__acts { display: flex; align-items: center; gap: 8px; }
+:root[data-console] .cx-send__queued { font: 500 calc(14px * var(--cx-text-scale))/1.2 var(--s2u-font-mono); color: var(--s2u-lx-accent); }
 @media (max-width: 760px) {
   :root[data-console] .cx-launchcheck.is-share { width: auto; }
+  :root[data-console] .cx-send__req { flex-wrap: wrap; gap: 8px 12px; }
   :root[data-console] .cx-share { flex-direction: column; align-items: stretch; gap: 20px; padding: 4px 20px 20px; }
   :root[data-console] .cx-share__pair { width: auto; align-self: center; max-width: min(300px, 80vw); }
   :root[data-console] .cx-share__code { font-size: calc(36px * var(--cx-text-scale)); }

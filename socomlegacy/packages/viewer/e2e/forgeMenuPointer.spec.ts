@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { expectBase, placingTool } from './forgeBase';
 
 /**
  * LATER 230 (the merge controller's product-track call, 2026-10-21): the forge's menu had no way in but the pad's START.
@@ -49,7 +50,17 @@ test.describe('a phone, 390x844, no pad', () => {
 
   test('the menu button is on screen unscrolled; a tap opens the menu, › turns a value, a row runs, outside closes', async ({ page }) => {
     await padStub(page, false);
-    await page.goto('/forge');
+    // `?floor` pins the blank floor the greyed NPC row below needs: with a served disc a bare `/forge` opens MP2
+    // (`../src/forge/page.ts`, the boot's fallback), whose characters light the row (the AWS run's snapshot: "Choose").
+    await page.goto('/forge?floor');
+    // RC1 088766214's AWS SwiftShader red (["none", "none", "none"] at the arrow probes below): the page's own first open
+    // waited for before the tap. With the early tap's hold (`../src/forge/shell/earlyPress`), a tap on the menu button
+    // before the page is wired is pressed at the release, just before the boot reads the disc and opens the floor, so the
+    // menu was open over that open; the floor's palette landing redraws the open menu (`page.ts` `refreshMenuForPalette`),
+    // and the redraw brings the lit row back into view (`../src/forge/menuView` `placeMenuCard`), scrolling Snap -- brought
+    // into view below -- back under the list's fold between its measure and the probes. This case is the menu's pointer,
+    // not the boot's: the early tap is `../test/forge/pageEarlyTap.test.ts` and `earlyPress.test.ts`.
+    await expectBase(page, /New Empty Map/);
     await expect(menuBtn(page)).toBeVisible({ timeout: 30_000 });
     const b = (await menuBtn(page).boundingBox())!;
     expect(b.x + b.width, 'on screen without a scroll').toBeLessThanOrEqual(390);
@@ -94,6 +105,7 @@ test.describe('a phone, 390x844, no pad', () => {
   test('the arrows\' touch areas: never over each other on a one-character value, inside their own row', async ({ page }) => {
     await padStub(page, false);
     await page.goto('/forge');
+    await expectBase(page);                                              // the boot's open done first: the case above, RC1
     await expect(menuBtn(page)).toBeVisible({ timeout: 30_000 });
     await menuBtn(page).tap();
     const rounds = row(page, 'Rounds');
@@ -125,8 +137,11 @@ test.describe('a phone, 390x844, no pad', () => {
   test('walking, the menu button is disabled; the walk stopped, it is back', async ({ page }) => {
     test.skip(!HAVE_MAPS, 'needs socomlegacy/public/maps/index.json and RUN/MP2.ZDB, the blank floor\'s library (not committed)');
     await padStub(page, false);
-    await page.goto('/forge?devmode');
-    await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
+    // The blank floor pinned (`?floor`): Walk stands on the floor under the camera (FG-50, `standFromHere`), and a bare
+    // disc map now opens at its still's camera (FP-15, e473c0a4d, `./mapStills`) with no floor under it -- the AWS run's
+    // "nowhere to stand: place a spawn on a floor". The blank floor's camera stands over its floor.
+    await page.goto('/forge?floor&devmode');
+    await expectBase(page, /New Empty Map/);                             // OT.R112: the base named (`./forgeBase`)
     // The review's F5: the walk started from the menu's own row closes the menu, and the button waits.
     await menuBtn(page).tap();
     await row(page, 'Walk the layout').tap();
@@ -142,6 +157,26 @@ test.describe('a phone, 390x844, no pad', () => {
     await walk.tap();
     await expect(page.locator('body')).not.toHaveClass(/(^|\s)is-playing(\s|$)/);
     await expect(menuBtn(page)).toBeEnabled();
+  });
+
+  test('LATER 803: a bare disc map at its FP-15 still -- Walk from the menu, no mouse, stands on the map\'s own stand', async ({ page }) => {
+    test.skip(!HAVE_MAPS, 'needs socomlegacy/public/maps/index.json and RUN/MP2.ZDB, the disc map opened bare (not committed)');
+    await padStub(page, false);
+    // A bare `/forge` opens MP2 at Craig's still (FP-15, `./mapStills`): no floor under that camera, no cursor over the world
+    // (a tap, no mouse), no layout spawn. Walk stands on the map's own stand (`../src/forge/playFromHere.ts` `walkFeet`,
+    // `standOf` -- LATER 803, e57afa522) where before the fix it said "nowhere to stand: place a spawn on a floor".
+    await page.goto('/forge?devmode');
+    await expectBase(page, /MP2/);                                       // the disc map, not the blank floor
+    await expect(page.locator('.fx-outliner li[data-user-prop]')).toHaveCount(0);   // nothing placed: no layout spawn
+    await menuBtn(page).tap();
+    await row(page, 'Walk the layout').tap();
+    await expect(page.locator('body')).toHaveClass(/(^|\s)is-playing(\s|$)/, { timeout: 120_000 });
+    await expect(page.locator('.fx-status-msg')).not.toContainText('nowhere to stand');
+    await page.evaluate(() => document.exitPointerLock());               // a development build's walk lock (as above)
+    const walk = page.locator('header.fx-top button[title^="Walk the layout"]');
+    await walk.scrollIntoViewIfNeeded();
+    await walk.tap();
+    await expect(page.locator('body')).not.toHaveClass(/(^|\s)is-playing(\s|$)/);
   });
 
   test('the match\'s Back button reads its words alone, and a tap goes back', async ({ page }) => {
@@ -225,10 +260,12 @@ test.describe('FUI-3: the pad menu\'s sections, sub-screens and the legend', () 
       page.on('pageerror', (e) => errors.push(e.message));
       await livePad(page);
       await ready(page);
-      await page.getByRole('button', { name: /team A spawn/ }).click();
+      await placingTool(page, 'Spawn SEAL').click();                  // OT.R112: the tools row's label (`./forgeBase`)
       await page.locator('.fx-input').click();
       await expect(page.locator('.fx-outliner')).toContainText('Spawn A');
-      await page.keyboard.press('Digit1');                              // the Select tool (OT.R68: every build's keys)
+      // OT.R112: Q is the Select tool now; the number keys choose the placing tools, 1 Spawn SEAL (`../src/forge/keys.ts`
+      // `FORGE_TOOL_ORDER`, `toolOfKey`).
+      await page.keyboard.press('KeyQ');                                // the Select tool (OT.R68: every build's keys)
 
       await press(page, START);
       const lit = page.locator('.fx-menu header [data-forge-menu-section][aria-current="true"]');
@@ -306,9 +343,9 @@ test.describe('FUI-3: the pad menu\'s sections, sub-screens and the legend', () 
         expect(b.x, `prompt ${i} inside on the left`).toBeGreaterThanOrEqual(0);
         expect(b.x + b.width, `prompt ${i} inside on the right`).toBeLessThanOrEqual(760);
       }
-      await page.getByRole('button', { name: /team A spawn/ }).click();
+      await placingTool(page, 'Spawn SEAL').click();                  // OT.R112: the tools row's label (`./forgeBase`)
       await page.locator('.fx-input').click();
-      await page.keyboard.press('Digit1');                              // the Select tool: its legend with a selection
+      await page.keyboard.press('KeyQ');                                // the Select tool (OT.R112: Q): its legend with a selection
       // The docks are drawers at 760 px (folded): the spawn is selected the pad's way, from the menu's Outliner screen.
       await menuTo(page, 'outliner-screen');
       await press(page, CROSS);

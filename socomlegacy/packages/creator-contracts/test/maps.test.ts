@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   CONTENT_MAP_CODES,
   CONTENT_MAP_EXTENT_METRES_ADAPTATION,
+  CONTENT_MAP_V2_FIELDS,
+  CONTENT_MAP_VERSION,
+  CONTENT_MAP_VERSION_2,
+  CONTENT_MAP_VERSIONS,
   contentBaseRef,
   contentMapMember,
   GAMEPLAY_CANONICAL_VERSION,
@@ -311,5 +315,77 @@ describe("LATER 459: the own pack is never a dependency; another version of its 
       dependencies: [MAP_PACK_OTHER],
     }));
     expect(def.props!.map((p) => p.content)).toEqual([{ kind: "pack", pack: MAP_PACK, assetId: "crate" }, OTHER_CRATE]);
+  });
+});
+
+/**
+ * FP-4 (FP.R2; product track): the content map's version 2. Every field the sample yard's map member carries
+ * (`test-fixtures/creator/sample-yard.forge.zip`, `packs/0/maps/sample-yard.json`) was read against the v1 reader: the
+ * one it carries that v1 lacks is `visual.includesProps` (a boolean: whether the map's visual GLB already draws the
+ * props). A v1 member reads unchanged; a v1 member carrying a v2 field, and a v2 member under a v1-only reader, are each
+ * refused by a code naming the version.
+ */
+describe("FP-4: content map version 2", () => {
+  const v2 = (over: Record<string, unknown> = {}) => minimalMapJson({ version: 2, visual: { member: "visuals/yard.glb", includesProps: false }, ...over });
+  const diags = (json: unknown, options?: Parameters<typeof readContentMapDefinition>[2]): Diagnostic[] => {
+    const got = readContentMapDefinition(json, MAP_REF, options);
+    if (!Array.isArray(got)) throw new Error("read, not refused");
+    return got;
+  };
+
+  it("names the versions and the one field v2 adds", () => {
+    expect([CONTENT_MAP_VERSION, CONTENT_MAP_VERSION_2]).toEqual([1, 2]);
+    expect([...CONTENT_MAP_VERSIONS]).toEqual([1, 2]);
+    expect([...CONTENT_MAP_V2_FIELDS]).toEqual(["visual.includesProps"]);
+  });
+
+  it("reads a v2 member with visual.includesProps, keeping its version and the flag", () => {
+    const def = read(v2());
+    expect(def.version).toBe(2);
+    expect(def.visual).toEqual({ member: "visuals/yard.glb", includesProps: false });
+    expect(read(v2({ visual: { member: "visuals/yard.glb", includesProps: true } })).visual).toEqual({ member: "visuals/yard.glb", includesProps: true });
+    // includesProps is optional inside v2's visual, and a v2 member needs no visual at all.
+    expect(read(v2({ visual: { member: "visuals/yard.glb" } })).visual).toEqual({ member: "visuals/yard.glb" });
+    const { visual: _none, ...noVisual } = v2();
+    expect(read(noVisual).visual).toBeUndefined();
+  });
+
+  it("reads a v1 member unchanged: version 1, a visual of {member} only", () => {
+    const def = read(minimalMapJson({ visual: { member: "maps/yard.glb" } }));
+    expect(def.version).toBe(1);
+    expect(def.visual).toEqual({ member: "maps/yard.glb" });
+    expect(read(minimalMapJson()).version).toBe(1);
+  });
+
+  it("refuses a v1 member carrying visual.includesProps with map.VERSION_FIELD, naming version 2", () => {
+    const got = diags(minimalMapJson({ visual: { member: "maps/yard.glb", includesProps: false } }));
+    expect(got.map((d) => [d.code, d.field, d.expected, d.actual])).toEqual([[CONTENT_MAP_CODES.versionField, "visual.includesProps", "2", "1"]]);
+    expect(got[0]!.text).toContain("version 2");
+  });
+
+  it("refuses a v2 member under a v1-only reader with map.VERSION_UNSUPPORTED, naming the version", () => {
+    const got = diags(v2(), { versions: [1] });
+    expect(got.map((d) => [d.code, d.field, d.expected, d.actual])).toEqual([[CONTENT_MAP_CODES.versionUnsupported, "version", "1", "2"]]);
+    expect(got[0]!.text).toContain("version 2");
+    // the same reader still takes a v1 member
+    expect(read(minimalMapJson(), { versions: [1] }).version).toBe(1);
+  });
+
+  it("still refuses a version it does not know, and a visual flag that is not a boolean", () => {
+    expect(codes(minimalMapJson({ version: 3 }))).toEqual([CONTENT_MAP_CODES.invalid]);
+    expect(codes(v2({ visual: { member: "visuals/yard.glb", includesProps: "no" } }))).toEqual([CONTENT_MAP_CODES.visualInvalid]);
+  });
+
+  it("digests a v1 and a v2 copy of the same map equal: the version and the visual are not gameplay", async () => {
+    const one = await gameplayDigest(read(minimalMapJson({ visual: { member: "visuals/yard.glb" } })));
+    expect(await gameplayDigest(read(v2()))).toBe(one);
+    expect(await gameplayDigest(read(v2({ visual: { member: "visuals/yard.glb", includesProps: true } })))).toBe(one);
+    expect(gameplayCanonical(read(v2()))).toBe(gameplayCanonical(read(minimalMapJson())));
+  });
+
+  it("writes a v2 definition back as the member it was read from", () => {
+    const def = read(v2());
+    expect(read(contentMapMember(def))).toEqual(def);
+    expect(contentMapMember(def)["version"]).toBe(2);
   });
 });

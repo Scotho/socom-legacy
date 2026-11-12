@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { FsAssetSource } from '@s2u/archive/node';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
 import { parseSceneGraph, worldCollision } from '@s2u/scene';
-import { BANK_GROUP_READING, PAN_RESET, roundStreamGains, SLOT_FADE_TICKS, soundNameHash, TUNER_DEFAULTS, type RenderedSound, type ReverbImpulse, type StreamTuners, type StreamVoiceGains } from '@s2u/sound';
+import { BANK_GROUP_READING, PAN_RESET, parseBankFile, roundStreamGains, SLOT_FADE_TICKS, soundNameHash, TUNER_DEFAULTS, type RenderedSound, type ReverbImpulse, type StreamTuners, type StreamVoiceGains } from '@s2u/sound';
 import {
   GameAudio, LISTENING_GAIN_PLACEHOLDER, LOOP_SECONDS_PLACEHOLDER, loopMasterGain, MUSIC_SLOT_HANDOVER_SECONDS, panGains, WebAudioOut,
   type AudioOut, type LoopHandle,
@@ -46,8 +46,8 @@ class Recorder implements AudioOut {
   musicGains: StreamVoiceGains[] = [];
   music: { sound: RenderedSound; handover: number }[] = [];
   musicStops = 0;
-  playStream(sound: RenderedSound, gains?: StreamVoiceGains): void { this.streams.push(sound); if (gains) this.streamGains.push(gains); }
-  playMusic(sound: RenderedSound, handover: number, gains?: StreamVoiceGains): void { this.music.push({ sound, handover }); if (gains) this.musicGains.push(gains); }
+  playStream(sound: RenderedSound, gains?: StreamVoiceGains, _group?: number, _live?: () => StreamVoiceGains): void { this.streams.push(sound); if (gains) this.streamGains.push(gains); }
+  playMusic(sound: RenderedSound, handover: number, gains?: StreamVoiceGains, _group?: number, _live?: () => StreamVoiceGains): void { this.music.push({ sound, handover }); if (gains) this.musicGains.push(gains); }
   stopMusic(): void { this.musicStops++; }
 }
 
@@ -1181,6 +1181,26 @@ describe('the option masters reach the round (PF-32; research 233 §1)', () => {
     return { bank, line: out.streamGains.at(-1)!, music: out.musicGains.at(-1)! };
   }
 
+  it('updates already-playing music and dialogue from zero through intermediate volume to full without restarting them', () => {
+    const out = new Recorder(), audio = new GameAudio(out);
+    const current = { ...TUNER_DEFAULTS, music: 0, dialog: 0 };
+    const active: { gains: StreamVoiceGains; read?: () => StreamVoiceGains }[] = [];
+    out.playStream = (_sound, gains, _group, read) => { active.push({ gains: gains!, read }); };
+    out.playMusic = (_sound, _handover, gains, _group, read) => { active.push({ gains: gains!, read }); };
+    Object.assign(out, { refreshStreams: () => { for (const voice of active) if (voice.read) voice.gains = voice.read(); } });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    audio.setData(data()); warn.mockRestore(); out.unlock();
+    audio.setTuners(() => current);
+    audio.playStream('^PH_0014'); audio.playMusic('MUS_X');
+    for (const level of [0, 0.25, 0.5, 0.75, 1]) {
+      current.dialog = level; current.music = level;
+      audio.setListener(IDENTITY);
+      expect(active[0]!.gains).toEqual(roundStreamGains(2, 1, current));
+      expect(active[1]!.gains).toEqual(roundStreamGains(1, 2, current));
+    }
+    expect(active).toHaveLength(2);
+  });
+
   it("GameAudio.setTuners re-levels every round stream and every bank one-shot by its group's master (a stream's class, a bank sound's VolGroup; BANK_GROUP_READING, SOUND's 0, when none); the defaults change nothing", () => {
     // Research 233 §1: a stream's group by its class (FUN_00342240 D:L241878-241890), a bank sound's its VolGroup
     // (989snd blocksnd.c 161/520 -> valloc.c 304's snd_AdjustVolToGroup); BANK_GROUP_READING (SOUND's 0) when none.
@@ -1259,4 +1279,32 @@ describe('M203-FIRE-SOUND: the launchers\' reports by distance on MP2 (research 
     expect([audio.onFire('LAW', near), audio.onFire('LAW', med), audio.onFire('RPG LAUNCHER', far)]).toEqual(['.RPG_7', '.RPG_7', '.RPG_7']);
     for (const anim of ['m203he_start', 'law_trail', 'rpg_trail', 'muzzle_m203']) expect([anim, audio.onAnimCallback(anim, near)]).toEqual([anim, null]);
   });
+});
+
+/**
+ * DF-10: Fish Hook's ambience off the dev disc (SOCOM_DISC; MP71 is not a committed fixture yet, DF-2): the emitters the
+ * map's zAnims name (`zanimEmitters`, research 81 §10; SOUND with a node, FUN_002659c0) each resolve to a placed node of
+ * the map's scene, so none is dropped as "no node"; and every bed and emitter sound is a name of the map's own ambience
+ * bank `MP71_am.bnk` (its SBlk name table, `parseBankFile`). Skips without the disc and says so.
+ */
+const MP71_DISC_ROOT = process.env.SOCOM_DISC && existsSync(resolve(process.env.SOCOM_DISC, 'RUN/MP71.ZDB')) && existsSync(resolve(process.env.SOCOM_DISC, 'RUN/SOUNDS/BNKSTORE.ZAR'))
+  ? process.env.SOCOM_DISC : null;
+describe.skipIf(!MP71_DISC_ROOT)(`DF-10: Fish Hook's emitters and beds on the dev disc${MP71_DISC_ROOT ? '' : ' (SOCOM_DISC absent -- skipped)'}`, () => {
+  it("the eight emitters -- doggy_ruff1-3 on dog1-3, chimes_ring1-3 on chime1-3, ocean_waves1-2 on ocean1-2 -- sit on placed nodes, none missing; each bed and emitter sound is in MP71_am.bnk", async () => {
+    const d = await soundFromDisc(new FsAssetSource(MP71_DISC_ROOT!), 'RUN/MP71.ZDB', 'MP71');
+    expect(d.missing.filter((m) => /emitter|zAnims|objectives/.test(m))).toEqual([]);
+    const byAnim = d.emitters.map((e) => [e.anim, e.node, e.sound.trim()]).sort((a, b) => a[0]!.localeCompare(b[0]!));
+    expect(byAnim).toEqual([
+      ['chimes_ring1', 'chime1', '~WIND_CHIMES'], ['chimes_ring2', 'chime2', '~WIND_CHIMES'], ['chimes_ring3', 'chime3', '~WIND_CHIMES'],
+      ['doggy_ruff1', 'dog1', '~DIST_DOGS'], ['doggy_ruff2', 'dog2', '~DIST_DOGS'], ['doggy_ruff3', 'dog3', '~DIST_DOGS'],
+      ['ocean_waves1', 'ocean1', '~WATER_LAPPING'], ['ocean_waves2', 'ocean2', '~WATER_LAPPING'],
+    ]);
+    for (const e of d.emitters) for (const v of e.position) expect(Number.isFinite(v), `${e.anim} at ${e.node}`).toBe(true);
+    const am = d.banks.find((b) => b.file === 'MP71_am.bnk');
+    expect(am, 'MP71_am.bnk read').toBeDefined();
+    const names = parseBankFile(am!.bytes).names;
+    const heard = [...new Set([...d.beds.outside, ...d.beds.inside, ...d.emitters.map((e) => e.sound)])];
+    expect(heard.length).toBeGreaterThan(0);
+    for (const s of heard) expect(names.has(s), `${s} in MP71_am.bnk`).toBe(true);
+  }, 60_000);
 });

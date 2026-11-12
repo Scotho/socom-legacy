@@ -307,7 +307,7 @@ exactly one copy of a pair is up at any range.
 `TextureScroll_Object` on the world root is `CScrollingTexture_band[]` -- 256-byte model and node
 names and a `du, dv` -- four on Frostfire (`ocean_1..3`, `skyhorizon`, 0.02-0.04 a tick), none on
 Desert Glory or Crossroads. The named chunks get a material of their own whose uv is pushed by an
-offset the frame advances; the rate's unit is not on the disc (read as one step per engine tick at 60 Hz at first, which the owner judged far too fast on 2026-09-27; now one step per second, `SCROLL_TICKS_PER_SECOND` in `world.ts`).
+offset the frame advances; the rate's unit is not on the disc (read as one step per engine tick at 60 Hz at first, which the owner judged far too fast on 2026-09-27; now one step per second, `SKY_SCROLL_TICKS_READING` in `world.ts`, formerly `SCROLL_TICKS_PER_SECOND`; research 82 §8).
 
 ## 5. Verification
 

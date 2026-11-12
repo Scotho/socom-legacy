@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.useFakeTimers(); localStorage.clear(); mountShell(document);
   const real = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    return this.classList.contains('cx-r__track')
+    return this.isConnected && this.classList.contains('cx-r__track')
       ? { left: 100, right: 300, top: 0, bottom: 20, width: 200, height: 20, x: 100, y: 0, toJSON() {} } as DOMRect
       : real.call(this);
   });
@@ -156,4 +156,14 @@ describe('LR-38 (5): the slider\'s yellow line takes the mouse, the finger and t
     slider().querySelector<HTMLElement>('.cx-r__track')!.dispatchEvent(ev('click', 100 + 200 * 0.8, 'mouse'));
     expect(A.options.value('music')).toBe(musicAt(A, 0.8));
   });
+});
+
+
+it('a pointer one index away sets its exact value even when the controller step is larger', () => {
+  const { A }=audio();
+  A.options.step=(id,d)=>A.options.set(id,A.options.value(id)+2*d);
+  for (const value of [5,4,5,6,7,0,1,0,1,10]) {
+    page!.ctl.optSlide(1,value/10);
+    expect(A.options.value('music')).toBe(value);
+  }
 });

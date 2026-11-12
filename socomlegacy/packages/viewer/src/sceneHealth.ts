@@ -216,6 +216,18 @@ export function blastSkipPath(d: Pick<SceneDestructible, 'targetPath' | 'root' |
 }
 
 /**
+ * BLAST_REACH_LINE_SIDES_READING (research 386 §3.2 and §8; review 3 F1): the sides of a blast's line to a destructible
+ * (`blastLine`). By the reading it is one-sided, as the line to a head is (`./net/blast` `blastSeen`): `FUN_003c80e0`'s ray
+ * queues through the same `FUN_0031dd90` batch (`FUN_003c7ee0` D:L319056), which `FUN_002d3030` runs in the hull
+ * colliders' mode 0x20 (D:L175276-175281; research 281 §4.3) [reading: kept two-sided here, a known departure, because
+ * the one-sided line re-pins reviewed scene sweeps -- B194's base reach on every Demolition map (`blastSkipWiden`,
+ * `bombPlantSweep`), Vigilance's access4 and access5 opening from their witness (AD-5, `accessBarriers`) and the room's
+ * one-faced barrier fixtures (`roomBarriers`) -- which is the controller's to size; a capture of a grenade behind a
+ * one-faced surface at a barrier (H421) settles it].
+ */
+export const BLAST_REACH_LINE_SIDES_READING = 'two-sided' as 'two-sided' | 'one-sided';
+
+/**
  * `reachGate` on the segment from `from` to `to` over `grid` (`REACH_HITS_READING`): `penetration` gives a polygon's
  * material's PENETRATION (`surfaceMaterial(p.material, defaultMaterial).penetration`, `FUN_002dc1d0`). A round with
  * `IgnoreExplosionDI` skips it (D:L319096: the caller's).
@@ -223,9 +235,9 @@ export function blastSkipPath(d: Pick<SceneDestructible, 'targetPath' | 'root' |
 export function blastLine(grid: Grid, from: V3, to: V3, targetPath: string, radius: number, penetration: (p: WorldPoly) => number, ignore?: string): boolean {
   // `segmentHits` asks `accept` of each owner's polygons in its surface order: the count is that order. LATER 416: the
   // blast ray queues through `FUN_0031dd90` as a round's segment does (`FUN_003c7ee0` D:L319056), so the batch's class
-  // admits what the round's does (`roundAdmits`: the camera-only faces passed).
+  // admits what the round's does (`roundAdmits`: the camera-only faces passed). BLAST_REACH_LINE_SIDES_READING: two-sided.
   const order = new Map<WorldPoly, number>();
-  const hits = segmentHits(grid, from, to, (p) => { order.set(p, order.size); return roundAdmits(p); });
+  const hits = segmentHits(grid, from, to, (p) => { order.set(p, order.size); return roundAdmits(p); }, undefined, BLAST_REACH_LINE_SIDES_READING === 'one-sided');
   const first = new Map<CollisionOwner, SegmentHit>();
   for (const h of hits) {
     if (under(h.owner.path, targetPath)) continue;
@@ -312,6 +324,19 @@ export const SCENE_BOUNDS_MIDPOINT_READING = 'polygon-box' as const;
  * the hit runs is not traced].
  */
 export const ROUND_SCENE_FALLOFF_READING = 'shot-start' as const;
+
+/**
+ * GRENADE_CONTACT_RANGE_READING (LATER 851): the point a thrown projectile's contact hit (`HandleBounce` `FUN_003c8f50`
+ * -> the node's handler, D:L319747-319750 -> `FUN_00273a50` -> `FUN_003c7490`) measures its range falloff from. The
+ * round branch measures from the projectile's own node (`+0x20`, its `+0x30..+0x38`, D:L318741-318749). The frame's
+ * order is the source of 'frame-start': the projectile tick `FUN_003c9fb0` runs `HandleIntersections` (`FUN_003c9b70`,
+ * D:L320162), whose contact loop calls the node's handler before the frame's end is written back (`+0x54..+0x5c`,
+ * D:L320059-320061) and before `FUN_003c63d0` (D:L320062); only then does `FUN_003c9fb0` hand `+0x54` on
+ * (`FUN_003cabe0`, D:L320164-320174) -- so the node is taken where the frame began (the room's `sceneContact`)
+ * [reading: what `FUN_003c63d0`'s callbacks and `FUN_003cabe0` do to the node's `+0x30..+0x38` is not traced; the two
+ * points differ by one frame's travel, under the M67's `Effective_Range` 400 at any throw].
+ */
+export const GRENADE_CONTACT_RANGE_READING = 'frame-start' as const;
 
 /**
  * C4_ACCEPT_DAMAGE_READING (ruling PF.R14): the damage `FUN_002739b0` compares the shield with is the charge's ZWEAPON
@@ -683,6 +708,7 @@ export class SceneHealth {
     this.spent[id] = true;
     // SUP-03 (ROOM_SKIP_EFFECTS_READING): the room's world runs the death as a joiner's replay does, skip_effects 1.
     this.world.runProgram(d.program, { root: d.root, nodes: d.nodes, caller: d.targetPath, valve: null, silent: this.world.skipEffects });
+    this.world.diedHere(id);                                     // V13-3c: the room tells every page (`sceneDeath`)
     return { applied: true, died: true };
   }
 

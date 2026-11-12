@@ -25,12 +25,13 @@ import type { ContentPlacement } from './matchMap';
 import type { ForgeLobbyHandOff } from './lobbyClient';
 import { matchHandOff } from './lobbyPage';
 import { forgeMatchSounds, setForgeMatchSounds } from './matchState';
-import { ForgeNpcs, soloSideOption } from './npcs';
+import { ForgeNpcs, forgePlayNpcSeats, soloSideOption } from './npcs';
 import type { ForgePlayPort } from './agent/play';
-import { brainFor, fetchNpcNavigation, type NpcBrain } from './npcBrain';
+import { brainFor, fetchNpcNavigation, NpcBrain } from './npcBrain';
 import type { RuleHost, RuleLayout } from '../../../match/src/creator/rules';
 import { forgeRuleHost, ruleMapNames } from './matchRules';
 import type { RulesCueAudio } from './rulesCues';
+import { pageMatchDeps, type PageMatchDeps } from '../playerSettings';
 
 /**
  * FORGE (the owner, 2026-10-13: "Instead of just walk around, play starts an actual match with our testroom style local
@@ -227,7 +228,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
    * own `maxRounds`, `roundSeconds`, `allowFriendlyFire` and `maxPlayers`, passed through to the page's room unchanged.
    * `onRoundStart` is the page's (FG-50 puts the layout's slot back after round 1 has spawned).
    */
-  room?: Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers' | 'onRoundStart'>;
+  room?: Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers' | 'onRoundStart' | 'beforeRoundStart'>;
   /** FG-24: the match's brighten for the layout's light (`./settings` `matchBrightenOf`); unset, the match's own. */
   brighten?: number;
   /** Saved Forge lighting adaptation, with the editor base world calibration. */
@@ -262,21 +263,44 @@ export async function startForgeMatch(target: HTMLElement, o: {
   onRulesAudio?: (audio: RulesCueAudio | null) => void;
   /** FUI-23 (review F4): the cue list's counts, for the development readout only (`__forgeMatch.cueStats`). */
   rulesCueStats?: () => unknown;
+  /** RB-10 (`../playerSettings` `PageMatchDeps`; a browser adaptation): the player's settings for the match; unset, the page card's (`pageMatchDeps()`). Stopped at the close. */
+  player?: PageMatchDeps;
 }): Promise<ForgeMatch> {
   const markers = o.npcs ?? [];
-  const ruleHost: RuleHost | null = o.rules ? forgeRuleHost({ layout: {}, params: {}, ...o.rules }, o.rules.names ?? ruleMapNames(o.map)) : null;
-  const simMap = simMapOfLoaded(o.map);
   // NPB-5: the brain steps with the room (`RoomOptions.beforeStep`, the lobby's own hook), once it is ready.
   let brain: NpcBrain | null = null;
-  const loop = new LoopbackMatch(simMap, simClipsOfPlay(o.clips), {
+  // A rules release seats on this room (`forgePlayNpcSeats`), the same hello a marker NPC uses. No rules: the match
+  // is the one it was, marker NPCs only. The host is built before the hull is read, so a pack the map cannot satisfy
+  // is refused before `no hull`. Marker NPCs take the first seats; a release starts after them.
+  let loop!: LoopbackMatch;
+  let stemName = '';
+  const releaseNpcs = (o.rules?.layout?.spawners ?? []).some((s) => s.source === 'npc');
+  const playSeats = o.rules ? forgePlayNpcSeats({
+    room: () => loop.room, stem: () => stemName, baseSide: soloSideOption(markers, o.side).soloSide, brain: () => brain,
+    reserved: markers.length,
+  }) : null;
+  const ruleHost: RuleHost | null = o.rules ? forgeRuleHost({ layout: {}, params: {}, ...o.rules }, o.rules.names ?? ruleMapNames(o.map), playSeats ? { npcs: playSeats.npcs } : {}) : null;
+  const simMap = simMapOfLoaded(o.map);
+  // A test's stand-in map is null (`simMapOfLoaded` mocked). The room's own map always has a stem.
+  stemName = simMap?.stem ?? '';
+  loop = new LoopbackMatch(simMap, simClipsOfPlay(o.clips), {
     // NPB-8: the map's own kit tables, as the test room and the lobby's rooms hold them: every seat carries its type's kit
     // and the brain issues its NPCs the lobby bots' role kits. A map without them (a mission, the blank floor) keeps the baked pair.
     kits: o.map.arsenal ?? null,
-    ...(o.room ?? {}), ...soloSideOption(markers, o.side), beforeStep: () => brain?.step(),
+    ...(o.room ?? {}),
+    ...(playSeats ? { soloSide: playSeats.sideOf } : soloSideOption(markers, o.side)),
+    beforeStep: () => { playSeats?.flush(); brain?.step(); },
+    beforeRoundStart: (newMatch) => { playSeats?.beforeRound(); o.room?.beforeRoundStart?.(newMatch); },
     ...(ruleHost ? { ruleHost } : {}),
   });
   let npcs: ForgeNpcs | null = null;
   const stem = o.map.archive;
+  // A rules NPC spawner and no marker NPCs: the patrol brain before the player is seated, so a round-start release
+  // can adopt it. A map with no graph stands the release where the spawner put it (the marker path's own fallback).
+  if (!markers.length && releaseNpcs) {
+    const nav = await fetchNpcNavigation(import.meta.env.BASE_URL, stem);
+    if (nav) { try { brain = await NpcBrain.create(loop.room, [], nav); } catch { brain = null; } }
+  }
   const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket }, IDLE_WALK);
   const events: ServerEvent[] = [];
   // FCW-32 round 2: the rules' wires, outside `ServerEvent` (the room's additive types), handed to the page as they come.
@@ -292,7 +316,9 @@ export async function startForgeMatch(target: HTMLElement, o: {
     });
   } catch (e) {
     offRules();
+    o.player?.stop();   // RB-10: a handed set of settings is the match's to stop
     client.close();
+    brain?.close();
     loop.stop();
     throw e;
   }
@@ -305,6 +331,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     brain = await brainFor(behaviour, loop.room, npcs.npcs, behaviour === 'patrol' ? await fetchNpcNavigation(import.meta.env.BASE_URL, stem) : null);
     npcs.start();
   }
+  playSeats?.flush();
   // A development build's readout for checking a layout's match from the console (no original; never in a release):
   // each seat's side, feet, facing and health, and the room's round.
   if (import.meta.env.DEV) {
@@ -325,8 +352,13 @@ export async function startForgeMatch(target: HTMLElement, o: {
   }
   const out = new WebAudioOut();
   const game = new GameAudio(out, undefined, { inline: false });
-  const cues = forgeMatchCues(cueSourceOf(o.source), out);   // F7 (a): released with the match's audio, the cues' first
+  const cueSource = cueSourceOf(o.source);
+  const cues = forgeMatchCues(cueSource, out);   // F7 (a): released with the match's audio, the cues' first
   const audio = { game, release: () => { cues.release(); game.setData(null); out.dispose(); } };
+  // RB-10: the player's settings -- the card's volumes, SOUND MODE and BRIGHTNESS on this match, its deps on the mount below.
+  const player = o.player ?? pageMatchDeps();
+  player.applyAudio(out, game);
+  player.applyBrightness();
   // FUI-23: the rules' cues on the match's own audio (the menus' HUDUI beside it); let go before the audio is.
   let rulesAudio = o.onRulesAudio !== undefined;
   const letRulesAudioGo = (): void => { if (rulesAudio) { rulesAudio = false; o.onRulesAudio!(null); } };
@@ -342,6 +374,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     mounted = mountMatch(target, {
       ...(o.normalInput ? { normalInput: o.normalInput } : {}),
       client, events, handOff, holds: () => {}, audio,
+      ...player.mountDeps(o.map.name, cueSource, () => cues.audio() ?? game),   // RB-10 (PS-2): the player's settings
       ...(o.forgeLighting ? { forgeLighting: o.forgeLighting } : {}),
       ...(o.brighten === undefined ? {} : { brighten: o.brighten }),
       ...(o.gameMode === undefined ? {} : { gameMode: o.gameMode }),
@@ -351,6 +384,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
   } catch (e) {
     offRules();
     letRulesAudioGo();
+    player.stop();
     audio.release();
     brain?.close();
     npcs?.close();
@@ -367,6 +401,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
       offRules();
       letRulesAudioGo();
       mounted.close();
+      player.stop();
       brain?.close();
       (o.extraWorld?.userData['dispose'] as (() => void) | undefined)?.();   // LATER 456: off the scene with the mount, freed here
       npcs?.close();
@@ -455,31 +490,41 @@ export function startForgeLobbyMatch(target: HTMLElement, o: {
   gameMode?: string;
   /** F7 (a): the page's source, the overlay's cues read from it (`forgeMatchCues`); unset, none. */
   source?: SourceRequest | null;
+  /** RB-10 (`../playerSettings` `PageMatchDeps`; a browser adaptation): the player's settings for the match; unset, the page card's (`pageMatchDeps()`). Stopped at the close. */
+  player?: PageMatchDeps;
 }): ForgeMatch {
   // Every throw before the mount -- the audio's, the hand-off's own, the mount's -- closes the handed client: the page
   // gave its socket up at the hand-off (`leaveLobby` then has none to close), so one left open would keep the seat and
   // its host on the server, owned by none (the FG-48 re-review's F2).
   let audio: { game: GameAudio; release: () => void } | null = null;
+  let player: PageMatchDeps | null = null;
   let mounted: MountedMatch;
   try {
     const out = new WebAudioOut();
     const game = new GameAudio(out, undefined, { inline: false });
-    const cues = forgeMatchCues(cueSourceOf(o.source), out);   // F7 (a): released with the match's audio (F2's every throw too)
+    const cueSource = cueSourceOf(o.source);
+    const cues = forgeMatchCues(cueSource, out);   // F7 (a): released with the match's audio (F2's every throw too)
     audio = { game, release: () => { cues.release(); game.setData(null); out.dispose(); } };
+    player = o.player ?? pageMatchDeps();          // RB-10: the player's settings, as Play's match takes them
+    player.applyAudio(out, game);
+    player.applyBrightness();
     const handOff = matchHandOff(o.handOff, { gameName: o.gameName, mission: o.map.archive, pinned: o.pinned, lateJoiner: o.lateJoiner });
     mounted = mountMatch(target, {
       client: o.handOff.client, events: o.handOff.events, handOff, holds: () => {}, audio,
+      ...player.mountDeps(o.map.name, cueSource, () => cues.audio() ?? game),   // RB-10 (PS-2): the player's settings
       ...(o.forgeLighting ? { forgeLighting: o.forgeLighting } : {}),
       ...(o.brighten === undefined ? {} : { brighten: o.brighten }),
       ...(o.gameMode === undefined ? {} : { gameMode: o.gameMode }),
       assets: Promise.resolve({ map: o.map, clips: o.clips, effects: o.effects, sound: o.sound }),
     });
   } catch (e) {
+    player?.stop();
     audio?.release();
     o.handOff.client.close();
     throw e;
   }
   const held = audio;
+  const heldPlayer = player;
   // FG-40: the match is loaded here -- the page composed the map and read its clips, effects and sound before the
   // hand-off -- so its load is reported now, on the lobby's client (`loaded`, ONL-18b: the room holds round 1 until every
   // launched page's comes, else for the barrier's ceiling, `LOAD_BARRIER_TIMEOUT_PLACEHOLDER`), as `../lobbyMatch` reports
@@ -494,6 +539,7 @@ export function startForgeLobbyMatch(target: HTMLElement, o: {
       if (closed) return;
       closed = true;
       mounted.close();
+      heldPlayer.stop();
       held.release();
     },
   };

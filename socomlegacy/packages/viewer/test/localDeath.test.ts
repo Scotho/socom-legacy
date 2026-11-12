@@ -14,7 +14,7 @@ import type { RemotePlayers } from '../src/remotePlayers';
 import { ENGINE_READ_S, ROUND_COMPLETE_S } from '../../match/src/room';
 
 const M67 = { explosionRadius: 150 };
-import { DEATH_EYE_REACH, DEATH_ORBIT_RATE, DEATH_TILT_MAX, deathEye, newDeathCamera } from '../src/deathCamera';
+import { DEATH_CAM_SPIN_ADAPTATION, DEATH_EYE_REACH, DEATH_ORBIT_RATE, DEATH_TILT_MAX, deathEye, newDeathCamera } from '../src/deathCamera';
 
 /**
  * The page's OWN death (owner's play-test, 2026-09-29: "I took damage from being exploded in offline mode but my
@@ -206,8 +206,11 @@ describe('the page\'s own death by a blast, offline (the loopback room)', () => 
     let turned = angle() - a0;
     while (turned < -Math.PI) turned += 2 * Math.PI;
     while (turned > Math.PI) turned -= 2 * Math.PI;
-    expect(Math.abs(turned)).toBeGreaterThan(DEATH_ORBIT_RATE * 0.8);   // about 0.87 rad in the second
-    expect(Math.abs(turned)).toBeLessThan(DEATH_ORBIT_RATE * 1.2);
+    // OT.R116 (DEATH_CAM_SPIN_ADAPTATION): mode 6 no longer turns on its own (the original's DEATH_ORBIT_RATE, 0.8725
+    // rad a second, D:L141217), and a pose set by hand is no stick push (`LookState.turnRate` 0): the camera holds.
+    expect(DEATH_CAM_SPIN_ADAPTATION).toBe(0);
+    expect(DEATH_ORBIT_RATE).toBe(0.8725);
+    expect(Math.abs(turned)).toBeLessThan(1e-9);
     expect(ctx.walk.cameraState()!.mode).toBe('third');
   });
 

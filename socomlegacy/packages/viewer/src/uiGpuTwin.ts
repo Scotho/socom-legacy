@@ -24,7 +24,7 @@ import { wrap } from './uiRasterRules';
  * fixed-function blend on a fixed-point buffer (outputs clamped to [0, 1], `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` or
  * `ONE, ONE` for RGB, `ONE_MINUS_DST_ALPHA, ONE` for the frame's alpha -- on an opaque frame too, see below), computed in f32 and converted to the byte once, to nearest, ties to even (`UI_GPU_TWIN_UNORM_ADAPTATION`). The models
  * are fixed-function (GM-06b: `model-ff-src`, `model-ff-add`, the alpha masked, M7), their depth `DEPTH_COMPONENT32F`
- * with `GREATER`, `invW` times a power-of-two scale (GM.R10; the plan's `UiPlanPass.depthScale`, GM-15a, read by
+ * with `GEQUAL` (GM-15d; `GREATER` before), `invW` times a power-of-two scale (GM.R10; the plan's `UiPlanPass.depthScale`, GM-15a, read by
  * `twinDepthScale`).
  *
  * **The exact class (research 380 §1 E/E\*).** The twin marks each pixel whose bytes it claims equal to the software's:
@@ -120,29 +120,33 @@ export function S11ff_additive(o: number, D: number): number { return f(o + f(D 
 /** S12 (ff): the unorm conversion to the byte, once, to nearest even. */
 export function S12ff_unorm(v: number): number { return S12_store(f(clamp01(v) * 255)); }
 
-// ---- the model steps (T1-T12): the software's `drawModels` (uiCompositorView.ts :402-458), in f32 --------------------
+// ---- the model steps (T1-T12): the software's `drawModels` (uiCompositorView.ts :401-472), in f32 --------------------
 
-/** T2: a barycentric weight at the integer point, `((b.x − x)(c.y − y) − (c.x − x)(b.y − y))·inv` (:425-426). */
+/** T2: a barycentric weight at the integer point, `((b.x − x)(c.y − y) − (c.x − x)(b.y − y))·inv` (`modelDepthF32`, :440). */
 export function T2_weight(bx: number, by: number, cx: number, cy: number, x: number, y: number, inv: number): number { return f(f(f(f(bx - x) * f(cy - y)) - f(f(cx - x) * f(by - y))) * inv); }
-/** T2: the third weight, `1 − w0 − w1` (:427). */
+/** T2: an edge function at the integer point, `(b.x − x)(c.y − y) − (c.x − x)(b.y − y)` (GM-15d; `modelEdgeF32`; T2_weight is it times `inv`). */
+export function T2_edge(bx: number, by: number, cx: number, cy: number, x: number, y: number): number { return f(f(f(bx - x) * f(cy - y)) - f(f(cx - x) * f(by - y))); }
+/** T2: the third weight, `1 − w0 − w1`. */
 export function T2_third(w0: number, w1: number): number { return f(f(1 - w0) - w1); }
-/** T3: inside, inclusive on every edge (:428; M2, `UI_MODEL_EDGE_RULE_READING`). */
-export function T3_inside(w0: number, w1: number, w2: number): boolean { return !(w0 < 0 || w1 < 0 || w2 < 0); }
-/** T4: `invW = w0·a.invW + w1·b.invW + w2·c.invW` (:429). */
+/** T3: one edge by the top-left rule, `modelEdgeOwns` in f32 (`s` ±1, so `s·e` is exact; M2, `UI_MODEL_EDGE_RULE_READING`). */
+export function T3_owns(e: number, gx: number, gy: number, s: number): boolean { return f(s * e) > 0 || (e === 0 && (f(s * gx) > 0 || (gx === 0 && f(s * gy) > 0))); }
+/** T3: inside by the top-left rule -- the three edges b c, c a, a b, each's gradient from the f32 vertices, `s` inv's sign (GM-15d). */
+export function T3_inside(e0: number, e1: number, e2: number, ax: number, ay: number, bx: number, by: number, cx: number, cy: number, s: number): boolean { return T3_owns(e0, f(by - cy), f(cx - bx), s) && T3_owns(e1, f(cy - ay), f(ax - cx), s) && T3_owns(e2, f(ay - by), f(bx - ax), s); }
+/** T4: `invW = w0·a.invW + w1·b.invW + w2·c.invW` (`modelDepthF32`, :440). */
 export function T4_invW(w0: number, w1: number, w2: number, aw: number, bw: number, cw: number): number { return f(f(f(w0 * aw) + f(w1 * bw)) + f(w2 * cw)); }
 /** T5: the depth written and tested, `invW` times the pass's power-of-two scale, clamped to [0, 1] (`gl_FragDepth`). */
 export function T5_depth(invW: number, scale: number): number { return clamp01(f(invW * scale)); }
-/** T5: `GREATER` against the stored depth (0 = cleared): an equal depth fails, the first drawn wins (:431; M3). */
-export function T5_depthPasses(z: number, stored: number): boolean { return z > stored; }
-/** T6: a perspective-corrected weight, `w·(v.invW / invW)` (:433; M4, `UI_MODEL_GOURAUD_READING`). */
+/** T5: `GEQUAL` against the stored depth (0 = cleared): an equal depth passes, the later drawn wins (M3; GM-15d, `TEST_1` ZTST GEQUAL). */
+export function T5_depthPasses(z: number, stored: number): boolean { return z >= stored; }
+/** T6: a perspective-corrected weight, `w·(v.invW / invW)` (:448; M4, `UI_MODEL_GOURAUD_READING`). */
 export function T6_perspective(w: number, vw: number, invW: number): number { return f(w * f(vw / invW)); }
-/** T7: an attribute, `w0·a + w1·b + w2·c` (:434-435). */
+/** T7: an attribute, `w0·a + w1·b + w2·c` (:450-455). */
 export function T7_lerp(w0: number, w1: number, w2: number, a: number, b: number, c: number): number { return f(f(f(w0 * a) + f(w1 * b)) + f(w2 * c)); }
 /** T8: `sample`'s own lerp, `a·(1 − fx) + b·fx` (:180; M5). */
 export function T8_lerp(a: number, b: number, fx: number): number { return f(f(a * f(1 - fx)) + f(b * fx)); }
-/** T9: the model's alpha modulate, `(s.a/255)·(rgba.a/128)` (:441). */
+/** T9: the model's alpha modulate, `(s.a/255)·(rgba.a/128)` (:456). */
 export function T9_modulateAlpha(sa: number, ra: number): number { return f(f(sa / 255) * f(ra / 128)); }
-/** T10: no colour and no depth at `al <= 0` (:443; M6, `UI_MODEL_ZWRITE_READING`). */
+/** T10: no colour and no depth at `al <= 0` (:458; M6, `UI_MODEL_ZWRITE_READING`). */
 export function T10_discard(al: number): boolean { return al <= 0; }
 
 /** One step of the twin: its tag, what it does, the rule rows it reproduces, the software line (and a text it holds), its readings. */
@@ -150,31 +154,31 @@ export interface UiGpuTwinStep { tag: string; does: string; rules: string[]; sof
 
 /** The step table (GM.R4): research 380's rows by tag, the line of `uiCompositorView.ts` each reproduces, the readings it names. */
 export const UI_GPU_TWIN_STEPS: readonly UiGpuTwinStep[] = Object.freeze([
-  { tag: 'S1', does: 'the integer pixel of the quad\'s rectangle', rules: ['P3', 'P4'], software: 'uiCompositorView.ts:223', line: 'coverageBounds(x0, y0, x1, y1, W, H, clip)', readings: ['GS_SPRITE_COVERAGE_READING', 'GS_SPRITE_SUBPIXEL_READING'] },
-  { tag: 'S2', does: 'the destination read: the batch\'s copy (prog) or the frame (ff, sequential)', rules: ['P10', 'P11', 'P14'], software: 'uiCompositorView.ts:314', line: 'frame[i + 3] = frame[i + 3]!', readings: [] },
-  { tag: 'S3', does: 'the alpha byte over 128, unclamped', rules: ['P9'], software: 'uiCompositorView.ts:226', line: 'alpha = rgba[3]! / 128', readings: ['UI_QUAD_ALPHA_RANGE_READING'] },
-  { tag: 'S4', does: 'the column entry (left, right, fx, ix), f64 on the CPU, received as f32', rules: ['P5', 'P6'], software: 'uiCompositorView.ts:267', line: 'columnAxis(xs, xe, x0, dx, uv[0], du, width, nearest, left, right, fraction)', readings: ['GS_BILINEAR_WEIGHT_READING', 'UI_TEXTURE_WRAP_READING', 'UV_REPEAT_READING'] },
-  { tag: 'S5', does: 'the row entry (top, bottom, fy, iy), f64 on the CPU, received as f32', rules: ['P5', 'P6'], software: 'uiCompositorView.ts:284', line: 'rowAxis(y, y0, dy, uv[1], dv, height, width, nearest, axis)', readings: ['GS_BILINEAR_WEIGHT_READING', 'UI_TEXTURE_WRAP_READING'] },
-  { tag: 'S6', does: 'a source row\'s horizontal lerp d[l]·ix + d[r]·fx', rules: ['P6'], software: 'uiCompositorView.ts:276', line: 'row[i] = data[l]! * ix + data[r]! * fx', readings: ['UI_TEXTURE_FILTER_READING'] },
-  { tag: 'S7', does: 'the vertical lerp top·iy + lower·fy', rules: ['P6'], software: 'uiCompositorView.ts:302', line: 'r = topRow[i]! * iy + lowerRow[i]! * fy', readings: ['UI_TEXTURE_FILTER_READING'] },
-  { tag: 'S8', does: 'the modulate min(255, (t·c)/128); untextured, the colour as it stands', rules: ['P8', 'P9'], software: 'uiCompositorView.ts:307', line: 'r = Math.min(255, (r * red) / 128)', readings: ['GS_MODULATE_BLEND_READING'] },
-  { tag: 'S9', does: 'the alpha modulate (ta/255)·alpha, unclamped', rules: ['P8'], software: 'uiCompositorView.ts:308', line: 'a = (a / 255) * alpha', readings: ['GS_MODULATE_BLEND_READING', 'UI_QUAD_ALPHA_RANGE_READING'] },
-  { tag: 'S10', does: 'the frame alpha A + (255 − A)·min(1, a); ff: masked (opaque) or ONE_MINUS_DST_ALPHA, ONE', rules: ['P14'], software: 'uiCompositorView.ts:314', line: '(255 - frame[i + 3]!) * Math.min(1, a)', readings: [] },
-  { tag: 'S11', does: 'the blend: source C + (c − C)·a, additive C + c·a; ff: the blender', rules: ['P10', 'P11'], software: 'uiCompositorView.ts:315', line: '0x48: Cd + Cs x As', readings: ['GS_MODULATE_BLEND_READING', 'GS_ALPHA_FRAME_START_READING'] },
-  { tag: 'S12', does: 'the store roundEven(clamp(v, 0, 255)); ff: the unorm conversion', rules: ['P12'], software: 'uiCompositorView.ts:316', line: 'frame[i] = frame[i]! + r * a', readings: ['GS_BLEND_ROUNDING_READING'] },
-  { tag: 'S13', does: 'the non-finite codes: a NaN channel stored 0 (zeroMask), ±∞ carried as IEEE values', rules: ['P23'], software: 'uiCompositorView.ts:226', line: 'const red = rgba[0]!', readings: ['GS_BLEND_ROUNDING_READING'] },
-  { tag: 'T1', does: 'the integer pixel of the triangle\'s box ceil(min)..ceil(max)', rules: ['M2'], software: 'uiCompositorView.ts:425', line: 'Math.ceil(Math.min(a.x, b.x, c.x))', readings: ['UI_MODEL_EDGE_RULE_READING'] },
-  { tag: 'T2', does: 'the barycentric weights at the integer point', rules: ['M2'], software: 'uiCompositorView.ts:431', line: 'let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv', readings: ['UI_MODEL_EDGE_RULE_READING'] },
-  { tag: 'T3', does: 'inside, inclusive on every edge', rules: ['M2'], software: 'uiCompositorView.ts:434', line: 'if (w0 < 0 || w1 < 0 || w2 < 0) continue', readings: ['UI_MODEL_EDGE_RULE_READING'] },
-  { tag: 'T4', does: 'invW from the weights', rules: ['M3'], software: 'uiCompositorView.ts:435', line: 'const invW = w0 * a.invW + w1 * b.invW + w2 * c.invW', readings: ['UI_MODEL_DEPTH_FORMAT_READING'] },
-  { tag: 'T5', does: 'the depth test, strictly greater, 0 empty: GREATER on depth32f', rules: ['M3'], software: 'uiCompositorView.ts:437', line: 'if (depth[i]! > 0 && invW <= depth[i]!) continue', readings: ['UI_MODEL_DEPTH_FORMAT_READING'] },
-  { tag: 'T6', does: 'the perspective-corrected weights', rules: ['M4'], software: 'uiCompositorView.ts:439', line: 'w0 *= a.invW / invW', readings: ['UI_MODEL_GOURAUD_READING'] },
-  { tag: 'T7', does: 'u, v and the colour from the weights', rules: ['M4'], software: 'uiCompositorView.ts:441', line: 'w0 * a.rgba[ch]! + w1 * b.rgba[ch]! + w2 * c.rgba[ch]!', readings: ['UI_MODEL_GOURAUD_READING'] },
-  { tag: 'T8', does: 'sample() at (u·W, (1 − v)·H), REPEAT, its own lerp form', rules: ['M5'], software: 'uiCompositorView.ts:445', line: 'sample(tex, u * tex.width, (1 - v) * tex.height, s)', readings: ['UI_MODEL_TEXTURE_ROWS_READING', 'UV_REPEAT_READING', 'UI_TEXTURE_FILTER_READING'] },
-  { tag: 'T9', does: 'the modulate; untextured, the colour as it stands', rules: ['M5', 'P8'], software: 'uiCompositorView.ts:447', line: 'al = (s[3]! / 255) * (rgba[3]! / 128)', readings: ['GS_MODULATE_BLEND_READING'] },
-  { tag: 'T10', does: 'no colour and no depth at al <= 0', rules: ['M6'], software: 'uiCompositorView.ts:449', line: 'if (al <= 0) continue', readings: ['UI_MODEL_ZWRITE_READING'] },
-  { tag: 'T11', does: 'the blend (ff: the blender), the frame alpha untouched', rules: ['M7', 'P10', 'P11'], software: 'uiCompositorView.ts:452', line: 'if (additive) {', readings: ['UI_MESH_BIND_READING'] },
-  { tag: 'T12', does: 'the depth written', rules: ['M3'], software: 'uiCompositorView.ts:450', line: 'depth[i] = invW', readings: ['UI_MODEL_DEPTH_FORMAT_READING'] },
+  { tag: 'S1', does: 'the integer pixel of the quad\'s rectangle', rules: ['P3', 'P4'], software: 'uiCompositorView.ts:232', line: 'coverageBounds(x0, y0, x1, y1, W, H, clip)', readings: ['GS_SPRITE_COVERAGE_READING', 'GS_SPRITE_SUBPIXEL_READING'] },
+  { tag: 'S2', does: 'the destination read: the batch\'s copy (prog) or the frame (ff, sequential)', rules: ['P10', 'P11', 'P14'], software: 'uiCompositorView.ts:323', line: 'frame[i + 3] = frame[i + 3]!', readings: [] },
+  { tag: 'S3', does: 'the alpha byte over 128, unclamped', rules: ['P9'], software: 'uiCompositorView.ts:235', line: 'alpha = rgba[3]! / 128', readings: ['UI_QUAD_ALPHA_RANGE_READING'] },
+  { tag: 'S4', does: 'the column entry (left, right, fx, ix), f64 on the CPU, received as f32', rules: ['P5', 'P6'], software: 'uiCompositorView.ts:276', line: 'columnAxis(xs, xe, x0, dx, uv[0], du, width, nearest, left, right, fraction)', readings: ['GS_BILINEAR_WEIGHT_READING', 'UI_TEXTURE_WRAP_READING', 'UV_REPEAT_READING'] },
+  { tag: 'S5', does: 'the row entry (top, bottom, fy, iy), f64 on the CPU, received as f32', rules: ['P5', 'P6'], software: 'uiCompositorView.ts:293', line: 'rowAxis(y, y0, dy, uv[1], dv, height, width, nearest, axis)', readings: ['GS_BILINEAR_WEIGHT_READING', 'UI_TEXTURE_WRAP_READING'] },
+  { tag: 'S6', does: 'a source row\'s horizontal lerp d[l]·ix + d[r]·fx', rules: ['P6'], software: 'uiCompositorView.ts:285', line: 'row[i] = data[l]! * ix + data[r]! * fx', readings: ['UI_TEXTURE_FILTER_READING'] },
+  { tag: 'S7', does: 'the vertical lerp top·iy + lower·fy', rules: ['P6'], software: 'uiCompositorView.ts:311', line: 'r = topRow[i]! * iy + lowerRow[i]! * fy', readings: ['UI_TEXTURE_FILTER_READING'] },
+  { tag: 'S8', does: 'the modulate min(255, (t·c)/128); untextured, the colour as it stands', rules: ['P8', 'P9'], software: 'uiCompositorView.ts:316', line: 'r = Math.min(255, (r * red) / 128)', readings: ['GS_MODULATE_BLEND_READING'] },
+  { tag: 'S9', does: 'the alpha modulate (ta/255)·alpha, unclamped', rules: ['P8'], software: 'uiCompositorView.ts:317', line: 'a = (a / 255) * alpha', readings: ['GS_MODULATE_BLEND_READING', 'UI_QUAD_ALPHA_RANGE_READING'] },
+  { tag: 'S10', does: 'the frame alpha A + (255 − A)·min(1, a); ff: masked (opaque) or ONE_MINUS_DST_ALPHA, ONE', rules: ['P14'], software: 'uiCompositorView.ts:323', line: '(255 - frame[i + 3]!) * Math.min(1, a)', readings: [] },
+  { tag: 'S11', does: 'the blend: source C + (c − C)·a, additive C + c·a; ff: the blender', rules: ['P10', 'P11'], software: 'uiCompositorView.ts:324', line: '0x48: Cd + Cs x As', readings: ['GS_MODULATE_BLEND_READING', 'GS_ALPHA_FRAME_START_READING'] },
+  { tag: 'S12', does: 'the store roundEven(clamp(v, 0, 255)); ff: the unorm conversion', rules: ['P12'], software: 'uiCompositorView.ts:325', line: 'frame[i] = frame[i]! + r * a', readings: ['GS_BLEND_ROUNDING_READING'] },
+  { tag: 'S13', does: 'the non-finite codes: a NaN channel stored 0 (zeroMask), ±∞ carried as IEEE values', rules: ['P23'], software: 'uiCompositorView.ts:235', line: 'const red = rgba[0]!', readings: ['GS_BLEND_ROUNDING_READING'] },
+  { tag: 'T1', does: 'the integer pixel of the triangle\'s box ceil(min)..ceil(max)', rules: ['M2'], software: 'uiCompositorView.ts:437', line: 'Math.ceil(Math.min(a.x, b.x, c.x))', readings: ['UI_MODEL_EDGE_RULE_READING'] },
+  { tag: 'T2', does: 'the edge functions and the barycentric weights at the integer point', rules: ['M2'], software: 'uiCompositorView.ts:447', line: 'const e0 = modelEdgeF32(bx, by, cx, cy, x, y)', readings: ['UI_MODEL_EDGE_RULE_READING'] },
+  { tag: 'T3', does: 'inside by the top-left rule (GM-15d)', rules: ['M2'], software: 'uiCompositorView.ts:448', line: 'if (!modelEdgeOwns(e0, g0x, g0y, sign)', readings: ['UI_MODEL_EDGE_RULE_READING'] },
+  { tag: 'T4', does: 'invW from the weights', rules: ['M3'], software: 'uiCompositorView.ts:449', line: 'z = modelDepthF32(e0, e1, finv, aw, bw, cw)', readings: ['UI_MODEL_DEPTH_FORMAT_READING'] },
+  { tag: 'T5', does: 'the depth test, GEQUAL on the f32 store, 0 empty: GEQUAL on depth32f (GM-15d)', rules: ['M3'], software: 'uiCompositorView.ts:450', line: 'if (z < depth[i]!) continue', readings: ['UI_MODEL_DEPTH_FORMAT_READING'] },
+  { tag: 'T6', does: 'the perspective-corrected weights', rules: ['M4'], software: 'uiCompositorView.ts:457', line: 'w0 *= a.invW / invW', readings: ['UI_MODEL_GOURAUD_READING'] },
+  { tag: 'T7', does: 'u, v and the colour from the weights', rules: ['M4'], software: 'uiCompositorView.ts:459', line: 'w0 * a.rgba[ch]! + w1 * b.rgba[ch]! + w2 * c.rgba[ch]!', readings: ['UI_MODEL_GOURAUD_READING'] },
+  { tag: 'T8', does: 'sample() at (u·W, (1 − v)·H), REPEAT, its own lerp form', rules: ['M5'], software: 'uiCompositorView.ts:463', line: 'sample(tex, u * tex.width, (1 - v) * tex.height, s)', readings: ['UI_MODEL_TEXTURE_ROWS_READING', 'UV_REPEAT_READING', 'UI_TEXTURE_FILTER_READING'] },
+  { tag: 'T9', does: 'the modulate; untextured, the colour as it stands', rules: ['M5', 'P8'], software: 'uiCompositorView.ts:465', line: 'al = (s[3]! / 255) * (rgba[3]! / 128)', readings: ['GS_MODULATE_BLEND_READING'] },
+  { tag: 'T10', does: 'no colour and no depth at al <= 0', rules: ['M6'], software: 'uiCompositorView.ts:467', line: 'if (al <= 0) continue', readings: ['UI_MODEL_ZWRITE_READING'] },
+  { tag: 'T11', does: 'the blend (ff: the blender), the frame alpha untouched', rules: ['M7', 'P10', 'P11'], software: 'uiCompositorView.ts:470', line: 'if (additive) {', readings: ['UI_MESH_BIND_READING'] },
+  { tag: 'T12', does: 'the depth written', rules: ['M3'], software: 'uiCompositorView.ts:468', line: 'depth[i] = z', readings: ['UI_MODEL_DEPTH_FORMAT_READING'] },
 ] as UiGpuTwinStep[]);
 
 /** The order the quad routine carries the S tags in: the order the quad programs' GLSL must carry them (GM-11a-2). */
@@ -358,6 +362,7 @@ function drawTriangleTwin(plan: UiFramePlan, t: UiPlanTriangle, frame: Uint8Clam
   const ax = f(t.a.x), ay = f(t.a.y), bx = f(t.b.x), by = f(t.b.y), cx = f(t.c.x), cy = f(t.c.y);
   const aw = f(t.a.invW), bw = f(t.b.invW), cw = f(t.c.invW);
   const inv = f(1 / t.area);   // the f64 area's reciprocal, uploaded as f32
+  const sign = inv < 0 ? -1 : 1;   // the winding, from inv's sign (the shader's s)
   const tex = t.texture === null ? null : plan.textures[t.texture]!.image;
   const additive = t.blend === 'additive';
   const s = [0, 0, 0, 0];
@@ -366,10 +371,11 @@ function drawTriangleTwin(plan: UiFramePlan, t: UiPlanTriangle, frame: Uint8Clam
   for (let y = box.ys; y < box.ye; y++) {
     for (let x = box.xs; x < box.xe; x++) {
       exact[y * W + x] = 0; models[y * W + x] = 1;   // the box is class B (M2-M5): the twin and the software may part at an edge or a tie
-      // T2 and T3 -- the weights at the integer point, inclusive on every edge.
+      // T2 and T3 -- the edge functions and the weights at the integer point, inside by the top-left rule.
+      const e0 = T2_edge(bx, by, cx, cy, x, y), e1 = T2_edge(cx, cy, ax, ay, x, y), e2 = T2_edge(ax, ay, bx, by, x, y);
       let w0 = T2_weight(bx, by, cx, cy, x, y, inv), w1 = T2_weight(cx, cy, ax, ay, x, y, inv), w2 = T2_third(w0, w1);
-      if (!T3_inside(w0, w1, w2)) continue;
-      // T4 and T5 -- invW, and the depth test against the pass's depth (0 = cleared).
+      if (!T3_inside(e0, e1, e2, ax, ay, bx, by, cx, cy, sign)) continue;
+      // T4 and T5 -- invW, and the depth test against the pass's depth (GEQUAL; 0 = cleared).
       const invW = T4_invW(w0, w1, w2, aw, bw, cw);
       const i = y * W + x, z = T5_depth(invW, depthScale);
       if (!T5_depthPasses(z, depth[i]!)) continue;

@@ -404,7 +404,8 @@ describe("page authority", () => {
       now = LIMITS.invitationMs + 55000;
       expect(state.status("a").sessions).toEqual([expect.objectContaining({ state: "pending" })]);
       await state.signal(p.targetId, { type: "approve", pendingId: pair.pendingId, permissions: ["inspect"] });
-      expect(sent.map((m) => m.type)).toEqual(["pending", "offer"]);
+      // AX-9: the resume ticket follows the offer.
+      expect(sent.map((m) => m.type)).toEqual(["pending", "offer", "resume-ticket"]);
       expect(state.status("a").sessions).toEqual([expect.objectContaining({ state: "paired" })]);
     } finally {
       await state.close();

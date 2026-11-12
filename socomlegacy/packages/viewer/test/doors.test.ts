@@ -35,6 +35,66 @@ describe.skipIf(!MP6)(`Desert Glory's door${MP6 ? '' : ` (${FIXTURES_ABSENT})`}`
     expect(doors.state(0).open).toBe(false);
     doors.leaf(0).forEach((p, a) => p.forEach((v, k) => expect(v).toBeCloseTo(rest[a]![k]!, 3)));
   });
+
+  it("DF-4: singleDoor_right's CALL_ANIMATION reaches the call hook -- okforhostages after the open's swing, not_okforhostages after the close's (Seq_Data +404 / +724; research 175 s5.1)", () => {
+    const map = simMapFromBytes(MP6!, 'RUN/MP6.ZDB');
+    const calls: [string, string][] = [];
+    const doors = new DoorSet(map.doors ?? [], map.ground, { call: (door, anim) => calls.push([door.node, anim]) });
+    expect(doors.use(0)).toBe(true);
+    for (let k = 0; k < 0.5 / TICK; k++) doors.step(TICK);
+    expect(calls).toEqual([]);                                      // the swing (1 s) runs first: the CALL follows it
+    for (let k = 0; k < 10 / TICK && doors.state(0).busy; k++) doors.step(TICK);
+    expect(calls).toEqual([['cdoor1', 'okforhostages']]);
+    doors.use(0);
+    for (let k = 0; k < 10 / TICK && doors.state(0).busy; k++) doors.step(TICK);
+    expect(calls).toEqual([['cdoor1', 'okforhostages'], ['cdoor1', 'not_okforhostages']]);
+  });
+});
+
+/**
+ * DF-4 (research 175 s5.1, research 92): a door program's `CALL_ANIMATION` is the generic command's (`FUN_0025d5c0`
+ * D:L107487-107779: the callee named in the running animation's own names, `FUN_0026e650` D:L107575, started by
+ * `FUN_002734b0` with no context when the command's flags add no entry, D:L107763-107765) -- the door host hands it to
+ * its `call` hook, under the program's own IF, and runs nothing of it itself. No disc data.
+ */
+describe("DF-4: a door program's CALL_ANIMATION goes to the call hook", () => {
+  const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const spec = (): DoorSpec => ({
+    index: 0, node: 'cell', path: 'worldmodel/cell', valve: 'cell', range: 30, elevation: -1, local: IDENTITY, parent: IDENTITY, owners: [],
+    sweep: { minX: -10, minZ: -10, maxX: 10, maxZ: 10 },
+    programs: [{
+      name: 'singleDoor_test', root: 0, flags: 0xa2, nodes: [],
+      sequences: [
+        { name: 'seq_0', activation: 1, ops: [
+          { op: 'if', conditions: [{ kind: 'valve', valve: 'NA', operation: 2, operand: 0, context: true }] },
+          { op: 'callSequence', sequence: 'open' }, { op: 'else' }, { op: 'callSequence', sequence: 'close' }, { op: 'endif' },
+        ] },
+        { name: 'open', activation: 2, ops: [
+          { op: 'valve', valve: 'NA', operation: 0x0b, operand: 1, context: true },
+          { op: 'if', conditions: [{ kind: 'valve', valve: 'cell', operation: 2, operand: 1 }] }, { op: 'call', anim: 'okfor' }, { op: 'endif' },
+        ] },
+        { name: 'close', activation: 2, ops: [
+          { op: 'valve', valve: 'NA', operation: 0x0b, operand: 0, context: true },
+          { op: 'if', conditions: [{ kind: 'valve', valve: 'cell', operation: 2, operand: 0 }] }, { op: 'call', anim: 'notok' }, { op: 'endif' },
+        ] },
+      ],
+    }],
+  });
+
+  it("the open calls okfor and the close notok, each once, under the program's IF on the valve it set; a door with no hook runs as before", () => {
+    const calls: [string, string][] = [];
+    const doors = new DoorSet([spec()], null, { call: (door, anim) => calls.push([door.path, anim]) });
+    expect(doors.use(0)).toBe(true);
+    for (let k = 0; k < 60 && doors.state(0).busy; k++) doors.step(TICK);
+    expect(calls).toEqual([['worldmodel/cell', 'okfor']]);
+    expect(doors.use(0)).toBe(true);
+    for (let k = 0; k < 60 && doors.state(0).busy; k++) doors.step(TICK);
+    expect(calls).toEqual([['worldmodel/cell', 'okfor'], ['worldmodel/cell', 'notok']]);
+    const bare = new DoorSet([spec()], null);
+    expect(bare.use(0)).toBe(true);
+    for (let k = 0; k < 60 && bare.state(0).busy; k++) bare.step(TICK);
+    expect(bare.state(0).open).toBe(true);
+  });
 });
 
 describe.skipIf(!MP2)(`Frostfire's doors${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {

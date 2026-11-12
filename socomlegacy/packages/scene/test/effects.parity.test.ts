@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Zar, parseRdr, parseZdb, zdbMember, type RdrNode } from '@s2u/archive';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
@@ -218,9 +219,69 @@ describe(`the damage chain's commands, on the disc's bytes (MAP-06; research 174
     expect(decodeEffectProgram(ff.find((a) => a.name === 'door_slab')!).sequences[0]!.ops).toEqual([{ op: 'call', anim: 'breakapane' }]);
     const pane = decodeEffectProgram(ff.find((a) => a.name === 'breakapane')!).sequences[0]!.ops;
     expect(pane.map((o) => o.op)).toEqual(['sound', 'destruction', 'active']);
-    expect(pane[1]).toEqual({ op: 'destruction', node: -7 });
+    expect(pane[1]).toMatchObject({ op: 'destruction', node: -7, debris: { texture: 'a_window.tif', mode: 0, size: 13 } });
     expect(pane[2]).toEqual({ op: 'active', node: -7, on: false });
   });
+});
+
+// LATER 850: DESTRUCTION_SOURCE's payload on Fish Hook's own breakapane (research 387 §5; research 210 §6). MP71 is no
+// fixture until DF-2: SOCOM_DISC, else skipped (said, never a pass).
+const DISC = process.env.SOCOM_DISC;
+const MP71 = DISC && existsSync(resolve(DISC, 'RUN/MP71.ZDB')) ? new Uint8Array(readFileSync(resolve(DISC, 'RUN/MP71.ZDB'))) : null;
+
+describe(`breakapane's DESTRUCTION_SOURCE on the disc's bytes (LATER 850)${MP71 ? '' : ' (SOCOM_DISC with RUN/MP71.ZDB absent -- skipped)'}`, () => {
+  it.skipIf(!MP71)("Fish Hook's breakapane throws window01.tif's fragments: colour (40, 40, 43, 0.5), size 13, velocity 4..-4 / 1..-1 / 4..-4, life 2..3, no drag, acceleration (0, -98, 0), +0x4c 1", () => {
+    const anims = parseAnimSets(Zar.parse(zdbMember(MP71!, parseZdb(MP71!), 'MZANIM.ZAR'))).sets.flatMap((s) => s.anims);
+    const pane = anims.find((a) => a.name === 'breakapane')!;
+    const c = pane.sequences[0]!.commands.find((k) => k.set === 0 && k.cmd === 29)!;
+    expect(c.size).toBe(0x50);                                       // the header's size: 0x0142001d >>> 18
+    const ops = decodeEffectProgram(pane).sequences[0]!.ops;
+    expect(ops.map((o) => o.op)).toEqual(['sound', 'destruction', 'active']);
+    expect(ops[1]).toEqual({
+      op: 'destruction', node: -7,
+      debris: {
+        texture: 'window01.tif', mode: 0, colour: [40, 40, 43, 0.5], size: 13,
+        velocityFrom: [4, 1, 4], velocityTo: [-4, -1, -4], life: [2, 3], drag: 0, acceleration: [0, -98, 0], visual9c: 1,
+      },
+    });
+  });
+});
+
+// LATER 850's review: not two panes -- every command 29 on the disc, each map's own values (research 210 s6.1's table).
+// The nine maps' ZDBs from SOCOM_DISC, else skipped (said, never a pass).
+const DEBRIS_MAPS = ['MP1', 'MP2', 'MP71', 'MP73', 'M53', 'M61', 'M63', 'M81', 'M82'] as const;
+const DISC_ALL = DISC !== undefined && DEBRIS_MAPS.every((m) => existsSync(resolve(DISC, `RUN/${m}.ZDB`)));
+
+describe(`every DESTRUCTION_SOURCE on the disc (LATER 850, research 210 s6.1)${DISC_ALL ? '' : ' (SOCOM_DISC with the maps absent -- skipped)'}`, () => {
+  it.skipIf(!DISC_ALL)('eleven programs on nine ZDBs, each with its own texture, colour, size, velocity and life; none with a drag', () => {
+    const got: string[] = [];
+    for (const m of DEBRIS_MAPS) {
+      const bytes = new Uint8Array(readFileSync(resolve(DISC!, `RUN/${m}.ZDB`)));
+      const anims = parseAnimSets(Zar.parse(zdbMember(bytes, parseZdb(bytes), 'MZANIM.ZAR'))).sets.flatMap((s) => s.anims);
+      for (const a of anims) {
+        for (const o of decodeEffectProgram(a).sequences.flatMap((q) => q.ops)) {
+          if (o.op !== 'destruction') continue;
+          const d = o.debris!;
+          expect([d.mode, d.drag, d.acceleration, d.visual9c], `${m} ${a.name}`).toEqual([0, 0, [0, -98, 0], 1]);
+          const c = d.colour.map((v) => Math.round(v * 10) / 10);
+          got.push(`${m} ${a.name} ${o.node} ${d.texture} (${c.join(', ')}) ${d.size} ${d.velocityFrom.join('/')}..${d.velocityTo.join('/')} ${d.life.join('..')}`);
+        }
+      }
+    }
+    expect(got).toEqual([
+      'MP1 snow_window01 -7 alaska4d_window01.tif (63, 63, 70, 20) 10 2/1/2..-2/-1/-2 0.75..1.5',
+      'MP1 snow_window02 -7 alaska4d_window01.tif (63, 63, 70, 20) 10 2/1/2..-2/-1/-2 0.75..1.5',
+      'MP1 snow_window03 -7 alaska4d_window01.tif (63, 63, 70, 20) 10 2/1/2..-2/-1/-2 0.75..1.5',
+      'MP2 breakapane -7 a_window.tif (40, 40, 43, 0.5) 13 4/1/4..-4/-1/-4 2..3',
+      'MP71 breakapane -7 window01.tif (40, 40, 43, 0.5) 13 4/1/4..-4/-1/-4 2..3',
+      'MP73 breakapane -7 window01.tif (40, 40, 43, 0.5) 13 4/1/4..-4/-1/-4 2..3',
+      'M53 breakapane -7 windowglass.tif (40, 40, 43, 0.5) 45 4/1/4..-4/-1/-4 2..3',
+      'M61 breakapane -7 window01.tif (40, 40, 43, 0.5) 13 4/1/4..-4/-1/-4 2..3',
+      'M63 breakapane -7 window_inside.tif (55, 55, 50, 1) 30 10/1/10..-10/-1/-10 2..3',
+      'M81 breakapane -6 windowglass.tif (43, 43, 45, 10) 10 2/1/2..-2/-1/-2 0.75..1.5',
+      'M82 breakapane -7 window01.tif (30, 20, 35, 0.1) 50 4/1/4..-4/-1/-4 2..3',
+    ]);
+  }, 120_000);
 });
 
 const MP72 = fixture('RUN/MP72.ZDB');
@@ -274,7 +335,7 @@ describe(`Crossroads' bridge programs, on the disc's bytes (XR-01; research 213 
       // 248 parts on, then 284-332: FOR_CHILDREN (12 B) over parts, OBJECT_MAKE_WORLDCHILD (8 B), the part on, flyparts, END (8 B).
       const loop = cmds.filter((c) => c.offset >= 248 && c.offset <= 332 && c.offset !== 256 && c.offset !== 264);
       expect(loop.map((c) => [c.offset, c.cmd, c.size])).toEqual([[248, 17, 8], [284, 41, 12], [296, 6, 8], [304, 17, 8], [312, 45, 20], [332, 42, 8]]);
-      expect(loop[4]!.op).toEqual({ op: 'call', anim: 'flyparts' });
+      expect(loop[4]!.op).toEqual({ op: 'call', anim: 'flyparts', caller: 7 });   // research 386 §3.3: the loop's part (FOR_CHILDREN's variable 7) is the callee's NODE_CALLER
     }
     expect(anims.filter((a) => a.names.includes('skip_effects')).map((a) => a.name)).toEqual([]);
   });

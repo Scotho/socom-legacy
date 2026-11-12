@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>post-match-card (mockup)</title>
+<body style="background:#11181a;color:#dfe4e5;font-family:sans-serif;padding:16px">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Saira+Condensed:ital,wght@1,800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  .pm { width: 800px; margin: 8px auto 0; background: #000e11; color: #dfe4e5; font-family: Oswald, sans-serif; border: 1px solid #1c2a2c; overflow: hidden; }
+  .pm .band { position: relative; height: 210px; background:
+      linear-gradient(180deg, rgba(0,14,17,.15) 0%, rgba(0,14,17,.35) 55%, rgba(0,14,17,1) 100%),
+      repeating-linear-gradient(135deg, #2c4446 0 20px, #203436 20px 40px); }
+  .pm .bgtag { position: absolute; left: 50%; top: 62px; transform: translateX(-50%); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a9bcbe; border: 1px dashed #5b7173; padding: 4px 8px; }
+  .pm .top { position: absolute; left: 26px; right: 26px; top: 18px; display: flex; align-items: center; gap: 12px; }
+  .pm .emb { width: 34px; height: 34px; border: 2px solid #c4a04a; border-radius: 4px; display: grid; place-items: center; color: #dcb85c; font-weight: 600; background: rgba(0,14,17,.6); }
+  .pm .brand { font-size: 17px; letter-spacing: 1px; text-shadow: 0 1px 3px #000; }
+  .pm .when { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #e3d39a; text-shadow: 0 1px 3px #000; }
+  .pm .badge { border: 1px solid #c4a04a; border-radius: 3px; padding: 4px 10px; color: #dcb85c; font-size: 11px; letter-spacing: 1.5px; background: rgba(0,14,17,.6); }
+  .pm .title { position: absolute; left: 26px; right: 26px; bottom: 10px; display: flex; align-items: flex-end; }
+  .pm .map { font-family: 'Saira Condensed', sans-serif; font-style: italic; font-weight: 800; font-size: 60px; line-height: 1; }
+  .pm .mode { color: #c4a04a; letter-spacing: 4px; font-size: 13px; }
+  .pm .score { margin-left: auto; text-align: right; }
+  .pm .score .w { font-size: 13px; letter-spacing: 3px; color: #dcb85c; }
+  .pm .score .n { font-size: 58px; font-weight: 500; line-height: 1; }
+  .pm .gold { color: #dcb85c; } .pm .teal { color: #8fc3c7; } .pm .mut { color: #786e3b; } .pm .new { color: #c96b4a; }
+  .pm .body { padding: 6px 26px 18px; }
+  .pm .rounds { display: flex; gap: 5px; align-items: center; font-size: 10px; letter-spacing: 1px; color: #786e3b; }
+  .pm .rd { width: 34px; height: 20px; display: grid; place-items: center; font-size: 10px; color: #000e11; font-weight: 600; }
+  .pm .rd.s { background: #dcb85c; } .pm .rd.t { background: #8fc3c7; }
+  .pm .tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; margin-top: 12px; }
+  .pm .tile { border: 1px solid rgba(196,160,74,.45); padding: 7px 8px; }
+  .pm .tile .k { font-size: 9px; letter-spacing: 1.3px; color: #c4a04a; }
+  .pm .tile .v { font-size: 19px; font-weight: 500; }
+  .pm .tile .x { font-size: 11px; color: #a3b0b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pm table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+  .pm th { color: #786e3b; font-weight: 500; letter-spacing: 1.3px; font-size: 9.5px; text-align: right; padding: 3px 5px; }
+  .pm th:first-child, .pm td:first-child { text-align: left; }
+  .pm td { padding: 3px 5px; text-align: right; border-top: 1px solid rgba(13,89,92,.45); font-variant-numeric: tabular-nums; }
+  .pm .tag { color: #a89a5c; margin-right: 3px; }
+  .pm .md { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
+  .pm .mvp td { background: rgba(220,184,92,.10); }
+  .pm .foot { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #786e3b; margin-top: 12px; display: flex; justify-content: space-between; }
+  .note { max-width: 800px; margin: 6px auto 0; font-size: 12px; opacity: .75; }
+</style>
+
+<h2>The bigger post-match card</h2>
+<p class="subtitle">About 1200 × 1150 when posted. Your map shot is the band across the top. Columns in <span style="color:#c96b4a">red</span> need the new tracking (assists, damage). Made-up data.</p>
+
+<div class="pm">
+  <div class="band">
+    <div class="bgtag">YOUR FROSTFIRE SHOT · FULL WIDTH</div>
+    <div class="top"><div class="emb">//</div><div class="brand">SOCOM Legacy</div><span class="when">NOV 8 · 9:41 PM ET · 31 MIN · US CENTRAL</span><div class="badge">MATCH RESULT</div></div>
+    <div class="title">
+      <div><div class="map">FROSTFIRE</div><div class="mode">DEMOLITION · RANKED · 12 PLAYERS</div></div>
+      <div class="score"><div class="w">SEALS WIN</div><div class="n"><span class="gold">4</span> <span class="mut">–</span> <span class="teal">2</span></div></div>
+    </div>
+  </div>
+  <div class="body">
+    <div style="display:flex; gap:28px; align-items:center; font-size:11px; letter-spacing:2px">
+      <div><span class="gold">SEALS</span> &nbsp;<span style="color:#dcb85c; font-size:16px; letter-spacing:4px">●●●●</span></div>
+      <div><span class="teal">TERRORISTS</span> &nbsp;<span style="color:#8fc3c7; font-size:16px; letter-spacing:4px">●●</span></div>
+      <span class="mut" style="margin-left:auto; letter-spacing:1px">ROUNDS WON</span>
+    </div>
+    <div class="tiles">
+      <div class="tile" style="border-color:#dcb85c"><div class="k">MVP · SCORE</div><div class="v">42</div><div class="x">[NSW] Ghostline</div></div>
+      <div class="tile"><div class="k">TOP FRAGGER</div><div class="v">14</div><div class="x">Ghostline</div></div>
+      <div class="tile"><div class="k">SHARPSHOOTER</div><div class="v">38% HS</div><div class="x">Cinder</div></div>
+      <div class="tile"><div class="k new">MOST ASSISTS</div><div class="v">6</div><div class="x">Dragnet</div></div>
+      <div class="tile"><div class="k">FIRST BLOOD</div><div class="v">3×</div><div class="x">Kestrel</div></div>
+      <div class="tile"><div class="k">BEST ROUND</div><div class="v">3K</div><div class="x">Mako · R4</div></div>
+    </div>
+    <table>
+      <tr><th style="color:#dcb85c">SEALS · WIN</th><th>SCORE</th><th>K</th><th>D</th><th class="new">A</th><th>K/D</th><th>HS%</th><th>ACC</th><th class="new">DMG</th><th>OBJ</th><th>TOP WEAPON</th></tr>
+      <tr class="mvp"><td><span class="md" style="background:#222;border:1px solid #666"></span><span class="tag">[NSW]</span>Ghostline ★</td><td>42</td><td>14</td><td>5</td><td>2</td><td>2.80</td><td>43</td><td>31</td><td>1840</td><td>2</td><td>M4A1</td></tr>
+      <tr><td><span class="md" style="background:#c9a23c"></span><span class="tag">[NSW]</span>Kestrel</td><td>33</td><td>11</td><td>6</td><td>3</td><td>1.83</td><td>27</td><td>28</td><td>1510</td><td>1</td><td>M4A1</td></tr>
+      <tr><td><span class="md" style="background:#9aa3a8"></span>Dragnet</td><td>27</td><td>9</td><td>7</td><td>6</td><td>1.29</td><td>33</td><td>24</td><td>1490</td><td>0</td><td>M63A</td></tr>
+      <tr><td><span class="md" style="background:#9a6a3c"></span>Harrow</td><td>24</td><td>7</td><td>8</td><td>2</td><td>0.88</td><td>14</td><td>22</td><td>1020</td><td>1</td><td>SR-25</td></tr>
+      <tr><td><span class="md" style="background:#3c6a9a"></span>Vandal</td><td>15</td><td>5</td><td>9</td><td>1</td><td>0.56</td><td>20</td><td>19</td><td>760</td><td>0</td><td>M4A1</td></tr>
+      <tr><td><span class="md" style="border:1px solid #4b5f61"></span>Sixgun</td><td>12</td><td>4</td><td>8</td><td>4</td><td>0.50</td><td>0</td><td>17</td><td>890</td><td>0</td><td>M67</td></tr>
+    </table>
+    <table>
+      <tr><th style="color:#8fc3c7">TERRORISTS</th><th>SCORE</th><th>K</th><th>D</th><th class="new">A</th><th>K/D</th><th>HS%</th><th>ACC</th><th class="new">DMG</th><th>OBJ</th><th>TOP WEAPON</th></tr>
+      <tr><td><span class="md" style="background:#c9a23c"></span><span class="tag">[RZR]</span>Cinder</td><td>38</td><td>13</td><td>8</td><td>1</td><td>1.63</td><td>38</td><td>29</td><td>1700</td><td>1</td><td>AK-47</td></tr>
+      <tr><td><span class="md" style="background:#9aa3a8"></span><span class="tag">[RZR]</span>Mako</td><td>30</td><td>10</td><td>9</td><td>4</td><td>1.11</td><td>30</td><td>26</td><td>1560</td><td>0</td><td>AK-47</td></tr>
+      <tr><td><span class="md" style="background:#9aa3a8"></span>Wraith</td><td>26</td><td>8</td><td>9</td><td>3</td><td>0.89</td><td>25</td><td>21</td><td>1180</td><td>1</td><td>M63A</td></tr>
+      <tr><td><span class="md" style="background:#9a6a3c"></span>Hollis</td><td>19</td><td>6</td><td>10</td><td>2</td><td>0.60</td><td>17</td><td>20</td><td>930</td><td>0</td><td>AK-47</td></tr>
+      <tr><td><span class="md" style="background:#3c6a9a"></span>Quarry</td><td>13</td><td>4</td><td>9</td><td>3</td><td>0.44</td><td>25</td><td>18</td><td>800</td><td>0</td><td>M67</td></tr>
+      <tr><td><span class="md" style="border:1px solid #4b5f61"></span>Static</td><td>7</td><td>2</td><td>8</td><td>1</td><td>0.25</td><td>0</td><td>12</td><td>410</td><td>0</td><td>9mm</td></tr>
+    </table>
+  </div>
+</div>
+<div style="width:800px; margin:6px auto 0; font-family:'gg sans','Noto Sans',sans-serif; font-size:14px; color:#dbdee1; background:#313338; padding:8px 12px;">
+  <a style="color:#00a8fc; text-decoration:none">▶ Frostfire · Seals win 4–2 · full stats and replay</a> <span style="color:#949ba4; font-size:12px">← the message text under the image, linking to /match/k3Tq9</span>
+</div>
+<p class="note">Without the new tracking, the red columns and "MOST ASSISTS" drop out and the card still works. A full 8 v 8 makes it about 1300 tall; Discord shows tall images fine, and clicking opens it full size.</p>
+
+</body>

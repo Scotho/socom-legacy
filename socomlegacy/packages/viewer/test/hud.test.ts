@@ -9,7 +9,9 @@ import {
   actionCaptionOf, MAP_ACTION_CAPTION_READING, VICTORY_CAPTION_READING, DEFAULT_MODEL, DEFAULT_ROUND, FIRE_MODE_ROUNDS, HUD_LAYOUT, Hud, ammoLines, hudLayout, roundStartAt, timerText, capLines, messageAlpha,
   compassMarks, DEFUSE_TIMER_LAYOUT_READING, EXTRACT_CAPTION_READING, gameCaption, HOLD_BAR_FADE, HUD_COLOURS, hudPass,
   BASE_MARK_TYPE_RGB_READING, OBJECTIVE_MARK_RGB_READING, OBJECTIVE_POST_OFFSET_READING, SPAWN_FADE, STANCE_FADE, type HudModel, type RoundInfo,
+  INFO_CLIENT_COUNT_READING, INFO_SESSION_MASTER_READING, infoNumberText, validClientCount,
 } from '../src/hud';
+import * as hudModule from '../src/hud';
 import {
   helpAlpha, infoBoxName, SCOREBOARD_HIDES, SPECTATOR_HELP, SPECTATOR_HIDES, SPECTATOR_INFO_LAYOUT, spectatorHudView, spectatorInfoText, taggedName,
   TEAMMATE_HIDES,
@@ -25,8 +27,8 @@ import { FONT_TEXT_01, layoutText, PEN_NUDGE, textWidth } from '../src/hudFont';
 import {
   GS_SAMPLE_OFFSET, MP_TEAM_TAG_COLOUR_READING, ROUND_SCREEN_HIDES, TEAM_TAG_LAYOUT, teamTagLayout, type HudQuad, type HudTri,
 } from '../src/hud';
-import { TEAMMATE_NAME_DISTANCE_ADAPTATION, TEAMMATE_NAMES_ORIGINAL_VALUE, type TeamTagsView } from '../src/hudTags';
-import { CONTROLS, type ChoiceControl } from '../src/modern/settings/model';
+import { TEAMMATE_NAME_DISTANCE_ADAPTATION, type TeamTagsView } from '../src/hudTags';
+import { CONTROLS } from '../src/modern/settings/model';
 import { MESSAGE_WRAP_WIDTH, messageMeasureScale, wrapMessageLine } from '../src/hudMessagePanel';
 import { eliminationLines } from '../src/net/rules';
 import { integerFit, UI_SAMPLING_DEFAULTS, type UiSamplingSettings } from '../src/experimentalUiSampling';
@@ -147,13 +149,13 @@ describe('the compass', () => {
 });
 
 describe('the info box, the stance word, the prompt and the banner', () => {
-  it('the health bar is (488, 396) 134x18, green (0, 128, 64) at alpha 80; the timer and range on 433', () => {
-    const { rects, quads } = hudLayout(PS2, model({ range: 2 }), SIZES);
+  it('the health bar is (488, 396) 134x18, green (0, 128, 64) at alpha 80; the timer and the console count on 433', () => {
+    const { rects, quads } = hudLayout(PS2, model({ infoNumber: { count: 2, master: false } }), SIZES);
     expect(rects.bar).toEqual({ x: 488, y: 396, width: 134, height: 18 });
     expect(quads.find((q) => q.element === 'bar')!.rgba).toEqual([0, 128 / 255, 64 / 255, 80 / 128]);
     expect(rects.timer).toBeDefined();
     expect(rects.range).toBeDefined();
-    expect(hudLayout(PS2, model({ range: null }), SIZES).rects.range).toBeUndefined();
+    expect(hudLayout(PS2, model({ infoNumber: null }), SIZES).rects.range).toBeUndefined();
   });
 
   it('the stance word is right-aligned to x 480 and only while its alpha lasts', () => {
@@ -252,6 +254,103 @@ describe('the round start', () => {
     };
     expect(baselines(3)).toEqual([94]);
     expect(baselines(6.5).sort((a, b) => a - b)).toEqual([61.5, 76.5, 91.5]);
+  });
+});
+
+// HUD-ALIVE B (simulation track; research 87 §1.12, corrected): the number at (587, 433) is the connected consoles' count,
+// not a range. The HUD's tick writes it online each frame -- "%d" (0x3e3080), or "%dm" (0x3e3078) on the session master
+// (`DAT_0045a0c0`) -- of `FUN_0030d510(0x45a0c0)` (`FUN_001f7ff0` D:L56605-56613); `CHUD`'s init places it at scale 0.9
+// and hides it offline (`FUN_001fa360` D:L57455-57471). The archived frames: "2m" on the host, "2" on the client.
+describe('the info box\'s number: the connected consoles, "%d" or "%dm" on the session master (FUN_001f7ff0 D:L56605-56613)', () => {
+  const glyphQuads = (m: Partial<HudModel>) => hudLayout(PS2, model(m), SIZES).quads.filter((q) => q.element === 'range');
+
+  it('infoNumberText: "2m" for the session master, "2" for a client, nothing without a room (offline: hidden, D:L57455-57456)', () => {
+    expect(infoNumberText(model({ infoNumber: { count: 2, master: true } }))).toBe('2m');
+    expect(infoNumberText(model({ infoNumber: { count: 2, master: false } }))).toBe('2');
+    expect(infoNumberText(model({ infoNumber: null }))).toBeNull();
+    expect(DEFAULT_MODEL.infoNumber).toBeNull();
+  });
+
+  it('drawn at (587, 433), scale 0.9, from the count -- not from the range', () => {
+    expect(HUD_LAYOUT.info.range).toEqual({ x: 587, y: 433, scale: 0.9 });
+    expect(glyphQuads({ infoNumber: { count: 2, master: true } })).toHaveLength(4);    // "2m": two glyphs, each a shadow and a face
+    expect(glyphQuads({ infoNumber: { count: 2, master: false } })).toHaveLength(2);   // "2"
+    expect(glyphQuads({ range: 37.4 })).toEqual([]);                                   // a range and no count: nothing here
+    expect(glyphQuads({ range: 37.4, infoNumber: { count: 3, master: false } })).toEqual(glyphQuads({ infoNumber: { count: 3, master: false } }));
+    const first = glyphQuads({ infoNumber: { count: 2, master: true } })[0]!;
+    expect(first.x - first.w / 2).toBeGreaterThanOrEqual(587);
+  });
+
+  it('validClientCount (INFO_CLIENT_COUNT_READING): the human seats and the spectators -- bots are no consoles', () => {
+    const row = (id: number, bot = false) => ({ id, team: 'seal' as const, ...(bot ? { bot: true as const } : {}) });
+    expect(validClientCount([row(1), row(2), row(3, true)], 1)).toBe(3);
+    expect(validClientCount([], 0)).toBe(0);
+    expect(INFO_CLIENT_COUNT_READING).toMatch(/spectator/);
+    expect(INFO_SESSION_MASTER_READING).toMatch(/host/);
+  });
+
+  // The review's F3 (research 282 §6, the placeholder retired): `FUN_001f7ff0` writes the number online each frame with no
+  // test of the seat (D:L56605-56613); the hide-all hides it offline only (D:L56320-56324); the SPECTATOR HUD option shows
+  // it each frame (D:L56803-56806), the board or the option off hides it (D:L56826). So every seat viewing another sees it.
+  it('a spectator, a dead player watching a teammate and a dead own body draw the count too; the board still hides it', () => {
+    const count = { count: 3, master: false };
+    const views: HudSpectatorView[] = [
+      { path: 'spectator', followed: { name: 'BRAVO', health: 0.5 }, stats: null },
+      { path: 'spectator', followed: null, stats: null },
+      { path: 'teammate', followed: { name: 'CHARLIE', health: 1 }, stats: null },
+      { path: 'own', followed: null, stats: null },
+    ];
+    for (const spectator of views) {
+      expect(glyphQuads({ spectator, infoNumber: count }), spectator.path).toHaveLength(2);
+      expect(hudPass(PS2, model({ spectator, infoNumber: count, scoreboard: true }), SIZES, AT_REST, false, null, 'ps2').quads.some((q) => q.element === 'range'), spectator.path).toBe(false);
+    }
+    expect('SPECTATOR_INFO_NUMBER_PLACEHOLDER' in hudModule).toBe(false);
+  });
+
+  it('a seat viewing another keeps the count with the range readout on: the readout is the walker\'s', () => {
+    const spectator: HudSpectatorView = { path: 'spectator', followed: null, stats: null };
+    expect(infoNumberText(model({ spectator, infoNumber: { count: 3, master: true }, range: 12, rangeReadout: true }))).toBe('3m');
+    expect(infoNumberText(model({ infoNumber: { count: 3, master: true }, range: 12, rangeReadout: true }))).toBe('12m');
+  });
+
+  it('Hud.setInfoNumber keeps the count and the master flag; null clears it', () => {
+    const hud = new Hud();
+    hud.setInfoNumber(4, true);
+    expect(hud.state().model.infoNumber).toEqual({ count: 4, master: true });
+    hud.setInfoNumber(null, false);
+    expect(hud.state().model.infoNumber).toBeNull();
+  });
+
+  it('both pages feed it from the room: the score rows and the spectators, the session master from the game lobby', () => {
+    for (const f of ['main.ts', 'matchMount.ts']) {
+      const text = readFileSync(resolve(import.meta.dirname, '../src', f), 'utf8');
+      expect(text, f).toMatch(/hud\.setInfoNumber\(page \? validClientCount\(page\.rows, hud\.spectatorCount\(\)\) : null, page\?\.client\.sessionMaster === true\)/);
+    }
+  });
+});
+
+// HUD-ALIVE C (OT.R117; a browser adaptation, `../src/rangeReadout`): this browser's range readout, off by default; on, the
+// range finder's "<n>m" takes the info box's spot in the consoles' count's place. The scope's RANGE(m) line is untouched.
+describe('HUD-ALIVE C: the range readout on takes the count\'s spot (a browser adaptation, off by default)', () => {
+  const at = (m: Partial<HudModel>) => hudLayout(PS2, model(m), SIZES).quads.filter((q) => q.element === 'range');
+  it('off (the default): the count; on: "<n>m" from the range, none with no range', () => {
+    const count = { count: 2, master: false };
+    expect(DEFAULT_MODEL.rangeReadout ?? false).toBe(false);
+    expect(infoNumberText(model({ infoNumber: count, range: 37.4 }))).toBe('2');
+    expect(infoNumberText(model({ infoNumber: count, range: 37.4, rangeReadout: true }))).toBe('37m');
+    expect(infoNumberText(model({ infoNumber: count, range: null, rangeReadout: true }))).toBeNull();
+    expect(at({ infoNumber: count, range: 37.4, rangeReadout: true })).toHaveLength(6);   // "37m"
+    expect(at({ infoNumber: count, range: 37.4 })).toHaveLength(2);                       // "2"
+  });
+
+  it('Hud.setRangeReadout keeps the switch; the scope\'s RANGE(m) is the same either way', () => {
+    const hud = new Hud();
+    hud.setRangeReadout(true);
+    expect(hud.state().model.rangeReadout).toBe(true);
+    hud.setRangeReadout(false);
+    expect(hud.state().model.rangeReadout).toBe(false);
+    const scope = (on: boolean) => hudLayout(PS2, model({ zoom: 3, range: 37.4, rangeReadout: on }), SIZES).quads.filter((q) => q.element === 'scopeRange');
+    expect(scope(true)).toEqual(scope(false));
   });
 });
 
@@ -885,14 +984,14 @@ describe("the spectator's HUD (PAR-48, issue #138; research 282, 276 s7)", () =>
   const FOLLOW: HudSpectatorView = { followed: { name: 'BRAVO', health: 0.5 }, stats: { kills: 3, deaths: 1, headshots: null, score: 7 } };
   const FREE: HudSpectatorView = { followed: null, stats: null };
   const busy = (spectator: HudSpectatorView | null, over: Partial<HudModel> = {}): HudModel =>
-    model({ spectator, action: 'climb', range: 12, zoom: 1, position: [0, 0], navPoints: [{ name: 'Charlie', x: 0, z: -10 }], ...over });
+    model({ spectator, action: 'climb', range: 12, infoNumber: { count: 2, master: true }, zoom: 1, position: [0, 0], navPoints: [{ name: 'Charlie', x: 0, z: -10 }], ...over });
   const elements = (quads: { element: string }[]): Set<string> => new Set(quads.map((q) => q.element));
   const settled = { ...AT_REST, stance: 1, help: 1 };
 
-  it("FUN_001f9160: draws the timer, the followed body's bar and name, the panel and the help lines; hides the weapon box, the compass and its marks, the prompt, the stance word and the number (the hide-all FUN_001f77c0 D:L56312-56361; D:L56875-56879)", () => {
+  it("FUN_001f9160: draws the timer, the followed body's bar and name, the panel, the help lines and the number; hides the weapon box, the compass and its marks, the prompt and the stance word (the hide-all FUN_001f77c0 D:L56312-56361; D:L56875-56879)", () => {
     const drawn = elements(hudLayout(PS2, busy(FOLLOW), SPEC_SIZES, settled).quads);
-    for (const e of ['timer', 'box', 'bar', 'name', 'spectatorInfo', 'help']) expect(drawn.has(e), e).toBe(true);
-    for (const e of ['panel', 'rounds', 'mags', 'icon', 'firemode', 'compass', 'marks', 'action', 'stance', 'range', 'zoom', 'scopeRange']) {
+    for (const e of ['timer', 'box', 'bar', 'name', 'spectatorInfo', 'help', 'range']) expect(drawn.has(e), e).toBe(true);   // HUD-ALIVE F3: the number (D:L56605-56613)
+    for (const e of ['panel', 'rounds', 'mags', 'icon', 'firemode', 'compass', 'marks', 'action', 'stance', 'zoom', 'scopeRange']) {
       expect(drawn.has(e), e).toBe(false);
       expect(SPECTATOR_HIDES.has(e as never), e).toBe(true);
     }
@@ -999,7 +1098,7 @@ describe("the spectator's HUD (PAR-48, issue #138; research 282, 276 s7)", () =>
 
   it("the walker's scoreboard hides the info box and the number too (D:L56811, D:L56826)", () => {
     for (const e of ['bar', 'name', 'box', 'range', 'timer', 'spectatorInfo', 'help']) expect(SCOREBOARD_HIDES.has(e as never), e).toBe(true);
-    const drawn = elements(hudPass(PS2, model({ scoreboard: true, name: 'SEAL', range: 40, health: 0.5 }), SPEC_SIZES, AT_REST, false, null, 'ps2').quads);
+    const drawn = elements(hudPass(PS2, model({ scoreboard: true, name: 'SEAL', range: 40, infoNumber: { count: 2, master: true }, health: 0.5 }), SPEC_SIZES, AT_REST, false, null, 'ps2').quads);
     expect(drawn.has('scoreboard')).toBe(true);
     for (const e of ['bar', 'name', 'box', 'range']) expect(drawn.has(e), e).toBe(false);
   });
@@ -1188,7 +1287,7 @@ describe("the spectator's HUD (PAR-48, issue #138; research 282, 276 s7)", () =>
 describe("LATER 118: a dead player's help lines (FUN_001f97b0, FUN_001f9f20)", () => {
   const SIZES_118 = { ...SIZES, 'font_special_01.tif': { width: 256, height: 64 }, 'ret_nav_01.tif': { width: 16, height: 16 } };
   const busy = (spectator: HudSpectatorView | null, over: Partial<HudModel> = {}): HudModel =>
-    model({ spectator, action: 'climb', range: 12, zoom: 1, position: [0, 0], navPoints: [{ name: 'Charlie', x: 0, z: -10 }], ...over });
+    model({ spectator, action: 'climb', range: 12, infoNumber: { count: 2, master: true }, zoom: 1, position: [0, 0], navPoints: [{ name: 'Charlie', x: 0, z: -10 }], ...over });
   const elements = (quads: { element: string }[]): Set<string> => new Set(quads.map((q) => q.element));
   const settled = { ...AT_REST, stance: 1, help: 1 };
   const source = (s: Partial<SpectatorHudSource['spectator']>, ghost = false): SpectatorHudSource => ({
@@ -1815,12 +1914,9 @@ describe('NU-9 (c) T3: the HUD draws the over-head tags (research 329 §5 T3)', 
     expect([hud.teammateNamesOn(), hud.teammateNamesOriginal()]).toEqual([false, false]);
   });
 
-  it('LATER 671: OPTIONS > TEAMMATE NAMES offers Off, On (the adaptation) and Original over DISPLAY_MP_TEAM_NAMES 0, 1, 2', () => {
+  it("SS-2 (H422 answered (a)): OPTIONS > TEAMMATE NAMES is the original's Off / On over DISPLAY_MP_TEAM_NAMES 0 / 1 -- the look is the browser's", () => {
     const row = CONTROLS.find((c) => c.id === 'DISPLAY_MP_TEAM_NAMES');
-    expect(row).toMatchObject({ kind: 'choice', valve: 'DISPLAY_MP_TEAM_NAMES', group: 'display', label: 'Teammate names' });
-    expect((row as ChoiceControl).options).toEqual([
-      { value: 0, label: 'Off' }, { value: 1, label: 'On' }, { value: TEAMMATE_NAMES_ORIGINAL_VALUE, label: 'Original' },
-    ]);
+    expect(row).toMatchObject({ kind: 'switch', valve: 'DISPLAY_MP_TEAM_NAMES', group: 'display', label: 'Teammate names', boxes: { off: 'TeamMateNameOff', on: 'TeamMateNameOn' } });
   });
 });
 
@@ -1913,18 +2009,19 @@ describe('LkPaioX5 (a): the action list beside the prompt', () => {
     hud.setNearbyAction([{ prompt: 'c4' }, { prompt: 'door' }, { prompt: 'lever' }]);   // a record more: rebuilt
     expect(hud.timing().actionAlpha).toEqual([28 / 128, 19 / 128, 19 / 128]);
   });
-  // Review fold F2: the sides are the list turned to the head the HUD shows. A bomb carrier at a site with a ledge in
-  // reach: the list [bomb, climb], the climb feed's head `climb` -- the bomb beside it, the climb never twice, and the
-  // head ramping to its own cap (90), not a side's (28).
+  // Review fold F2: the sides are the list turned to the head the HUD shows. LATER 636: with the picker's list fed, its
+  // head is the head (`FUN_0021f210` D:L73945 draws the head `FUN_0021d9d0` D:L73401 fires) -- a bomb carrier at a site
+  // with a ledge in reach, the list [bomb, climb]: the bomb the head, the climb beside it, never twice, the head ramping
+  // to its own cap (90), not a side's (28). Was: the climb feed's `climb` took the head over the list's.
   it('Hud: the sides follow the head shown -- the list turned to it, none twice; a head not in the list has none', () => {
     const hud = new Hud();
     hud.setNearbyAction([{ prompt: 'bomb' }, { prompt: 'climb' }]);
     hud.setClimbPrompt({ visible: true, kind: 'low' });
-    expect(hud.state().model).toMatchObject({ action: 'climb', actionSides: [{ prompt: 'bomb', colour: 'green' }] });
+    expect(hud.state().model).toMatchObject({ action: 'bomb', actionSides: [{ prompt: 'climb', colour: 'green' }] });
     hud.step(4 * GAME_FRAME_DT);
     expect(hud.timing().actionAlpha).toEqual([90 / 128, 28 / 128]);
     hud.setNearbyAction([{ prompt: 'door' }, { prompt: 'c4' }, { prompt: 'bomb_drop' }]);   // the climb not in the list
-    expect(hud.state().model).toMatchObject({ action: 'climb', actionSides: [] });
+    expect(hud.state().model).toMatchObject({ action: 'door' });
     hud.setClimbPrompt(null);
     hud.setAction('c4');                                                                   // a caller's head in the list
     expect(hud.state().model.actionSides).toEqual([{ prompt: 'bomb_drop', colour: 'green' }, { prompt: 'door', colour: 'green' }]);

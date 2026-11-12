@@ -34,12 +34,14 @@ import {
  * `uiCompositorView.ts`): its vertices on the target's grid (x, y times the scale), its signed area, its integer box
  * `ceil(min) .. ceil(max)` clipped to the frame (M2), its texture (the HD pick, `pickBitmap`) and the `ALPHA_1` it is
  * drawn under. A zero-area triangle, a culled back face and a missing bitmap are not drawn and bind nothing (M1,
- * `UI_MESH_BIND_READING`); a drawn one binds. The per-pixel rules -- inclusive edges at the integer point (M2,
- * `UI_MODEL_EDGE_RULE_READING`), the strict-greater f32 depth (M3), the perspective-correct texel and colour (M4,
+ * `UI_MESH_BIND_READING`); a drawn one binds. The per-pixel rules -- the GS's top-left edges at the integer point (M2,
+ * `UI_MODEL_EDGE_RULE_READING`), the f32 depth tested GEQUAL against the f32 store (M3; both in the GPU's f32
+ * arithmetic, `modelEdgeF32`, `modelDepthF32`; GM-15d), the perspective-correct texel and colour (M4,
  * `UI_MODEL_GOURAUD_READING`), `sample`'s lerp at `(u W, (1 - v) H)` (M5, `UI_MODEL_TEXTURE_ROWS_READING`), no write at
  * `al <= 0` (M6, `UI_MODEL_ZWRITE_READING`), the frame alpha untouched (M7) -- are the drawer's, run from these numbers.
  * A triangle the fixed-function blend cannot take (`triangleRoute`), a vertex not finite, or one at `invW <= 0` (the
- * GPU's depth cleared to 0 rejects what the software's "0 = empty" draws) gives the verdict `software`, named (GM.R10:
+ * GPU clamps a negative `gl_FragDepth` to 0, which passes GEQUAL over the clear, where the software's negative depth
+ * fails it) gives the verdict `software`, named (GM.R10:
  * the first L1 until GM-26). GM-15a: every other pass is drawn on the GPU (`model-ff-src`, `model-ff-add`), its depth
  * `invW` times the pass's `depthScale` (`passDepthScale`). GM-15b adds two refusals, both `software`, named, where a
  * GPU's numbers leave the range the shader's arithmetic is defined in: a pass whose depth leaves f32's normal range
@@ -204,12 +206,12 @@ export function passDepthScale(triangles: readonly UiPlanTriangle[], pass: reado
  * itself at least f32's smallest normal, 2^-126. Not a game value and no adaptation: the edge of the range in which the
  * GPU's f32 arithmetic is the twin's. Below it the pass's frame is the software's (L1, the reference's bytes), named.
  *
- * Why: the software's depth is a `Float32Array` (`drawModels`, `uiCompositorView.ts`:411), tested `depth[i] > 0 &&
- * invW <= depth[i]` (:437) and written `depth[i] = invW` (:450). A positive `invW` whose f32 is 0 is drawn and leaves
- * the pixel "empty", so a farther triangle draws over it; a subnormal one is stored, so a farther triangle fails. The
- * GPU clears its depth to 0 and tests `GREATER`: a fragment at depth 0 is never drawn, and ESSL 3.00 section 4.5.1 lets
- * highp arithmetic (and the depth buffer) flush a subnormal to 0 -- either way the GPU's bytes would not be the
- * software's. The margin above 2^-126 covers T4's three products, each of which may be flushed when it alone is
+ * Why: the software's depth is a `Float32Array` (`drawModels`, `uiCompositorView.ts`), its f32 depth `z`
+ * (`modelDepthF32`) tested `z < depth[i]` to skip (GEQUAL, GM-15d) and written `depth[i] = z`. A positive `invW` whose
+ * f32 is 0 is drawn at depth 0, so a farther triangle draws over it (0 >= 0); a subnormal one is stored, so a farther
+ * triangle under it fails. The GPU clears its depth to 0 and tests `GEQUAL` too, but ESSL 3.00 section 4.5.1 lets highp
+ * arithmetic (and the depth buffer) flush a subnormal to 0, after which a farther triangle passes where the software's
+ * fails -- the GPU's bytes would not be the software's. The margin above 2^-126 covers T4's three products, each of which may be flushed when it alone is
  * subnormal: their loss, under 3 x 2^-126, is below an ulp of any depth at or above 2^-100.
  */
 export const UI_GPU_MODEL_DEPTH_FLOOR = 2 ** -100;
@@ -351,9 +353,20 @@ function encodeColour(rgba: readonly number[]): Pick<UiPlanQuad, 'colour' | 'cod
 
 const overlaps = (a: UiPlanRect, b: UiPlanRect): boolean => a.xs < b.xe && b.xs < a.xe && a.ys < b.ye && b.ys < a.ye;
 
-/** A growable f64 table. */
+/**
+ * The f64 table's first size: the last plan's table length (GM-29), so a frame like the last one allocates its table once
+ * and never grows it; at least 1024 entries. A module-level hint, not a cache: no value of a plan carries over.
+ */
+let axisSizeHint = 1024;
+
+/**
+ * A growable f64 table. GM-29 (the T4 profile, `agent-mail/evidence/gpu-menus/gm-f1-t4p/PROFILE.md`: `reserve` and `done`
+ * 126 ms over the cold switch's 2x window): it starts at the last plan's size and `done` hands out a view of its own
+ * array -- each plan has its own table, written by nobody after -- where it doubled from 1024 and copied it out every
+ * frame. The values, their order and the table's length are unchanged.
+ */
 class AxisTable {
-  data = new Float64Array(1024);
+  data = new Float64Array(axisSizeHint);
   length = 0;
   reserve(n: number): number {
     if (this.length + n > this.data.length) {
@@ -363,7 +376,78 @@ class AxisTable {
     }
     const at = this.length; this.length += n; return at;
   }
-  done(): Float64Array { return this.data.slice(0, this.length); }
+  done(): Float64Array {
+    axisSizeHint = Math.max(1024, this.length);
+    return this.length === this.data.length ? this.data : this.data.subarray(0, this.length);
+  }
+}
+
+/**
+ * GM-32 (the T4 profile at `82ef1260f`: `addQuad` 221.2 ms self, `rowAxis` 31.5, `wrapIndex` 19.5, `columnAxis` 17.0 over
+ * the 4x cold switch; a Node microbench puts the axis build at most of `planFrame`): a quad's column entries (or its row
+ * entries), kept from one plan to the next and handed out again where **every input that decides them is the same, bit
+ * for bit** -- columns: `xs`, `xe`, `x0`, `dx`, `u0`, `du` and the texture's width; rows: `ys`, `ye`, `y0`, `dy`, `v0`,
+ * `dv`, the texture's height and width. The entries are a function of those numbers alone (`columnAxis` and `rowAxis` are
+ * pure, `nearest` is always false here), so a kept run is the run the planner would write: the table's values, order and
+ * length are unchanged (`test/uiFramePlanStable.test.ts` pins every GM-03 plan's axis bytes). A cost, not a rule.
+ *
+ * Two generations: what this plan and the plan before it used; a plan's start drops the older one. So it holds at most two
+ * plans' tables (about 1.7 MB of f64 each for a 4x dlgOptions_Menu frame) and a dialog's frames -- a fade, the roller --
+ * find the quads that did not move. Each kept run is its own copy, never a view of a plan's table.
+ */
+class AxisMemo {
+  private cur = new Map<number, { key: Uint32Array; run: Float64Array }[]>();
+  private prev = new Map<number, { key: Uint32Array; run: Float64Array }[]>();
+  private readonly f = new Float64Array(9);
+  private readonly u = new Uint32Array(this.f.buffer);
+  private h = 0;
+  hits = 0;
+  misses = 0;
+  /** The runs held now, both generations (a run filed in both counted once a generation). */
+  get runs(): number { let n = 0; for (const g of [this.cur, this.prev]) for (const l of g.values()) n += l.length; return n; }
+  /** A plan starts: the plan before it becomes the older generation. */
+  begin(): void { this.prev = this.cur; this.cur = new Map(); }
+  /** The run kept for these nine numbers (a column: its seven, 0, 0; a row: its eight, 1), or null; `keep` files the run made then. */
+  find(a: number, b: number, c: number, d: number, e: number, g: number, w: number, x: number, y: number): Float64Array | null {
+    const f = this.f, u = this.u;
+    f[0] = a; f[1] = b; f[2] = c; f[3] = d; f[4] = e; f[5] = g; f[6] = w; f[7] = x; f[8] = y;
+    let h = 0x811c9dc5 | 0;
+    for (let i = 0; i < 18; i++) { h = Math.imul(h ^ u[i]!, 0x01000193); h ^= h >>> 15; }
+    this.h = h;
+    const got = this.match(this.cur.get(h));
+    if (got) { this.hits++; return got.run; }
+    const old = this.match(this.prev.get(h));
+    if (old) { this.file(old); this.hits++; return old.run; }
+    this.misses++;
+    return null;
+  }
+  /** The run just made for the numbers `find` was last given (a copy: the plan's table is the plan's). */
+  keep(run: Float64Array): void { this.file({ key: this.u.slice(), run }); }
+  private match(list: { key: Uint32Array; run: Float64Array }[] | undefined): { key: Uint32Array; run: Float64Array } | null {
+    if (!list) return null;
+    const u = this.u;
+    outer: for (const e of list) {
+      for (let i = 0; i < 18; i++) if (e.key[i] !== u[i]) continue outer;
+      return e;
+    }
+    return null;
+  }
+  private file(e: { key: Uint32Array; run: Float64Array }): void {
+    const list = this.cur.get(this.h);
+    if (list) { if (!list.includes(e)) list.push(e); } else this.cur.set(this.h, [e]);
+  }
+}
+const axisMemo = new AxisMemo();
+
+/**
+ * GM-32 review F2: lets the planner's kept axis runs go (both generations), so they are not held while the front end's GPU
+ * surface is released (a match) or after the page stops. The next plan is planned cold: the same bytes, computed.
+ */
+export function releaseUiFramePlanMemo(): void { axisMemo.begin(); axisMemo.begin(); }
+
+/** GM-32: the axis memo's hits and misses since the module loaded, and the runs it holds now (a test's and the microbench's count). */
+export function uiFramePlanAxisMemoCounts(): { hits: number; misses: number; runs: number } {
+  return { hits: axisMemo.hits, misses: axisMemo.misses, runs: axisMemo.runs };
 }
 
 /** Two 32-bit lanes (FNV-1a and a Murmur-style multiply), finished by Murmur3's fmix: a dirty check, not a signature. */
@@ -378,7 +462,7 @@ class PlanHasher {
   }
   num(v: number): void { this.f[0] = v; this.word(this.u[0]!); this.word(this.u[1]!); }
   str(s: string): void { this.word(s.length); for (let i = 0; i < s.length; i++) this.word(s.charCodeAt(i)); }
-  nums(v: readonly number[]): void { for (const x of v) this.num(x); }
+  nums(v: readonly number[]): void { for (let i = 0; i < v.length; i++) this.num(v[i]!); }
   hex(): string {
     const fmix = (h: number): number => {
       h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return h >>> 0;
@@ -404,6 +488,7 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
   const byBitmap = new Map<UiBitmap, number>();
   const undrawn: string[] = [];
   const axis = new AxisTable();
+  axisMemo.begin();
   let left = new Float64Array(0), right = new Float64Array(0), fraction = new Float64Array(0);
   let volatile = false;
   let reg: UiBlend = GS_ALPHA_FRAME_START_READING;
@@ -427,10 +512,11 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
     tex: number | null, uv: [number, number, number, number] | null, rgba: readonly number[], blend: UiBlend): void => {
     const b = coverageBounds(x0, y0, x1, y1, W, H, clip);
     if (!b) return;
-    if (![b.xs, b.ys, b.xe, b.ye].every(Number.isInteger)) {
+    // GM-29: the four tests written out (the same tests in the same order; no array per quad).
+    if (!(Number.isInteger(b.xs) && Number.isInteger(b.ys) && Number.isInteger(b.xe) && Number.isInteger(b.ye))) {
       // A NaN corner covers nothing in the software (its loops never run); a clip off the pixel grid covers fractional
       // positions the GPU's integer rectangles cannot: the reference draws that frame.
-      if ([b.xs, b.ys, b.xe, b.ye].some(Number.isNaN)) return;
+      if (Number.isNaN(b.xs) || Number.isNaN(b.ys) || Number.isNaN(b.xe) || Number.isNaN(b.ye)) return;
       say('a clip that is not whole pixels: drawn by the software');
       // The quad is not in the plan, so it is hashed here: two frames that differ only in it must not share a hash
       // (GM-06a review F1; the dirty check by hash, GM-12a, would otherwise keep the old pixels).
@@ -441,27 +527,39 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
     }
     const textured = tex !== null && uv !== null;
     // P9: an untextured quad with a finite colour and alpha exactly 0 is not drawn (the register is the caller's).
-    if (!textured && finite(rgba.slice(0, 3)) && rgba[3]! / 128 === 0) return;
+    if (!textured && Number.isFinite(rgba[0]) && Number.isFinite(rgba[1]) && Number.isFinite(rgba[2]) && rgba[3]! / 128 === 0) return;
     const route = quadRoute({ textured, rgba, blend }, mode);
     const path: UiPlanPath = route ? 'prog' : 'ff';
-    const rect: UiPlanRect = { xs: b.xs, ys: b.ys, xe: b.xe, ye: b.ye };
+    const rect: UiPlanRect = b;                                       // `coverageBounds`' own fresh {xs, ys, xe, ye}
     let axisAt: UiPlanQuad['axis'] = null;
     if (textured) {
       const t = planned[tex]!;
       const cols = rect.xe - rect.xs, rows = rect.ye - rect.ys;
-      if (left.length < cols) { left = new Float64Array(cols); right = new Float64Array(cols); fraction = new Float64Array(cols); }
-      // GM.R3: the software's own axis functions, f64, multiply then divide; stored as texel indices.
-      columnAxis(rect.xs, rect.xe, x0, x1 - x0, uv[0], uv[2] - uv[0], t.width, false, left, right, fraction);
+      // GM.R3: the software's own axis functions, f64, multiply then divide; stored as texel indices. GM-32: a run kept
+      // for the same inputs (`AxisMemo`) is copied in instead.
       const column = axis.reserve(cols * 4);
-      for (let k = 0; k < cols; k++) {
-        const o4 = column + k * 4;
-        axis.data[o4] = left[k]! / 4; axis.data[o4 + 1] = right[k]! / 4; axis.data[o4 + 2] = fraction[k]!; axis.data[o4 + 3] = 1 - fraction[k]!;
+      const keptColumn = axisMemo.find(rect.xs, rect.xe, x0, x1 - x0, uv[0], uv[2] - uv[0], t.width, 0, 0);
+      if (keptColumn) axis.data.set(keptColumn, column);
+      else {
+        if (left.length < cols) { left = new Float64Array(cols); right = new Float64Array(cols); fraction = new Float64Array(cols); }
+        columnAxis(rect.xs, rect.xe, x0, x1 - x0, uv[0], uv[2] - uv[0], t.width, false, left, right, fraction);
+        for (let k = 0; k < cols; k++) {
+          const o4 = column + k * 4;
+          axis.data[o4] = left[k]! / 4; axis.data[o4 + 1] = right[k]! / 4; axis.data[o4 + 2] = fraction[k]!; axis.data[o4 + 3] = 1 - fraction[k]!;
+        }
+        axisMemo.keep(axis.data.slice(column, column + cols * 4));
       }
-      const row = axis.reserve(rows * 4), stride = t.width * 4, r = { top: 0, bottom: 0, fy: 0, iy: 0 };
-      for (let y = rect.ys; y < rect.ye; y++) {
-        rowAxis(y, y0, y1 - y0, uv[1], uv[3] - uv[1], t.height, t.width, false, r);
-        const o4 = row + (y - rect.ys) * 4;
-        axis.data[o4] = r.top / stride; axis.data[o4 + 1] = r.bottom / stride; axis.data[o4 + 2] = r.fy; axis.data[o4 + 3] = r.iy;
+      const row = axis.reserve(rows * 4);
+      const keptRow = axisMemo.find(rect.ys, rect.ye, y0, y1 - y0, uv[1], uv[3] - uv[1], t.height, t.width, 1);
+      if (keptRow) axis.data.set(keptRow, row);
+      else {
+        const stride = t.width * 4, r = { top: 0, bottom: 0, fy: 0, iy: 0 };
+        for (let y = rect.ys; y < rect.ye; y++) {
+          rowAxis(y, y0, y1 - y0, uv[1], uv[3] - uv[1], t.height, t.width, false, r);
+          const o4 = row + (y - rect.ys) * 4;
+          axis.data[o4] = r.top / stride; axis.data[o4 + 1] = r.bottom / stride; axis.data[o4 + 2] = r.fy; axis.data[o4 + 3] = r.iy;
+        }
+        axisMemo.keep(axis.data.slice(row, row + rows * 4));
       }
       axisAt = { column, row };
     }
@@ -483,8 +581,9 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
       current.quads.push(index);
       batchId = current.id;
     } else endBatch();
+    const { colour, codes, zeroMask } = encodeColour(rgba);
     quads.push({
-      node, item, rect, x0, y0, x1, y1, texture: textured ? tex : null, uv: textured ? uv : [0, 0, 0, 0], ...encodeColour(rgba),
+      node, item, rect, x0, y0, x1, y1, texture: textured ? tex : null, uv: textured ? uv : [0, 0, 0, 0], colour, codes, zeroMask,
       blend, path, why: route, batch: batchId, axis: axisAt,
     });
     const t = textured ? tex : null;
@@ -559,7 +658,7 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
           if (bitmap) { tex = texture(bitmap, t.texture!); reg = blendAfterBind(bitmap); }
           const blend = reg;
           if (![a, b, c].every((v) => finite([v.x, v.y, v.invW, v.u, v.v]))) say('a model vertex not finite (position, invW or texel): drawn by the software');
-          else if ([a, b, c].some((v) => v.invW <= 0)) say('a model vertex at invW <= 0 (the GPU\'s depth cleared to 0 cannot hold the software\'s "0 = empty"): drawn by the software');
+          else if ([a, b, c].some((v) => v.invW <= 0)) say('a model vertex at invW <= 0 (the GPU clamps a negative depth to 0, which passes GEQUAL over the clear, where the software\'s fails): drawn by the software');
           const route = triangleRoute({ textured: bitmap !== null, rgba: [a.rgba, b.rgba, c.rgba], blend });
           if (route) say('a model triangle needing the programmable path: drawn by the software until GM-26 (GM.R10)');
           // GM-15b (GM-15a review F2): T8's int range, on the sampled image's size (UI_GPU_MODEL_TEXEL_RANGE).
@@ -617,7 +716,10 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
   }
   for (const m of movies) hasher.nums([m.width, m.height]);
   for (const q of quads) {
-    hasher.nums([q.rect.xs, q.rect.ys, q.rect.xe, q.rect.ye, q.x0, q.y0, q.x1, q.y1, q.texture ?? -1, q.zeroMask, q.batch ?? -1]);
+    // GM-29: the eleven numbers written out (the same words in the same order as the array this read before).
+    const r = q.rect;
+    hasher.num(r.xs); hasher.num(r.ys); hasher.num(r.xe); hasher.num(r.ye); hasher.num(q.x0); hasher.num(q.y0); hasher.num(q.x1); hasher.num(q.y1);
+    hasher.num(q.texture ?? -1); hasher.num(q.zeroMask); hasher.num(q.batch ?? -1);
     hasher.nums(q.uv); hasher.nums(q.colour); hasher.nums(q.codes); hasher.str(q.blend); hasher.str(q.path); hasher.str(q.why ?? '');
   }
   if (o.uiSampling?.enabled) hasher.str(JSON.stringify(o.uiSampling));

@@ -250,3 +250,80 @@ coordinator's word, as proposed):
   what a seek's fold steps the recorded projectiles over; PAR-46a is what the page draws them over.
 
 No new `*_PLACEHOLDER`, `*_READING` or `*_ADAPTATION`.
+
+## 9. A round's end stops the effects: the smoke into the next round (BUG smoke round)
+
+- Date: 2026-11-09. Craig's report (2026-11-09): "smokes shot at the end of the round will still have their particle
+  effects showing in the next round (before the smoke timer runs out)". Base `802b7e037` on `agent/bug-smoke-round`
+  (from `agent/v0417`). Simulation track. Status: **reading** (its review PASS WITH FINDINGS, per the merge 587213d7a). The decompilation was read at the lines
+  cited; nothing was measured running (no browser, game, dev server or match server).
+
+**Which side kept the smoke: the page.** The room already drops it: `Room.clearAir` (`packages/match/src/room.ts`
+:7559-7565, called at `startRound` :9494 and at the abandon :3844, :3878) empties `flying`, so `detonations()` and
+`smokeSources()` (:2886-2898) hold no smoke in the new round and a bot's sight reads none (`MatchBots.smokes`,
+`bots/matchBots.ts` :865-879, clears its clouds at a new round too). The page did not: its round clear
+(`./matchThrow` `roundStart`, run by `/testroom`'s `armoryRoundHooks` and the match page's `roundClear` on `roundStart`
+and `abandoned`) ran `GrenadeThrower.clearAir`, whose own doc kept "the effects already playing" -- the effects
+player's `smoke_grenade` and the `smoke_stream` it called, the placeholder puffs' sources (`smokes`, only their pids
+stripped, PF-28), and every particle already in the air. A smoke thrown near the round's end so poured on the page for
+the rest of its `Timer2 - Timer1` (37 s, research 85 §9.6) into the next round, drawn where the room and the bots had
+no smoke.
+
+**The original: a round's end stops what plays.** At an online round's end, `FUN_002a9b30` -- the host 3 s after the
+result (D:L150629-150670: the round count up, game state 4 or 6, `FUN_002c00f0`'s send, then `FUN_002aa910` at
+D:L150668, then the MP exit state pushed), a page on game state 4 (D:L150617-150626, `FUN_002aa910` at D:L150626),
+offline the exit state's push (D:L150599) -- runs `FUN_002aa910` (D:L151203-151253), which:
+- stops every running animation of the anim manager 0x414bb0's `common` and `mission` sets (D:L151211-151218: each
+  found by `FUN_0026a100` by name -- the strings 0x3f12f8 "common", 0x3f1300 "mission" -- and run through
+  `FUN_0026c2e0`, D:L116144-116181, which calls `FUN_002707c0(anim, 0)`, `FUN_0026fbf0(anim, 1)` and `FUN_0026fe90`
+  on each animation and each one chained off it; `FUN_0026fe90` frees an animation's sources through `FUN_0032a6b0`,
+  §2);
+- ages every live particle past its life (D:L151219 `FUN_00326fb0`, D:L225075-225084: each particle on the manager
+  0x488480's live list has its `+0xc` set to its `+0x48` + 0.01), so the manager's next update frees them all
+  (`FUN_003280a0`, which frees each whose `+0x48` <= `+0xc`);
+- online, works the level's projectile list 0x4b5220: `FUN_003cceb0(list, the local player's id, 0xff)` (D:L151239)
+  and `FUN_003ccc90(list)` (D:L151242), which sets bit 0x04 of `+6` on every entry; what that bit does is not read
+  here (the room's own clear stays `ROUND_START_PROJECTILES_READING`).
+
+So the smoke's stream and its puffs are gone before the round screen, and none is drawn in the next round. (The round
+start online is no level reload: `CMPExitState`'s Tick `FUN_00223680` on game state 3 or 5, D:L75913-75936, re-places
+the players and pops back to CoreState's OnPop with 0 -- research 322 D6. So the reload's teardown research 95 §8
+cites for `ROUND_START_PROJECTILES_READING` is not what clears an online round; `FUN_002aa910`'s projectile calls above
+are the nearer evidence, owed their read. Noted for that reading's owner; nothing changed there.)
+
+**The fix (the page).** `GrenadeThrower.clearRoundEffects()` (`clearSmokes`, then every placeholder puff, flash and
+spark sprite removed), `Effects.clearRound()` (every run stopped, silently, but the map's ambient runs and what they
+called; the tracers' flights and the script rounds' copies gone; then `Particles.expire()`: every live particle gone,
+the sources kept, so a running ambient source pours again), both called by `./matchThrow`'s `netDeps().roundEndEffects`, which `NetPage` runs `ENGINE_READ_S` after
+the `roundOver` (beside `sweepDrops`), and again from `roundStart` beside `clearAir` as the backstop -- so at the
+engine's read and at every `roundStart` and `abandoned` on `/testroom`, the match page and the front end.
+
+**Where the page departs (the reading, `ROUND_END_EFFECTS_READING`, §10).**
+- The moment: the original clears 3 s after the result, before the round screen (`FUN_002a9b30` D:L150617-150670).
+  The page clears at its own reckoning of that moment -- `ENGINE_READ_S` (`room.ts` :446, the room's 3 s) after the
+  `roundOver`, the moment it sweeps its drops (`NetPage.sweepDrops`, `roundEndEffects`; the review's fold, 2026-11-09)
+  -- so one latency after the host, as the original's client clears on the host's state's arrival (D:L150617-150626).
+  The `roundStart` and `abandoned` clear stays as the backstop (an abandon, a page with no result seen).
+- The map's ambient runs are kept: whether the `mission` set holds the map's own ambient animations, and whether they
+  start again at the next round, is unread; the page keeps them running, their particles expired with the rest.
+- Which effect programs the `common` and `mission` sets hold against the page's effect archives (`effectData.ts`
+  `EFFECT_ARCHIVES`) is unread: the page stops every run that is not ambient-rooted.
+
+**Other timed effects checked.** The flashbang's white-out: already stopped at the round's start (`WhiteOut.stop` in
+`roundStart`, LATER 12, research 222 §8). A bot's flash blindness (`MatchBots.flashed`, `blindUntil`) is not reset at a
+round's boundary, but bots play respawn games only (H315), which have no round boundary before the match's end: no
+carry-over to fix. SOCOM II has no incendiary, gas or flare throwable (research 85's throwables); a blast's fire and
+smoke are effect runs and particles, cleared with the rest. The scorches and footprints are the decal pools' clears,
+unchanged. The room holds no timed effect beside its `flying` list (the smoke's wall and the flash are read from it).
+
+**Tests.** `packages/viewer/test/grenade.test.ts` ("ROUND_END_EFFECTS_READING: clearRoundEffects() ...", two cases,
+and the real effects player's case on MP2's data), `effects.test.ts` ("ROUND_END_EFFECTS_READING: Effects.clearRound()"
+synthetic, and "... on the game's data": MP2's `smoke_grenade` beside its ambient `firey_flames`), `matchThrow.test.ts`
+(`roundStart` calls both; the fold: `netDeps().roundEndEffects` clears the effects, not the air), `netPageRound.test.ts` (the fold: `roundEndEffects` once at `ENGINE_READ_S` after a `roundOver`, not a millisecond before). RED: 6 failed (`clearRound` / `clearRoundEffects` not functions; the wiring's spy). GREEN:
+the three files 220 passed, 1 skipped (a pre-existing MP2 sound-bank skip in `matchThrow.test.ts`).
+
+## 10. Readings: the round's end
+
+| name | value | where | status |
+|---|---|---|---|
+| `ROUND_END_EFFECTS_READING` | at each `roundStart` and `abandoned`: every effect run stopped but the map's ambient ones, every particle gone, every grenade smoke and placeholder puff gone | `packages/viewer/src/effects.ts` (`clearRound`), `packages/viewer/src/particles.ts` (`expire`), `packages/viewer/src/grenade.ts` (`clearRoundEffects`), `packages/viewer/src/matchThrow.ts` (`roundStart`, `netDeps().roundEndEffects`), `packages/viewer/src/netPage.ts` (`roundEndEffects` beside `sweepDrops`) | reading (the merge 587213d7a's review). The original's round end runs `FUN_002aa910` (`FUN_002a9b30` D:L150599, D:L150626, D:L150668): the `common` and `mission` anim sets' runs stopped (D:L151211-151218, `FUN_0026c2e0` D:L116144-116181) and every live particle aged past its life (D:L151219, `FUN_00326fb0` D:L225075-225084). Departures (§9): the page clears `ENGINE_READ_S` after the `roundOver` (`NetPage` `roundEndEffects`, one latency after the host, as the original's client), with the `roundStart`/`abandoned` clear as the backstop; the map's ambient runs are kept (whether the original's `mission` set holds them and restarts them is unread); the sets' membership against the page's archives is unread. Settled by a capture of a round's end with a smoke pouring and an ambient effect in view, or the read of `FUN_002707c0`/`FUN_0026fbf0` and the sets' loading |

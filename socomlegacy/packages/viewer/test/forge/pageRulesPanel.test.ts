@@ -272,18 +272,19 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     expect(inspected()).not.toBe('Zone · vault');
   }, 90_000);
 
+  // OT.R112 (the Forge's UI is its contributor's): New asks for the base first (its "New layout" card, Next), then --
+  // over work it would drop -- "Save this layout first?" (Cancel, Don't save, Save first).
   it('Start a new layout asks before dropping a layout holding only a zone (no piece, no rules), naming what goes; Cancel keeps it', async () => {
     const { api } = await mount();
     await exec(api, 'zone.place', { id: 'gate', shape: 'cylinder', at: [0, 0, 0], radius: 5, height: 3 });
-    document.querySelector<HTMLButtonElement>('button[title="Start a new layout on this base"]')!.click();
-    const card = await vi.waitFor(() => {
-      const h = [...document.querySelectorAll('.fx-card h2')].find((e) => e.textContent === 'Start a new layout?');
-      expect(h, 'the confirm is asked').toBeTruthy();
-      return h!.closest('.fx-card')!;
-    });
+    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    const cardOf = (heading: string): Element | null => [...document.querySelectorAll('.fx-card h2')].find((e) => e.textContent === heading)?.closest('.fx-card') ?? null;
+    const choose = await vi.waitFor(() => { const c = cardOf('New layout'); expect(c, 'the base is asked first').toBeTruthy(); return c!; });
+    choose.querySelector<HTMLButtonElement>('button.fx-primary')!.click();             // Next, on the current base
+    const card = await vi.waitFor(() => { const c = cardOf('Save this layout first?'); expect(c, 'the confirm is asked').toBeTruthy(); return c!; });
     expect(card.querySelector('p')!.textContent).toBe('The pieces, rules, zones, markers and spawners now in the layout are dropped. Save first to keep them.');
     [...card.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!.click();
-    await vi.waitFor(() => expect([...document.querySelectorAll('.fx-card h2')].some((e) => e.textContent === 'Start a new layout?')).toBe(false));
+    await vi.waitFor(() => expect(cardOf('Save this layout first?')).toBeNull());
     expect((api.read().layout as { zones?: { id: string }[] }).zones!.map((z) => z.id)).toEqual(['gate']);
   }, 90_000);
 

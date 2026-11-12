@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import type { FrontEndWindowHook } from '../src/frontEnd';
+import { CREATE_GAME_ROWS } from './createGameRows';
 import { FRONT_END } from './urls';
 
 /**
@@ -61,7 +62,7 @@ async function key(p: Page, k: string, times = 1): Promise<void> {
   for (let i = 0; i < times; i++) { await p.keyboard.press(k); await p.waitForTimeout(300); }
 }
 
-test('CREATE GAME PLAY LIST: Vigilance, Crossroads, Frostfire and Night Stalker focused each draw their own map picture', async ({ page }) => {
+test('CREATE GAME PLAY LIST: each offered map (CREATE_GAME_ROWS, the eight) focused draws its own map picture', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -78,7 +79,7 @@ test('CREATE GAME PLAY LIST: Vigilance, Crossroads, Frostfire and Night Stalker 
   await until(page, 'the PLAY LIST', (s) => s.focused === 'AVAILABLE_MISSIONS' && s.ready);
   const shots = process.env['CREATE_GAME_SHOTS'];
   if (shots) mkdirSync(shots, { recursive: true });
-  for (const [row, n, slug] of [[0, 51, 'vigilance'], [1, 72, 'crossroads'], [2, 2, 'frostfire'], [3, 7, 'night_stalker']] as const) {   // the list holds only them (research 164 R164.3; OT.R45)
+  for (const { row, number: n, slug } of CREATE_GAME_ROWS) {   // the list holds only them (research 164 R164.3; OT.R45; V13-3: six, DF-14: eight, from FIRST_RELEASE_MAPS)
     while (((await seen(page))?.row ?? row) < row) await key(page, 'ArrowDown');
     const s = await until(page, `${slug}'s picture drawn`, (v) => v.row === row && v.shown.includes(`CGPic${n}`) && !v.undrawn.some((u) => /MissPic/i.test(u)), 30_000);
     console.log(`CREATEGAMEPICTURE ${JSON.stringify({ slug, ...s })}`);

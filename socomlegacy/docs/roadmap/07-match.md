@@ -219,3 +219,10 @@ SPRINTS.md; the closed sprint is not rewritten.
   without respawn.)*
 - **Merged from:** new (research 170 §7.1): the round's indicators of OT.R23's "UI to show who was talking ... (and
   perhaps in game)".
+
+### Tracked bot follow-up
+
+- **Pending contact routes:** issue #591 tracks a pending route that can apply an older contact position after
+  the bot's contact changes under a finite navigation budget. BPN-12 owns the fix and verification in
+  `../plans/2026-10-28-bot-sprint-3.md`; the issue records PR #584's candidate fix and closing bar. This citation
+  restores the issue audit's live-document link; it does not claim the fix has landed.

@@ -53,5 +53,7 @@ describe('the Forge page loader: the panels it hands the page (FUI-1 A5, FUI.R3)
     expect(heading).toBeGreaterThanOrEqual(0);
     expect(items.slice(heading + 1).find((r) => r.id === 'panel-agent')).toMatchObject({ label: 'Connect your agent' });
     shell.dispose();
-  });
+    // 90 s: the cold import of `pageEntry`'s Forge graph alone runs ~5 s (5106 ms seen), past vitest's 5 s default --
+    // the class PR #721 gave every Forge mounted-page case 90 s for; this file mocks `forge/page`, so #721 missed it.
+  }, 90_000);
 });

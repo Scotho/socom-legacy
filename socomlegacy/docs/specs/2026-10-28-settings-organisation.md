@@ -122,6 +122,7 @@ Craig has not reviewed the choice. Detail distance staying on Display, and the m
 3. The microphone rows: on Controller under Voice (as in A), their own Launcher tab, or left beside External whispers?
 4. Stick dead zone and Stance mode are on Controller and on Button mapping. Keep both copies, or keep them only on the mapping screen? Crouch and Prone stay on the mapping screen either way.
 5. If the two dead zones can sit on one page (layout B), which label changes so Dead zone and Stick dead zone are not neighbours?
+   *Answered 2026-11-07 (the controller's taste call, product track; SS-1, REVIEW-1 F3):* the browser's one changes -- "Pad dead zone (this browser)" on Controller and on Button mapping alike; the card's Dead zone keeps its name.
 6. Sign out on Account and on Profile: keep both?
 7. The Theme item on the Settings list: keep the drop-up, or leave themes to the Appearance tab?
 8. Mobile is one row, and only with touch. Keep the tab, or put Touch layout on Appearance?
@@ -138,3 +139,20 @@ Each slice is one pull request, product track, and stops when its check is green
 5. Move the microphone, and Detail distance if question 2 says so. One table in the test: id, family, tab, index.
 6. Question 4, on the mapping screen only. Removing a duplicate deletes the row there and leaves the value. Crouch and Prone stay.
 7. Bring `03_SETTINGS_CATALOG.md` in line with the adapter in the same slice that moves those rows. Then look at the tab strip at a phone width (the strip already scrolls; A and B shorten it).
+
+## What the video page settles (2026-11-08, the video lane)
+
+The video lane's rows, from its plan `docs/plans/2026-11-07-video-settings-page.md` (VS-1, VS-2) and its spec `docs/specs/2026-11-07-video-settings-design.md`, on `agent/video-page` at `c4fc37877`, not yet on `main`. Product track. The Inventory above is the launcher before them, left as it was read.
+
+- **One schema, three surfaces.** Every browser video row is one entry of `VIDEO_SCHEMA` (`packages/viewer/src/videoSettings.ts`). The launcher's Display tab draws them under This browser in the schema's order, keeping the old row ids. The in-match overlay draws the same rows, with Detected, "Not right?" and Restore defaults left to the launcher. The native VIDEO OPTIONS screen keeps its three rows, RENDER SCALE, SHADOWS and SHOW FPS (VS.R8).
+- **The rows.** Preset, Render scale, Ceiling, Frame cap (VS.R2), Overlay, Shadows (Off, Low, Medium, High; VS.R3, VS.R5), Detail distance, Antialias, Filtering, Graphics, Power preference, Colour filter (VS.R6). Filtering and Colour filter appear only under Custom. Display also gains two readouts, Device memory and Detected, plus Restore defaults, and "Not right?" while an Xbox pick is saved.
+- **The presets.** Performance, Balanced and Quality, plus Automatic and Custom. Automatic is the default for a browser with nothing saved, and a saved choice is kept (VS.R7). Automatic may take an Xbox from the user agent only when certain (VS.R1). Custom is offered while the settings are Custom; a player leaves it by a preset or Restore defaults. A preset press writes that preset's values.
+- **Apply at the next match.** Antialias, Graphics and Power preference apply when the next match starts, never by a reload (VS.R4). They carry that note on the launcher and are locked in the overlay while a round runs. Every other row applies at once.
+- **The old keys.** The v2 value is `s2u.viewer.video2` (`VIDEO_SETTINGS_KEY_V2`). A preset press still writes the v1 value `s2u.viewer.video` (`VIDEO_SETTINGS_KEY`, `{renderScale, shadows}`) whenever its projection moves, so the v1 readers keep working. It writes the detail distance's own key `s2u.viewer.detailDistance` and the renderer's `s2u.viewer.graphicsBackend` only when those values change. SHOW FPS stays under the START menu's `s2u.viewer.showFps` (`FPS_SHOWN_KEY`). No preset owns it, so a preset press leaves it alone.
+
+Against the questions above:
+
+- **Question 2 (Detail distance) is answered by building it, not by a ruling.** Detail distance stays on Display under This browser, as one of `VIDEO_SCHEMA`'s rows, on the launcher and in the overlay (the spec's §4.2 table; VS-2). None of VS.R1-R10 rules on where it sits, so Craig's review of layout A can still move it.
+- **Left open:** questions 1, 3, 4, 6, 7 and 8. The video page touches no family, the microphone, the mapping screen, Account, the Theme drop-up or Mobile. Question 5 was answered on 2026-11-07, before the video lane.
+- **The rulings' reach here.** VS.R1-R8 decide which rows exist and how they act. VS.R2 amends CX.R5 and H193's "no frame-rate rows". The frame rate the Inventory lists among `SAMPLE_OPT_CATS`' old prototype rows is still not drawn. Frame cap is the schema's own row. VS.R9 and VS.R10 decide the presets' numbers and the dynamic scale, not where any row sits.
+- **The slice plan is unchanged.** Slices 4 and 5 still wait on their questions. When slice 4 splits the families, the video rows move as one group with Display.

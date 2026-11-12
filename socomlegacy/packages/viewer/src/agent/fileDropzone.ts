@@ -4,7 +4,10 @@ import '../forge/assetPreview.css';
 export interface FileDropzoneOptions {
   stage(files: File[]): Promise<void>;
   allowed?(): boolean;
+  /** The blocked sentence for the case its owner is in (LATER 799); the Build sentence when absent. */
+  blockedReason?(): string;
 }
+export const DROPZONE_BLOCKED_BUILD = 'Return to Build to add local files.';
 export function mountFileDropzone(host: HTMLElement, options: FileDropzoneOptions) {
   const doc = host.ownerDocument;
   const events = new ((doc.defaultView as (Window & typeof globalThis) | null)?.AbortController ?? AbortController)();
@@ -21,7 +24,7 @@ export function mountFileDropzone(host: HTMLElement, options: FileDropzoneOption
   const allowed = (): boolean => !disposed && (options.allowed?.() ?? true);
   const refresh = (): void => {
     input.disabled = !allowed() || reading; root.setAttribute('aria-disabled', String(input.disabled));
-    if (!allowed()) { root.dataset.state = 'blocked'; status.textContent = 'Return to Build to add local files.'; }
+    if (!allowed()) { root.dataset.state = 'blocked'; status.textContent = options.blockedReason?.() ?? DROPZONE_BLOCKED_BUILD; }
     else if (!reading && root.dataset.state === 'blocked') { root.dataset.state = 'idle'; status.textContent = 'Choose files to make them available to your agent.'; }
   };
   const stage = async (files: File[]): Promise<void> => {

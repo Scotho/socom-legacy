@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { encodeRecord } from '../../match/src/replay/format';
 import { pinnedReplayDoor } from '../src/connectHost';
 import {
-  checkReplayUrl, loadSegment, ReplayLoadError, REPLAY_DOOR_BODY_MAX_BYTES_ADAPTATION, REPLAY_DOOR_INFLATED_MAX_BYTES_ADAPTATION,
-  REPLAY_DOOR_OTHER_VERSION, REPLAY_DOOR_RECORDS_MAX_ADAPTATION,
+  checkReplayUrl, loadPublicSegment, loadSegment, ReplayLoadError, REPLAY_DOOR_BODY_MAX_BYTES_ADAPTATION, REPLAY_DOOR_INFLATED_MAX_BYTES_ADAPTATION,
+  REPLAY_DOOR_OTHER_VERSION, REPLAY_DOOR_RECORDS_MAX_ADAPTATION, REPLAY_PUBLIC_FETCH_ADAPTATION,
 } from '../src/replay/load';
 import { concat, fixtureBytes, fixtureRecords, gzip, header } from './replayFixture';
 
@@ -217,5 +217,101 @@ describe('SA-9b: the door branch of loadSegment', () => {
 
   it('review F2: the record bound is a named adaptation, about five times an hour of a measured match', () => {
     expect(REPLAY_DOOR_RECORDS_MAX_ADAPTATION).toBe(750_000);
+  });
+});
+
+/**
+ * LCM-RP (the replay batch's RB-11, Q4 option (a); `REPLAY_PUBLIC_FETCH_ADAPTATION`): a signed-out page's replay --
+ * central's `GET /replays/<id>[?match=]`, no bearer, no cookie, followed to the door its 302 names. The page sees only the
+ * chain's end (`Response.redirected`, `Response.url`), so what it holds is that end: the door pinned for this id with
+ * central's grant alone, or central's own answer at the address asked. Anything else -- another host, another id, a hop
+ * that left the door's shape -- is not read. Hosts, ids and grants invented.
+ */
+describe('LCM-RP (RB-11): the public fetch (loadPublicSegment)', () => {
+  const CENTRAL = `https://socom2legacy.com/replays/${ID}?match=m-1`;
+  /** An answer as the platform hands it after following a chain to `url` (`redirected`, `url` set as fetch sets them). */
+  const followed = (url: string, body: BodyInit | null = fixtureBytes() as BodyInit, status = 200): Response => {
+    const r = new Response(body, { status });
+    Object.defineProperty(r, 'url', { value: url });
+    Object.defineProperty(r, 'redirected', { value: true });
+    return r;
+  };
+  const asIs = (url: string, body: BodyInit | null, status = 200): Response => {
+    const r = new Response(body, { status });
+    Object.defineProperty(r, 'url', { value: url });
+    return r;
+  };
+
+  it('is a named adaptation', () => {
+    expect(REPLAY_PUBLIC_FETCH_ADAPTATION).toMatch(/grant/);
+  });
+
+  it('asks central once with no bearer, no cookie, no cache, the redirect followed; reads the door it lands on with the grant alone', async () => {
+    const f = spy(() => followed(`${PROD}?grant=${GRANT}`));
+    const seg = await loadPublicSegment(CENTRAL, { fetch: f.fetch });
+    expect(seg.header.map).toBe('MP2');
+    expect(f.seen).toHaveLength(1);
+    expect(f.seen[0]!.url).toBe(CENTRAL);
+    const init = f.seen[0]!.init!;
+    expect(init.redirect).toBe('follow');
+    expect(init.credentials).toBe('omit');
+    expect(init.cache).toBe('no-store');
+    expect(new Headers(init.headers).get('authorization')).toBeNull();
+  });
+
+  it('central\'s own recording (no hop, the address asked) is read; its 404 reads missing, its 503 and 429 unavailable', async () => {
+    expect((await loadPublicSegment(CENTRAL, { fetch: spy(() => asIs(CENTRAL, fixtureBytes() as BodyInit)).fetch })).header.map).toBe('MP2');
+    expect((await loadPublicSegment(CENTRAL, { fetch: spy(() => new Response(fixtureBytes() as BodyInit)).fetch })).header.map).toBe('MP2');   // url '' (a double)
+    expect((await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => asIs(CENTRAL, null, 404)).fetch }))).kind).toBe('missing');
+    expect((await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => asIs(CENTRAL, null, 503)).fetch }))).kind).toBe('unavailable');
+    expect((await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => asIs(CENTRAL, null, 429)).fetch }))).kind).toBe('unavailable');
+    // a throw: central unreachable, or the door's refusal (no CORS on it)
+    expect((await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => { throw new TypeError('Failed to fetch'); }).fetch }))).kind).toBe('missing');
+  });
+
+  it('refuses a foreign host, another id, and a hop that left the door\'s shape -- the body never read', async () => {
+    for (const end of [
+      `https://elsewhere.test/replays/${ID}?grant=${GRANT}`,                                  // a foreign host
+      `https://firehuge.play.socom2legacy.com.evil.test/replays/${ID}?grant=${GRANT}`,        // a look-alike
+      `https://firehuge.play.socom2legacy.com/replays/00000000000000b2?grant=${GRANT}`,       // another id
+      `https://firehuge.play.socom2legacy.com/replays/${ID}`,                                 // no grant: not central's hop
+      `https://firehuge.play.socom2legacy.com/replays/${ID}?grant=${GRANT}&next=x`,           // a second hop's mark
+      `https://firehuge.play.socom2legacy.com/replays/${ID}?grant=${GRANT}#x`,
+      `http://firehuge.play.socom2legacy.com/replays/${ID}?grant=${GRANT}`,                   // not https
+      `http://127.0.0.1:5343/replays/${ID}?grant=${GRANT}`,                                   // the loopback door, no devDoors
+      `https://socom2legacy.com/replays/${ID}?match=m-1`,                                     // central again: a loop is a hop too
+    ]) {
+      const s = counted(1024, 256);
+      const r = followed(end, s.stream);
+      const e = await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => r).fetch }));
+      expect(e.kind, end).toBe('unavailable');
+      expect(s.pulled(), end).toBeLessThanOrEqual(256);
+    }
+    // an answer from another address without the redirect flag is not read either
+    const e = await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => asIs(`https://elsewhere.test/replays/${ID}`, fixtureBytes() as BodyInit)).fetch }));
+    expect(e.kind).toBe('unavailable');
+  });
+
+  it('the loopback door is followed under devDoors only (a development build\'s ?devmode)', async () => {
+    const local = `http://127.0.0.1:5340/replays/${ID}`;
+    const seg = await loadPublicSegment(local, { devDoors: true, fetch: spy(() => followed(`${DEV}?grant=${GRANT}`)).fetch });
+    expect(seg.header.map).toBe('MP2');
+  });
+
+  it('the door\'s answers after the hop: 404 missing, 503 unavailable; its body under the door\'s bounds', async () => {
+    expect((await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => followed(`${PROD}?grant=${GRANT}`, null, 404)).fetch }))).kind).toBe('missing');
+    expect((await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => followed(`${PROD}?grant=${GRANT}`, null, 503)).fetch }))).kind).toBe('unavailable');
+    const s = counted(4 * 2 ** 20, 16 * 1024);
+    const e = await refusal(loadPublicSegment(CENTRAL, { fetch: spy(() => followed(`${PROD}?grant=${GRANT}`, s.stream)).fetch, bounds: { body: 64 * 1024, inflated: 2 ** 30 } }));
+    expect(e.kind).toBe('missing');
+    expect(s.cancelled()).toBe(true);
+  });
+
+  it('asks only central\'s replay route: never a door first, never another path', async () => {
+    for (const bad of [PROD, DEV, `https://socom2legacy.com/replays/${ID}/x`, `https://socom2legacy.com/other/${ID}`, `https://socom2legacy.com/replays/${ID}?grant=${GRANT}`, 'not a url']) {
+      const f = spy(() => followed(`${PROD}?grant=${GRANT}`));
+      await refusal(loadPublicSegment(bad, { fetch: f.fetch }));
+      expect(f.seen, bad).toHaveLength(0);
+    }
   });
 });

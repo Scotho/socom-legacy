@@ -1,5 +1,6 @@
 import type { PadLike, PadSource } from '../../gamepad';
 import { GamePad } from '../../setupPad';
+import { stanceBindsMissing } from '../../startupSettings';
 import { readOverlayButton } from '../../overlayButtonSetting';   // the saved value alone: no overlay under console/ (MU2-10c)
 import type { Adapters } from '../state';
 
@@ -21,6 +22,11 @@ export type LivePad = Adapters['pad'] & {
    * (`ControllerInput.bindTouchpadCrouch`). Answers whether Crouch was bound so (the row's toast).
    */
   enterSeparate?(): boolean;
+  /**
+   * SEP-ROWS: the chosen pad's profile leaves a stance out of reach in SEPARATE (`../../startupSettings`
+   * `stanceBindsMissing`); false with no pad read (its binds unknown). Read at each draw, so it follows Button mapping.
+   */
+  stanceBindsMissing?(): boolean;
 };
 
 export interface PadDeps {
@@ -54,5 +60,6 @@ export function livePad(notify: () => void, deps: PadDeps = {}): LivePad {
       if (cloned || pressure || crouch) notify();
       return crouch;
     },
+    stanceBindsMissing: () => connected && stanceBindsMissing(pad.input.config, pad.input.pressureCapable()),
   };
 }

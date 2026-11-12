@@ -72,8 +72,8 @@ export interface SpectatorHost {
   /** The dead player's first cycle: the camera leaves the own body (the walk to the fly camera). */
   leaveSelf(): void;
   /**
-   * DEAD-CYCLE (LATER 78): the dead player's cycle comes back to its own body -- the own body's view again
-   * (DEAD_CYCLE_OWN_VIEW_READING). Absent: the view's state goes back to the own body (`watching` null) and no pose is
+   * DEAD-CYCLE (LATER 78): the dead player's cycle comes back to its own body -- the own body's view again, the death
+   * camera at 7 (the stick's orbit; `WalkMode.resumeBody`, DEATHCAM-MANUAL). Absent: the view's state goes back to the own body (`watching` null) and no pose is
    * handed, the page's camera where the last pose stood it.
    */
   returnSelf?(): void;
@@ -132,18 +132,15 @@ export const SPECTATOR_CYCLE_ORDER_READING = 'actor list' as const;
  */
 export const SPECTATOR_OWN_SLOT_PLACEHOLDER = 'before every player' as const;
 
-/**
- * DEAD_CYCLE_OWN_VIEW_READING (DEAD-CYCLE, LATER 78; research 314 §5.6, §8): the own body's view when a dead player's
- * cycle comes back to it. The walk binds the own actor (D:L412618, D:L412675 -> `FUN_0029b3c0` -> `FUN_002956e0`); the
- * death camera's +0x144, set to 7 every frame a remote teammate was bound (`FUN_002980d0` D:L141378-141389), is not
- * written back by a local actor's bind (that line writes 7 only for a controller whose +0x2c is 0; the initialiser
- * `FUN_00299150` alone writes 0, D:L141657, at the respawn and the turnover), so the original's own view after the cycle
- * is state 7's frame -- the orbit about the own body turned by the stick (`FUN_00297a30` D:L141219-141221) -- not state
- * 3's turn toward the killer or 6's own turn (D:L141145-141218). The port's death camera has no state 7 (`./deathCamera`
- * models 3 and 6), so the own body's view comes back as it was before the cycle, through `SpectatorHost.returnSelf`.
- * Settled by porting state 7, or ONL-32's capture of a dead player cycling back to his body.
+/*
+ * The own body's view when a dead player's cycle comes back to it (DEAD-CYCLE, LATER 78; research 314 §5.6, §8; the
+ * reading that stood here was retired by DEATHCAM-MANUAL, 2026-11-09). The walk binds the own actor (D:L412618,
+ * D:L412675 -> `FUN_0029b3c0` -> `FUN_002956e0`); the death camera's +0x144, set to 7 every frame a remote teammate was
+ * bound (`FUN_002980d0` D:L141378-141389), is not written back by a local actor's bind (the initialiser `FUN_00299150`
+ * alone writes 0, D:L141657, at the respawn and the turnover), so the own view after the cycle is state 7's -- the orbit
+ * about the own body turned by the stick (`FUN_00297a30` D:L141219-141221). The port's `SpectatorHost.returnSelf` (the
+ * page's `WalkMode.resumeBody`) puts the death camera at 7 (`./deathCamera` `takeDeathControl`).
  */
-export const DEAD_CYCLE_OWN_VIEW_READING = 'the death camera as before the cycle' as const;
 
 /**
  * DEAD_CYCLE_RESPAWN_READING: the cycle latch runs when respawn is off (`DAT_00437ce8+0xdc` 0), for a ghost (`+0xd2`)
@@ -771,8 +768,8 @@ export class SpectatorView {
    * DEAD-CYCLE (LATER 78, 79; research 314 §5.6): the walk's stops are the living teammates and the own actor, alive or
    * dead (`DAT_00440c38`, D:L412605, D:L412658) -- its seat whether or not the room lists its body -- and it starts at
    * the camera's bound actor (D:L412584, D:L412637): the watched teammate, dead or gone (LATER 69 keeps it), or the own
-   * body. Reaching the own seat is the own body's view again (`watching` null, `SpectatorHost.returnSelf`,
-   * DEAD_CYCLE_OWN_VIEW_READING). (Was: the living teammates only, from the first / last of them when the watched one
+   * body. Reaching the own seat is the own body's view again (`watching` null, `SpectatorHost.returnSelf`, the death
+   * camera at 7). (Was: the living teammates only, from the first / last of them when the watched one
    * was none.)
    */
   private cycleTeammate(forward: boolean, seat: SpectatorSeat): void {

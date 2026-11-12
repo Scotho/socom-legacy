@@ -310,11 +310,13 @@ export class TacMap {
     return { quads, tris };
   }
 
-  bindKey(target: EventTarget = globalThis, yaw: () => number = () => 0): void {
+  /** RB-8 (OT.R114, RB.R4): `kbm`, a page's opt-in (the test room's `kbmAllowed`), attaches the keys in every build and is asked again at each press. */
+  bindKey(target: EventTarget = globalThis, yaw: () => number = () => 0, kbm: (() => boolean) | null = null): void {
     this.unbindKey();
     this.yawOf = yaw;
-    if (import.meta.env.DEV) {                                       // OT.R29: the keys a development build's only
-      keyboardSite('s2u-kb-tac-map');
+    this.kbm = kbm;
+    if (import.meta.env.DEV || kbm !== null) {                       // OT.R29: the keys a development build's only; RB-8: or a `kbm` page's
+      if (import.meta.env.DEV) keyboardSite('s2u-kb-tac-map');
       target.addEventListener('keydown', this.onDown as EventListener);
       target.addEventListener('keyup', this.onUp as EventListener);
     }
@@ -326,7 +328,10 @@ export class TacMap {
     this.bound = null;
   }
   private yawOf: () => number = () => 0;
+  /** RB-8: the page's keyboard opt-in given at `bindKey`, else null. */
+  private kbm: (() => boolean) | null = null;
   private readonly onDown = (e: KeyboardEvent): void => {
+    if (!import.meta.env.DEV && !this.kbm?.()) return;
     if (!['KeyM', 'Minus', 'Equal'].includes(e.code) || e.ctrlKey || e.metaKey || e.altKey) return;
     const target = e.target;
     if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;

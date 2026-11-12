@@ -24,8 +24,9 @@ type Vec3 = [number, number, number];
  * gouraud value the GS gives that pixel. The whole mark is one small mesh, built into buffers made once.
  *
  * **The node.** The game marks only the hit node's visuals. The viewer's world is one mesh per texture across the
- * whole map (`./world`, `frustumCulled` off) and a prop is a mesh (or an instance) per placement; so the node is the
- * world, a world chunk the world's state switches (its switch path), or one prop placement (its scene path and its
+ * whole map (`./world`, `userData.worldDraw`; or a draw with `frustumCulled` off) and a prop is a mesh (or an instance)
+ * per placement; so the node is the world, a world chunk the world's state switches (its switch path), or one prop
+ * placement (its scene path and its
  * place; a placement without a path, its name and its place): the one whose triangle is nearest the hit at the
  * square's centre. A mark on the ground beside a crate does not climb the crate, nor one on the crate the ground; and
  * (OBF-22) one on a door's pane is the pane's, not its slab's, though one model draws both at one place.
@@ -543,7 +544,8 @@ export class MarkClipper {
     // the hit node's own visuals, `FUN_003139e0` D:L213931-213935, and files them in each visual's list, `FUN_003b3800`
     // D:L306396-306416 -- so a door's root, its slab and its pane, one model at one place, are three nodes); a world chunk
     // the world's state switches (`userData.switchPath`, MAP-02) is its path's; a prop without a path its name and place.
-    const world = !instanced && mesh.frustumCulled === false;
+    // The world's draws by their flag (PR #672 culls them by their bound now); any other unculled draw as before.
+    const world = !instanced && (mesh.userData.worldDraw === true || mesh.frustumCulled === false);
     for (let n = 0; n < count; n++) {
       const m = n * 16;
       if (instanced) mul(mw, 0, instanced.instanceMatrix.array, m, e.world, m);

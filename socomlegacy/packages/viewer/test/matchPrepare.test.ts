@@ -7,17 +7,21 @@ import type { LoadedBody } from '../src/body';
 import { pinnedMatchSocket } from '../src/connectHost';
 import { GameSocketHost, type GameLobbyHandOff } from '../src/gameLobbyHost';
 import { FrameTime } from '../src/frameTime';
+import { FlyCamera } from '../src/camera';
+import { WalkMode } from '../src/walk';
 import { PlayerLoadout } from '../src/loadout';
-import { matchLoader, mountMatch, prepareMount, type MatchLoaderOptions, type MatchMountOptions, type MatchRenderer, type MatchWindow, type MatchWorker } from '../src/matchMount';
+import { GRAPHICS_BACKEND_KEY } from '../src/graphicsBackend';
+import { matchLoader, matchRendererChoice, mountMatch, prepareMount, type MatchLoaderOptions, type MatchMountOptions, type MatchRenderer, type MatchWindow, type MatchWorker } from '../src/matchMount';
 import { silentOut, type MatchAudio } from '../src/matchSound';
 import { hdTextures } from '../src/hdTexturePack';
-import { pictureExperimentalSettings, type VideoPicture } from '../src/picture';
+import type { VideoPicture } from '../src/picture';
 import type { LoadedMap, LoadedMesh } from '../src/loadMap';
 import type { WebSocketLike } from '../src/net/client';
 import type { ServerEvent, Team } from '../src/net/protocol';
 import type { ViewerRequest, ViewerResponse } from '../src/worker';
 import { buildWorld } from '../src/world';
 import { createRenderer } from '../src/renderer';
+import { videoSettingsKeeperV2 } from '../src/videoSettings';
 
 // IP3: `buildWorld` counted (passed through), so the prepare is seen to build the world once and the attach never.
 vi.mock('../src/world', async (original) => {
@@ -28,15 +32,18 @@ vi.mock('../src/world', async (original) => {
 // L3lsGcIs fix 1 (product track): three's renderer under `../src/renderer`, for the one case that runs the page's own
 // renderer in the prepare -- each `compileAsync` recorded with the target then set (no GPU); the others use their fakes.
 const compiled = vi.hoisted(() => [] as { scene: unknown; target: import('three').RenderTarget | null }[]);
+// VS-6: what each page renderer was constructed with (antialias, forceWebGL, powerPreference) and how many were disposed.
+const constructed = vi.hoisted(() => ({ params: [] as Record<string, unknown>[], disposed: 0 }));
 vi.mock('three/webgpu', async (original) => {
   const actual = await original<typeof import('three/webgpu')>();
   class RecordingRenderer {
     samples = 4; stencil = false; outputColorSpace = ''; autoClear = true; target: import('three').RenderTarget | null = null;
     backend = { isWebGLBackend: true, createRenderPipeline() {} };
+    constructor(parameters: Record<string, unknown>) { constructed.params.push(parameters); }
     async init() {} setPixelRatio() {} setSize() {} setClearColor() {}
     getRenderTarget() { return this.target; } setRenderTarget(t: import('three').RenderTarget | null) { this.target = t; }
     getDrawingBufferSize(v: { set(x: number, y: number): unknown }) { return v.set(640, 448); }
-    render() {} async dispose() {}
+    render() {} async dispose() { constructed.disposed++; }
     compileAsync(scene: unknown) { compiled.push({ scene, target: this.target }); return Promise.resolve(); }
   }
   return { ...actual, WebGPURenderer: RecordingRenderer };
@@ -395,6 +402,48 @@ describe('IP3: the prepare IS the mount, stopped before join() (5d)', () => {
     loader.dispose();
   });
 
+  // PRE-SPAWN-SIDE (PRE_SPAWN_STAND_SIDE_READING, research 222 s12), the review's finding: a side change before the launch
+  // stands the walk and the camera at the new side's start while no own spawn has come -- Frostfire's measured rows
+  // (`spawns.ts`): A [796, 100, 614] (the SEALs'), B [536, 143, 1254] (the Terrorists'); the synthetic map has no hull.
+  const START = { seal: [796, 100, 614], terrorist: [536, 143, 1254] } as const;
+  for (const [was, now] of [['terrorist', 'seal'], ['seal', 'terrorist']] as const) {
+    it(`PRE-SPAWN-SIDE: prepared a ${was === 'seal' ? 'SEAL' : 'Terrorist'}, SWITCH TEAMS before the launch re-stands the walk and the camera at the ${now === 'seal' ? 'SEALs\' A' : 'Terrorists\' B'}`, async () => {
+      const f = rendererFactory(), w = fakeWindow();
+      let team: Team = was;
+      const ground = vi.spyOn(WalkMode.prototype, 'setGround');
+      const look = vi.spyOn(FlyCamera.prototype, 'lookFrom');
+      const p = prepareMount(document.body, {
+        assets: Promise.resolve({ map: { ...synthetic(), name: 'Frostfire' }, clips: null, effects: effects() as never }), renderer: f.make, win: w.win, side: () => team,
+      });
+      await flush(); await flush();
+      expect(ground.mock.calls.at(-1)?.[1]).toEqual(START[was]);
+      team = now;
+      p.reseat();
+      expect(ground.mock.calls.at(-1)?.[1]).toEqual(START[now]);
+      expect(look.mock.calls.at(-1)).toEqual([[START[now][0], START[now][1] + 20, START[now][2]], [...START[was]]]);
+      p.drop();
+    });
+  }
+
+  it('PRE-SPAWN-SIDE: once the room has spawned the seat, a side change re-stands nothing (the body is the room\'s)', async () => {
+    const f = rendererFactory(), w = fakeWindow();
+    let team: Team = 'seal';
+    const p = prepareMount(document.body, {
+      assets: Promise.resolve({ map: { ...synthetic(), name: 'Frostfire' }, clips: null, effects: effects() as never }), renderer: f.make, win: w.win, side: () => team,
+    });
+    await flush(); await flush();
+    const spawn = { type: 'spawn', id: 2, at: [1, 2, 3], yaw: 0, after: 0 } as unknown as ServerEvent;
+    const m = p.attach(document.body, mountOptions(handOff('mp2'), w, { events: [welcome, spawn] }));
+    await flush(); await flush();
+    const ground = vi.spyOn(WalkMode.prototype, 'setGround');
+    const look = vi.spyOn(FlyCamera.prototype, 'lookFrom');
+    team = 'terrorist';
+    p.reseat();
+    expect(ground).not.toHaveBeenCalled();
+    expect(look).not.toHaveBeenCalled();
+    m.close();
+  });
+
   it('drop = the mount\'s own teardown: what a close lets go, a prepared match let go before its attach lets go', async () => {
     const outcome = async (end: 'drop' | 'close') => {
       const f = rendererFactory(), w = fakeWindow(), a = countingAudio();
@@ -625,14 +674,17 @@ describe('IP3 review folds on the prepare (F1-F3) and 5d\'s N1', () => {
     loader.dispose();
   });
 
+  // B206 ML-6: no picture asks for the HD pack any more (the front end gives no `hdPack`); the loader's option is held by
+  // a flag here, turned on with a picture change, so its letting-go stays pinned for any caller that gives one.
   it("the review's finding 3: HD turned on in the lobby drops the held prepare before the prepare's own picture observer can start the pack", async () => {
+    let hd = false;
     const f = rendererFactory(), w = fakeWindow(), keeper = fakePicture('modern');
     const collect = vi.spyOn(hdTextures, 'collect');
-    const { loader } = loaderOf(f, w, { picture: keeper, hdPack: () => pictureExperimentalSettings(keeper.get()).hdPack });
+    const { loader } = loaderOf(f, w, { picture: keeper, hdPack: () => hd });
     await prepared(loader, w);
     expect(loader.holds('mp2')).toBe('prepared');
     expect(collect).not.toHaveBeenCalled();
-    keeper.set('experimental');                                       // VIDEO MODE: HD (GoE Soul), the match still held
+    hd = true; keeper.set('ps2');                                     // HD asked with a picture change, the match still held
     expect(loader.holds('mp2')).toBeNull();                           // let go at once
     expect(f.made[0]!.disposed).toBe(1);
     expect(f.made[0]!.canvas.isConnected).toBe(false);
@@ -646,11 +698,12 @@ describe('IP3 review folds on the prepare (F1-F3) and 5d\'s N1', () => {
     let hang = true;
     const f = rendererFactory({ hangWarm: () => hang }), w = fakeWindow(), keeper = fakePicture('modern');
     const collect = vi.spyOn(hdTextures, 'collect');
-    const { loader } = loaderOf(f, w, { picture: keeper, hdPack: () => pictureExperimentalSettings(keeper.get()).hdPack });
+    let hd = false;
+    const { loader } = loaderOf(f, w, { picture: keeper, hdPack: () => hd });
     const job = loader.prepare('mp2');
     await flush(); await flush();
     expect(loader.holds('mp2')).toBe('preparing');
-    keeper.set('experimental');
+    hd = true; keeper.set('ps2');
     await job;
     hang = false;
     expect(loader.holds('mp2')).toBeNull();
@@ -728,5 +781,130 @@ describe('IP3 review folds on the prepare (F1-F3) and 5d\'s N1', () => {
     expect(m.canvas).toBe(f.made[1]!.canvas);
     m.close();
     loader.dispose();
+  });
+});
+
+/**
+ * VS-6 (VS.R4, a browser adaptation, product track): antialias, graphics and power preference apply at the next match,
+ * never by a reload -- the match's renderer is made at its mount with the video keeper's values (`pageRenderer`), a
+ * next-match row changed while a match is prepared (or being prepared) drops it and prepares it again with the new
+ * values, and a running match's renderer is left alone. The page's own renderer under the recording three above.
+ */
+describe('VS-6: the next-match rows reach the next renderer, never the running one', () => {
+  const pageLoader = (w: ReturnType<typeof fakeWindow>) => {
+    const { worker } = answeringWorker();
+    return matchLoader({ kind: 'http', baseUrl: '/maps' } as never, () => worker, { win: w.win });
+  };
+  const settle = async (w: ReturnType<typeof fakeWindow>, n = 30): Promise<void> => { for (let i = 0; i < n; i++) { await flush(); w.step(1); } };
+  const fresh = (): void => { localStorage.clear(); constructed.params.length = 0; constructed.disposed = 0; vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never); };
+  afterEach(() => { localStorage.clear(); });
+
+  it("the prepare's renderer is made with the keeper's antialias, graphics and power", async () => {
+    fresh();
+    videoSettingsKeeperV2().set({ antialias: false, graphics: 'webgl2', power: 'low-power' });
+    const w = fakeWindow(), loader = pageLoader(w);
+    expect(await prepared(loader, w)).toBe(true);
+    expect(constructed.params).toHaveLength(1);
+    expect(constructed.params[0]).toMatchObject({ antialias: false, forceWebGL: true, powerPreference: 'low-power' });
+    loader.dispose();
+  });
+
+  it('a next-match row changed while a match is prepared drops it (its renderer, its canvas) and prepares it again with the new value; a live row drops nothing', async () => {
+    fresh();
+    const keeper = videoSettingsKeeperV2();
+    const w = fakeWindow(), loader = pageLoader(w);
+    expect(await prepared(loader, w)).toBe(true);
+    expect(constructed.params).toHaveLength(1);
+    expect(constructed.params[0]).toMatchObject({ antialias: true });
+    const first = document.querySelector('canvas')!;
+    keeper.set({ antialias: false });
+    expect(constructed.disposed).toBe(1);                              // dropped at the change
+    expect(first.isConnected).toBe(false);
+    await settle(w);
+    expect(constructed.params).toHaveLength(2);                        // prepared again
+    expect(constructed.params[1]).toMatchObject({ antialias: false });
+    expect(loader.holds('mp2')).toBe('prepared');
+    keeper.set({ power: 'high-performance' });
+    await settle(w);
+    expect(constructed.params).toHaveLength(3);
+    expect(constructed.params[2]).toMatchObject({ antialias: false, powerPreference: 'high-performance' });
+    keeper.set({ shadows: 'off', filtering: 'anisotropic' });          // live rows: the prepared match keeps its renderer
+    await settle(w);
+    expect(constructed.params).toHaveLength(3);
+    expect(constructed.disposed).toBe(2);
+    expect(loader.holds('mp2')).toBe('prepared');
+    loader.dispose();
+  });
+
+  it('a next-match row changed while the match is still being prepared lets that one go and prepares with the new value', async () => {
+    fresh();
+    const keeper = videoSettingsKeeperV2();
+    const w = fakeWindow(), loader = pageLoader(w);
+    void loader.prepare('mp2');
+    expect(loader.holds('mp2')).toBe('preparing');
+    keeper.set({ antialias: false });
+    expect(loader.holds('mp2')).toBe('preparing');                     // the new one
+    await settle(w);
+    expect(loader.holds('mp2')).toBe('prepared');
+    expect(constructed.params.at(-1)).toMatchObject({ antialias: false });
+    expect(constructed.params.filter((p) => p.antialias === true).length).toBe(constructed.disposed);   // any made on the old value was let go
+    loader.dispose();
+  });
+
+  it('nothing prepared: a change prepares nothing', async () => {
+    fresh();
+    const w = fakeWindow(), loader = pageLoader(w);
+    videoSettingsKeeperV2().set({ antialias: false });
+    await settle(w, 5);
+    expect(loader.holds('mp2')).toBeNull();
+    expect(constructed.params).toHaveLength(0);
+    loader.dispose();
+  });
+
+  it("a change while the match runs leaves its renderer alone; the next match's mount reads the new value", async () => {
+    fresh();
+    const keeper = videoSettingsKeeperV2();
+    const w = fakeWindow(), loader = pageLoader(w);
+    expect(await prepared(loader, w)).toBe(true);
+    const m = loader.mount(document.body, mountOptions(handOff('mp2'), w));
+    w.step(3);
+    keeper.set({ antialias: false, power: 'low-power' });
+    await settle(w, 5);
+    expect(constructed.params).toHaveLength(1);                        // no renderer made, the running one not disposed
+    expect(constructed.disposed).toBe(0);
+    expect(loader.holds('mp2')).toBeNull();                            // and no prepare started under it
+    m.close();
+    expect(constructed.disposed).toBe(1);
+    const next = loader.mount(document.body, mountOptions(handOff('mp2'), w));
+    await settle(w, 5);
+    expect(constructed.params).toHaveLength(2);
+    expect(constructed.params[1]).toMatchObject({ antialias: false, powerPreference: 'low-power' });
+    next.close();
+    loader.dispose();
+  });
+});
+
+describe('VS-6: matchRendererChoice -- the keeper\'s rows, the address first, a saved Xbox pick kept', () => {
+  afterEach(() => { localStorage.clear(); });
+  const rows = { antialias: true, graphics: 'webgl2', power: 'default' } as const;
+  it("the keeper's values when nothing overrides them", () => {
+    localStorage.clear();
+    expect(matchRendererChoice({ ...rows, antialias: false, graphics: 'webgpu', power: 'low-power' }, '')).toEqual({ graphics: 'webgpu', antialias: false, power: 'low-power' });
+  });
+  it('?renderer= wins over the keeper (readGraphicsBackend\'s order); ?renderer=xbox turns antialias off', () => {
+    localStorage.clear();
+    expect(matchRendererChoice(rows, '?renderer=webgpu')).toEqual({ graphics: 'webgpu', antialias: true, power: 'default' });
+    expect(matchRendererChoice(rows, '?renderer=xbox')).toEqual({ graphics: 'xbox', antialias: false, power: 'default' });
+  });
+  it("review F4: ?renderer=webgl2 over a saved Xbox pick is WebGL2 with the keeper's antialias", () => {
+    localStorage.clear();
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    expect(matchRendererChoice({ ...rows, graphics: 'auto' }, '?renderer=webgl2')).toEqual({ graphics: 'webgl2', antialias: true, power: 'default' });
+    expect(matchRendererChoice({ ...rows, graphics: 'auto', antialias: false }, '?renderer=webgl2')).toEqual({ graphics: 'webgl2', antialias: false, power: 'default' });
+  });
+  it('a saved Xbox pick (the keeper reads it as Automatic) stays the Xbox preset until VS-7: WebGL2, antialias off', () => {
+    localStorage.clear();
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    expect(matchRendererChoice({ ...rows, graphics: 'auto' }, '')).toEqual({ graphics: 'xbox', antialias: false, power: 'default' });
   });
 });

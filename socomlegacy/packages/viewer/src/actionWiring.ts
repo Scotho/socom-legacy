@@ -164,10 +164,14 @@ export function actionInputs(s: ActionSources): ContextInputs {
   // seventh: the room's offer already asks the gate's terms, LATER 167/171/182, but reaches the page a round trip late)
   // -- the climb keeps its own rule.
   const open = (): boolean => !(s.gateShut?.() ?? false);
+  // R4B-16 (G8, research 389 §1; OT.R97, reading, pending review): r0004 builds the bomb's drop (0x40) only in the
+  // else-branch of the turret's mount (0x80000) -- r4 0x599488-0x5994b0, the drop's test the new 0x599cd0 -- where r0001
+  // offered both (`FUN_005937c0` D:L452456-452474). Both are past the common gate, so `s.turret()` is the mount's offer.
   const tests: Record<Context, () => boolean> = {
     victory: () => open() && (s.victory?.() ?? false),
     bombPlant: () => open() && bombIs('bomb'), bombDefuse: () => open() && bombIs(DEFUSE_PROMPT_ICON_READING), traversal: () => s.traversal(),
-    door: () => open() && s.door(), switch: () => open() && s.switch(), c4: () => open() && s.c4(), turret: () => open() && s.turret(), bombDrop: () => open() && bombIs('bomb_drop'),
+    door: () => open() && s.door(), switch: () => open() && s.switch(), c4: () => open() && s.c4(), turret: () => open() && s.turret(),
+    bombDrop: () => open() && !s.turret() && bombIs('bomb_drop'),
     pickup: () => open() && (s.pickup?.() ?? false), pickup2: () => open() && (s.pickup2?.() ?? false), escortee: () => open() && (s.escortee?.() ?? false),
   };
   const out: ContextInputs = {};

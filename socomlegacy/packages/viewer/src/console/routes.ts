@@ -1,5 +1,6 @@
-import { GAME_FIRST, isLobbyLinkPath, LAUNCHER_FIRST as SITE_LAUNCHER_FIRST, reservedFirstSegments } from '@s2u/ui';
+import { GAME_FIRST, isLobbyLinkPath, LAUNCHER_FIRST as SITE_LAUNCHER_FIRST, REPLAY_PAGE_SEGMENT, reservedFirstSegments } from '@s2u/ui';
 import { routeSegmentsOfPath } from '../menuRoutes';
+import { replayQueryPairs } from '../replay/query';
 import {
   CATS, optCategories, REMAP_ROW,
   type Adapters, type ConsoleState, type LoadoutSide, type Screen,
@@ -43,6 +44,30 @@ export function classifyLauncherPath(pathname: string, base: string, state: unkn
   if (segs.length > 0 && RESERVED.has(segs[0]!)) return 'skip';
   if (segs.length === 0 || OURS.has(segs[0]!)) return 'ours';
   return 'unknown';
+}
+
+/**
+ * LCM-RP (the replay batch's RB-12; `./render/replayPublic` `REPLAY_PUBLIC_PAGE_ADAPTATION`): the replay page's address,
+ * `/replay/<id>[?match=<matchId>]` -- a segment the table never writes (`@s2u/ui` `REPLAY_PAGE_SEGMENT`, reserved, so
+ * `classifyLauncherPath` skips it) and the launcher's entry boots by its path (`./main`). The id is the route's 16
+ * lower-case hex; anything else under `/replay/` is `malformed` (the page goes Home). `match` is the query's, a
+ * non-empty one of at most `REPLAY_PAGE_MATCH_MAX` characters (central's own bound), else none. Null: not this page.
+ */
+export type ReplayPageRoute = { kind: 'replay'; id: string; match: string | null } | { kind: 'malformed' };
+
+/** LCM-RP: the longest `match` the page passes on (central's `MATCH_ID_MAX`, `packages/central/src/replay/http.ts`). */
+const REPLAY_PAGE_MATCH_MAX = 128;
+
+export function replayPageOf(pathname: string, search: string, base: string): ReplayPageRoute | null {
+  const b = base.endsWith('/') ? base : `${base}/`;
+  // the first segment read raw: a later one that does not decode (`%zz`) leaves the whole path unreadable, and the page
+  // is still this one -- malformed
+  if (!pathname.startsWith(b) || pathname.slice(b.length).split('/')[0] !== REPLAY_PAGE_SEGMENT) return null;
+  const segs = routeSegmentsOfPath(pathname, base);
+  if (segs[0] !== REPLAY_PAGE_SEGMENT || segs.length !== 2 || !/^[0-9a-f]{16}$/.test(segs[1]!)) return { kind: 'malformed' };
+  let match: string | null = null;
+  match = replayQueryPairs(search)?.find(([k]) => k === 'match')?.[1] ?? null;
+  return { kind: 'replay', id: segs[1]!, match: match !== null && match !== '' && match.length <= REPLAY_PAGE_MATCH_MAX ? match : null };
 }
 
 const catAt = (id: string): number => Math.max(0, CATS.findIndex((c) => c.id === id));
@@ -98,6 +123,7 @@ export function encodeLauncherPath(s: ConsoleState, a: Adapters): string {
     case 'game': return `online/games/${encodeURIComponent(s.lb.game ?? '')}`;
     case 'custom': return 'online/custom';
     case 'server': return 'online/server';
+    case 'mods': return 'experiments/mods';   // B206 ML-2
     case 'replays': return 'watch';
     case 'options': {
       const id = optCategories(s, a)[s.opt.cat]?.id ?? optCategories(s, a)[0]?.id ?? 'display';
@@ -135,6 +161,7 @@ export function launcherPageKey(s: ConsoleState, a: Adapters): string {
     case 'game': return `game:${s.lb.game ?? ''}`;
     case 'custom': return 'custom';
     case 'server': return 'server';
+    case 'mods': return 'mods';
     case 'replays': return 'replays';
     case 'loadoutSides': return 'loadout-sides';
     case 'loadouts': return `loadouts:${s.lo.side}`;
@@ -162,6 +189,7 @@ export function launcherParentKey(s: ConsoleState, a: Adapters): string | null {
     case 'game': return s.lb.from === 'room' ? `room:${s.lb.room ?? ''}` : 'rooms';
     case 'custom': return 'home';
     case 'server': return 'home';
+    case 'mods': return 'home';
     case 'replays': return 'home';
     case 'loadoutSides': return 'home';
     case 'loadouts': return 'loadout-sides';
@@ -194,7 +222,11 @@ export function decodeLauncherPath(pathname: string, base: string, s: ConsoleSta
     return;
   }
   if (first === 'watch') { s.screen = 'replays'; s.cat = catAt('profile'); return; }
-  if (first === 'experiments') { home(s, 'experiments'); return; }
+  if (first === 'experiments') {
+    home(s, 'experiments');
+    if (segs[1] === 'mods') s.screen = 'mods';   // B206 ML-2: the MODS screen, pushed from Experiments
+    return;
+  }
   if (first === 'profile') {
     const rest = segs[1] ?? '';
     if (rest === '') { home(s, 'profile'); return; }
@@ -264,6 +296,7 @@ export function primeLauncherRoute(s: ConsoleState, a: Adapters, pathname = '', 
   if (s.screen === 'record') a.profile?.open('record');
   if (s.screen === 'remap') a.remap?.open();
   if (s.screen === 'server') a.server.loadNews?.();
+  if (s.screen === 'mods') a.mods?.open();
 }
 
 /** The header Back's label: the parent it returns to. Null on the home screen (the control is hidden there). */
@@ -277,6 +310,7 @@ export function launcherBackLabel(s: ConsoleState): string | null {
     case 'game': return s.lb.from === 'room' ? 'Briefing room' : 'Browse rooms';
     case 'custom': return 'Play online';
     case 'server': return 'Play online';
+    case 'mods': return 'Experiments';
     case 'replays': return 'Profile';
     case 'loadoutSides': return 'Profile';
     case 'loadouts': return 'Loadouts';
@@ -296,7 +330,7 @@ export function launcherPathSamples(): readonly string[] {
     'watch', 'profile', 'profile/personas', 'profile/personas/x', 'profile/personas/new', 'profile/record',
     'profile/armory', 'profile/armory/seal', 'profile/armory/terrorist', 'profile/armory/seal/x', 'profile/armory/terrorist/x',
     'settings', 'settings/display', 'settings/audio', 'settings/controller', 'settings/mobile', 'settings/communication',
-    'settings/account', 'settings/controller/mapping', 'experiments',
+    'settings/account', 'settings/controller/mapping', 'experiments', 'experiments/mods',
   ];
 }
 

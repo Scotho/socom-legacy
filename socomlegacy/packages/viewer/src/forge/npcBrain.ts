@@ -70,6 +70,32 @@ export class NpcBrain {
   /** The brain's own account of each seat it drives (`MatchBots.stats`): position, target, route, last shot and the room's verdict on it. */
   stats(): ReturnType<MatchBots['stats']> { return this.bots.stats(); }
 
+  /**
+   * Drive a seat this brain was not given at construction -- a rules `spawner.release` (`forgePlayNpcSeats`). The same
+   * `MatchBots.adopt` as a marker NPC. The caller hears the seat's events (there is no `NetClient` on a released seat).
+   */
+  adoptSeat(id: number): ReturnType<MatchBots['adopt']> {
+    if (this.adopted.has(id)) return null;
+    const hear = this.bots.adopt(id);
+    if (!hear) return null;
+    this.adopted.set(id, () => {});
+    return hear;
+  }
+
+  /**
+   * Forget a released seat (`forgePlayNpcSeats`, at its vacate and at the round's clear): the brain lets it go now, so a
+   * later release that takes the same id -- a new round starts its ids again -- is adopted and driven. A maintainers' fix
+   * (the review of #768/#773, F1; product track): without it the id stayed "adopted" here after `MatchBots` had dropped
+   * the departed seat, and every reuse was refused. A seat it does not hold is a no-op; a marker NPC's is never released.
+   */
+  releaseSeat(id: number): void {
+    const off = this.adopted.get(id);
+    if (!off) return;
+    off();
+    this.adopted.delete(id);
+    this.bots.release(id);
+  }
+
   /** One room tick's worth (`beforeStep`): adopt any seated NPC not yet adopted, then the brain's own step. */
   step(): void {
     for (const n of this.npcs) {

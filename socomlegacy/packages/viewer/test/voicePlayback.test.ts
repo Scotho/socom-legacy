@@ -51,6 +51,11 @@ describe('VOICE-2 (b): the playback gain is HEADSET VOLUME times the owner\'s ga
     expect(ctx.gains[0]!.gain.value).toBeCloseTo(2.7, 12);                 // x 100 clamped to 0..100 first (D:L211697-211704)
     h = 0; pb.frame();
     expect(ctx.gains[0]!.gain.value).toBe(0);
+    for (const value of [.25,.5,1,0,1]) {
+      h=value; pb.frame();
+      expect(ctx.gains[0]!.gain.value).toBeCloseTo(headsetGain(value)*VOICE_PLAYBACK_GAIN_OWNER,12);
+      expect(ctx.starts).toHaveLength(1);
+    }
     h = Number.NaN; pb.frame();
     expect(ctx.gains[0]!.gain.value).toBe(0);
   });

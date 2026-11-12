@@ -15,18 +15,31 @@
  *    button's edge state at `ctrl+0x118` (0 idle, 2 pressed, 1 held, 3 released); pressed or held asks for the rifle
  *    up; every edge resets the countdown at `ctrl+0x234` to `ctrl+0x22c` + `ctrl+0x230` x rand, which the controller's
  *    constructor (`FUN_00598280` 0x598280, lines 454808-454809) sets to **5.0 s** and **0**; idle, the countdown
- *    runs, and when it has run out the rifle is asked down. While the controller holds its aim (`ctrl+0xc0 > 0`, or
- *    the inventory's `FUN_005be6c0` && !`FUN_005b90f0`) the rifle is kept up and the countdown reset.
+ *    runs, and when it has run out the rifle is asked down. While the body's perception has an enemy marked
+ *    (`ctrl+0xc0 > 0`, D:L453088-453092), or the inventory's `FUN_005be6c0` && !`FUN_005b90f0` (a scope), the rifle is
+ *    kept up and the countdown reset (ENEMY-RAISE ER-1, below).
  *
  * The weight is what `CZSealBody_Tick_0` (0x57a330, decomp lines 438828-438860) blends the clips' **Fire** versions
  * in with (`FUN_0028bdd0(weight, ...)`, the version looked up by `FUN_0058c970` → `FUN_005e1a10` from the table
  * `FUN_005e0690` fills at lines 494790-494801): see `./weaponPose`.
  *
+ * ENEMY-RAISE ER-1 (the owner's word, 2026-11-09; research 321 s4.1.1 point 7 and s7.7; reading, reviewed):
+ * `ctrl+0xc0` is the count of enemies the body's own perception has marked -- `FUN_005c9b30` (the controller's slot +0x3c
+ * `FUN_005970b0`, D:L454091-454095) zeroes it (D:L482090) and adds one for each record whose target shares no team bit with
+ * the body (D:L482112), is active (D:L482115), of a counted kind (D:L482116-482129) and marked (`+0x2c` bit 0x200,
+ * D:L482131-482132): the mark that turns the reticle red (`./reticle` `Perception`, `enemyCount`). The idle trigger asks
+ * the rifle UP while it is over 0 and the 5.0 s countdown re-arms; once 0 the countdown runs (D:L453568-453601). The page
+ * feeds it as `RaiseInput.enemies` (`./matchFirearm`). Was: `AIM_HOLDS_RAISE`, `ctrl+0xc0` read as the viewer's aim lane
+ * ("not named"), so the rifle never rose by itself. While `DAT_003df1b0` is 0 the player control returns at once
+ * (D:L453067-453070): no request, no countdown, no edge, and the raise tick does not run (D:L418526-418531, D:L418611)
+ * -- `RaiseInput.gated` (`RAISE_GATE_READING`).
+ *
  * What is the viewer's and not the game's, by name:
- * - `AIM_HOLDS_RAISE`: the controller's aim test is read as the viewer's aim lane (`ctrl+0xc0` is not named).
  * - The capability bit `seal+0x258` bit 0 and the item test `item+0x7c != 0xbe` that gate the raise
- *   (`FUN_005dfe30`) are taken as passed: the SEAL holds a rifle.
+ *   (`FUN_005dfe30`) are taken as passed: the SEAL holds a rifle (`RAISE_CAPABILITY_GATE_READING`).
  * - The countdown's "never" sentinel `DAT_0065a858` is not on hand; the countdown here always runs.
+ * - The player control's other exits before the raise tail -- the mode word, `FUN_005966a0`, r0004's online freeze --
+ *   are not modelled: the port raises anyway (`RAISE_TAIL_EXITS_READING`).
  *
  * NU-8a, research 326 §6 B1 (D1, D2, D3; reading, pending review): the same controller hears the hand's item and the
  * throw (`THROW_RIFLE_RAISE_READING`). A hand grenade up -- the hand's class 'y' (`FUN_005c8040`, D:L453568) -- turns the
@@ -36,6 +49,15 @@
  * gate `FUN_0059d830`, D:L457352-457362): the edge 2 -> 3 -> 0 and, with a grenade left, the lower two updates after the
  * release. A placing's trigger is the firearm's (D:L453633-453634). The feed -- the hold's start, the hand -- is
  * `RaiseFeed`.
+ *
+ * ENEMY-RAISE ER-2 (protocol 14; reading, reviewed): another console's copy runs no player control. The owner packs
+ * its own body's state (`FUN_005e0010` D:L494306-494309: `body+0xf74 & 0xef`, 1 up or 2 down) into the player record's
+ * byte +0x7e every frame (`FUN_002bd640` D:L161978, under the multiplayer flag D:L161921), and the receiver's
+ * `FUN_002be150` replays it on the copy as a request, `FUN_005dfe30(copy, byte)` (D:L162310-162312), when that field
+ * arrives; the copy's controller (table 0x669590, `FUN_00599690` D:L455432-455437) counts nothing, and its body
+ * runner `FUN_005dfc80` runs the envelope. Here the wire's `BodyFlag.Raised` is `RaiseInput.raised`: each game frame
+ * the copy requests it (a repeat is a no-op, D:L494244) and runs the raise tick -- no trigger edge, no countdown, no
+ * hand inferred.
  */
 
 import { GAME_FRAME_DT, GameFrameAccumulator, itemClass } from '@s2u/scene';
@@ -109,10 +131,40 @@ const RAISE_TICK_DT = f32(GAME_FRAME_DT);
 const F_099 = Math.fround(0.99);
 
 /**
- * The viewer's reading (named): the controller keeps the rifle up while it aims (`ctrl+0xc0 > 0` in `FUN_00594cf0`),
- * taken as the aim lane (L1 / the right button).
+ * ENEMY-RAISE ER-1 (research 321 s7.7, SCOPE.md U16; reading, pending review): what stands for `DAT_003df1b0` == 0, the
+ * gate under which `FUN_00594cf0` returns before the trigger and the raise (D:L453067-453070) and `FUN_005970b0` skips the
+ * count (D:L454091-454095) -- `RaiseInput.gated`: no request, no countdown, no edge, and the envelope holds -- the raise
+ * tick `FUN_005dfc80` runs only under `+0x417` bit 6 (D:L418531, D:L418611), the controller's tick's answer
+ * (D:L418526-418527), 0 on the gated path (D:L453069, D:L453735; the second reader's finding, 2026-11-10; reading,
+ * pending review; was: the envelope still ran). The byte's
+ * one writer is `FUN_00598840` (D:L454841), from `FUN_00228ee0` / `FUN_00229520` (D:L78454, D:L78609; a scripted camera
+ * taking the player's control, research 85) and the script op `FUN_005cf800` (D:L485157); which screens reach them is
+ * unread. The page feeds it from its round screens (`./matchFirearm` `screens`, OBF-31: only MPExitState is ticked under
+ * them, so the player control does not run). The page's count is computed fresh each frame, so no stale count crosses
+ * the gate; the original's one stale read at the reopen (U3, one frame at most) is not modelled. Settles: those callers
+ * read, or a capture of `0x40a378` (r0004) with the raise state through a menu and the round screens (SCOPE.md s2.1 run 10).
  */
-export const AIM_HOLDS_RAISE = true;
+export const RAISE_GATE_READING = "the page's round screens; the original's screens unread" as const;
+
+/**
+ * ENEMY-RAISE ER-1, the review's F1 (research 321 s7.7, SCOPE.md U6 and U13; reading, pending review): the player
+ * control's other ways out before the idle raise tail (D:L453568-453601), which the port does not model -- so in each
+ * case **the port raises anyway** where the original would not ask:
+ * - `modeWord`: the mode word `DAT_0043668c + 4` at 1 or 2 (D:L453064) takes the branch that skips the control and the
+ *   count's gate test; what the modes are is unread;
+ * - `exit005966a0`: `FUN_005966a0` answering non-zero (D:L453172) returns before the tail; the function is unread;
+ * - `r0004Freeze`: r0004 only, online only -- the call at 0x59aa28 to 0x32a220 with the network block 0x45d480 answers 0
+ *   while net+0x10e is 0 or net+0x100 < net+0x108 (signed), and on 0 the control freezes before the tail (r0001's
+ *   session-lost byte `DAT_0045a1ca`, D:L453125-453145); what net+0x100 and net+0x108 hold is unread (SCOPE.md U13,
+ *   `R0004_ONLINE_FREEZE`).
+ * Settles: `FUN_005966a0` and the mode word read; a writer scan of r0004's net+0x100 / +0x108 / +0x10e, or the scope's
+ * capture run 11 (0x45d580, 0x45d588, 0x45d58e through a round start, a respawn and a round).
+ */
+export const RAISE_TAIL_EXITS_READING = {
+  modeWord: 'DAT_0043668c+4 at 1 or 2 (D:L453064): not modelled, the port raises',
+  exit005966a0: 'FUN_005966a0 answers non-zero (D:L453172): not modelled, the port raises',
+  r0004Freeze: 'online, net+0x10e == 0 or net+0x100 < net+0x108 (0x32a220): not modelled, the port raises',
+} as const;
 
 /**
  * NU-8a, research 326 §6 B1 and §7 (reading, pending review): the rifle through a throw. A hand grenade up with the
@@ -127,6 +179,32 @@ export const AIM_HOLDS_RAISE = true;
  * placing's press raises it as the firearm's trigger does (D:L453633-453634). Settles: research 326's capture NU8-1.
  */
 export const THROW_RIFLE_RAISE_READING = 'down at a take-up; up at a release, down two updates on with one left' as const;
+
+/**
+ * RAISE-HELD-FIRE (m02d; research 326 §7; reading, reviewed): the trigger with a hand grenade up. The controller's
+ * trigger is the pad's level whatever is in the hand (`FUN_00594cf0` D:L453543-453567) and the slot change leaves it
+ * (`FUN_005c4b10`; research 211 §10), so a trigger held from before the take-up stays at edge 1, whose call
+ * `FUN_005dfe30(body)` (D:L453612-453613) asks the rifle UP every update, the countdown reset: the decompiler drops the
+ * call's second argument, read off `socom2_game.elf` -- `addiu $a1, $zero, 1` at 0x596128 (the delay slot of the edge-3
+ * test), the edge-1 test `beq $v1, $a1` at 0x59612c on that register, and the call at 0x596298 (its delay slot
+ * `$a0 = $s2`) with `$a1` untouched between: 1, up. A fresh press with a hand grenade up (edge 2; the class 'y' with a round
+ * left, `FUN_005bdb00` D:L474543) is the wind-up's: the countdown reset, no request, the edge moved 2 -> 3 -> 0
+ * (D:L453624-453660) -- so a press under the throw's clip, where the port's wind-up does not start, asks nothing either.
+ * Let go, the edge 3 resets the countdown (D:L453603-453610) and the edge 0 lowers at once (D:L453598-453600). The feed
+ * hears the firearm's held trigger owed back under the item (`./matchFirearm` `triggerOwed`). Settles: a capture -- the
+ * fire held, L2 to an M67, the raise state `actor+0xf74` per frame.
+ */
+export const HELD_TRIGGER_ITEM_RAISE_READING = 'up while held from before the take-up; a press with a grenade up asks nothing' as const;
+
+/**
+ * RAISE-HELD-FIRE (m02d; research 326 §7; reading, reviewed): the raise request's capability gate. `FUN_005dfe30`
+ * tests the body's `+0x258` bit 0 before it stores the UP state (D:L494258-494259; r0004's at 0x5e7690-0x5e7698): the
+ * port's `WeaponRaise.request` takes it as passed -- every UP request, the held trigger's among them, goes through that
+ * one door, so the gate goes there once built. Its three clears found are wall and weapon-line checks (`FUN_00549c30`
+ * D:L414153, `FUN_00549f30` D:L414275, D:L465223; `SWAP_RUN_FIRE_READING`); who sets it (r0004's U8) is unread. Settles:
+ * the bit's writers read, or a capture with `actor+0x258` per frame.
+ */
+export const RAISE_CAPABILITY_GATE_READING = 'taken as passed' as const;
 
 /**
  * NU-8a (research 326 §1.6, §7; a reading, pinned by nothing): the slot's last grenade. The firearm comes back at the
@@ -175,9 +253,13 @@ export const SWAP_RUN_FIRE_READING = 'fires as with no swap' as const;
 export const ACTION_PLANT_RAISE_READING = 'none' as const;
 
 /**
+ * ENEMY-RAISE ER-2 (protocol 14; reading, reviewed): **retired for a live copy**, which takes its owner's raise
+ * state off the wire (`RaiseInput.raised`, `BodyFlag.Raised`; the take-up's lower D2, a placing's raise D3 and the cases
+ * F3 (a)-(c) below each now follow the owner's own state). Kept only for a body with no raise field -- a replay recorded
+ * before protocol 14 (`../remotePlayers` `setRaiseField`) -- as it was:
  * NU-8a (research 326 §4; the port's own): another console's copy raises its rifle from the owner's raise state (SealObject
- * byte 0x7e, `FUN_005e0010` -> `FUN_005dfe30` D:L162310-162311; research 193 §4.1), which the port's wire does not carry,
- * nor a grenade in the hand: the room's item is the launcher or the firearm (`room.ts` `bodyOf`, `p.held ?? p.loadout`).
+ * byte 0x7e, `FUN_005e0010` -> `FUN_005dfe30` D:L162310-162311; research 193 §4.1), which the port's wire did not carry
+ * before protocol 14, nor a grenade in the hand: the room's item is the launcher or the firearm (`room.ts` `bodyOf`, `p.held ?? p.loadout`).
  * So a copy's hand is taken as a hand grenade's from a throw's hold start (the release) until its replicated trigger --
  * the firearm's alone (`netPage.ts` `walk.setTrigger`) -- or its firearm changes. Its take-up, its wind-up and a placing's
  * press are not on the wire: a copy's rifle is not lowered at a take-up (D2) and not raised at a placing (D3), whose hold
@@ -286,16 +368,30 @@ export interface RaiseStats { weight: number; state: 'up' | 'down'; moving: bool
  */
 export type ThrowRelease = 'gated' | 'ungated';
 
-/** One frame's input to the raise: the firearm's trigger and aim, and (NU-8a B1) the hand's item and a throw's release. */
+/**
+ * One frame's input to the raise: the firearm's trigger and the scope (`aiming`), the marked-enemy count and the gate
+ * (ER-1), and (NU-8a B1) the hand's item and a throw's release.
+ */
 export interface RaiseInput {
   trigger: boolean;
+  /** A scope up (`FUN_005be6c0` && !`FUN_005b90f0`, D:L453088-453092): the page's `walk.view() === 'scope'`. */
   aiming: boolean;
+  /** ER-1: the enemies the body's perception has marked (`ctrl+0xc0`, `FUN_005c9b30` D:L482090-482132); none, 0. */
+  enemies?: number;
+  /** ER-1: the player control's gate shut (`DAT_003df1b0` 0, D:L453067-453070; `RAISE_GATE_READING`). */
+  gated?: boolean;
   /** A hand grenade up, one left: the hand's class 'y' (`FUN_005c8040` D:L453568). */
   grenade?: boolean;
   /** The throw's wind-up held (`ctrl+0x170` bit 0x40, set by the press D:L453637). */
   windUp?: boolean;
   /** A throw's release this frame (D:L453520), or none. */
   release?: ThrowRelease | null;
+  /**
+   * ER-2: a copy's owner's raise state off the wire (`BodyFlag.Raised`: byte +0x7e, `FUN_002be150` D:L162310-162312) --
+   * set, the raise asks it each game frame and runs its envelope, nothing else; absent, the page's own controller (or a
+   * pre-14 copy's inference, `REMOTE_HAND_RAISE_READING`) runs.
+   */
+  raised?: boolean;
 }
 
 /** NU-8a B1: what the page's own kit tells the raise each frame (`./matchThrow`), beside the firearm's trigger and aim. */
@@ -344,19 +440,29 @@ export class RaiseFeed {
   /** A copy's hand taken as a hand grenade's (`REMOTE_HAND_RAISE_READING`). */
   private copyGrenade = false;
 
-  /** One frame's `WeaponRaise.frame` input. `pistol`: the sidearm in the hand; `hand`: the page's own kit, null for a copy. */
-  input(snap: Pick<PlaySnapshot, 'hold' | 'holdSerial'>, pistol: boolean, firearm: { trigger: boolean; aiming: boolean }, hand: ItemRaise | null): RaiseInput {
+  /**
+   * One frame's `WeaponRaise.frame` input. `pistol`: the sidearm in the hand; `hand`: the page's own kit, null for a copy.
+   * ER-1: the firearm's feed carries the marked-enemy count and the gate through (a copy's has neither). ER-2: a copy's
+   * feed with its owner's raise state (`raised`) is that state alone -- no hand inferred.
+   */
+  input(snap: Pick<PlaySnapshot, 'hold' | 'holdSerial'>, pistol: boolean, firearm: Pick<RaiseInput, 'trigger' | 'aiming' | 'enemies' | 'gated' | 'raised'>, hand: ItemRaise | null): RaiseInput {
     const clip = snap.hold ?? null, serial = snap.holdSerial;
     const seen = this.seen;
     const started = seen !== undefined && (seen === null || seen.clip !== clip || seen.serial !== serial);
     this.seen = clip === null ? null : { clip, serial };
     const release = clip !== null && started ? throwReleaseOf(clip, pistol) : null;
+    const lanes = { enemies: firearm.enemies ?? 0, gated: firearm.gated ?? false };   // ER-1
     if (hand) {
-      return { trigger: firearm.trigger || hand.trigger, aiming: firearm.aiming, grenade: hand.grenade, windUp: hand.windUp, release };
+      return { trigger: firearm.trigger || hand.trigger, aiming: firearm.aiming, ...lanes, grenade: hand.grenade, windUp: hand.windUp, release };
+    }
+    if (firearm.raised !== undefined) {
+      // ER-2: the owner's state off the wire (`FUN_002be150` D:L162310-162312), its hand and throws the owner's own
+      this.copyGrenade = false;
+      return { trigger: firearm.trigger, aiming: firearm.aiming, ...lanes, raised: firearm.raised };
     }
     if (release) this.copyGrenade = true;
     if (firearm.trigger) this.copyGrenade = false;                     // the wire's trigger is the firearm's alone
-    return { trigger: firearm.trigger, aiming: firearm.aiming, grenade: this.copyGrenade, release };
+    return { trigger: firearm.trigger, aiming: firearm.aiming, ...lanes, grenade: this.copyGrenade, release };
   }
 
   /** A copy's firearm changed: its hand is the firearm's. */
@@ -413,7 +519,10 @@ export class WeaponRaise {
     this.times = raiseWords(times);
   }
 
-  /** `FUN_005dfe30`: asks for the rifle up (1) or down (2). LATER 185: in float32 toward zero (D:L494245-494269). */
+  /**
+   * `FUN_005dfe30`: asks for the rifle up (1) or down (2). LATER 185: in float32 toward zero (D:L494245-494269). The UP
+   * store's `+0x258` bit-0 gate (D:L494258-494259) is taken as passed (`RAISE_CAPABILITY_GATE_READING`).
+   */
   request(target: typeof UP | typeof DOWN): void {
     if (target === (this.state & ~MOVING)) return;
     const env = this.envelope, t = this.times;
@@ -479,6 +588,22 @@ export class WeaponRaise {
   /** LATER 185: one game frame -- the controller's tick (`FUN_00594cf0`), then the raise tick (`FUN_005dfc80`). */
   private update(input: RaiseInput, real: number): void {
     const reset = (): void => { this.countdown = LOWER_DELAY.base + LOWER_DELAY.random * Math.random(); };
+    if (input.raised !== undefined) {
+      // ER-2: a copy -- `FUN_002be150` asks the owner's state (`FUN_005dfe30(copy, byte)`, D:L162310-162312; a repeat a
+      // no-op, D:L494244) and the body runner `FUN_005dfc80` runs the envelope; the copy's controller counts nothing
+      this.request(input.raised ? UP : DOWN);
+      this.run(RAISE_TICK_DT);
+      return;
+    }
+    if (input.gated) {
+      // ER-1 (`RAISE_GATE_READING`): `DAT_003df1b0` 0 -- the player control returns before the trigger and the raise
+      // (D:L453067-453070): no request, no countdown, the edge as it was. Nor does the raise tick run: `FUN_00594cf0`
+      // returns 0 on that path (D:L453069, D:L453735), the body runner stores it in `+0x417` bit 6 (the controller's
+      // vtable +0xc, table 0x6694b0's `FUN_00594cf0`; D:L418526-418527) and calls `FUN_005dfc80` only under that bit
+      // (D:L418531, D:L418611) -- the envelope holds where it stands (the second reader's finding, 2026-11-10; reading,
+      // pending review; was: the raise tick still ran)
+      return;
+    }
     if (input.release) {
       // NU-8a B1: the wind-up block's release (D:L453520-453537): up, the edge moved as a press (3 -> 2, 2 -> 1, 1 -> 1,
       // 0 -> 2); outside the gates the bit-7 branch is due next update.
@@ -500,14 +625,23 @@ export class WeaponRaise {
       this.windingUp = false;
       this.edge = nextEdge(this.edge, input.trigger);
       if (this.edge === 0) {
-        let want: typeof UP | typeof DOWN = AIM_HOLDS_RAISE && input.aiming ? UP : DOWN;
+        // ER-1: UP while the perception has an enemy marked or a scope is up (`FUN_00594cf0` D:L453088-453092, the count
+        // `FUN_005c9b30` D:L482090-482132); was `AIM_HOLDS_RAISE && input.aiming`, `ctrl+0xc0` read as the aim lane
+        let want: typeof UP | typeof DOWN = (input.enemies ?? 0) > 0 || input.aiming ? UP : DOWN;
         if (input.grenade) want = DOWN;                                  // NU-8a B1: the class 'y', no countdown (D:L453598)
         else if (want === DOWN) {
           this.countdown -= real;
           if (this.countdown > 0) want = UP;
         } else reset();
         this.request(want);
+      } else if (this.edge === 2 && input.grenade) {
+        // RAISE-HELD-FIRE (`HELD_TRIGGER_ITEM_RAISE_READING`): a press with a hand grenade up is the wind-up's -- the
+        // countdown reset, no request, the edge 2 -> 3 -> 0 (D:L453624-453660)
+        reset();
+        this.edge = 0;
       } else {
+        // edge 1 (held; `FUN_005dfe30(body, 1)` D:L453612-453613, its argument the ELF's: `HELD_TRIGGER_ITEM_RAISE_READING`)
+        // or 2 (pressed, D:L453633-453634) asks up whatever is in the hand; 3 resets the countdown
         reset();
         this.request(UP);
       }

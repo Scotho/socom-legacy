@@ -41,6 +41,8 @@ export interface NetLoginHostOptions {
   server?: string;
   /** Where the first-use write's result goes (the console by default). */
   log?: (line: string) => void;
+  /** LOGIN's connect hold (OT.R20), seconds; absent, `LOGIN_CONNECT_HOLD_SECONDS_PLACEHOLDER` (OT.R121's cover: 0). */
+  connectHoldSeconds?: number;
 }
 
 /** The eznetcnf stand-in's state the page keeps: the server of the combination LOGIN selected (RPC 2), or null. */
@@ -84,6 +86,7 @@ export function connectNetLogin(host: UiCommandHost, o: NetLoginHostOptions): Ne
     iop,
     inputString: (cmd: ZAnimUiCommand) => o.machine().shell()?.inputString(cmd.anim) ?? null,
     event: (kind) => { o.machine().shell()?.event(kind); },
+    ...(o.connectHoldSeconds !== undefined ? { connectHoldSeconds: o.connectHoldSeconds } : {}),
   });
   commands.register(host);
   return { commands, iop, selection, ensured: () => ensured };

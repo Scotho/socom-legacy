@@ -2,8 +2,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ClanInvitationCommands, LobbyClan, MyClanInvitations, PLAYER_INVITE_NAME_VAR, UiCommandHost, UiVarManager, type ZAnimUiCommand } from '@s2u/ui';
-import { CLAN_INVITATIONS_SESSION_LOST, connectClanInvitations, fetchClanMembershipService, sessionClanMembership } from '../src/clanInvitationsHost';
+import { ClanInvitationCommands, DIALOG_EVENTS, LobbyClan, MyClanInvitations, PLAYER_INVITE_NAME_VAR, UiCommandHost, UiVarManager, type ZAnimUiCommand } from '@s2u/ui';
+import { type BriefingRoomTransport, chatReplyOf } from '../src/briefingRoomHost';
+import {
+  CLAN_INVITATIONS_SESSION_LOST, CLAN_INVITE_LIVE_DIALOGS, connectClanInvitations, fetchClanMembershipService, sessionClanMembership, withClanInvitationNotice,
+} from '../src/clanInvitationsHost';
 
 /**
  * ONL-28's page half (web research 273 §5): the invitations' requests -- SVC-09a's `/clan/invitations` now with the
@@ -168,14 +171,15 @@ describe('frontEnd.ts mounts it (ONL-28; the seat\'s claim of the four lines, HA
   const src = readFileSync(resolve(fileURLToPath(import.meta.url), '../../src/frontEnd.ts'), 'utf8');
 
   it('imports the host\'s mount and transport; the session option clanMembership is a ClanMembershipTransport', () => {
-    expect(src).toContain("import { connectClanInvitations, fetchClanInvitationsService, fetchClanMembershipService, type ClanMembershipTransport } from './clanInvitationsHost';");
+    expect(src).toContain("import { connectClanInvitations, fetchClanInvitationsService, fetchClanMembershipService, withClanInvitationNotice, type ClanMembershipTransport } from './clanInvitationsHost';");
     expect(src).toMatch(/\n {2}clanMembership\?: ClanMembershipTransport;\n/);
   });
 
   it('the session mounts both pages over SOCOM II ONLINE\'s client clan and received list, the ticket, the lobby\'s events, the input string and its state, after connectCreateClan', () => {
     const call = 'connectClanInvitations(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, invitations: this.world.invitations, service: o.clanMembership, '
       + 'ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), '
-      + 'inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null });';
+      + 'inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null, '
+      + 'dialog: () => this.machine.shell()?.currentName ?? null });';
     expect(src).toContain(call);
     expect(src.indexOf(call)).toBeGreaterThan(src.indexOf('connectCreateClan(this.host, {'));
     // INVITE-TICKETLESS: after the world's ticketless registration, so the ticketed rows are the ones the page dispatches
@@ -185,5 +189,103 @@ describe('frontEnd.ts mounts it (ONL-28; the seat\'s claim of the four lines, HA
 
   it('the page hands the transport at its own origin with the session\'s bearer, as the other online pages', () => {
     expect(src).toMatch(/clanMembership: fetchClanMembershipService\(accountServiceBase\(search, win\.location, devBuild\(\)\)\),/);
+  });
+});
+
+describe('CLAN_INVITE_LIVE_ADAPTATION (CLAN-INVITES, a browser adaptation): central\'s mark on the chat poll refreshes the received list', () => {
+  it('chatReplyOf keeps `clanInvitations: true` beside the lines; any other value is dropped; a reply without it is the lines alone, as before', () => {
+    expect(chatReplyOf({ lines: [], clanInvitations: true })).toEqual({ lines: [], clanInvitations: true });
+    expect(chatReplyOf({ lines: [], clanInvitations: 1 })).toEqual([]);
+    expect(chatReplyOf({ lines: [] })).toEqual([]);
+    expect(chatReplyOf({ lines: [], system: [], clanInvitations: true })).toEqual({ lines: [], system: [], clanInvitations: true });
+  });
+
+  it('withClanInvitationNotice: the poll\'s reply handed on unchanged, the ticket it was sent with handed to `changed` only on the mark; the other requests untouched', async () => {
+    const tickets: string[] = [];
+    const replies: unknown[] = [{ lines: [], clanInvitations: true }, [], { lines: [], says: [] }, 'session-lost'];
+    const t = { chatLines: () => Promise.resolve(replies.shift()), chat: () => Promise.resolve() } as unknown as BriefingRoomTransport;
+    const w = withClanInvitationNotice(t, (ticket) => { tickets.push(ticket); });
+    expect(await w.chatLines!('T1')).toEqual({ lines: [], clanInvitations: true });
+    expect(await w.chatLines!('T2')).toEqual([]);
+    expect(await w.chatLines!('T3')).toEqual({ lines: [], says: [] });
+    expect(await w.chatLines!('T4')).toBe('session-lost');
+    expect([tickets, w.chat]).toEqual([['T1'], t.chat]);
+    const none = {} as BriefingRoomTransport;
+    expect(withClanInvitationNotice(none, () => {})).toBe(none);
+  });
+
+  it('connectClanInvitations\' live(): the received list asked again over the session\'s transport with the bearer, kept until the replies are in; no ticket or no transport, nothing sent', async () => {
+    const host = new UiCommandHost(), uiVars = new UiVarManager(), calls: Call[] = [];
+    const invitations = new MyClanInvitations({ uiVars });
+    let ticket: string | null = null;
+    const c = connectClanInvitations(host, {
+      uiVars, clan: new LobbyClan(), invitations, service: fetchClanMembershipService('http://own', fetching(200, { replies: [INVITE] }, calls)),
+      ticket: () => ticket, sessionLost: () => {}, event: () => {}, inputString: () => null,
+    });
+    c.live();
+    await flush();
+    expect([calls.length, invitations.count]).toEqual([0, 0]);
+    ticket = 'T5';
+    c.live();
+    await flush();
+    expect(calls.map((x) => [x.url, (x.init.headers as Record<string, string>)['authorization'], JSON.parse(String(x.init.body)) as unknown]))
+      .toEqual([['http://own/clan/invitations', 'Bearer T5', { start: 0, pageSize: 999 }]]);
+    expect([invitations.count, host.dispatch(cmd('HasClanInvitations')).answer]).toEqual([1, true]);
+    const bare = connectClanInvitations(new UiCommandHost(), { uiVars, clan: new LobbyClan(), invitations, ticket: () => 'T6', sessionLost: () => {}, event: () => {}, inputString: () => null });
+    bare.live();
+    await flush();
+    expect(invitations.count).toBe(1);
+  });
+
+  it('frontEnd.ts: the briefing room\'s transport wrapped over `withSays`, its mark refreshing the list under the ticket it was sent with; the mount\'s live() bound after connectClanInvitations', () => {
+    const src = readFileSync(resolve(fileURLToPath(import.meta.url), '../../src/frontEnd.ts'), 'utf8');
+    expect(src).toContain('let clanInvitesLive: (() => void) | null = null;');
+    expect(src).toContain('service: o.briefingRoom && withClanInvitationNotice(withSays(o.briefingRoom, ');
+    expect(src).toContain('(ticket) => { if (ticket === this.lobby?.ticket()) clanInvitesLive?.(); }),');
+    expect(src).toContain('const clanInvites = connectClanInvitations(this.host, {');
+    expect(src).toContain('clanInvitesLive = clanInvites.live;');
+    expect(src.indexOf('let clanInvitesLive')).toBeLessThan(src.indexOf('this.briefing = connectBriefingRoom('));
+    expect(src.indexOf('clanInvitesLive = clanInvites.live;')).toBeGreaterThan(src.indexOf('const clanInvites = connectClanInvitations('));
+  });
+});
+
+describe('CLAN_INVITE_LIVE_ADAPTATION, the review\'s F2: the live refresh only on SOCOM II ONLINE or RESPOND TO INVITES', () => {
+  const mount = (dialog: () => string | null) => {
+    const host = new UiCommandHost(), uiVars = new UiVarManager(), calls: Call[] = [], events: number[] = [];
+    const invitations = new MyClanInvitations({ uiVars, event: (k) => { events.push(k); } });
+    const c = connectClanInvitations(host, {
+      uiVars, clan: new LobbyClan(), invitations, service: fetchClanMembershipService('http://own', fetching(200, { replies: [INVITE] }, calls)),
+      ticket: () => 'T7', sessionLost: () => {}, event: () => {}, inputString: () => null, dialog,
+    });
+    return { host, calls, events, invitations, c };
+  };
+
+  it('names the two dialogs the original\'s INVITATIONS row and RESPOND TO INVITES list live on', () => {
+    expect(CLAN_INVITE_LIVE_DIALOGS).toEqual(['dlgWorldOfSOCOM.rdr', 'dlgRespondToInvites.rdr']);
+  });
+
+  it('a mark on another screen raises nothing -- no request, no MP_MEDIUS_HAS_INVITES -- and stays pending until SOCOM II ONLINE\'s own init_screen CheckMyInvites asks the list', async () => {
+    let dialog: string | null = 'dlgMPBriefingRoom.rdr';
+    const r = mount(() => dialog);
+    r.c.live();
+    await flush();
+    expect([r.calls.length, r.events, r.invitations.count, r.c.livePending()]).toEqual([0, [], 0, true]);
+    dialog = null;                                                                    // a match, a loading screen: the same
+    r.c.live();
+    await flush();
+    expect([r.calls.length, r.events, r.c.livePending()]).toEqual([0, [], true]);
+    dialog = 'dlgWorldOfSOCOM.rdr';
+    r.host.dispatch(cmd('CheckMyInvites'));                                          // the menu's ONSTART init_screen (FUN_0027a3c0)
+    await flush();
+    expect([r.calls.length, r.events, r.invitations.count, r.c.livePending()]).toEqual([1, [DIALOG_EVENTS['MP_MEDIUS_HAS_INVITES']], 1, false]);
+  });
+
+  it('on SOCOM II ONLINE or RESPOND TO INVITES a mark asks the list at once', async () => {
+    for (const dialog of ['dlgWorldOfSOCOM.rdr', 'dlgRespondToInvites.rdr']) {
+      const r = mount(() => dialog);
+      r.c.live();
+      await flush();
+      expect([r.calls.length, r.invitations.count, r.events, r.c.livePending()], dialog).toEqual([1, 1, [DIALOG_EVENTS['MP_MEDIUS_HAS_INVITES']], false]);
+    }
   });
 });

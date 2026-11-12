@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SHARE_READ_SET_BYTES, liveDiscShare, type LiveShareDeps } from '../src/discShare';
+import { SHARE_READ_SET_BYTES, hostBusy, liveDiscShare, pairingWords, type LiveShareDeps } from '../src/discShare';
 import type { PeerFactory, PeerSession } from '../src/discShareRtc';
 import { DiscShareError, discShareSignal, type DiscShareSignal } from '../src/discShareSignal';
-import type { DiscShareAdapter, ReceiverPhase } from '../src/discShareView';
+import { DISC_SHARE_HOST_PARAM, shareHostLink, type DiscShareAdapter, type ReceiverPhase } from '../src/discShareView';
 import type { DiscShareMsg, DiscShareQueued } from '../src/discShareWire';
 import {
   SHARE_CONFLICT, SHARE_FORBIDDEN, SHARE_NO_SUCH_CODE, SHARE_OTHER_STOPPED, SHARE_SOURCE_GONE, SHARE_TOO_MANY, SHARE_UNAVAILABLE,
 } from '../src/discShareWords';
 import { SHARE_IDLE_MS_ADAPTATION } from '../src/discShareProtocol';
-import { SHARE_DROPPED, SHARE_IDLE } from '../src/discShareWords';
+import {
+  SHARE_DEPLOY_STOPS, SHARE_DROPPED, SHARE_HOST_ENDED, SHARE_HOST_GONE, SHARE_IDLE, SHARE_REQUEST_GONE,
+} from '../src/discShareWords';
 import { files, pipes, sha, source, store, syntheticSet } from './discShareFakes';
 
 /**
@@ -22,51 +24,115 @@ import { files, pipes, sha, source, store, syntheticSet } from './discShareFakes
 
 const ORIGIN = 'https://s2.example.org';
 
-/** central's pairing in memory, for any number of clients. */
+/**
+ * central's pairing in memory, for any number of clients. RB-25's hosted shares too (`discShareWire.ts`'s header): a host
+ * opened by `host`, polled by its id, told `asked` for each request bound to it by its token and `withdrawn` when one ends
+ * unanswered; `approve` pairs a bound request as a claim does, `decline` tells its receiver `declined`; the host's `bye`
+ * ends it and tells every receiver still pending `withdrawn`.
+ */
 function fakeCentral(opts: { life?: number } = {}) {
   interface Side { secret: string; queue: DiscShareQueued[]; seq: number; wake: (() => void) | null }
-  interface Pair { id: string; code: string; rx: Side; tx: Side | null; createdAt: number; ended: boolean; endsAt: number }
+  interface Pair { id: string; code: string; rx: Side; tx: Side | null; createdAt: number; ended: boolean; endsAt: number; host: string | null }
+  interface Host { id: string; token: string; side: Side; ended: boolean }
   const pairs = new Map<string, Pair>();
+  const hosts = new Map<string, Host>();
   let n = 0;
-  const log: { op: string; msg?: string }[] = [];
+  const log: { op: string; msg?: string; id?: string; body?: unknown }[] = [];
   let open = 0;
   const side = (secret: string): Side => ({ secret, queue: [], seq: 0, wake: null });
   const push = (s: Side, msg: DiscShareMsg): void => { s.queue.push({ seq: ++s.seq, msg }); const w = s.wake; s.wake = null; w?.(); };
   const routed = (status: number, why: string): DiscShareError => new DiscShareError(status, why, true);
+  /** A host ended (its bye, or central letting it go): every request still bound to it told `withdrawn`; its poll woken. */
+  const endHost = (h: Host): void => {
+    h.ended = true;
+    for (const p of pairs.values()) if (p.host === h.id && !p.ended) { p.host = null; push(p.rx, { type: 'withdrawn' }); p.ended = true; }
+    const w = h.side.wake; h.side.wake = null; w?.();
+  };
   const live = (id: string): Pair | undefined => { const p = pairs.get(id); return p && !p.ended ? p : undefined; };
   const sideOf = (p: Pair | undefined, secret: string): Side | null => (p ? (p.rx.secret === secret ? p.rx : p.tx?.secret === secret ? p.tx : null) : null);
+  const hostOf = (id: string, secret: string): Host => {
+    const h = hosts.get(id);
+    if (!h || h.ended) throw routed(404, 'no such host');
+    if (h.side.secret !== secret) throw routed(403, 'wrong secret');
+    return h;
+  };
+  const bound = (h: Host, id: string): Pair => {
+    const p = live(id);
+    if (!p) throw routed(404, 'no such request');
+    if (p.host !== h.id) throw routed(403, 'not this host\'s request');
+    return p;
+  };
   const client = (): DiscShareSignal => ({
-    async request() {
+    async request(_signal, hostToken) {
+      const h = hostToken === undefined ? null : [...hosts.values()].find((x) => x.token === hostToken && !x.ended);
+      if (h === undefined) throw routed(404, 'no such host');
       n++;
       const code = `QX7K4${'MNPQRSTUVW'[n % 10]}`;
-      const p: Pair = { id: `id${n}`, code, rx: side(`rs${n}`), tx: null, createdAt: n, ended: false, endsAt: Infinity };
+      const p: Pair = { id: `id${n}`, code, rx: side(`rs${n}`), tx: null, createdAt: n, ended: false, endsAt: Infinity, host: h ? h.id : null };
       pairs.set(p.id, p);
-      log.push({ op: 'request' });
+      log.push({ op: 'request', ...(h ? { body: { host: hostToken } } : {}) });
+      if (h) push(h.side, { type: 'asked', id: p.id, code, since: Date.now() });
       return { id: p.id, code, secret: p.rx.secret, expiresAt: Date.now() + 600_000 };
     },
-    async nearby() { log.push({ op: 'nearby' }); return [...pairs.values()].filter((p) => !p.tx && !p.ended).map((p) => ({ id: p.id, code: p.code, createdAt: p.createdAt })); },
+    async nearby() { log.push({ op: 'nearby' }); return [...pairs.values()].filter((p) => !p.tx && !p.ended && !p.host).map((p) => ({ id: p.id, code: p.code, createdAt: p.createdAt })); },
     async claim(code) {
       log.push({ op: 'claim' });
-      const p = [...pairs.values()].find((x) => x.code === code.toUpperCase() && !x.tx && !x.ended);
+      const p = [...pairs.values()].find((x) => x.code === code.toUpperCase() && !x.tx && !x.ended && !x.host);
       if (!p) throw routed(404, 'no such request');
       p.tx = side(`ts${p.id}`);
       if (opts.life !== undefined) p.endsAt = Date.now() + opts.life;      // central ends a pair LIFE after its claim
       push(p.rx, { type: 'claimed' });
       return { id: p.id, secret: p.tx.secret };
     },
+    async host() {
+      n++;
+      const h: Host = { id: `h${n}`, token: `tok${n}`, side: side(`hs${n}`), ended: false };
+      hosts.set(h.id, h);
+      log.push({ op: 'host' });
+      return { hostId: h.id, token: h.token, secret: h.side.secret, expiresAt: Date.now() + 25_000 };
+    },
+    async approve(hostId, secret, id) {
+      log.push({ op: 'approve', id });
+      const p = bound(hostOf(hostId, secret), id);
+      p.host = null;
+      p.tx = side(`ts${p.id}`);
+      push(p.rx, { type: 'claimed' });
+      return { id: p.id, secret: p.tx.secret };
+    },
+    async decline(hostId, secret, id) {
+      log.push({ op: 'decline', id });
+      const p = bound(hostOf(hostId, secret), id);
+      p.host = null;
+      push(p.rx, { type: 'declined' });
+      p.ended = true;                                                     // its poll has the message first
+    },
     async send(id, secret, msg) {
-      log.push({ op: 'send', msg: msg.type });
+      log.push({ op: 'send', msg: msg.type, ...(hosts.has(id) ? { id } : {}) });
+      const h = hosts.get(id);
+      if (h) {
+        hostOf(id, secret);
+        if (msg.type !== 'bye') throw routed(409, 'a host takes no signal');
+        endHost(h);
+        return;
+      }
       const p = live(id);
       if (!p || Date.now() >= p.endsAt) throw routed(404, 'no such request');
       const me = sideOf(p, secret);
       if (!me) throw routed(403, 'wrong secret');
       const other = me === p.rx ? p.tx : p.rx;
-      if (msg.type === 'bye') { p.ended = true; if (other) push(other, msg); return; }
+      if (msg.type === 'bye') {
+        p.ended = true;
+        if (other) push(other, msg);
+        const hh = p.host ? hosts.get(p.host) : undefined;
+        if (hh && !hh.ended) push(hh.side, { type: 'withdrawn', id: p.id });
+        p.host = null;
+        return;
+      }
       if (!other) throw routed(409, 'not claimed yet');
       push(other, msg);
     },
     poll(id, secret, after, signal) {
-      log.push({ op: 'poll' });
+      log.push({ op: 'poll', id });
       return new Promise((ok, no) => {
         let done = false;
         let expiry: ReturnType<typeof setTimeout> | null = null;
@@ -74,6 +140,15 @@ function fakeCentral(opts: { life?: number } = {}) {
         open++;
         signal?.addEventListener('abort', () => { finish(() => { no(new DiscShareError(0, 'no answer')); }); }, { once: true });
         const look = (): void => {
+          const h = hosts.get(id);
+          if (h) {
+            if (h.side.secret !== secret) { finish(() => { no(routed(403, 'wrong secret')); }); return; }
+            const ready = h.side.queue.filter((m) => m.seq > after);
+            if (ready.length) { finish(() => { ok(ready); }); return; }
+            if (h.ended) { finish(() => { no(routed(404, 'no such host')); }); return; }
+            h.side.wake = look;
+            return;
+          }
           const p = pairs.get(id);
           const me = sideOf(p, secret);
           if (!p || !me) { finish(() => { no(routed(404, 'no such request')); }); return; }
@@ -87,7 +162,7 @@ function fakeCentral(opts: { life?: number } = {}) {
       });
     },
   });
-  return { client, log, pairs, polls: () => open };
+  return { client, log, pairs, hosts, polls: () => open, lose: (id: string) => { const h = hosts.get(id); if (h) endHost(h); } };
 }
 
 /** Fake peers: the offer names a fresh pipe pair; the answer joins it. `refuse` makes both ends refuse the pair. */
@@ -530,5 +605,389 @@ describe('DSH.R15: across networks -- the ICE servers from the pairing, the path
     const names = naming.map((f) => f.replace(/\\/g, '/').split('/').pop()!);
     expect(names).toEqual(expect.arrayContaining(['discShareSignal.ts', 'discShareWire.ts']));
     for (const n of names) expect(n).toMatch(/^discShare[A-Za-z]*\.ts$/);
+  });
+});
+
+/**
+ * RB-26 (the replay batch plan): the host mode -- a page with the disc opens a hosted share (RB-25's routes), lists the
+ * requests bound to it and the receiver-made ones found on its network in one list, and sends to one at a time: a Yes
+ * while sending queues the request, approved at central only at its turn (so its pair's 10 minutes start then). A browser
+ * adaptation, product track.
+ */
+describe('RB-26: host mode (one transfer at a time, on the fakes)', () => {
+  const tokenOf = (link: string | undefined): string => new URL(link!).searchParams.get(DISC_SHARE_HOST_PARAM)!;
+
+  function hosting(opts: { complete?: () => boolean; fs?: ReturnType<typeof files>; slowRead?: number } = {}) {
+    const central = fakeCentral();
+    const peer = fakePeers();
+    const fs = opts.fs ?? files(150_000, 90_000);
+    const kept = source(fs, 3);
+    const slow = opts.slowRead;
+    const src = slow === undefined ? kept : { ...kept, readRange: async (p: string, o: number, l: number) => { await new Promise((r) => setTimeout(r, slow)); return kept.readRange(p, o, l); } };
+    const host = liveDiscShare({ search: '', origin: ORIGIN, signal: central.client(), complete: opts.complete ?? (() => true), peer, sendSource: async () => src, readSet: 3 });
+    const pages: (DiscShareAdapter & { dispose(): void })[] = [host];
+    const asker = (token?: string) => {
+      const st = store();
+      const rx = liveDiscShare({
+        search: '', origin: ORIGIN, signal: central.client(), complete: () => false, peer, store: st, readSet: 3, isReadSet: syntheticSet, ...(token ? { hostToken: token } : {}),
+      });
+      pages.push(rx);
+      return { rx, st };
+    };
+    const open = async (): Promise<string> => {
+      host.openHost!();
+      await until(() => host.host!().phase === 'open', 'the host open');
+      return tokenOf(host.host!().link);
+    };
+    const end = (): void => { for (const p of pages) p.dispose(); };
+    return { central, host, asker, open, end, fs };
+  }
+
+  it('openHost opens a hosted share: its link carries the token (?discshare-host=), the host polls by its id', async () => {
+    const t = hosting();
+    expect(t.host.host!()).toMatchObject({ phase: 'idle', pending: [] });
+    t.host.openHost!();
+    expect(t.host.host!().phase).toBe('opening');
+    const token = await t.open();
+    expect(t.host.host!().link).toBe(shareHostLink(ORIGIN, token));
+    expect(t.host.host!().link).toBe(`${ORIGIN}/?${DISC_SHARE_HOST_PARAM}=${token}`);
+    await settle();
+    expect(t.central.log.some((l) => l.op === 'poll' && l.id?.startsWith('h'))).toBe(true);
+    t.end();
+  });
+
+  it('a page with the host\'s token requests against the host: it waits with its code (no link, no 10-minute expiry), and the host lists it', async () => {
+    vi.useFakeTimers();
+    const t = hosting();
+    t.host.openHost!();
+    await vi.advanceTimersByTimeAsync(0);
+    const token = tokenOf(t.host.host!().link);
+    const a = t.asker(token);
+    a.rx.request();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.central.log.find((l) => l.op === 'request')?.body).toEqual({ host: token });
+    expect(a.rx.receiver()).toMatchObject({ phase: 'waiting', hosted: true });
+    expect(a.rx.receiver().link).toBeUndefined();
+    expect(t.host.host!().pending).toEqual([{ id: expect.any(String), code: a.rx.receiver().code, since: expect.any(Number), state: 'asked' }]);
+    await vi.advanceTimersByTimeAsync(11 * 60_000);                  // past a receiver-made code's life: a hosted request lives while both poll
+    expect(a.rx.receiver().phase).toBe('waiting');
+    t.end();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('FIFO: Yes while sending queues (Queued #n), approved at central only at its turn; each copies in the order of its Yes', async () => {
+    const t = hosting({ fs: files(1, 1, 1, 1), slowRead: 20 });
+    const token = await t.open();
+    const [a, b, c] = [t.asker(token), t.asker(token), t.asker(token)];
+    for (const x of [a, b, c]) { x.rx.request(); await until(() => x.rx.receiver().phase === 'waiting', 'waiting'); }
+    await until(() => t.host.host!().pending.length === 3, 'three asked');
+    expect(t.host.host!().pending.map((p) => p.code)).toEqual([a, b, c].map((x) => x.rx.receiver().code));
+    const idOf = (x: typeof a): string => t.host.host!().pending.find((p) => p.code === x.rx.receiver().code)!.id;
+    const [ia, ib, ic] = [idOf(a), idOf(b), idOf(c)];
+    const approves = (): string[] => t.central.log.filter((l) => l.op === 'approve').map((l) => l.id!);
+    const seen: string[] = [];
+    let approvesWhileA = 0;
+    t.host.onChange(() => {
+      const act = t.host.host!().active;
+      if (act && seen.at(-1) !== act.id) seen.push(act.id);
+      if (act?.id === ia) approvesWhileA = Math.max(approvesWhileA, approves().length);
+    });
+    t.host.approveReq!(ia);
+    expect(t.host.host!().active).toMatchObject({ id: ia, code: a.rx.receiver().code });
+    t.host.approveReq!(ic);                                         // the order of the Yes, not of the asking
+    t.host.approveReq!(ib);
+    expect(t.host.host!().pending).toEqual([
+      expect.objectContaining({ id: ib, state: 'queued', place: 2 }),
+      expect.objectContaining({ id: ic, state: 'queued', place: 1 }),
+    ]);
+    await until(() => [a, b, c].every((x) => x.rx.receiver().phase === 'done'), 'all three copied');
+    expect(seen).toEqual([ia, ic, ib]);
+    expect(approves()).toEqual([ia, ic, ib]);
+    expect(approvesWhileA, 'the queued were not approved at central while the first copied').toBe(1);
+    for (const x of [a, b, c]) for (const f of t.fs) expect(sha(x.st.stored.get(f.path)!)).toBe(sha(f.data));
+    await until(() => t.host.host!().active === undefined, 'idle');
+    expect(t.host.host!()).toMatchObject({ phase: 'open', pending: [], last: { code: b.rx.receiver().code, outcome: 'done' } });
+    t.end();
+  });
+
+  it('decline: the host\'s No reaches the receiver (declined) and the request leaves the list', async () => {
+    const t = hosting();
+    const token = await t.open();
+    const a = t.asker(token);
+    a.rx.request();
+    await until(() => t.host.host!().pending.length === 1, 'asked');
+    const id = t.host.host!().pending[0]!.id;
+    t.host.declineReq!(id);
+    expect(t.host.host!().pending).toEqual([]);
+    await until(() => a.rx.receiver().phase === 'declined', 'declined');
+    expect(a.rx.receiver().code).toBeDefined();
+    expect(t.central.log.filter((l) => l.op === 'decline').map((l) => l.id)).toEqual([id]);
+    await settle();
+    expect(t.central.polls(), 'only the host\'s poll stands').toBe(1);
+    t.end();
+  });
+
+  it('decline of a queued request takes it out of the queue; the next Yes keeps its place', async () => {
+    const t = hosting({ fs: files(1, 1, 1), slowRead: 20 });
+    const token = await t.open();
+    const [a, b, c] = [t.asker(token), t.asker(token), t.asker(token)];
+    for (const x of [a, b, c]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 3, 'three asked');
+    const [ia, ib, ic] = t.host.host!().pending.map((p) => p.id) as [string, string, string];
+    t.host.approveReq!(ia); t.host.approveReq!(ib); t.host.approveReq!(ic);
+    t.host.declineReq!(ib);
+    expect(t.host.host!().pending).toEqual([expect.objectContaining({ id: ic, state: 'queued', place: 1 })]);
+    await until(() => b.rx.receiver().phase === 'declined', 'b declined');
+    await until(() => a.rx.receiver().phase === 'done' && c.rx.receiver().phase === 'done', 'a and c copied');
+    t.end();
+  });
+
+  it('withdraw: a receiver that cancels leaves the host\'s list (asked or queued)', async () => {
+    const t = hosting({ fs: files(1, 1, 1), slowRead: 20 });
+    const token = await t.open();
+    const [a, b, c] = [t.asker(token), t.asker(token), t.asker(token)];
+    for (const x of [a, b, c]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 3, 'three asked');
+    const [ia, ib] = t.host.host!().pending.map((p) => p.id) as [string, string, string];
+    t.host.approveReq!(ia); t.host.approveReq!(ib);
+    b.rx.cancel(); c.rx.cancel();
+    await until(() => t.host.host!().pending.length === 0, 'both withdrawn');
+    await until(() => a.rx.receiver().phase === 'done', 'a copied');
+    await until(() => t.host.host!().active === undefined, 'nothing next');
+    expect(t.central.log.filter((l) => l.op === 'approve').map((l) => l.id)).toEqual([ia]);
+    t.end();
+  });
+
+  it('stop then next: Stop ends the active copy (the receiver hears the other device stopped) and the next queued starts', async () => {
+    const t = hosting({ fs: files(3_000_000) });
+    const token = await t.open();
+    const [a, b] = [t.asker(token), t.asker(token)];
+    for (const x of [a, b]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 2, 'two asked');
+    const [ia, ib] = t.host.host!().pending.map((p) => p.id) as [string, string];
+    t.host.approveReq!(ia); t.host.approveReq!(ib);
+    await until(() => a.rx.receiver().phase === 'copying', 'a copying');
+    t.host.stopActive!();
+    expect(t.host.host!().last).toEqual({ code: a.rx.receiver().code, outcome: 'stopped' });
+    expect(t.host.host!().active).toMatchObject({ id: ib });
+    await until(() => a.rx.receiver().phase === 'failed', 'a stopped');
+    expect(a.rx.receiver().reason).toBe(SHARE_OTHER_STOPPED);
+    await until(() => b.rx.receiver().phase === 'done', 'b copied');
+    expect(a.st.commits).toHaveLength(0);
+    t.end();
+  });
+
+  it('a request withdrawn before its turn: its approve refused, said in last, and the next one goes', async () => {
+    const t = hosting({ fs: files(1, 1), slowRead: 20 });
+    const token = await t.open();
+    const [a, b, c] = [t.asker(token), t.asker(token), t.asker(token)];
+    for (const x of [a, b, c]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 3, 'three asked');
+    const [ia, ib, ic] = t.host.host!().pending.map((p) => p.id) as [string, string, string];
+    t.host.approveReq!(ia); t.host.approveReq!(ib); t.host.approveReq!(ic);
+    t.central.pairs.get(ib)!.ended = true;                          // central let it go and the host never heard (a lost withdrawn)
+    await until(() => c.rx.receiver().phase === 'done', 'c copied');
+    expect(t.central.log.filter((l) => l.op === 'approve').map((l) => l.id)).toEqual([ia, ib, ic]);
+    t.end();
+  });
+
+  it('Yes is gated on a complete extraction (DSH.R7): openHost without one opens nothing; a Yes after it went claims nothing', async () => {
+    let whole = false;
+    const t = hosting({ complete: () => whole });
+    t.host.openHost!();
+    expect(t.host.host!().phase).toBe('needs-extract');
+    await settle();
+    expect(t.central.log.some((l) => l.op === 'host')).toBe(false);
+    whole = true;
+    const token = await t.open();
+    const a = t.asker(token);
+    a.rx.request();
+    await until(() => t.host.host!().pending.length === 1, 'asked');
+    whole = false;
+    t.host.approveReq!(t.host.host!().pending[0]!.id);
+    await settle();
+    expect(t.host.host!().active).toBeUndefined();
+    expect(t.host.host!().pending[0]!.state).toBe('asked');
+    expect(t.central.log.some((l) => l.op === 'approve')).toBe(false);
+    t.end();
+  });
+
+  it('nearby codes feed the same list: a receiver-made request on this network is listed, and its Yes claims it by its code', async () => {
+    const t = hosting();
+    const a = t.asker();                                            // a receiver-made code (Play's row), not bound to the host
+    a.rx.request();
+    await until(() => a.rx.receiver().phase === 'waiting', 'waiting');
+    await t.open();
+    await until(() => t.host.host!().pending.length === 1, 'nearby listed');
+    expect(t.host.host!().pending[0]).toMatchObject({ code: a.rx.receiver().code, state: 'asked' });
+    t.host.approveReq!(t.host.host!().pending[0]!.id);
+    await until(() => a.rx.receiver().phase === 'done', 'copied');
+    expect(t.central.log.filter((l) => l.op === 'claim')).toHaveLength(1);
+    expect(t.central.log.some((l) => l.op === 'approve')).toBe(false);
+    t.end();
+  });
+
+  it('a nearby request declined is only hidden here (central decides no receiver-made code); it stays hidden', async () => {
+    vi.useFakeTimers();
+    const t = hosting();
+    const a = t.asker();
+    a.rx.request();
+    await vi.advanceTimersByTimeAsync(0);
+    t.host.openHost!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.host.host!().pending).toHaveLength(1);
+    t.host.declineReq!(t.host.host!().pending[0]!.id);
+    expect(t.host.host!().pending).toEqual([]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(t.host.host!().pending).toEqual([]);
+    expect(t.central.log.some((l) => l.op === 'decline')).toBe(false);
+    expect(a.rx.receiver().phase).toBe('waiting');
+    t.end();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('closeHost (Q10) ends the share: the host\'s bye, every pending receiver told the host ended, nothing left polling', async () => {
+    const t = hosting();
+    const token = await t.open();
+    const [a, b] = [t.asker(token), t.asker(token)];
+    for (const x of [a, b]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 2, 'two asked');
+    t.host.closeHost!();
+    expect(t.host.host!()).toMatchObject({ phase: 'idle', pending: [] });
+    expect(t.central.log.some((l) => l.op === 'send' && l.msg === 'bye' && l.id?.startsWith('h'))).toBe(true);
+    await until(() => a.rx.receiver().phase === 'failed' && b.rx.receiver().phase === 'failed', 'both told');
+    expect(a.rx.receiver().reason).toBe(SHARE_HOST_ENDED);
+    await settle();
+    expect(t.central.polls()).toBe(0);
+    t.end();
+  });
+
+  it('dispose ends the host: the active copy stopped, the queued and asked told the host ended, no poll or timer left', async () => {
+    const t = hosting({ fs: files(3_000_000) });
+    const token = await t.open();
+    const [a, b] = [t.asker(token), t.asker(token)];
+    for (const x of [a, b]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 2, 'two asked');
+    const [ia, ib] = t.host.host!().pending.map((p) => p.id) as [string, string];
+    t.host.approveReq!(ia); t.host.approveReq!(ib);
+    await until(() => a.rx.receiver().phase === 'copying', 'a copying');
+    t.host.dispose();
+    await until(() => a.rx.receiver().phase === 'failed' && b.rx.receiver().phase === 'failed', 'both ended');
+    expect(a.rx.receiver().reason).toBe(SHARE_OTHER_STOPPED);
+    expect(b.rx.receiver().reason).toBe(SHARE_HOST_ENDED);
+    expect(t.central.log.filter((l) => l.op === 'approve').map((l) => l.id)).toEqual([ia]);
+    await settle();
+    expect(t.central.polls()).toBe(0);
+    t.end();
+  });
+
+  it('Q11: a deploy tears the share down (console/app.ts takeDown -> dispose) and says so: hostBusy names the stop while a copy runs', async () => {
+    const t = hosting({ fs: files(3_000_000) });
+    const token = await t.open();
+    expect(hostBusy(t.host.host!())).toBe(false);
+    const a = t.asker(token);
+    a.rx.request();
+    await until(() => t.host.host!().pending.length === 1, 'asked');
+    expect(hostBusy(t.host.host!()), 'requests waiting end too').toBe(true);
+    t.host.approveReq!(t.host.host!().pending[0]!.id);
+    await until(() => a.rx.receiver().phase === 'copying', 'copying');
+    expect(hostBusy(t.host.host!())).toBe(true);
+    expect(SHARE_DEPLOY_STOPS).toMatch(/stops/i);
+    t.host.dispose();                                               // what takeDown calls (adapters.dispose)
+    await until(() => a.rx.receiver().phase === 'failed', 'the receiver told');
+    expect(a.rx.receiver().reason).toBe(SHARE_OTHER_STOPPED);
+    t.end();
+  });
+
+  it('the host lost (its poll refused): failed in the host\'s words, everything ended', async () => {
+    const t = hosting();
+    await t.open();
+    const h = [...t.central.hosts.values()][0]!;
+    h.ended = true;
+    const w = h.side.wake; h.side.wake = null; w?.();
+    await until(() => t.host.host!().phase === 'failed', 'failed');
+    expect(t.host.host!().reason).toBe(SHARE_HOST_GONE);
+    await settle();
+    expect(t.central.polls()).toBe(0);
+    t.end();
+  });
+
+  it('the host lost mid-copy (B2): a copy whose pipe is up runs on to done; the queued are told the host ended', async () => {
+    const t = hosting({ fs: files(3_000_000) });
+    const token = await t.open();
+    const [a, b] = [t.asker(token), t.asker(token)];
+    for (const x of [a, b]) x.rx.request();
+    await until(() => t.host.host!().pending.length === 2, 'two asked');
+    const [ia, ib] = t.host.host!().pending.map((p) => p.id) as [string, string];
+    t.host.approveReq!(ia); t.host.approveReq!(ib);
+    await until(() => a.rx.receiver().phase === 'copying', 'a copying');
+    t.central.lose([...t.central.hosts.keys()][0]!);                 // central let the host go: its bound requests told, its poll 404
+    await until(() => t.host.host!().phase === 'failed', 'the host failed');
+    expect(t.host.host!().reason).toBe(SHARE_HOST_GONE);
+    expect(t.host.host!().active, 'the connected copy kept').toMatchObject({ id: ia });
+    expect(t.host.host!().pending).toEqual([]);
+    await until(() => b.rx.receiver().phase === 'failed', 'b told');
+    expect(b.rx.receiver().reason).toBe(SHARE_HOST_ENDED);
+    await until(() => a.rx.receiver().phase === 'done', 'a copied');
+    await until(() => t.host.host!().last?.outcome === 'done', 'the host saw it done');
+    expect(t.host.host!().active).toBeUndefined();
+    expect(t.host.host!().phase).toBe('failed');
+    expect(t.central.log.filter((l) => l.op === 'approve').map((l) => l.id)).toEqual([ia]);
+    await settle();
+    expect(t.central.polls()).toBe(0);
+    t.end();
+  });
+
+  it('the host lost before a copy\'s pipe is up: that copy ends with the share', async () => {
+    const t = hosting({ fs: files(3_000_000) });
+    const token = await t.open();
+    const a = t.asker(token);
+    a.rx.request();
+    await until(() => t.host.host!().pending.length === 1, 'asked');
+    const h = [...t.central.hosts.values()][0]!;
+    h.ended = true;
+    t.host.approveReq!(t.host.host!().pending[0]!.id);
+    const w = h.side.wake; h.side.wake = null; w?.();
+    await until(() => t.host.host!().phase === 'failed', 'the host failed');
+    await settle();
+    expect(t.host.host!().active, 'no pipe up: the copy ended with the share').toBeUndefined();
+    expect(a.rx.receiver().phase).not.toBe('copying');
+    expect(a.st.commits).toHaveLength(0);
+    t.end();
+    await settle();
+    expect(t.central.polls()).toBe(0);
+  });
+
+  it('the pairing client\'s hosted calls: host, a request bound by token, approve and decline under the host\'s secret', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const f = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      calls.push({ url: u, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (u.endsWith('/api/discshare/host')) return new Response(JSON.stringify({ hostId: 'H', token: 'T', secret: 'S', expiresAt: 5 }), { status: 200 });
+      if (u.endsWith('/api/discshare/request')) return new Response(JSON.stringify({ id: 'i', code: 'QX7K4M', secret: 's', expiresAt: 5 }), { status: 200 });
+      if (u.endsWith('/api/discshare/approve')) return new Response(JSON.stringify({ id: 'i', secret: 'tx' }), { status: 200 });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    const c = discShareSignal(ORIGIN, f);
+    expect(await c.host!()).toEqual({ hostId: 'H', token: 'T', secret: 'S', expiresAt: 5 });
+    await c.request(undefined, 'T');
+    await c.request();
+    expect(await c.approve!('H', 'S', 'i')).toEqual({ id: 'i', secret: 'tx' });
+    await c.decline!('H', 'S', 'i');
+    expect(calls).toEqual([
+      { url: `${ORIGIN}/api/discshare/host`, body: {} },
+      { url: `${ORIGIN}/api/discshare/request`, body: { host: 'T' } },
+      { url: `${ORIGIN}/api/discshare/request`, body: {} },
+      { url: `${ORIGIN}/api/discshare/approve`, body: { host: 'H', secret: 'S', id: 'i' } },
+      { url: `${ORIGIN}/api/discshare/decline`, body: { host: 'H', secret: 'S', id: 'i' } },
+    ]);
+    const bad = discShareSignal(ORIGIN, (async () => new Response('<html>', { status: 200 })) as typeof fetch);
+    await expect(bad.host!()).rejects.toMatchObject({ status: 200, reason: 'malformed answer' });
+  });
+
+  it('pairingWords: the host\'s 404 is the share gone; an approve\'s 404 is the request gone', () => {
+    expect(pairingWords(new DiscShareError(404, 'no such host', true), 'host')).toBe(SHARE_HOST_GONE);
+    expect(pairingWords(new DiscShareError(404, 'no such request', true), 'approve')).toBe(SHARE_REQUEST_GONE);
+    expect(pairingWords(new DiscShareError(429, 'too many open hosts', true), 'host')).toBe(SHARE_TOO_MANY);
   });
 });

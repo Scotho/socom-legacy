@@ -4,7 +4,7 @@
  * offer; an engine handler is engine code registered against a slot by the application; a pack can only CLAIM a slot's
  * handler by name (H272: no uploaded code runs). The vocabularies below are frozen before FCW-07c: a change to them
  * is a deliberate contract change, pinned by `test/handlers.test.ts`. Additive to `ENGINE_CONTRACT_VERSION` 0.1.0;
- * FCW-30 adds the `behaviour` slot family (`BEHAVIOUR_SLOTS`, the room's), additive in 0.1.1.
+ * FCW-30 adds the `behaviour` slot family (`BEHAVIOUR_SLOTS`, the room's), additive in 0.1.1; 0.1.2 (FP-4) leaves it.
  */
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { PACK_CODES, type PackHandlerCapability, type PackHandlerClaim } from "./packs.js";

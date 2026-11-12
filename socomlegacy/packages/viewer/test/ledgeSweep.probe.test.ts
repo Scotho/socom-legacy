@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildGrid, isGroundSurface, isWallSurface, probeGround, segmentHits, selectFloor, upNormal, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
-import { groundGrid, groundPolygons, STEP_PROBE_LIFT_READING, Walker, type WalkInput } from '../src/mover';
+import { groundGrid, groundPolygons, probeLiftOf, Walker, type WalkInput } from '../src/mover';
 import { simMapFromBytes } from '../src/simMap';
 import { Traversal } from '../src/traversal';
 import { readTacData } from '../src/tacMap';
@@ -78,7 +78,7 @@ const CONFIGS: { name: string; stance: 'stand' | 'crouch' | 'prone'; push: numbe
 interface Edge { x: number; z: number; ox: number; oz: number; top: number; drop: number }
 
 function floorAt(grid: Grid, x: number, y: number, z: number) {
-  return selectFloor(probeGround(grid, x, z), y + STEP_PROBE_LIFT_READING, y);
+  return selectFloor(probeGround(grid, x, z), y + probeLiftOf('stand'), y);
 }
 
 function edgesOf(grid: Grid, polys: readonly WorldPoly[]): Edge[][] {
@@ -161,7 +161,7 @@ if (process.env.OBF21_NO_STEEP_RISE) {
   const proto = Walker.prototype as unknown as Record<string, unknown>;
   proto.groundEndpoint = function groundEndpoint(this: Walker, x: number, z: number): boolean {
     const self = this as unknown as { state: { x: number; y: number; z: number }; grid: Grid; takeOff(): void; start(n: string, s: null): void; setFloorNormal(n: readonly number[]): void };
-    const s = self.state, floor = selectFloor(probeGround(self.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y);
+    const s = self.state, floor = selectFloor(probeGround(self.grid, x, z), s.y + probeLiftOf('stand'), s.y);
     if (!floor) return false;
     const rise = floor.y - s.y;
     // `unbounded` (LATER 590's record): the rule as it stood before the owner's interim bound, a steep rise refused
@@ -198,7 +198,7 @@ describe.skipIf(!ON || !process.env.OBF21_POLYWALK)('OBF-21 polygon walk (probe)
         for (const cfg of CONFIGS) {
           const w = new Walker(grid), t = new Traversal(grid, polys);
           w.driver = t;
-          if (!w.place(cx, cy + STEP_PROBE_LIFT_READING, cz)) continue;
+          if (!w.place(cx, cy + probeLiftOf('stand'), cz)) continue;
           const f0 = floorAt(grid, w.state.x, w.state.y, w.state.z);
           if (!f0 || f0.poly.path !== p.path || Math.abs(f0.y - cy) > 1) continue;   // another floor over it: not this top
           w.stance = cfg.stance;
@@ -284,7 +284,7 @@ describe.skipIf(!ON)('OBF-21 ledge sweep (probe)', () => {
       for (const { e, cfg, listed: isListed } of pairs) {
         const w = new Walker(grid), t = new Traversal(grid, polys);
         w.driver = t;
-        const unplaced = !w.place(e.x - e.ox * 6, e.top + STEP_PROBE_LIFT_READING, e.z - e.oz * 6) || Math.abs(w.state.y - e.top) > 1.5;
+        const unplaced = !w.place(e.x - e.ox * 6, e.top + probeLiftOf('stand'), e.z - e.oz * 6) || Math.abs(w.state.y - e.top) > 1.5;
         if (unplaced) {
           if (OUT && OUT_ALL) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: edgeOut(e), startStuck: true, flags: ['unplaced'], ...gateOf(cfg.stance === 'prone' ? null : false) })}
 `);

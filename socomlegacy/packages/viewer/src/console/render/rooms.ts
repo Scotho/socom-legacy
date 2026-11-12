@@ -1,3 +1,4 @@
+import { mapLabel } from '@s2u/archive/mapNames';
 import { btn, esc, ico, shoulders } from '../icons';
 import { screenHead } from './head';
 import { BROWSE_CUSTOM, BROWSE_KINDS, CUSTOM_UNAVAILABLE_LINE, OVERLAY_LOCK_WORDS, browseCustom, browseRows, countOf, pingBand, roomFull, visibleRooms, type Adapters, type BrowseCustomRow, type ConsoleState, type Room } from '../state';
@@ -67,7 +68,7 @@ function lobbyRowLabel(r: Room, word: string, sel: boolean): string {
   const players = `${r.n} of ${r.cap ?? r.n} players${roomFull(r) ? ', full' : ''}`;
   if (r.kind === 'room') return `Room ${r.name}${r.lock ? ', ' + r.lock : ''}, ${countOf(r.games ?? 0, 'game')}${ranks}, ${players}${sel ? ', launch target' : ''}`;
   const spec = r.spectators?.cap ? `${r.spectators.n} of ${r.spectators.cap} spectators` : '';
-  return [`Game ${r.name}`, r.progress?.toLowerCase() ?? '', r.map, players, spec, r.lock ?? '', r.clan?.toLowerCase() ?? '', `ping ${word}`, ranks.slice(2), sel ? 'launch target' : '']
+  return [`Game ${r.name}`, r.progress?.toLowerCase() ?? '', mapLabel(r.map), players, spec, r.lock ?? '', r.clan?.toLowerCase() ?? '', `ping ${word}`, ranks.slice(2), sel ? 'launch target' : '']
     .filter((x) => x !== '').join(', ');
 }
 
@@ -85,14 +86,14 @@ export function drawerHtml(r: Room & { i: number }, s: ConsoleState, a: Adapters
   const ping = r.pingMs !== undefined ? `<span style="font-family:var(--s2u-font-mono)">${esc(r.pingMs)} ms</span> · ${word}` : word;
   const facts = r.facts
     ? r.facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')
-    : `<dt>Map</dt><dd>${esc(r.map)}</dd>${r.mode !== undefined ? `<dt>Mode</dt><dd>${esc(r.mode)}</dd>` : ''}<dt>Ping</dt><dd>${ping}</dd>`;
+    : `<dt>Map</dt><dd>${esc(mapLabel(r.map))}</dd>${r.mode !== undefined ? `<dt>Mode</dt><dd>${esc(r.mode)}</dd>` : ''}<dt>Ping</dt><dd>${ping}</dd>`;
   const tile = (name: string, n: string): string => `<div class="cx-side"><span class="cx-side__name">${esc(name)}</span><span class="cx-side__n">${esc(n)}</span></div>`;
   const half = r.cap === null ? '' : String(r.cap / 2);
   const tiles = r.tiles ? r.tiles.map(([k, v]) => tile(k, v)).join('')
     : r.sides ? tile('SEALS', `${r.sides.seals}/${half}`) + tile('TERRORISTS', `${r.sides.terr}/${half}`) : '';
   return `<aside class="cx-drawer" aria-label="Room ${esc(r.name)}">
     <div class="cx-drawer__map ${art ? '' : 'is-guide'}">
-      ${art ? `<img src="${esc(art)}" alt="${esc(r.map)}">` : `<span>${r.kind === 'room' ? 'Briefing room' : ready ? 'Map picture from your disc' : 'Needs disc'}</span>`}
+      ${art ? `<img src="${esc(art)}" alt="${esc(mapLabel(r.map))}">` : `<span>${r.kind === 'room' ? 'Briefing room' : ready ? 'Map picture from your disc' : 'Needs disc'}</span>`}
       <span class="cx-drawer__name">${esc(r.name)}</span>
     </div>
     <div class="cx-drawer__body">
@@ -114,10 +115,10 @@ function customRowHtml(r: BrowseCustomRow, idx: number, focused: boolean): strin
   const name = esc(r.name) + (community ? ' · unranked · HyperNode' : '') + (r.locked ? ' · Password' : '') + (r.inMatch ? ' · In match' : '');
   const mode = community ? 'unranked' : CUSTOM_TAG;
   const tag = community ? 'HyperNode' : CUSTOM_TAG;
-  const label = [`Custom match ${r.name}`, community ? 'unranked, HyperNode' : '', r.map, `${r.players} of ${r.max} players`, r.locked ? 'password' : '', r.inMatch ? 'in match' : '', r.joinLocked ? OVERLAY_LOCK_WORDS.join : '', CUSTOM_ADAPTATION_WORDS]
+  const label = [`Custom match ${r.name}`, community ? 'unranked, HyperNode' : '', mapLabel(r.map), `${r.players} of ${r.max} players`, r.locked ? 'password' : '', r.inMatch ? 'in match' : '', r.joinLocked ? OVERLAY_LOCK_WORDS.join : '', CUSTOM_ADAPTATION_WORDS]
     .filter((x) => x !== '').join(', ');
   return `<button type="button" class="cx-room is-custom ${focused ? 'is-focused' : ''}" data-act="room" data-i="${idx}" data-fk="custom-${esc(r.id)}" data-kind="custom" aria-label="${esc(label)}">
-    ${nameCell(name)}<span>${esc(r.map)}</span><span>${mode}</span>
+    ${nameCell(name)}<span>${esc(mapLabel(r.map))}</span><span>${mode}</span>
     <span class="cx-room__count ${r.players >= r.max ? 'is-full' : ''}">${r.players}/${r.max}</span>
     <span class="cx-room__tag">${tag}</span>
   </button>`;
@@ -125,7 +126,7 @@ function customRowHtml(r: BrowseCustomRow, idx: number, focused: boolean): strin
 
 /** LR-37 (9): the focused custom match's drawer: its facts, the adaptation's line, JOIN (or its lock over a game). */
 function customDrawerHtml(r: BrowseCustomRow, s: ConsoleState): string {
-  const facts = [['Map', r.map], ['Players', `${r.players}/${r.max}`], ...(r.locked ? [['Password', 'Asked in the forge']] : []), ...(r.inMatch ? [['State', 'In match']] : [])]
+  const facts = [['Map', mapLabel(r.map)], ['Players', `${r.players}/${r.max}`], ...(r.locked ? [['Password', 'Asked in the forge']] : []), ...(r.inMatch ? [['State', 'In match']] : [])]
     .map(([k, v]) => `<dt>${esc(k ?? '')}</dt><dd>${esc(v ?? '')}</dd>`).join('');
   const cta = r.joinLocked ? esc(OVERLAY_LOCK_WORDS.join) : `${btn('cross')}Join · opens the forge`;
   return `<aside class="cx-drawer is-custom" aria-label="Custom match ${esc(r.name)}">
@@ -198,8 +199,8 @@ export function roomsHtml(s: ConsoleState, a: Adapters): string {
           if (r.kind) {
             return `<button type="button" class="cx-room ${idx === s.rooms.row ? 'is-focused' : ''} ${sel ? 'is-selected' : ''}" data-act="room" data-i="${idx}" data-fk="room-${esc(r.id)}" data-kind="${r.kind}" aria-label="${esc(lobbyRowLabel(r, word, sel))}">${lobbyRowCells(r)}</button>`;
           }
-          return `<button type="button" class="cx-room ${idx === s.rooms.row ? 'is-focused' : ''} ${sel ? 'is-selected' : ''}" data-act="room" data-i="${idx}" data-fk="room-${esc(r.id)}" aria-label="Room ${esc(r.name)}${r.lock ? ', ' + esc(r.lock) : ''}, ${esc(r.map)}, ${r.mode !== undefined ? esc(r.mode) + ', ' : ''}${r.cap === null ? `${r.n} players` : `${r.n} of ${r.cap} players`}, ping ${word}${sel ? ', launch target' : ''}">
-            ${nameCell(named(r))}<span>${esc(r.map)}</span><span>${esc(r.mode ?? '')}</span>
+          return `<button type="button" class="cx-room ${idx === s.rooms.row ? 'is-focused' : ''} ${sel ? 'is-selected' : ''}" data-act="room" data-i="${idx}" data-fk="room-${esc(r.id)}" aria-label="Room ${esc(r.name)}${r.lock ? ', ' + esc(r.lock) : ''}, ${esc(mapLabel(r.map))}, ${r.mode !== undefined ? esc(r.mode) + ', ' : ''}${r.cap === null ? `${r.n} players` : `${r.n} of ${r.cap} players`}, ping ${word}${sel ? ', launch target' : ''}">
+            ${nameCell(named(r))}<span>${esc(mapLabel(r.map))}</span><span>${esc(r.mode ?? '')}</span>
             <span class="cx-room__count ${roomFull(r) ? 'is-full' : ''}">${count(r)}</span>
             ${pingCell(r)}
           </button>`;

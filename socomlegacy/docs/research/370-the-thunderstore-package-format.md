@@ -20,3 +20,4 @@ format now, no API fetch, no store page). The wiki's list is held as data in `pa
 | Name | Status and evidence needed |
 |---|---|
 | `THUNDERSTORE_TEAM_PLACEHOLDER` | creator-contracts `packs.ts`: the Thunderstore team (namespace) our packs publish under, the `Team` of every exported dependency pin `Team-Name-x.y.z` (the default of `thunderstoreIdentity` and `thunderstoreManifest`); the value `TEAM_PLACEHOLDER` is a stand-in that is itself a valid store name, never a real team. Open: settled by the owner's answer to HUMAN_TASKS H342 (the team name), with nothing read from Thunderstore. |
+| `HD_PACK_STORE_PAGE_PLACEHOLDER` | viewer `console/adapters/mods.ts` (B206 ML-2, ML.R16): the HD pack's Thunderstore page, linked from the MODS screen; `null`, so no link is drawn -- never a made-up address. Open: settled once the owner has uploaded the pack ML-5's option builds (H413's answer) and its page exists, its address given by him. |

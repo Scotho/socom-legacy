@@ -2,7 +2,7 @@
 title: "Troubleshooting / FAQ"
 description: "What to do about each refusal code, and answers to common questions."
 status: "Format only"
-source: ["socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535"]
+source: ["socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620"]
 ---
 
 **Status: Format only.** The pack check runs when you import a v2 pack, and a pack that passes is stored on your
@@ -18,7 +18,7 @@ An error refuses the pack. A note does not, but a report with a skipped check is
 
 | code | what to do |
 |---|---|
-| `pack.MANIFEST_MISSING` | Put `s2u-pack.json` at the root of the zip (or in the one folder that zipping a folder adds). If the pack is in an earlier format, import it through that format's own loader. The checker's hint: "Add the v2 manifest, or import it through its earlier loader." |
+| `pack.MANIFEST_MISSING` | Put `s2u-pack.json` at the root of the zip (or in the one folder that zipping a folder adds). If the pack is in an earlier format, drop it into Home > Experiments > Mods, which reads every earlier format. The checker's hint: "Add the v2 manifest, or import it through its earlier loader." |
 | `pack.MANIFEST_TOO_LARGE` | Make `s2u-pack.json` smaller than its bound (see [Bounds](/reference/bounds/)). A manifest that large usually lists far too many files; split the pack. |
 | `pack.MANIFEST_INVALID` | Save `s2u-pack.json` as UTF-8 and check that it is valid JSON whose top level is an object. A trailing comma or a comment is enough to break it. |
 | `pack.LEGACY_INVALID` | The earlier-format manifest (`mod.json`, `models.json` or a texture pack's `manifest.json`) does not match its own format. Fix it against that format's rules, and keep its own path a plain relative path. |
@@ -111,13 +111,17 @@ These come from the store export and the store package check, which nothing in t
 ### My pack passed the check. Why does nothing change in the game?
 
 Because nothing in the game applies a v2 pack yet. A pack that passes is checked and stored on your device, and that
-is all. What each kind does today is on [Pack kinds](/kinds/); the earlier formats, which do work in the test room,
-are on [The earlier formats](/kinds/earlier-formats/).
+is all. What each kind does today is on [Pack kinds](/kinds/); the earlier formats, which do work -- texture packs on
+every page, mods and model packs in the test room -- are on [The earlier formats](/kinds/earlier-formats/).
 
 ### Can I use a pack in an online match?
 
-No. Packs are not used in lobby matches or on the game's servers, and a Forge layout with a rules pack is refused
-online. Whether and how that changes is an open question for the project's owner.
+Only a texture pack, and only on your screen. A texture pack or the HD pack you chose in Home > Experiments > Mods
+is drawn in every match, online lobby matches included; it changes only what you see, the other players see their own
+textures, and an image that is opaque in the original stays opaque in a match with other players. Nothing else is
+used in a lobby match or on the game's servers: data mods and model packs stay in the test room, a v2 pack is never
+applied, and a Forge layout with a rules pack is refused online. Whether and how that changes is an open question for
+the project's owner.
 
 ### Can a pack run code?
 
@@ -142,3 +146,28 @@ against. It is not a pass, but it is not an error in your pack either.
 
 Not through the project yet. Our packs are shaped to fit the store's format, but nothing builds the store package and
 the project's team is not decided yet. See [Thunderstore](/publishing/thunderstore/).
+
+## For agents
+
+```json
+{
+  "page": "/troubleshooting/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "What to do about each refusal the pack check reports, grouped by area (manifest, paths, size, intents, dependencies, handlers, notes, Thunderstore), and answers to common questions.",
+  "inputs": [
+    "a refusal code or message from a pack check"
+  ],
+  "outputs": [
+    "the repair to make"
+  ],
+  "see_also": [
+    "/reference/codes/",
+    "/anatomy/",
+    "/guides/test-locally/"
+  ]
+}
+```

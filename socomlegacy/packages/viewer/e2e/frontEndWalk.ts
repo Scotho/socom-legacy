@@ -2,6 +2,7 @@ import { expect, type Browser, type Page } from '@playwright/test';
 import type { FrontEndWindowHook } from '../src/frontEnd';
 import type { MatchWindowHook } from '../src/matchMount';
 import { installStartupPads } from './startupDevices';
+import { focusGameRow } from './gameRow';
 import { SETUP } from './urls';
 
 /**
@@ -175,9 +176,13 @@ export async function createGame(p: Page, name: string, caption = 'FROSTFIRE'): 
   await inLobby(p);
 }
 
-/** JOIN GAME from the briefing room: the room's one game. */
-export async function joinGame(p: Page): Promise<void> {
+/** JOIN GAME from the briefing room: the room's first game -- or, with `name`, the game of that name
+ * (`./gameRow` `focusGameRow`): a room that may still hold another test's game is joined by name; the first row only
+ * where the room holds one game.
+ */
+export async function joinGame(p: Page, name?: string): Promise<void> {
   await pressUntil(p, 'Enter', 'the games list', (s) => s.focused === 'GAMELIST' && s.ready);
+  if (name !== undefined) await focusGameRow(p, name);
   await pressUntil(p, 'Enter', 'the game lobby', (s) => s.dialog === 'dlgGameLobby.rdr');
   await inLobby(p);
 }

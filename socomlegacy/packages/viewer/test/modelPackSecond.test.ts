@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory as FakeFactory } from 'fake-indexeddb';
 import { hasMappedModel } from '../src/modelPackHook';
-import { clearModelPack, keepModelPack, mountModelPack, readStoredModelPack } from '../src/modelPackRuntime';
+import { clearModelPack, keepModelPack, MODEL_PACK_LINE, mountModelPack } from '../src/modelPackRuntime';
 
 /**
  * The test-room panel's second pack (`TEST_ROOM_MODEL_PACK_ADAPTATION`). The bytes are a one-triangle GLB built here.
@@ -57,8 +57,11 @@ const pack = (id: string, file: string): { path: string; bytes: Uint8Array }[] =
 
 afterEach(() => { clearModelPack(); vi.unstubAllGlobals(); });
 
-describe('the model pack panel offers a second pack', () => {
-  it('mounts the second-pack controls on the test room, and Clear drops both packs', async () => {
+// B206 ML-7 (ML.R14; OT.R110): the section's folder, zip, second-pack, Clear and Reload controls left the page -- model
+// packs are managed in Home > Experiments > Mods; the section is one line, the status and the world piece ids. The
+// runtime keeps both slots as before.
+describe('the model pack section keeps a second pack', () => {
+  it('mounts one line and no controls on the test room; both slots are kept and drawn, and a clear drops both', async () => {
     window.history.pushState(null, '', '/testroom?modmodels');
     vi.stubGlobal('indexedDB', new FakeFactory());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -66,23 +69,17 @@ describe('the model pack panel offers a second pack', () => {
     body.id = 'panel-body';
     document.body.append(body);
     await mountModelPack(document);
-    const labels = [...document.querySelectorAll('#model-pack button')].map((button) => button.textContent);
-    expect(labels).toEqual([
-      'Choose model folder', 'Import model pack (.zip)', 'Choose second folder', 'Import second pack (.zip)',
-      'Clear model pack', 'Reload map',
-    ]);
+    expect(document.querySelectorAll('#model-pack button, #model-pack input')).toHaveLength(0);
+    expect(document.getElementById('model-pack-line')!.textContent).toBe(MODEL_PACK_LINE);
+    expect(MODEL_PACK_LINE).toContain('Home > Experiments > Mods');
+    expect(document.getElementById('model-pack-piece-list')).not.toBeNull();
     await keepModelPack(pack('crate', 'crate.glb'), () => {}, '/testroom?modmodels');
     await keepModelPack(pack('barrel', 'barrel.glb'), () => {}, '/testroom?modmodels', 'second');
     expect(hasMappedModel('crate')).toBe(true);
     expect(hasMappedModel('barrel')).toBe(true);
-    const clear = [...document.querySelectorAll('#model-pack button')].find((button) => button.textContent === 'Clear model pack');
-    clear?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await vi.waitFor(async () => {
-      expect(hasMappedModel('crate')).toBe(false);
-      expect(hasMappedModel('barrel')).toBe(false);
-      expect(await readStoredModelPack()).toBeNull();
-      expect(await readStoredModelPack('second')).toBeNull();
-    });
+    clearModelPack();
+    expect(hasMappedModel('crate')).toBe(false);
+    expect(hasMappedModel('barrel')).toBe(false);
     warn.mockRestore();
   });
 });

@@ -317,7 +317,11 @@ describe('FUI-3: the Forge\'s menu as the page composes it', () => {
     const views = rows.filter((r) => r?.startsWith('view-'));
     expect(views).toEqual(['view-wireframe', 'view-untextured', 'view-collision', 'view-grid', 'view-spawns', 'view-fog', 'view-shadows',
       'view-detail', 'view-billboards', 'view-alternate', 'view-blendgraded', 'view-engineorder', 'view-ps2',
-      'view-detailDistance']);   // PF.R60: the detail distance, after the PS2 picture
+      'view-detailDistance', 'view-renderScale']);   // PF.R60: the detail distance, after the PS2 picture; FP-2: the render scale after it
+    // FP-2 (FP.R5, a browser adaptation): the render scale's row reads the page's one video setting (Balanced, nothing stored).
+    const renderScaleRow = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="view-renderScale"]')!;
+    expect(renderScaleRow.textContent).toContain('Render scale');
+    expect(renderScaleRow.textContent).toContain('Balanced');
     // The legend follows the menu: its Circle closes at the root.
     expect(legend.textContent).toMatch(/Close/);
     // R7-A R2: one strip with the menu open -- the menu header's prompts are inline, never a second `.fx-legend`.
@@ -352,4 +356,30 @@ describe('FUI-3: the Forge\'s menu as the page composes it', () => {
     expect(sections()).not.toContain('packs');
     press(START);
   }, 90_000);
+});
+
+/**
+ * FP-2 (FP.R5; a browser adaptation, FG.R2): the START menu's render scale row, on the detail distance's pattern
+ * (`detailDistanceMenuItem`): its word, left / right step the preset, kept open; under the PS2 picture the console's
+ * frame, disabled.
+ */
+describe('FP-2: the START menu\'s render scale row', () => {
+  it('reads the word, left and right step it, kept open; disabled with (PS2) under the PS2 picture', async () => {
+    const { renderScaleMenuItem, RENDER_SCALE_PS2_WORDS } = await import('../../src/forge/panels/viewPanel');
+    const steps: number[] = [];
+    let ps2 = false;
+    const hooks = { value: () => 'quality' as const, step: (d: -1 | 1) => { steps.push(d); }, ps2: () => ps2 };
+    const item = renderScaleMenuItem(hooks);
+    expect(item).toMatchObject({ id: 'view-renderScale', label: 'Render scale', value: 'Quality', keepOpen: true });
+    expect(item.disabled).toBeFalsy();
+    item.left!(); item.right!();
+    expect(steps).toEqual([-1, 1]);
+    ps2 = true;
+    const held = renderScaleMenuItem(hooks);
+    expect(held).toMatchObject({ id: 'view-renderScale', label: 'Render scale', disabled: true, keepOpen: true });
+    expect(RENDER_SCALE_PS2_WORDS).toBe('640 x 448 (PS2)');
+    expect(held.value).toBe(RENDER_SCALE_PS2_WORDS);                           // FP-2 review 3: the exact words, as the row's
+    expect(held.left).toBeUndefined();
+    expect(held.right).toBeUndefined();
+  });
 });

@@ -90,8 +90,8 @@ describe('cps-frame-hash-2: every world clock of the frame loop reads the held f
   });
   it('the world\'s scrolls advance by the frame\'s dt alone (world.ts `frame`)', () => {
     const world = src('world.ts');
-    expect(world).toContain('v.x = (v.x + s.du * dt * SCROLL_TICKS_PER_SECOND) % 1;');
-    expect(world).toContain('v.y = (v.y + s.dv * dt * SCROLL_TICKS_PER_SECOND) % 1;');
+    expect(world).toContain('v.x = (v.x + s.du * dt * SKY_SCROLL_TICKS_READING) % 1;');
+    expect(world).toContain('v.y = (v.y + s.dv * dt * SKY_SCROLL_TICKS_READING) % 1;');
   });
 });
 

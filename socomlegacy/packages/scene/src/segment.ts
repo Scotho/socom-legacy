@@ -294,19 +294,56 @@ function polyBox(poly: WorldPoly): Float32Array {
  * INV-WATER-CROUCH); every other caller, and `segmentHit`, stays two-sided.
  */
 export function segmentHits(
-  grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean = () => true, layers: number = ALL_LAYERS, frontOnly = false,
+  grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean = ACCEPT_ALL, layers: number = ALL_LAYERS, frontOnly = false,
 ): SegmentHit[] {
-  const box = { minX: Math.min(a[0], b[0]), minZ: Math.min(a[2], b[2]), maxX: Math.max(a[0], b[0]), maxZ: Math.max(a[2], b[2]) };
-  const d: V3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  // PAGE-ALLOC-A: this call's scratch, one set a nesting depth (`SEGMENT_SCRATCH`), given back however the call ends.
+  const scratch = SEGMENT_SCRATCH[segmentDepth] ??= { seen: new WeakMap(), stamp: 0, box: { minX: 0, minZ: 0, maxX: 0, maxZ: 0 }, d: [0, 0, 0] };
+  segmentDepth++;
+  try {
+    if (scratch.stamp >= SEGMENT_STAMP_LIMIT) { scratch.seen = new WeakMap(); scratch.stamp = 0; }
+    return segmentHitsWith(scratch, ++scratch.stamp, grid, a, b, accept, layers, frontOnly);
+  } finally {
+    segmentDepth--;
+  }
+}
+
+/**
+ * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation): `segmentHits`' per-call scratch -- the owners it has seen,
+ * the segment's ground-plane box and its travel -- kept and rewritten where each call made a `Set`, a box and a tuple
+ * (13 MB of its own and 15.8 MB under `Set.prototype.add` in 10 s of shadow's X2c profile). An owner is seen in this call
+ * when its stamp is the call's; a call made from inside another (an `accept` that casts) takes the next depth's scratch,
+ * so neither disturbs the other's. The same owners visited in the same order: the same hits, the same numbers.
+ */
+interface SegmentScratch {
+  seen: WeakMap<CollisionObject, number>;
+  stamp: number;
+  box: { minX: number; minZ: number; maxX: number; maxZ: number };
+  d: [number, number, number];
+}
+const SEGMENT_SCRATCH: SegmentScratch[] = [];
+let segmentDepth = 0;
+/** The stamps stay small integers: past this the depth's map is made afresh and the count restarts. */
+const SEGMENT_STAMP_LIMIT = 0x3fffffff;
+const ACCEPT_ALL = (): boolean => true;
+const byT = (x: SegmentHit, y: SegmentHit): number => x.t - y.t;
+
+function segmentHitsWith(
+  scratch: SegmentScratch, stamp: number,
+  grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean, layers: number, frontOnly: boolean,
+): SegmentHit[] {
+  const box = scratch.box;
+  box.minX = Math.min(a[0], b[0]); box.minZ = Math.min(a[2], b[2]); box.maxX = Math.max(a[0], b[0]); box.maxZ = Math.max(a[2], b[2]);
+  const d = scratch.d;
+  d[0] = b[0] - a[0]; d[1] = b[1] - a[1]; d[2] = b[2] - a[2];
   // CPS collision step 2: an owner whose reach the segment misses is skipped -- only for a finite segment.
   const prune = Number.isFinite(a[0] + a[1] + a[2] + d[0] + d[1] + d[2]);
-  const seen = new Set<CollisionObject>();
+  const seen = scratch.seen;
   const out: SegmentHit[] = [];
   for (const cell of cellsCovering(grid, box)) {
     for (const atom of cell.atoms) {
       const object = atom.object;
-      if (object.kind !== 'collision' || seen.has(object)) continue;
-      seen.add(object);
+      if (object.kind !== 'collision' || seen.get(object) === stamp) continue;
+      seen.set(object, stamp);
       const f = object.footprint;
       if (f.maxX < box.minX || f.minX > box.maxX || f.maxZ < box.minZ || f.minZ > box.maxZ) continue;
       if (!modelGate(object.owner, layers)) continue;
@@ -331,5 +368,5 @@ export function segmentHits(
       }
     }
   }
-  return out.sort((x, y) => x.t - y.t);
+  return out.sort(byT);
 }

@@ -175,6 +175,23 @@ describe('CPS overlay cull: an overlay that cannot touch a visible pixel is not 
     expect(drawn(world, f)).toHaveLength(4);
   });
 
+  it("the hook says the pre-warm is running: a light begun meanwhile shows its overlays only at warmDone", () => {
+    // effects.spec.ts "the frag grenade explosion lights the deck" (agent/mega 7cd782a5f, WebGPU): overlays 0 with a
+    // light live and 1,266 overlays pooled -- either the pre-warm still running (stats hides its overlays) or no reach.
+    // `warming` tells the two apart, and the spec waits on it. A browser instrument; nothing drawn changes.
+    const lights = new EffectLights();
+    const world = new Group();
+    world.add(box(0, 0, 0));
+    lights.setReceivers(() => [world]);
+    lights.setTexture(null);
+    expect(lights.stats().warming).toBe(false);
+    lights.warmMeshes(); lights.warmHide();
+    lights.begin(light(0x48, [[0, 0, 5], [1, 0, 5]]), [0, 1, 0], () => true);
+    expect(lights.stats()).toMatchObject({ warming: true, live: 1, overlays: 0 });
+    lights.warmDone();
+    expect(lights.stats()).toMatchObject({ warming: false, live: 1, overlays: 1 });
+  });
+
   it("a spot whose rim is not clear (the HD pack's, or a disc's) culls nothing: the bound needs the rim's zero", () => {
     const lights = new EffectLights();
     const world = new Group();

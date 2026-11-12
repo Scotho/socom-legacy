@@ -5,11 +5,13 @@ import {
 } from './discShareProtocol';
 import { rtcPeer, type IceServersSource, type PeerFactory, type PeerSession, type SharePath } from './discShareRtc';
 import { DiscShareError, type DiscShareSignal } from './discShareSignal';
-import { readShareCode, shareLink, type DiscShareAdapter, type ReceiverView, type SenderView } from './discShareView';
+import {
+  readShareCode, shareHostLink, shareLink, type DiscShareAdapter, type HostRequest, type HostView, type ReceiverView, type SenderView,
+} from './discShareView';
 import { normaliseDiscShareCode, type DiscShareMsg, type DiscSharePageType } from './discShareWire';
 import {
-  SHARE_CONFLICT, SHARE_ENDED, SHARE_EXPIRED, SHARE_FORBIDDEN, SHARE_NO_CONNECT, SHARE_NO_SUCH_CODE, SHARE_OTHER_STOPPED,
-  SHARE_SOURCE_GONE, SHARE_TOO_MANY, SHARE_UNAVAILABLE, shareRefused,
+  SHARE_CONFLICT, SHARE_ENDED, SHARE_EXPIRED, SHARE_FORBIDDEN, SHARE_HOST_ENDED, SHARE_HOST_GONE, SHARE_NO_CONNECT, SHARE_NO_SUCH_CODE,
+  SHARE_OTHER_STOPPED, SHARE_REQUEST_GONE, SHARE_SOURCE_GONE, SHARE_TOO_MANY, SHARE_UNAVAILABLE, shareRefused,
 } from './discShareWords';
 
 /**
@@ -49,6 +51,22 @@ import {
  * `pairingWords` -- pairing unreachable on this site (a static host's page, no answer, 502/503) plainly so; a poll that
  * fails `SHARE_POLL_FAILURES_ADAPTATION` times in a row ends the session, waiting `SHARE_POLL_RETRY_MS_ADAPTATION`
  * between tries; the devices not connected within `SHARE_CONNECT_TIMEOUT_MS_ADAPTATION` of the offer end it too.
+ *
+ * **The host** (RB-26, the replay batch plan, over RB-25's routes; DSH.R16 with its Q9-Q11 defaults): `openHost()` --
+ * only with a complete extraction (DSH.R7) -- opens a hosted share at central, whose link (`?discshare-host=<token>`)
+ * other players' pages request against (`LiveShareDeps.hostToken`: the receiver's request bound to the host, its code
+ * shown for the host to match). The host's poll hears each request (`asked`) and its end unanswered (`withdrawn`); the
+ * receiver-made codes found on this network (the code entry's nearby poll) join the same list. **One copy at a time**
+ * (DSH.R1's "one transfer at a time", Q9): a Yes (`approveReq`) copies at once, or, while another copies, queues --
+ * approved at central (or, for a nearby code, claimed) only when its turn comes, so its pair's `DISCSHARE_LIFE_MS` starts
+ * then (DSH-4's economy: nothing of a code's time is spent before its copy can start). A copy's end (done, failed or
+ * `stopActive`) starts the next in the order of the Yes. `declineReq` says No (a nearby code is only hidden here: central
+ * takes no host's No for a code not bound to it). `closeHost()` (Q10) and `dispose()` -- a deploy takes the launcher
+ * down through it (`console/app.ts` `takeDown`), Q11 -- end the share: the copy under way stopped (its receiver hears
+ * the other device stopped), the host's `bye` (central tells every request still pending that the host ended). **The
+ * share lost** (its poll failed `SHARE_POLL_FAILURES_ADAPTATION` times, or its host gone at central) ends it the same
+ * way, but a copy whose pipe is already up runs on to its end (DSH-4's B2: a connected copy is its channel's, not the
+ * pairing's); one not yet connected ends with the share.
  */
 
 /** The read set's bytes (DSH.R4: 95 files, 1,338,391,063 bytes): the total said before the manifest arrives. */
@@ -67,14 +85,14 @@ export const SHARE_LINGER_MS_ADAPTATION = 5_000;
 export const SHARE_PROGRESS_MS_ADAPTATION = 250;
 
 /** A pairing call's failure in a player's words (the module's header). `op`: which call. */
-export function pairingWords(e: unknown, op: 'request' | 'nearby' | 'claim' | 'poll' | 'send'): string {
+export function pairingWords(e: unknown, op: 'request' | 'nearby' | 'claim' | 'poll' | 'send' | 'host' | 'approve' | 'decline'): string {
   if (!(e instanceof DiscShareError)) return SHARE_UNAVAILABLE;
   const s = e.status;
   if (s === 0 || s === 200 || s === 502 || s === 503 || s === 504 || !e.routed) return SHARE_UNAVAILABLE;
   if (s === 429) return SHARE_TOO_MANY;
   if (s === 403) return SHARE_FORBIDDEN;
   if (s === 409) return SHARE_CONFLICT;
-  if (s === 404) return op === 'claim' ? SHARE_NO_SUCH_CODE : SHARE_ENDED;
+  if (s === 404) return op === 'claim' ? SHARE_NO_SUCH_CODE : op === 'host' ? SHARE_HOST_GONE : op === 'approve' || op === 'decline' ? SHARE_REQUEST_GONE : SHARE_ENDED;
   if (s === 400 && op === 'claim') return SHARE_NO_SUCH_CODE;
   return shareRefused(s);
 }
@@ -102,7 +120,15 @@ export interface LiveShareDeps {
   onReceived?: (record: DiscExtractRecord) => void;
   /** The extraction's environment for the page's sources (a test's). */
   env?: ExtractEnv;
+  /**
+   * RB-26: a host's link token when this page was opened by one (`?discshare-host=<token>`): the receiver's request is
+   * made against that host. Absent, a receiver-made code (Play's row).
+   */
+  hostToken?: string;
 }
+
+/** RB-26, Q11: `hostBusy` (DSH-10 moved it beside `HostView`, `./discShareView`, for the console). */
+export { hostBusy } from './discShareView';
 
 /** The sender's kept extraction when it is whole, else null (DSH.R7: the kept extraction only, never the image). */
 export async function pageSendSource(env: ExtractEnv = {}): Promise<SendSource | null> {
@@ -203,8 +229,11 @@ class Run {
   }
 }
 
-/** The real adapter (the module's header). `dispose()` ends both sides. */
-export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose(): void } {
+/** The real adapter: every RB-26 host member present, and `dispose()`. */
+export type LiveDiscShare = DiscShareAdapter & Required<Pick<DiscShareAdapter, 'host' | 'openHost' | 'closeHost' | 'approveReq' | 'declineReq' | 'stopActive' | 'hostLinked' | 'complete'>> & { dispose(): void };
+
+/** The real adapter (the module's header). `dispose()` ends both sides and the host. */
+export function liveDiscShare(deps: LiveShareDeps): LiveDiscShare {
   const sig = deps.signal;
   const peerOf: PeerFactory = deps.peer ?? ((role, send, iceServers) => rtcPeer(role, send, iceServers ? { iceServers } : {}));
   /** DSH.R15: the run's ICE servers from the pairing (its own id and secret); absent, the connection's default. */
@@ -252,7 +281,7 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
    * The pair's long-poll: each message handed to `on`; a failure (3 in a row, or the pair ended) ends the run -- until
    * the pipe is up: from then on it only ends the poll (B2).
    */
-  const pollLoop = async (run: Run, on: (m: DiscShareMsg) => void, fail: (words: string) => void): Promise<void> => {
+  const pollLoop = async (run: Run, on: (m: DiscShareMsg) => void, fail: (words: string) => void, op: 'poll' | 'host' = 'poll'): Promise<void> => {
     let after = 0;
     let fails = 0;
     while (!run.stopped && !run.polling.signal.aborted && run.pair) {
@@ -270,7 +299,7 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
       } catch (e) {
         if (run.stopped || run.polling.signal.aborted || run.pipe) return;
         const routedEnd = e instanceof DiscShareError && e.routed && (e.status === 404 || e.status === 403);
-        if (routedEnd || ++fails >= SHARE_POLL_FAILURES_ADAPTATION) { fail(pairingWords(e, 'poll')); return; }
+        if (routedEnd || ++fails >= SHARE_POLL_FAILURES_ADAPTATION) { fail(pairingWords(e, op)); return; }
         await run.sleep(SHARE_POLL_RETRY_MS_ADAPTATION);
       }
     }
@@ -321,12 +350,15 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
     rx = { phase: 'requesting' };
     changed();
     const fail = (words: string): void => { rxFail(run, words); };
-    sig.request(run.ac.signal).then((a) => {
+    const hosted = deps.hostToken ?? null;
+    sig.request(run.ac.signal, ...(hosted !== null ? [hosted] : [])).then((a) => {
       if (rxRun !== run) { if (!run.pair) { run.pair = { id: a.id, secret: a.secret }; bye(run); } return; }
       run.pair = { id: a.id, secret: a.secret };
-      rx = { phase: 'waiting', code: a.code, link: shareLink(deps.origin, a.code), expiresAt: a.expiresAt };
+      // RB-26: a request against a host shows its code for the host to match -- no link of its own, and no expiry: it
+      // lives while both pages poll (RB-25; its `expiresAt` is only the idle bound). A receiver-made code expires.
+      rx = hosted !== null ? { phase: 'waiting', code: a.code, hosted: true } : { phase: 'waiting', code: a.code, link: shareLink(deps.origin, a.code), expiresAt: a.expiresAt };
       changed();
-      const expiry = run.timer(Math.max(0, a.expiresAt - Date.now()), () => { if (rx.phase === 'waiting' || rx.phase === 'paired') fail(SHARE_EXPIRED); });
+      const expiry = hosted !== null ? null : run.timer(Math.max(0, a.expiresAt - Date.now()), () => { if (rx.phase === 'waiting' || rx.phase === 'paired') fail(SHARE_EXPIRED); });
       let connect: ReturnType<typeof setTimeout> | null = null;
       void pollLoop(run, (m) => {
         if (m.type === 'claimed') {
@@ -335,6 +367,12 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
           connect = run.timer(SHARE_CONNECT_TIMEOUT_MS_ADAPTATION, () => { if (!run.pipe) fail(SHARE_NO_CONNECT); });
         } else if (m.type === 'bye') {
           if (listening(run)) fail(SHARE_OTHER_STOPPED);      // B2: once the pipe is up, the channel says it
+        } else if (m.type === 'declined' && hosted !== null && rx.phase === 'waiting') {
+          rxEnd(false);                                       // RB-26: the host's No; central ends the request itself
+          rx = { phase: 'declined', code: a.code, hosted: true };
+          changed();
+        } else if (m.type === 'withdrawn' && hosted !== null && listening(run)) {
+          fail(SHARE_HOST_ENDED);                             // RB-26: the host ended before its answer
         } else if (m.type === 'offer' || m.type === 'candidate') {
           if (!run.peer) {
             const peer = peerOf('answer', (out) => { post(run, out, fail); }, iceOf(run));
@@ -350,7 +388,12 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
           run.peer.handle(m);
         }
       }, fail);
-    }, (e: unknown) => { if (rxRun === run) fail(pairingWords(e, 'request')); });
+    }, (e: unknown) => {
+      if (rxRun !== run) return;
+      // RB-26: a host's link whose share is gone (the route's 404 for its token) says the host stopped sharing.
+      const hostGone = hosted !== null && e instanceof DiscShareError && e.routed && e.status === 404;
+      fail(hostGone ? SHARE_HOST_ENDED : pairingWords(e, 'request'));
+    });
   };
 
   // ---- the sender ----
@@ -400,27 +443,37 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
       }
     })();
   };
-  const approve = (): void => {
-    if (mode !== 'link' || tx.phase !== 'open' || !deps.complete()) return;
-    txVia = null;
-    const run = new Run();
-    txRun = run;
-    tx = { phase: 'sending', bytes: 0, total: SHARE_READ_SET_BYTES };
-    changed();
-    const fail = (words: string): void => { txFail(run, words); };
+  /** What one sending run tells its owner (the link's sender, or the host's copy under way). */
+  interface SendHooks {
+    /** Whether the run is still its owner's current one (a stale run's results are dropped). */
+    current(): boolean;
+    fail(words: string): void;
+    /** The manifest's total, once the kept extraction is read. */
+    sized(total: number): void;
+    /** The channel is up: the connection's path (DSH.R15), when read. */
+    linked(via: SharePath | null): void;
+    progress(bytes: number, total: number): void;
+    done(total: number): void;
+  }
+  /**
+   * One send (DSH-4's sender; RB-26's host reuses it): the kept extraction opened -- before the pair is made, so a page
+   * without a whole one spends nothing of the code's time -- then the pair (`pairing`: a claim by code, or the host's Yes),
+   * the offer, and the copy.
+   */
+  const sendOver = (run: Run, pairing: () => Promise<{ id: string; secret: string }>, op: 'claim' | 'approve', h: SendHooks): void => {
     void (async () => {
       let src: SendSource | null;
       try { src = await sendSource(); } catch { src = null; }
-      if (txRun !== run) return;
+      if (!h.current()) return;
       let total: number;
-      try { if (!src) throw new Ended(SHARE_SOURCE_GONE); total = manifestTotal(manifestOf(src.record)); } catch { fail(SHARE_SOURCE_GONE); return; }
-      tx = { phase: 'sending', bytes: 0, total };
-      changed();
+      try { if (!src) throw new Ended(SHARE_SOURCE_GONE); total = manifestTotal(manifestOf(src.record)); } catch { h.fail(SHARE_SOURCE_GONE); return; }
+      h.sized(total);
       try {
-        const a = await sig.claim(code, run.ac.signal);
-        if (txRun !== run) { run.pair = { id: a.id, secret: a.secret }; bye(run); return; }
+        const a = await pairing();
+        if (!h.current()) { run.pair = { id: a.id, secret: a.secret }; bye(run); return; }
         run.pair = { id: a.id, secret: a.secret };
-      } catch (e) { if (txRun === run) fail(pairingWords(e, 'claim')); return; }
+      } catch (e) { if (h.current()) h.fail(pairingWords(e, op)); return; }
+      const fail = (words: string): void => { h.fail(words); };
       const peer = peerOf('offer', (out) => { post(run, out, fail); }, iceOf(run));
       run.peer = peer;
       void pollLoop(run, (m) => {
@@ -430,27 +483,230 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
       const connect = run.timer(SHARE_CONNECT_TIMEOUT_MS_ADAPTATION, () => { if (!run.pipe) fail(SHARE_NO_CONNECT); });
       let pipe: SharePipe;
       try { pipe = await peer.ready; } catch (e) { fail(e instanceof Error ? e.message : String(e)); return; }
-      if (txRun !== run) { pipe.close(); return; }
+      if (!h.current()) { pipe.close(); return; }
       run.clear(connect);
       run.pipe = pipe;
-      txVia = peer.via?.() ?? null;
-      changed();
+      h.linked(peer.via?.() ?? null);
       try {
         await sendFiles(pipe, src, {
           signal: run.ac.signal,
-          onLinked: () => { if (txRun === run) unpair(run); },
-          onProgress: (bytes, t) => { if (txRun === run) { tx = { phase: 'sending', bytes, total: t }; progressed(); } },
+          onLinked: () => { if (h.current()) unpair(run); },
+          onProgress: (bytes, t) => { if (h.current()) h.progress(bytes, t); },
         });
       } catch (e) {
         fail(e instanceof ShareProtocolError || e instanceof Error ? e.message : String(e));
         return;
       }
-      if (txRun !== run) return;
-      txEnd(true);                                        // done (the pair ended at central at the link, B2)
-      tx = { phase: 'done', bytes: total, total };
-      changed();
+      if (!h.current()) return;
+      h.done(total);
     })();
   };
+
+  const approve = (): void => {
+    if (mode !== 'link' || tx.phase !== 'open' || !deps.complete()) return;
+    txVia = null;
+    const run = new Run();
+    txRun = run;
+    tx = { phase: 'sending', bytes: 0, total: SHARE_READ_SET_BYTES };
+    changed();
+    sendOver(run, () => sig.claim(code, run.ac.signal), 'claim', {
+      current: () => txRun === run,
+      fail: (words) => { txFail(run, words); },
+      sized: (total) => { tx = { phase: 'sending', bytes: 0, total }; changed(); },
+      linked: (via) => { txVia = via; changed(); },
+      progress: (bytes, total) => { tx = { phase: 'sending', bytes, total }; progressed(); },
+      done: (total) => {
+        txEnd(true);                                      // done (the pair ended at central at the link, B2)
+        tx = { phase: 'done', bytes: total, total };
+        changed();
+      },
+    });
+  };
+
+  // ---- the host (RB-26; the module's header) ----
+  /** A request in the host's list: bound to the host (`host`), or a receiver-made code found on this network (`nearby`). */
+  interface Entry { id: string; code: string; since: number; from: 'host' | 'nearby' }
+  /** The copy under way: its run, its request, its progress. */
+  interface Active { run: Run; entry: Entry; bytes: number; total: number; via: SharePath | null }
+  let hostState: { phase: HostView['phase']; link?: string; reason?: string } = { phase: 'idle' };
+  /** The host's own run: its pair is the host's id and secret (its poll; its `bye` ends it at central). */
+  let hostRun: Run | null = null;
+  let hostNearby: Run | null = null;
+  /** The requests in the order they arrived (the active one taken out). */
+  let pending: Entry[] = [];
+  /** The ids said Yes while another copies, in the order of the Yes (Q9: one at a time). */
+  let queue: string[] = [];
+  /** Nearby codes the host said No to: hidden here (central takes no host's No for them). */
+  const hidden = new Set<string>();
+  let active: Active | null = null;
+  let last: HostView['last'];
+
+  const hostView = (): HostView => {
+    const list: HostRequest[] = pending.map((e) => {
+      const at = queue.indexOf(e.id);
+      return at < 0 ? { id: e.id, code: e.code, since: e.since, state: 'asked' } : { id: e.id, code: e.code, since: e.since, state: 'queued', place: at + 1 };
+    });
+    return {
+      phase: hostState.phase, pending: list,
+      ...(hostState.link !== undefined ? { link: hostState.link } : {}),
+      ...(hostState.reason !== undefined ? { reason: hostState.reason } : {}),
+      ...(active ? { active: { id: active.entry.id, code: active.entry.code, bytes: active.bytes, total: active.total, ...(active.via ? { via: active.via } : {}) } } : {}),
+      ...(last ? { last } : {}),
+    };
+  };
+  /** The copy under way ended: its run stopped (and its `bye` sent, unless the pairing already ended at the link). */
+  const finish = (a: Active, outcome: 'done' | 'failed' | 'stopped', reason?: string): void => {
+    if (active !== a) return;
+    active = null;
+    a.run.stop();
+    bye(a.run);
+    last = { code: a.entry.code, outcome, ...(reason !== undefined ? { reason } : {}) };
+    changed();
+    next();
+  };
+  /** The next queued request's turn: approved at central (or its code claimed) only now. */
+  const next = (): void => {
+    if (active || !hostRun || hostState.phase !== 'open') return;
+    for (;;) {
+      const id = queue.shift();
+      if (id === undefined) return;
+      const at = pending.findIndex((e) => e.id === id);
+      if (at < 0) continue;
+      const entry = pending.splice(at, 1)[0]!;
+      start(entry);
+      return;
+    }
+  };
+  const start = (entry: Entry): void => {
+    const host = hostRun?.pair;
+    if (!host) return;
+    const run = new Run();
+    const a: Active = { run, entry, bytes: 0, total: SHARE_READ_SET_BYTES, via: null };
+    active = a;
+    changed();
+    const approveAt = sig.approve?.bind(sig);
+    const pairing = entry.from === 'host'
+      ? () => (approveAt ? approveAt(host.id, host.secret, entry.id, run.ac.signal) : Promise.reject(new DiscShareError(0, 'no host route')))
+      : () => sig.claim(entry.code, run.ac.signal);
+    sendOver(run, pairing, entry.from === 'host' ? 'approve' : 'claim', {
+      current: () => active === a,
+      fail: (words) => { finish(a, 'failed', words); },
+      sized: (total) => { a.total = total; changed(); },
+      linked: (via) => { a.via = via; changed(); },
+      progress: (bytes, total) => { a.bytes = bytes; a.total = total; progressed(); },
+      done: (total) => { a.bytes = total; a.total = total; finish(a, 'done'); },
+    });
+  };
+  /**
+   * Ends the share: the copy stopped, the list emptied, the polls ended; `sendBye`, the host's `bye` (best effort).
+   * `keepLinked` (the share lost, not closed): a copy whose pipe is up runs on to its end over its own channel -- DSH-4's
+   * B2, a connected copy is no longer the pairing's to cut; one not yet connected ends with the share.
+   */
+  const hostEnd = (sendBye: boolean, keepLinked = false): void => {
+    const run = hostRun;
+    hostRun = null;
+    hostNearby?.stop();
+    hostNearby = null;
+    const a = active;
+    if (a && !(keepLinked && a.run.pipe && !a.run.stopped)) { active = null; a.run.stop(); bye(a.run); }
+    pending = [];
+    queue = [];
+    hidden.clear();
+    if (!run) return;
+    run.stop();
+    if (sendBye) bye(run);
+  };
+  const hostFail = (run: Run, reason: string): void => {
+    if (hostRun !== run) return;
+    hostEnd(true, true);                                  // B2: a connected copy runs on (the host shows it till done)
+    hostState = { phase: 'failed', reason };
+    changed();
+  };
+  const onHostMsg = (m: DiscShareMsg): void => {
+    if (m.type === 'asked') {
+      const { id, code: c, since } = m as { id?: unknown; code?: unknown; since?: unknown };
+      if (typeof id !== 'string' || typeof c !== 'string' || pending.some((e) => e.id === id) || active?.entry.id === id) return;
+      pending.push({ id, code: c, since: typeof since === 'number' ? since : Date.now(), from: 'host' });
+      changed();
+    } else if (m.type === 'withdrawn') {
+      const id = (m as { id?: unknown }).id;
+      if (typeof id !== 'string' || !pending.some((e) => e.id === id)) return;
+      pending = pending.filter((e) => e.id !== id);
+      queue = queue.filter((q) => q !== id);
+      changed();
+    }
+  };
+  /**
+   * The receiver-made codes found on this network join the list (the code entry's nearby poll, while the share is open);
+   * one no longer listed leaves it unless said Yes (its claim then says whether it still stands). A failed nearby poll
+   * ends only this poll: the hosted requests go on.
+   */
+  const startHostNearby = (): void => {
+    const run = new Run();
+    hostNearby = run;
+    void (async () => {
+      while (!run.stopped) {
+        let found: { id: string; code: string; createdAt: number }[];
+        try { found = await sig.nearby(run.ac.signal); } catch { if (hostNearby === run) { hostNearby = null; run.stop(); } return; }
+        if (run.stopped) return;
+        const ids = new Set(found.map((r) => r.id));
+        const before = pending.length;
+        pending = pending.filter((e) => e.from !== 'nearby' || ids.has(e.id) || queue.includes(e.id));
+        let grew = false;
+        for (const r of found) {
+          if (hidden.has(r.id) || active?.entry.id === r.id || pending.some((e) => e.id === r.id)) continue;
+          pending.push({ id: r.id, code: r.code, since: Date.now(), from: 'nearby' });
+          grew = true;
+        }
+        if (grew || pending.length !== before) changed();
+        await run.sleep(SHARE_NEARBY_EVERY_MS_ADAPTATION);
+      }
+    })();
+  };
+  const openHost = (): void => {
+    if (hostRun) return;
+    last = undefined;
+    if (!deps.complete()) { hostState = { phase: 'needs-extract' }; changed(); return; }
+    const opener = sig.host?.bind(sig);
+    if (!opener) { hostState = { phase: 'failed', reason: SHARE_UNAVAILABLE }; changed(); return; }
+    const run = new Run();
+    hostRun = run;
+    hostState = { phase: 'opening' };
+    changed();
+    opener(run.ac.signal).then((a) => {
+      if (hostRun !== run) { if (!run.pair) { run.pair = { id: a.hostId, secret: a.secret }; bye(run); } return; }
+      run.pair = { id: a.hostId, secret: a.secret };
+      hostState = { phase: 'open', link: shareHostLink(deps.origin, a.token) };
+      changed();
+      void pollLoop(run, onHostMsg, (words) => { hostFail(run, words); }, 'host');
+      startHostNearby();
+    }, (e: unknown) => { hostFail(run, pairingWords(e, 'host')); });
+  };
+  const closeHost = (): void => {
+    if (!hostRun && hostState.phase === 'idle') return;
+    hostEnd(true);
+    hostState = { phase: 'idle' };
+    last = undefined;
+    changed();
+  };
+  const approveReq = (id: string): void => {
+    if (!hostRun || hostState.phase !== 'open' || !deps.complete()) return;
+    if (!pending.some((e) => e.id === id) || queue.includes(id)) return;
+    queue.push(id);
+    changed();
+    next();
+  };
+  const declineReq = (id: string): void => {
+    const entry = pending.find((e) => e.id === id);
+    if (!entry) return;
+    pending = pending.filter((e) => e.id !== id);
+    queue = queue.filter((q) => q !== id);
+    const host = hostRun?.pair;
+    if (entry.from === 'nearby') hidden.add(id);
+    else if (host && sig.decline) sig.decline(host.id, host.secret, id).catch(() => undefined);   // best effort: the host's end withdraws it anyway
+    changed();
+  };
+  const stopActive = (): void => { if (active) finish(active, 'stopped'); };
 
   const senderView = (): SenderView | null => {
     if (mode === 'none') return null;
@@ -503,10 +759,19 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
       return true;
     },
     onChange(fn) { subs.add(fn); return () => { subs.delete(fn); }; },
+    host: hostView,
+    openHost,
+    closeHost,
+    approveReq,
+    declineReq,
+    stopActive,
+    hostLinked: () => deps.hostToken !== undefined,
+    complete: () => deps.complete(),                      // DSH-10 (DSH.R17): the send row's and SEND DISC's rule
     dispose(): void {
-      rxEnd(rx.phase !== 'idle' && rx.phase !== 'done' && rx.phase !== 'failed');
+      rxEnd(rx.phase !== 'idle' && rx.phase !== 'done' && rx.phase !== 'failed' && rx.phase !== 'declined');
       txEnd(tx.phase === 'sending');
       nearbyEnd();
+      hostEnd(true);                                      // RB-26 (Q11): a deploy's takeDown ends the share
       subs.clear();
     },
   };

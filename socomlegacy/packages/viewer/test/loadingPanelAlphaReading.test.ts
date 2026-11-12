@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { RdrNode } from '@s2u/archive';
 import { FsAssetSource } from '@s2u/archive/node';
 import type { Rgba } from '@s2u/gs';
@@ -8,36 +8,41 @@ import { parseUiLayout, type FontFace, type FontGlyph } from '@s2u/scene';
 import { loadingFromDisc, type LoadingScreen } from '../src/loadingAssets';
 import { loadingFaderAlpha } from '@s2u/ui/loading';
 import { loadingQuads } from '../src/loadingLayout';
-import { LoadingPanel } from '../src/loadingPanel';
+import { LoadingPanel, loadingDrawList } from '../src/loadingPanel';
+import { rasterizeUiDrawList, type UiTextures } from '../src/uiCompositorView';
 
 /**
- * GM-22, the reading step (research 380 §4, `LOADING_PANEL_ALPHA_CLAMP_READING`): the loading panel draws each quad
- * with Canvas 2D at `globalAlpha = min(1, alpha / 128)` -- a clamp at 128 -- where the menus' compositor takes the
- * alpha as it stands (`UI_QUAD_ALPHA_RANGE_READING`, P8-P10). The original draws the loading screen through the menus'
- * own path (LoadState's Tick `FUN_001f5e70` D:L55769 -> `FUN_003691c0` -> the walker `FUN_00336c10(0x4887c0, ...)`), so
- * the clamp is a reading the citation contradicts, kept (owner default O5) until the review settles it. These tests
- * hold three things: the note files the reading with its citation; today's clamp, pinned through the panel; and that
- * on the disc's own `dlgLoad.rdr` no quad ever reaches the clamp (so no pixel of the shipped screen depends on it).
+ * GM-22 (research 380 §4, `LOADING_PANEL_ALPHA_CLAMP_READING`). The reading step (2026-11-01): the loading panel drew
+ * each quad with Canvas 2D at `globalAlpha = min(1, alpha / 128)` -- a clamp at 128 -- where the menus' compositor takes
+ * the alpha as it stands (`UI_QUAD_ALPHA_RANGE_READING`, P8-P10); the original draws the loading screen through the
+ * menus' own path (LoadState's Tick `FUN_001f5e70` D:L55769 -> `FUN_003691c0` -> the walker `FUN_00336c10(0x4887c0, ...)`),
+ * so the clamp was a reading the citation contradicts, kept (owner default O5, H378) until the code step. The code step
+ * (2026-11-09) removed it: the panel draws its quads through the menus' compositor. These tests hold three things: the
+ * note files the reading with its citation and the code step; no clamp, through the panel (re-pinned from "today's
+ * clamp" by the code step); and that on the disc's own `dlgLoad.rdr` no quad ever reaches 128 (so no pixel of the
+ * shipped screen moved with the clamp's removal).
  */
 
 const repo = resolve(import.meta.dirname, '../../..');
 const NOTE = join(repo, 'docs', 'research', '380-the-gpu-menu-drawer.md');
 
 describe('research 380 §4 files the loading panel\'s alpha clamp', () => {
-  it('lists LOADING_PANEL_ALPHA_CLAMP_READING, note only, with the original\'s draw path cited', () => {
+  it('lists LOADING_PANEL_ALPHA_CLAMP_READING, the clamp removed by the code step, with the original\'s draw path cited', () => {
     const note = readFileSync(NOTE, 'utf8');
     const s4 = note.slice(note.indexOf('## 4.'), note.indexOf('## 5.'));
     const row = s4.split('\n').find((l) => l.startsWith('| `LOADING_PANEL_ALPHA_CLAMP_READING`'));
     expect(row, 'no §4 row for LOADING_PANEL_ALPHA_CLAMP_READING').toBeDefined();
     const cells = row!.split(' | ');
-    expect(cells[cells.length - 1]).toMatch(/note only/);
+    // GM-22's code step: the clamp is gone from the code (the ledger reads "removed" as retired), the proof owed named.
+    expect(cells[cells.length - 1]).toMatch(/removed/);
+    expect(cells[cells.length - 1]).toMatch(/A_ready012\.png/);
     for (const cite of ['FUN_001f5e70', 'D:L55769', 'FUN_003691c0', 'FUN_00336c10', 'FUN_00369b60', 'FUN_00368570']) {
       expect(row, cite).toContain(cite);
     }
   });
 });
 
-// Today's clamp, pinned: a face whose opacity puts its glyphs over 128 (192) is drawn at globalAlpha 1, not 1.5.
+// No clamp (the code step): a face whose opacity puts its glyphs over 128 (192) is blended at 1.5, not 1.
 const obj = (...kv: RdrNode[]): RdrNode[] => kv;
 const layout = parseUiLayout([[
   'SCREENS', [
@@ -59,38 +64,45 @@ const screen = (opacity: number): LoadingScreen => ({
   strings: [], bitmaps: [['littleblack.tif', solid(8, 8)], ['font_text_01.tif', solid(256, 32)]],
 });
 
-/** The panel's main canvas's `globalAlpha` at each glyph draw (the font's 256 x 32 bitmap). */
-function glyphAlphas(s: LoadingScreen): number[] {
-  const out: number[] = [];
+/** The frame the panel puts on its canvas at `t` seconds after its show (the fake canvas records each put). */
+function panelFrame(s: LoadingScreen, t: number): Uint8ClampedArray {
+  const clock = { now: 0 };
+  let put: Uint8ClampedArray | null = null;
   let n = 0;
   const make = (tag: string): unknown => {
     if (tag !== 'canvas') return { hidden: false, id: '', setAttribute() {}, append() {} };
-    const c = { id: n++, width: 300, height: 150, style: {}, append() {}, getContext: () => ctx };
+    const main = n++ === 0;
     const ctx = {
-      globalAlpha: 1, fillStyle: '',
-      fillRect() {}, setTransform() {}, putImageData() {},
-      drawImage(img: { width: number }) { if (c.id === 0 && img.width === 256) out.push(ctx.globalAlpha); },
+      createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData: (d: { data: Uint8ClampedArray }) => { if (main) put = d.data.slice(); },
     };
-    return c;
+    return { width: 300, height: 150, style: {}, append() {}, getContext: () => ctx };
   };
-  const panel = new LoadingPanel({ createElement: make, body: { append() {} } } as unknown as Document);
+  const panel = new LoadingPanel({ createElement: make, body: { append() {} }, defaultView: { performance: { now: () => clock.now } } } as unknown as Document);
   panel.show(s);
-  return out;
+  clock.now = t * 1000;
+  panel.redraw();
+  if (!put) throw new Error('the panel put no frame');
+  return put;
 }
 
-class FakeImageData { data: Uint8ClampedArray; constructor(readonly width: number, readonly height: number) { this.data = new Uint8ClampedArray(width * height * 4); } }
-const had = (globalThis as { ImageData?: unknown }).ImageData;
-beforeAll(() => { (globalThis as { ImageData?: unknown }).ImageData = FakeImageData; });
-afterAll(() => { (globalThis as { ImageData?: unknown }).ImageData = had; });
-
-describe('LOADING_PANEL_ALPHA_CLAMP_READING: today\'s clamp, unchanged (owner default O5)', () => {
-  it('a glyph at alpha 192 is drawn at globalAlpha 1 (the clamp); one at 89.6 at 0.7 (under it, as the compositor)', () => {
+describe('LOADING_PANEL_ALPHA_CLAMP_READING: the clamp removed (GM-22\'s code step), the alpha as it stands', () => {
+  it('a glyph at alpha 192 is blended at 1.5 (the compositor\'s P8-P10), not at the clamp\'s 1; the panel holds no clamp', () => {
     const sizes = { 'littleblack.tif': { width: 8, height: 8 }, 'font_text_01.tif': { width: 256, height: 32 } };
     const over = screen(1.5);
-    const quads = loadingQuads({ screen: over, sizes, t: 0 }).filter((q) => q.texture === 'font_text_01.tif');
-    expect(quads.map((q) => q.alpha)).toEqual([192, 192]);                // over 128: the compositor would blend at 1.5
-    expect(glyphAlphas(over)).toEqual([1, 1]);                            // the panel clamps it: min(1, 192 / 128)
-    expect(glyphAlphas(screen(0.7)).map((a) => +a.toFixed(6))).toEqual([0.7, 0.7]);
+    const t = 1;                                                           // past the load state's fade from black
+    const quads = loadingQuads({ screen: over, sizes, t });
+    expect(quads.filter((q) => q.texture === 'font_text_01.tif').map((q) => q.alpha)).toEqual([192, 192]);
+    const textures: UiTextures = (name) => new Map(over.bitmaps).get(name) ?? null;
+    const asItStands = rasterizeUiDrawList(loadingDrawList(quads, sizes, loadingFaderAlpha(null, t)), textures).frame.data;
+    const clamped = rasterizeUiDrawList(loadingDrawList(quads.map((q) => ({ ...q, alpha: Math.min(128, q.alpha) })), sizes, 0), textures).frame.data;
+    const frame = panelFrame(over, t);
+    expect(frame.every((v, i) => v === asItStands[i])).toBe(true);
+    expect(frame.some((v, i) => v !== clamped[i])).toBe(true);             // the clamp would have drawn another frame
+    // Source inspection, pinned: the Canvas 2D path and its clamp are gone from the panel.
+    const src = readFileSync(resolve(import.meta.dirname, '../src/loadingPanel.ts'), 'utf8');
+    expect(src).not.toMatch(/globalAlpha/);
+    expect(src).not.toMatch(/drawImage/);
   });
 });
 
@@ -98,7 +110,7 @@ const DISC = process.env.SOCOM_DISC ?? (process.env.SOCOM_PC_ROOT ? join(process
 const HAVE = !!DISC && existsSync(resolve(DISC, 'RUN', 'MP72.ZDB'));
 const MAPS = [1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 51, 52, 53, 61, 62, 64, 71, 72, 73, 81, 82, 83];
 
-describe.skipIf(!HAVE)(`the disc's dlgLoad.rdr never reaches the clamp${HAVE ? '' : ' (no SOCOM_DISC)'}`, () => {
+describe.skipIf(!HAVE)(`the disc's dlgLoad.rdr never reaches 128, where the clamp acted${HAVE ? '' : ' (no SOCOM_DISC)'}`, () => {
   it('on every MP map, over a whole spin, every loading quad\'s alpha, and the fader\'s, is at most 128', async () => {
     const src = new FsAssetSource(DISC as string);
     const seen: string[] = [];
@@ -111,7 +123,7 @@ describe.skipIf(!HAVE)(`the disc's dlgLoad.rdr never reaches the clamp${HAVE ? '
       let quads = 0;
       for (let k = 0; k <= 30; k++) {
         for (const q of loadingQuads({ screen: s, sizes, t: k * 0.05 })) { quads++; top = Math.max(top, q.alpha); }
-        // The fader too (loadingPanel.ts L195-L197), as drawn under LOADING_FADE_READING. The load state writes it as
+        // The fader too (`loadingDrawList`'s MENUFADER quad), as drawn under LOADING_FADE_READING. The load state writes it as
         // (1 - f) * 128 with f held to 0..1 (D:L55675, D:L55762): that bound is source inspection; this samples ours.
         const f = loadingFaderAlpha(s.fade, k * 0.05);
         faders++; fadeTop = Math.max(fadeTop, f);

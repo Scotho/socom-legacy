@@ -1,0 +1,10 @@
+{
+  "_what": "ENEMY-RAISE O-runs placement (CAPTURE-JOB.md Tonight's subset; SPC, 2026-11-09). Target: the still opposite-team soldier in M51 slot 5's perception records (probe-idle-smoke, eph-raise 82dc0f201, rec target 0x1b52370, kind 2, team 0x40000020, active, x 835.9 z 1574.8 over all 96 untorn reads; A's team 0x84000006). Reach = raiseReach x raiseMag = 807.5 x 1. The spot: factor x reach from the post on the post -> start line, the first factor whose 1 s of count reads all 0. The O-runs themselves no longer use this file: they turn the player from slot 5 with probe.ts --yaw-turns (out of the 80-degree cone, then back). It is kept for a distance variant; its factors are 1.15 and 1.2 (the first 1.5 walk stuck about 1.19 x reach from the post and the mission failed; the batch review of fb1a34b4c, F3).",
+  "map": "M51",
+  "build": "r0004",
+  "fromState": 5,
+  "saveSlot": 9,
+  "target": { "id": "0x1b52370", "x": 835.9, "y": -128.2, "z": 1574.8 },
+  "reach": 807.5,
+  "factors": [1.15, 1.2]
+}

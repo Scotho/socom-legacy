@@ -28,7 +28,23 @@ const OWN = ['row', 'checks', 'section', 'touch-lift', 'ps2-look', 'chrome-hidde
   'mobile-fullscreen-status',
   // the settings panel's info buttons, their row and the note each reveals (`./src/panelTips.ts`, TRS-CONDENSE, the owner
   // 2026-11-01: "Put it behind tooltips"): a toggle-tip the system has no word for
-  'panel-info', 'panel-info-row', 'panel-info__tip'];
+  'panel-info', 'panel-info-row', 'panel-info__tip',
+  // the console lobby's "Live match stats" link (`./src/lobbyLiveLink.ts`, LCM-8): the hook it finds its own anchor by,
+  // beside the system's s2u-action classes; no stylesheet rule
+  'project-live-link'];
+/**
+ * The public stats pages' modules (LCM-9/12): project-site pages, not the viewer chrome -- their entries
+ * (`./src/match/main.ts`, `./src/player/main.ts`) load the project site's stylesheet, so a class those modules set may
+ * also be one `./src/projectSite/site.css` declares (the leaderboard's module sits under `leaderboard/`, outside this scan).
+ */
+const PROJECT_PAGES = ['matchPage.ts', 'playerPage.ts'];
+/**
+ * The stats pages' own hooks, which no stylesheet styles: a bot's or an empty name's span (`playerName`), and a match
+ * row's K / D and score figures (styled as `.project-match-row .project-figure`; the score's phone rule went with LCM
+ * batch 1's shoot, which keeps it beside the K/D).
+ */
+const PROJECT_OWN = ['project-name-text', 'project-match-row-kd', 'project-match-row-score'];
+const siteCss = readFileSync(resolve(here, '../src/projectSite/site.css'), 'utf-8');
 const SRC = resolve(here, '../src');
 const tsSources = (): { file: string; text: string }[] => [...readdirSync(SRC), ...readdirSync(resolve(SRC, 'net')).map((f) => `net/${f}`)]
   .filter((f) => f.endsWith('.ts')).map((f) => ({ file: f, text: readFileSync(resolve(SRC, f), 'utf-8') }));
@@ -162,8 +178,10 @@ describe('the viewer chrome uses the design system', () => {
 
   it('the scripts put only system, state or viewer-own classes on the page, and no colour or type in inline styles', () => {
     const bad: string[] = [];
-    const ok = (c: string): boolean => c.startsWith('is-') || OWN.includes(c) || declares(DS_SELECTORS + startupCss, c);
     for (const { file, text } of tsSources()) {
+      const page = PROJECT_PAGES.includes(file);
+      const sheets = DS_SELECTORS + startupCss + (page ? siteCss : '');
+      const ok = (c: string): boolean => c.startsWith('is-') || OWN.includes(c) || (page && PROJECT_OWN.includes(c)) || declares(sheets, c);
       for (const m of text.matchAll(/classList\.(?:add|toggle|remove)\('([^']+)'/g)) if (!ok(m[1]!)) bad.push(`${file}: ${m[1]}`);
       for (const m of text.matchAll(/\.className\s*=\s*'([^']+)'/g)) for (const c of m[1]!.split(/\s+/)) if (!ok(c)) bad.push(`${file}: ${c}`);
       for (const m of text.matchAll(/setAttribute\('class',\s*`([^`]+)`/g)) {

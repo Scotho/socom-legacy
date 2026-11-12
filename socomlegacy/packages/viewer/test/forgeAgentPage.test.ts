@@ -65,6 +65,14 @@ describe('mounted Forge agent facade', () => {
     slider.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
     slider.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }));
     expect(api.read().layout!.settings?.timeOfDay).toBe(1);
+    // FP-1b (REVIEW-C 20, the keyup path restored): the keyboard's End at Day activates daylight as the click does, the
+    // native range sending no input/change (`lightIn`'s keyup, FDL-1); a key that moves no range activates nothing.
+    expect(await api.execute('settings.set', { settings: { timeOfDay: null, light: 0.4 } }, api.read().revision)).toMatchObject({ ok: true });
+    slider.value = '1';
+    slider.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+    expect(api.read().layout!.settings?.timeOfDay ?? null).toBeNull();
+    slider.dispatchEvent(new KeyboardEvent('keyup', { key: 'End', bubbles: true }));
+    expect(api.read().layout!.settings?.timeOfDay).toBe(1);
     expect(await api.execute('settings.set', { settings: { timeOfDay: null, light: 0.4 } }, api.read().revision)).toMatchObject({ ok: true });
     // Original: the legacy dimmer cleared, and on a blank floor full day again.
     reset.click();
@@ -438,9 +446,10 @@ describe('mounted Forge agent facade', () => {
   it("a copied door's Map changed: its Door field resets to that map's first door, the layout the same", async () => {
     document.body.replaceChildren();
     archiveEntries.push({ stem: 'MP2', path: 'RUN/MP2.ZDB', label: 'FROSTFIRE', campaign: false }, { stem: 'MP73', path: 'RUN/MP73.ZDB', label: 'SANDSTORM', campaign: false });
+    // The worker's census (`../src/forge/mapCensus` `copiesOf`) names every kind, the contributor's `flare` too (OT.R112).
     archiveCensus.mockImplementation(async (stem) => (stem === 'MP2'
-      ? { door: [['bdoor_4', 'bdoor_4 · a'], ['wdoor_1', 'wdoor_1 · b']], turret: [], hostage: [], ladder: [], gate: [], barrier: [] }
-      : { door: [['door_ft1', 'door_ft1 · c'], ['door_ft2', 'door_ft2 · d']], turret: [], hostage: [], ladder: [], gate: [], barrier: [] }));
+      ? { door: [['bdoor_4', 'bdoor_4 · a'], ['wdoor_1', 'wdoor_1 · b']], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [] }
+      : { door: [['door_ft1', 'door_ft1 · c'], ['door_ft2', 'door_ft2 · d']], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [] }));
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
     await mountForge(document, { onAgentReady: target => { api = target; } });
@@ -456,7 +465,7 @@ describe('mounted Forge agent facade', () => {
   it("a hostage's Map changed: its Character field resets to that map's first hostage character, the layout the same", async () => {
     document.body.replaceChildren();
     archiveEntries.push({ stem: 'MP6', path: 'RUN/MP6.ZDB', label: 'DESERT GLORY', campaign: false }, { stem: 'MP52', path: 'RUN/MP52.ZDB', label: 'THE MIXER', campaign: false });
-    archiveCensus.mockImplementation(async (stem) => ({ door: [], turret: [], ladder: [], gate: [], barrier: [], hostage: stem === 'MP6' ? [['mp_fem1', 'mp_fem1'], ['mp_fem2', 'mp_fem2']] : [['mp_algerian_h1', 'mp_algerian_h1'], ['mp_algerian_h2', 'mp_algerian_h2']] }));
+    archiveCensus.mockImplementation(async (stem) => ({ door: [], turret: [], ladder: [], gate: [], barrier: [], flare: [], hostage: stem === 'MP6' ? [['mp_fem1', 'mp_fem1'], ['mp_fem2', 'mp_fem2']] : [['mp_algerian_h1', 'mp_algerian_h1'], ['mp_algerian_h2', 'mp_algerian_h2']] }));
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
     await mountForge(document, { onAgentReady: target => { api = target; } });
@@ -569,5 +578,39 @@ describe('mounted Forge agent facade', () => {
       expect(titled(row, t), t).toBe(true);
       expect(titled(top, t), t).toBe(false);
     }
+  }, 90_000);
+  // The Breach gate (page.ts, the bomb tools' type check) read `kind` before its `const` (a ReferenceError under Breach):
+  // Breach (1) places its bomb start and the SEALs' site from the toolbar; its Terrorists' site stays refused.
+  it('under Breach the Bomb and Site SEAL tools place their markers with no error; Site Terrorist is refused', async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent) => { errors.push(e.error ?? e.message); };
+    window.addEventListener('error', onError);
+    try {
+      expect(await api.execute('type.set', { type: 1 }, api.read().revision)).toMatchObject({ ok: true });
+      const input = document.querySelector<HTMLElement>('.fx-input')!;
+      input.setPointerCapture = vi.fn(); input.releasePointerCapture = vi.fn();
+      input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
+      const pointer = (type: string, x: number, y: number) => {
+        const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+        Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+        input.dispatchEvent(e);
+      };
+      const bomb = () => (api.read().layout!.objectives as { gameType?: number; bomb?: { start?: unknown; sites?: unknown[] } } | undefined);
+      document.querySelector<HTMLButtonElement>('button[title^="Place the bomb\'s start"]')!.click();
+      pointer('pointerdown', 400, 300); pointer('pointerup', 400, 300);
+      await vi.waitFor(() => expect(bomb()?.bomb?.start).toBeDefined());
+      document.querySelector<HTMLButtonElement>('button[title^="Place the site the SEALs plant at"]')!.click();
+      pointer('pointerdown', 440, 300); pointer('pointerup', 440, 300);
+      await vi.waitFor(() => expect(bomb()?.bomb?.sites ?? []).toHaveLength(1));
+      document.querySelector<HTMLButtonElement>('button[title^="Place the site the Terrorists plant at"]')!.click();
+      pointer('pointerdown', 480, 300); pointer('pointerup', 480, 300);
+      expect(bomb()?.bomb?.sites ?? []).toHaveLength(1);
+      expect(bomb()?.gameType).toBe(1);
+      expect(errors).toEqual([]);
+    } finally { window.removeEventListener('error', onError); }
   }, 90_000);
 });

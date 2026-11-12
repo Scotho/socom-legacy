@@ -140,7 +140,7 @@ function page(char = 0, l = lobby(char), events: readonly ServerEvent[] = [l.wel
     menuOpen: () => ex.isOpen(),
   };
   const deps: NetPageDeps = matchNetDeps(parts, { ...ex.netHooks(), respawned: () => { ex.reset(); } }, {
-    remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {},
+    remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {}, sceneRound: () => {},
     voiceFloor: () => {}, voiceFrame: () => {},
     reloadSound: () => {}, deathVoice: () => {}, hurtVoice: () => {}, ring: () => {}, roundAudio: { roundStart: () => {}, eliminated: () => {}, timeExpired: () => {}, roundOver: () => {}, reset: () => {}, frame: () => {} } as never, objective: () => null, escorteeVoice: () => {},
     taunt: () => {}, communication: () => {}, hostageState: () => {},

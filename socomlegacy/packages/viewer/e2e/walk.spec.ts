@@ -193,13 +193,20 @@ test('walks Frostfire from A\'s spawn to B\'s floor, and the door leaf stops it'
   await settle(page);
   await page.screenshot({ path: join(SCREENS, 'frostfire-walk-door.png') });
 
-  // The fall (W2.2b): the 142 deck east of A's spawn (x 630-675, z 725-815) is open on its east side over the 100
-  // floor. Walked off it facing +x, the feet fall 42 under gravity 235 and land on the floor.
+  // The 142 deck east of A's spawn (x 630-675, z 725-815; W2.2b), walked toward its east side facing +x: its pipeworks
+  // rail stops the feet on the deck -- SEGMENT-BODY (re-judged; was "walked off it, the feet fall 42"): `worldmodel/
+  // pipeworks` stands a face toward -x at x 678.3, met at the feet + 6.5, and the segments meet it first -- the centre
+  // line 5.39 ahead plus at most a tick's move, or the contact branch's look-ahead (`FUN_005483d0` D:L413686-413756) -- so
+  // the body stays on the deck. The original's square stand-off is 5.34-5.40 (ac's r0004 capture, `climb-angle/RESULTS.md`
+  // ca-0-t1/t2); the port's beyond it is LATER 681 (open). The page's twin of `walk.test.ts` "the 142 deck east of A's
+  // spawn: its pipeworks rail stops the walk on the deck", its band and its sources; the fall's own time is tested there on
+  // an open edge. Measured: 669.21 in the browser (90 ticks; 9.09 off the face, the look-ahead's side of the band).
   await page.evaluate(([eye]) => window.__viewer.setCamera({ x: 660, y: 142 + eye, z: 725, yaw: 270, pitch: 0 }), [EYE] as const);
   expect((await page.evaluate(() => window.__viewer.feet()))![1]).toBeCloseTo(142, 3);
-  const fell = await page.evaluate(() => { window.__viewer.walkFor(1.5, { forward: 1 }); return window.__viewer.feet(); });
-  expect(fell![0]).toBeGreaterThan(675);
-  expect(fell![1]).toBeCloseTo(100, 3);
+  const railed = await page.evaluate(() => { window.__viewer.walkFor(1.5, { forward: 1 }); return window.__viewer.feet(); });
+  expect(railed![0]).toBeGreaterThan(665);
+  expect(railed![0]).toBeLessThan(678.3 - 5);
+  expect(railed![1]).toBeCloseTo(142, 3);
 
   // Back to flying leaves the camera where the eye was.
   // Read and switched in one task: a frame between the two would move the walk's camera on by a tick.

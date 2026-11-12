@@ -63,14 +63,14 @@ describe('the ping band (the slice-1 review\'s F5: band 0 is no players, not Poo
 });
 
 describe('the rooms adapter: signed out', () => {
-  it('the anonymous counts: a row per classic room, named by its map (the stem before the disc), its rules, players only', async () => {
+  it('the anonymous counts: a row per classic room, named by its map (the name table\'s before the disc, OT.R113), its rules, players only', async () => {
     const { f } = boot({ '/rooms': { body: PUBLIC_ROOMS } });
     await flush();
     expect(f.calls.map((c) => new URL(c.url).pathname)).toEqual(['/rooms']);
-    expect(rows()).toEqual(['Game in MP2', 'Game in MP51']);
+    expect(rows()).toEqual(['Game in Frostfire', 'Game in Vigilance']);
     expect(document.querySelector('#stage .cx-room__count')!.textContent).toBe('3');
     expect(document.querySelector('#stage .cx-ping')!.textContent).toBe('Unknown');
-    expect(drawerFacts()).toEqual([['Map', 'MP2 · needs disc'], ['Rules', 'classic'], ['Round', '2'], ['Ping', 'Unknown']]);
+    expect(drawerFacts()).toEqual([['Map', 'Frostfire'], ['Rules', 'classic'], ['Round', '2'], ['Ping', 'Unknown']]);
     expect([...document.querySelectorAll('#stage .cx-side')].map((e) => e.textContent)).toEqual(['PLAYERS3', 'SPECTATORS1']);
   });
 
@@ -175,7 +175,7 @@ describe('the rooms adapter: signed in', () => {
     await flush();
     expect(document.querySelector('#stage .cx-ping')!.textContent).toBe('No players');
     ctl.press('down');
-    expect(drawerFacts().slice(0, 2)).toEqual([['Map', 'MP2 · needs disc'], ['Mode', 'Needs disc']]);
+    expect(drawerFacts().slice(0, 2)).toEqual([['Map', 'Frostfire'], ['Mode', 'Needs disc']]);   // MN-1: the name table's name, never the stem
   });
 
   it('the filters are the lobby\'s: All, Has room, No password', async () => {

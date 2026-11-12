@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { measureEdges } from './rendererAntialiasScene';
 
-// Browser adaptation: a compatibility choice must bypass WebGPU even when its API exists. WEBGL2-DEFAULT (the owner's word,
-// 2026-11-05; LATER 708): Automatic is WebGL2 too and asks no adapter; only the webgpu address asks (the stub answers null).
+// Browser adaptation: a compatibility choice must bypass WebGPU even when its API exists. WEBGPU-DEFAULT (WG-7, LATER 708):
+// Automatic asks WebGPU first again, so the automatic and webgpu addresses each ask once (the stub answers null: WebGL2).
 for (const source of ['address', 'saved setting', 'automatic address', 'webgpu address', 'Xbox preset'] as const) {
   test(`graphics selection from ${source} draws with the expected adapter requests`, async ({ page }) => {
     await page.addInitScript((saved) => {
@@ -23,7 +23,7 @@ for (const source of ['address', 'saved setting', 'automatic address', 'webgpu a
       const result = await fixture.measureEdges(1);
       return { ...result, requests: (window as unknown as { gpuRequests: number }).gpuRequests };
     });
-    expect(result.requests).toBe(source === 'webgpu address' ? 1 : 0);
+    expect(result.requests).toBe(source === 'webgpu address' || source === 'automatic address' ? 1 : 0);
     expect(result.backend).toBe('webgl2');
     expect(result.native.antialias).toBe(source !== 'Xbox preset');
     expect(result.restored.antialias).toBe(source !== 'Xbox preset');

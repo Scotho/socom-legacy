@@ -39,6 +39,12 @@ export interface RoomRecorder {
    * room's eye locus (`ReplayRefusal`) -- a sixth site, `Room.fireAt`'s cone refusal; replay-only, never broadcast. Absent: none.
    */
   refusal?(tick: number, refusal: ReplayRefusal): void;
+  /**
+   * PR #753's third pass P2-a (an adaptation, the match record's): the id of the server's replay file now -- told at the
+   * file's open (`ReplayFiles.open`'s `onId`) and null at its close -- to an observer beside the file (`MatchRecorder`),
+   * never by the room. Absent: none told.
+   */
+  replayId?(id: string | null): void;
   close(reason: string): void;
 }
 

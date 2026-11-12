@@ -9,7 +9,7 @@ import type { WebAudioOut } from './audio';
 import { EXTRACTED_GONE_WORDS, ExtractedMissError } from './discExtractSource';
 import { movieOpens, STORED_GONE } from './discStored';
 import { startMovieWorker } from './movieTexture';
-import { MovieSound, readMovieSound, webAudioMovieOut, type MovieSoundOut, type MovieSoundStats } from './movieSound';
+import { MovieSound, MovieSoundKeep, readMovieSound, webAudioMovieOut, type MovieSoundOut, type MovieSoundStats } from './movieSound';
 import type { SourceRequest } from './worker';
 
 /**
@@ -105,10 +105,17 @@ export interface MovieSoundFeedOptions {
   assets: AssetSource;
   /** The output, or null while there is none (the front end's audio not made: it then runs silent). Asked at each open until one comes. */
   out: () => MovieSoundOut | null;
+  /** The live Dialog tuner (PCM group 2), read before playback and each front-end frame. */
+  volume?: () => number;
   /** The file a movie's name reads (`discPath` on the page); absent, the name itself. */
   path?: (name: string) => string;
   /** The track's reader; `readMovieSound` by default (a test passes its own). */
   read?: typeof readMovieSound;
+  /**
+   * GM-32: the decoded track kept across opens (`MOVIE_SOUND_KEEP_ADAPTATION`), in front of `read`: an open of the file
+   * read whole last hands its pieces again instead of reading and decoding it anew. Absent, the feed's own.
+   */
+  keep?: MovieSoundKeep;
   /** A read that failed (not one aborted by a close). */
   onError?: (path: string, e: unknown) => void;
 }
@@ -124,8 +131,14 @@ export class MovieSoundFeed implements MovieSoundTrack {
   current: { name: string; sound: MovieSound; abort: AbortController } | null = null;
   private base: MovieSoundOut | null = null;
   private relay: (() => void) | null = null;
+  /** GM-32: the keep (`MOVIE_SOUND_KEEP_ADAPTATION`) and the reader behind it. */
+  readonly keep: MovieSoundKeep;
+  private readonly read: typeof readMovieSound;
 
-  constructor(private readonly o: MovieSoundFeedOptions) {}
+  constructor(private readonly o: MovieSoundFeedOptions) {
+    this.keep = o.keep ?? new MovieSoundKeep();
+    this.read = this.keep.reader(o.read ?? readMovieSound);
+  }
 
   open(name: string): void {
     this.close();
@@ -134,9 +147,11 @@ export class MovieSoundFeed implements MovieSoundTrack {
     const abort = new AbortController();
     const sound = new MovieSound(this.view(base));
     this.current = { name, sound, abort };
-    (this.o.read ?? readMovieSound)(this.o.assets, this.o.path?.(name) ?? name, sound, { signal: abort.signal })
+    this.read(this.o.assets, this.o.path?.(name) ?? name, sound, { signal: abort.signal })
       .catch((e: unknown) => { if (!abort.signal.aborted) this.o.onError?.(name, e); });
   }
+
+  refreshVolume(): void { this.base?.setVolume?.(this.o.volume?.() ?? 1); }
 
   picture(index: number): void { this.current?.sound.picture(index); }
 
@@ -161,6 +176,7 @@ export class MovieSoundFeed implements MovieSoundTrack {
       this.base = this.o.out();
       this.base?.onRunning(() => this.relay?.());
     }
+    this.refreshVolume();
     return this.base;
   }
 
@@ -230,6 +246,8 @@ export interface FrontEndMoviesOptions {
   worker: () => MovieWorkerHandle;
   /** The sound's output (`MovieSoundFeedOptions.out`). */
   out: () => MovieSoundOut | null;
+  /** The live Dialog tuner (PCM group 2), read before playback and each front-end frame. */
+  volume?: () => number;
   /** The page's clock, ms (`performance.now`): the budget's. */
   now: () => number;
   onError?: (path: string, e: unknown) => void;
@@ -261,7 +279,7 @@ export function frontEndMovies(o: FrontEndMoviesOptions): FrontEndMovies {
     now: o.now,
     ...(exists ? { exists } : {}),
   });
-  const sound = new MovieSoundFeed({ assets: o.assets, out: o.out, path: discPath, ...(o.onError ? { onError: o.onError } : {}) });
+  const sound = new MovieSoundFeed({ assets: o.assets, out: o.out, ...(o.volume ? { volume: o.volume } : {}), path: discPath, ...(o.onError ? { onError: o.onError } : {}) });
   // A worker's error (no decoder served, a file that would not read) ends the movie at once, as a failed open ends the
   // original's (event 3); the page says why.
   const source = new SoundedMovieSource(pictures, sound, (name) => {
@@ -270,8 +288,11 @@ export function frontEndMovies(o: FrontEndMoviesOptions): FrontEndMovies {
   });
   return {
     source, pictures, sound,
-    stop: () => { source.close(); worker?.terminate(); worker = null; open = null; },
+    // GM-32 review F1: the stop and the sleep (the hand-off to a match) let the kept track go (`MOVIE_SOUND_KEEP_ADAPTATION`):
+    // its PCM is not held through a match or past the page; the return after decodes the file afresh.
+    stop: () => { source.close(); worker?.terminate(); worker = null; open = null; sound.keep.clear(); },
     sleep: () => {
+      sound.keep.clear();
       if (open) return false;
       worker?.terminate();
       worker = null;

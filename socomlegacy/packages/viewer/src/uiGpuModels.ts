@@ -15,17 +15,18 @@ import type { UiGpuModelProgram } from './uiGpuShaders';
  * depth test sees each triangle after the ones before it, as the software's loop does).
  *
  * The depth (M3; `UI_MODEL_DEPTH_FORMAT_READING`): a `DEPTH_COMPONENT32F` attachment on the frame target, cleared to 0 at
- * each `pass` (the software's "empty"), tested `GREATER` (strictly greater: an equal depth fails, the first drawn wins),
- * written where the test passes; `gl_FragDepth = clamp(invW * depthScale, 0, 1)` with the pass's power-of-two
+ * each `pass` (the software's "empty"), tested `GEQUAL` (GM-15d: an equal depth passes, the later drawn wins; every
+ * planned depth is above the clear's 0, so "empty" passes as the software's does), written where the test passes; `gl_FragDepth = clamp(invW * depthScale, 0, 1)` with the pass's power-of-two
  * `depthScale` (`UiPlanPass.depthScale`): a GM.R10 design choice that decides no byte -- a power of two scales an f32
  * exactly unless it underflows -- so it is no adaptation constant (research 380 §5 says so). GM-15b: the scale brings
  * every vertex to at most 1/2, so no depth reaches the clamp at 1, and the plan refuses (L1, named) a pass with a depth
  * under `UI_GPU_MODEL_DEPTH_FLOOR` (a 0 or a subnormal the GPU may flush) and a textured triangle past
  * `UI_GPU_MODEL_TEXEL_RANGE` (T8's int range): the clamp at 0 never acts either.
- * The strict test is the software's named reading, `UI_MODEL_DEPTH_FORMAT_READING` (`uiRasterRules.ts`:165-174;
- * research 380 :136, :348), not the original's rule: the bind packets' `TEST_1` is ZTE 1, ZTST GEQUAL (research 185
- * §3.1, pending review), under which the later of two equal depths wins a tie, where the strict `>` keeps the first.
- * The GPU follows the software (GM.R5: the software is the reference), and the difference stays that reading's to settle.
+ * GEQUAL is the original's test -- the bind packets' `TEST_1` 0x5000c, ZTE 1, ZTST GEQUAL (research 185 §3.1, re-read
+ * §11.3) -- which GM-15d put in the software reference (`UI_MODEL_DEPTH_FORMAT_READING`, `uiRasterRules.ts`; the plan's
+ * Log, R1 resolved by (a)); before it the software and this pass kept the first of two equal depths (a strict `>`), and
+ * the software's f64 compare against its f32 store made R1's double adds. The GPU follows the software (GM.R5). The
+ * edges likewise take the GS's top-left rule (`UI_MODEL_EDGE_RULE_READING`, the model programs' `owns`).
  *
  * Nothing changes for players: `UiGpuBackend` (`uiGpuWebgl2.ts`) draws with this behind the switch, which keeps every
  * surface `off`.

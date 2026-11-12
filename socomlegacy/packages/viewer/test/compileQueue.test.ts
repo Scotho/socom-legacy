@@ -39,6 +39,25 @@ describe('compileQueue: the page\'s compile queue (research 90 item 17)', () => 
     second[0]!.finish();
   });
 
+  it('FLASH-GLOW-BODIES: a tail job runs only when no ordinary job waits, whenever the ordinary one was asked', async () => {
+    const log: string[] = [];
+    const q = new CompileQueue(1);
+    const tail = [gate(log, 't1'), gate(log, 't2')];
+    const head = [gate(log, 'h1'), gate(log, 'h2')];
+    const tailDone = q.add(tail, { tail: true });
+    expect(log).toEqual(['t1']);                                       // an idle queue runs the tail
+    void q.add(head);
+    tail[0]!.finish(); await tick();
+    expect(log).toEqual(['t1', 'h1']);                                 // asked later, run first
+    head[0]!.finish(); await tick();
+    expect(log).toEqual(['t1', 'h1', 'h2']);
+    head[1]!.finish(); await tick();
+    expect(log).toEqual(['t1', 'h1', 'h2', 't2']);
+    tail[1]!.finish();
+    await tailDone;
+    expect([q.active, q.waiting]).toEqual([0, 0]);
+  });
+
   it('drops a stale job without running it, and a job that throws still settles', async () => {
     const log: string[] = [];
     const q = new CompileQueue(1);

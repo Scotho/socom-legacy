@@ -1,3 +1,5 @@
+import { HttpAssetSource } from '@s2u/archive';
+import { readGlobalValves } from '../../originalOptions';
 import { connectedPads } from '../../controllerInput';
 import { pageSession, type ModernSession } from '../../modern/session';
 import type { LauncherState } from '../../modern/launcherState';
@@ -23,6 +25,7 @@ import { liveReplays } from './replays';
 import { liveCustomMatches } from './lobbies';
 import { lobbyBase, liveRooms } from './rooms';
 import { liveServer } from './server';
+import { liveMods } from './mods';
 import { liveSession } from './session';
 import { liveUiSounds } from './sounds';
 import { cardProfileEdits } from '../../modern/profile/cardEdits';
@@ -30,6 +33,7 @@ import { fetchUniverseService, universeServiceBase } from '../../universeHost';
 import { buildMultiplayerEnabled } from '../../multiplayer';
 import { readUniverseHost } from '../universe';
 import { liveDiscShare } from '../../discShare';
+import { readShareHostToken } from '../../discShareView';
 import { discShareSignal } from '../../discShareSignal';
 import { accountServiceBase } from '../../connectHost';
 
@@ -72,7 +76,8 @@ export function liveAdapters(doc: Document, win: Window): Adapters & { dispose()
   // (`./launch`); it is not registered at the START boundary, whose `end()` cannot be undone if the mount then fails.
   const launch = liveLaunch(doc, { session, ...(disc.start ? { start: disc.start } : {}) });
   // INVITE-START (FI.R8): an invite address's auto-START, and the invite channel answered while the session holds a sign-in.
-  const invite = liveInvite(win, { session, disc, notify });
+  // LOBBY-LINK-DIRECT: a lobby link's auto-START waits for the load's quick sign-in, and its START decides the direct path.
+  const invite = liveInvite(win, { session, disc, notify, quickPending: () => signIn.quickPending() });
   // Only a START press marks the keyboard or the mouse for START (`../input`: the START keys, a click on START; the
   // merge controller's call on #400, 2026-10-20), so an invite address's auto-START waits for one, or for a pad.
   const controls = liveControls(pad, { touch: touchDevice });   // LR-31: Play needs a pad or a touch screen; a key or a click seen no longer counts
@@ -86,22 +91,27 @@ export function liveAdapters(doc: Document, win: Window): Adapters & { dispose()
   // once the sender says Yes beside it (DSH.R16: between players too), on one network or across networks, directly or
   // through Cloudflare's relay (DSH.R15). "Has the disc in" is a complete extraction kept in this browser (DSH.R7); a copy
   // received whole is taken by the disc as a finished extraction is. Its changes re-draw the page.
+  const hostToken = readShareHostToken(win.location.search);
   const discShare = liveDiscShare({
     search: win.location.search, origin: win.location.origin,
     signal: discShareSignal(accountServiceBase(win.location.search, win.location, (import.meta.env as Record<string, unknown> | undefined)?.['DEV'] === true)),
     complete: () => disc.kept()?.whole === true,
     onReceived: () => { void disc.adoptKept(); },
+    // RB-26: a host's link (`?discshare-host=<token>`) opened this page: its request is made against that host.
+    ...(hostToken !== null ? { hostToken } : {}),
   });
   const shareOff = discShare.onChange(notify);
+  // B206 ML-2: the MODS screen, through the one pack registry (loaded at the screen's first open).
+  const mods = liveMods(doc, notify);
   return {
-    data: 'live', disc, pad, mic, card, session: signIn, rooms, server, replays, options, launch, controls, invite, remap, loadouts, profile, custom, discShare,
+    data: 'live', disc, pad, mic, card, session: signIn, rooms, server, replays, options, launch, controls, invite, remap, loadouts, profile, custom, discShare, mods,
     cue: sounds.cue,
     onChange(cb) { subs.add(cb); return () => { subs.delete(cb); }; },
     dispose(): void {
       win.removeEventListener('focus', onFocus);
       shareOff();
       discShare.dispose();
-      for (const d of [disc, signIn, rooms, server, replays, options, loadouts, profile, custom, sounds]) d.dispose();
+      for (const d of [disc, signIn, rooms, server, replays, options, loadouts, profile, custom, sounds, mods]) d.dispose();
       remap.close();
     },
   };
@@ -159,7 +169,8 @@ export function overlayAdapters(innerDoc: Document, pageWin: Window, deps: Overl
       return connectedPads(deps.pads).map((p) => ({ key: `${p.index}:${p.id}`, name: p.id }));
     } catch { return []; }
   };
-  const options = liveOptions(notify, { pad, launcher: deps.state, pads: padKeys, signedIn: () => session.state() === 'signed-in', ...(deps.overlayButton ? { overlayButton: deps.overlayButton } : {}), videoPicture: deps.videoPicture ?? false });
+  const options = liveOptions(notify, { pad, launcher: deps.state,
+    ...(import.meta.env.DEV && deps.servedTree?.() ? { readDefaults: () => readGlobalValves(new HttpAssetSource(`${import.meta.env.BASE_URL}maps/`)) } : {}), pads: padKeys, signedIn: () => session.state() === 'signed-in', ...(deps.overlayButton ? { overlayButton: deps.overlayButton } : {}), videoPicture: deps.videoPicture ?? false });
   const frameWin = innerDoc.defaultView ?? pageWin;
   const remap = liveRemap(frameWin, pad, { pads: deps.pads, now: () => pageWin.performance.now() });
   const controls = liveControls(pad, { touch: touchDevice, keyboard: () => import.meta.env.DEV });
@@ -169,12 +180,14 @@ export function overlayAdapters(innerDoc: Document, pageWin: Window, deps: Overl
   // CX-PERSONA: the Persona and Service record over the overlay's session -- the game's persona when it holds one, read
   // only -- the edits locked while it does or a round runs (`../grammar`); the Report's detail the frame's (its Report's).
   const profile = liveProfile(notify, profileDeps(innerDoc, pageWin, session, deps.state, card));
+  // B206 ML-2 (ML.R9): MODS over a match too -- a change is heard by the game page through the registry's notice.
+  const mods = liveMods(innerDoc, notify);
   return {
-    data: 'live', disc, pad, mic, card, session: signIn, rooms, server, replays, options, controls, remap, loadouts, profile, custom,
+    data: 'live', disc, pad, mic, card, session: signIn, rooms, server, replays, options, controls, remap, loadouts, profile, custom, mods,
     ...(deps.report ? { report: deps.report } : {}),
     onChange(cb) { subs.add(cb); return () => { subs.delete(cb); }; },
     dispose(): void {
-      for (const d of [disc, signIn, rooms, live, replays, options, loadouts, profile, custom]) d.dispose();
+      for (const d of [disc, signIn, rooms, live, replays, options, loadouts, profile, custom, mods]) d.dispose();
       remap.close();
       subs.clear();
     },

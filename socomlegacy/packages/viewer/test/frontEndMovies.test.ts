@@ -237,3 +237,20 @@ describe('mountFrontEnd hands the session PLAT-19c\'s worker source over the ser
     m.stop();
   });
 });
+
+
+it('applies saved Dialog before reading the first movie, then refreshes the same output through mute and restart', () => {
+  let value=0;
+  const volumes:number[]=[];
+  const out={...stillOut(),setVolume:(v:number)=>volumes.push(v)};
+  const make=vi.fn(()=>out);
+  const read=vi.fn(async()=>{ expect(volumes.at(-1)).toBe(value); return {header:null,frames:0,priming:null}; });
+  const feed=new MovieSoundFeed({assets:{list:async()=>[],read:async()=>new Uint8Array()},out:make,volume:()=>value,read});
+  feed.open('MENU');
+  expect(volumes).toEqual([0]);
+  for(const v of [.25,1,0,1]) { value=v; feed.refreshVolume(); expect(volumes.at(-1)).toBe(v); }
+  value=.5; feed.open('INTRO');
+  expect(make).toHaveBeenCalledTimes(1);
+  expect(volumes.at(-1)).toBe(.5);
+  feed.close();
+});

@@ -24,6 +24,9 @@ import { columnAxis, rowAxis } from '../src/uiRasterRules';
  *
  * Three figures: `planFrame` whole at 4x (`ff`, the HD default) and at 1x (`exact`), and the axis build alone at 4x --
  * the same `columnAxis` / `rowAxis` calls the planner makes, over the 4x plan's textured quads, into one f64 table.
+ *
+ * GM-29 adds the cold switch's two dialogs at 2x and 4x, each over 60 consecutive frames at 60 Hz (the frames a switch's
+ * window plans one after another, every one changed): dlgMenu, and dlgOptions_Menu with its lazy bank (UIOP) read.
  */
 
 const PC_ROOT = process.env.SOCOM_PC_ROOT ? resolve(process.env.SOCOM_PC_ROOT) : null;
@@ -42,6 +45,23 @@ async function dlgMenuFrame(): Promise<{ items: UiDrawItem[]; textures: UiTextur
   s.advance(now);
   for (let i = 0; i < 150; i++) s.advance(now += 1000 / 30);
   return { items: s.last.slice(), textures: (s as unknown as { textures: UiTextures }).textures };
+}
+
+/** GM-29: `dialog`'s 60 frames at 60 Hz after 150 (its lazy banks read), as the page plans them one after another. */
+async function dialogFrames(dialog: string): Promise<{ list: UiDrawItem[][]; textures: UiTextures }> {
+  const src = new FsAssetSource(DISC);
+  const base = await readFrontEndDisc(src);
+  const disc = await withMenuArt(src, base, [dialog]);
+  const banks = pageUiTextures(src);
+  await banks.ready;
+  const d = disc.dialog(dialog);
+  if (d) await banks.need(d);
+  const s = new FrontEndSession({ disc, source: new BlackPictureSource(), startDialog: dialog, loader: false, textures: banks.textures });
+  let now = 0;
+  s.advance(now);
+  const list: UiDrawItem[][] = [];
+  for (let i = 0; i < 210; i++) { s.advance(now += 1000 / 60); if (i >= 150) list.push(s.last.slice()); }
+  return { list, textures: (s as unknown as { textures: UiTextures }).textures };
 }
 
 /** The axis build alone, as the planner does it, over a plan's textured quads. */
@@ -74,4 +94,11 @@ describe.skipIf(!frame)(`GM-06a: the axis tables on the dlgMenu frame${frame ? '
   bench('planFrame, dlgMenu at 4x (ff)', () => { planFrame(frame!.items, frame!.textures, { scale: 4 }); });
   bench('planFrame, dlgMenu at 1x (exact)', () => { planFrame(frame!.items, frame!.textures, { scale: 1 }); });
   bench('the axis build alone, dlgMenu at 4x', () => { axisOnly(at4!); });
+});
+
+const sw = HAVE_DISC ? { menu: await dialogFrames('dlgMenu.rdr'), options: await dialogFrames('dlgOptions_Menu.rdr') } : null;
+describe.skipIf(!sw)(`GM-29: the cold switch's dialogs, 60 frames each${sw ? '' : ' -- SKIPPED: no disc'}`, () => {
+  for (const [name, f] of [['dlgMenu', sw?.menu], ['dlgOptions_Menu', sw?.options]] as const) {
+    for (const scale of [2, 4]) bench(`planFrame, ${name} at ${scale}x (ff), 60 frames`, () => { for (const items of f!.list) planFrame(items, f!.textures, { scale }); });
+  }
 });

@@ -20,10 +20,11 @@ function drawn() {
 }
 
 describe('LR-6: the Experiments list', () => {
-  it('draws Forge and Test room as two item buttons in the Home list, with no rule row', () => {
+  // B206 ML-2 (ML.R6): Mods, the third item, pushes the MODS screen.
+  it('draws Forge, Test room and Mods as three item buttons in the Home list, with no rule row', () => {
     const { root } = drawn();
     const items = [...root.querySelectorAll<HTMLElement>('.cx-list > li > .cx-item')];
-    expect(items.map((i) => i.querySelector('.cx-item__title')!.textContent)).toEqual(['Forge', 'Test room']);
+    expect(items.map((i) => i.querySelector('.cx-item__title')!.textContent)).toEqual(['Forge', 'Test room', 'Mods']);
     expect(items.every((i) => i.dataset.act === 'item')).toBe(true);
     expect(root.querySelector('.cx-r')).toBeNull();
   });
@@ -37,6 +38,6 @@ describe('LR-6: the Experiments list', () => {
   });
   it('keeps the links\' targets', () => {
     const { A, S } = drawn();
-    expect(homeItems('experiments', S, A).map((i) => i.act)).toEqual(['page:Forge', 'page:Testroom']);
+    expect(homeItems('experiments', S, A).map((i) => i.act)).toEqual(['page:Forge', 'page:Testroom', 'mods']);
   });
 });

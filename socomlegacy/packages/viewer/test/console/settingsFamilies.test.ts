@@ -71,7 +71,7 @@ describe('LATER 294: Game and Launcher', () => {
     page!.render();
     expect(tabs()).toEqual(['Controller', 'Appearance', 'App', 'Account']);
     // STANCE-TOP (the owner, 2026-11-02: "move stance mode to the top"): the Stance mode is the tab's first row.
-    expect(optRowEls().map(optRowLabel).slice(0, 4)).toEqual(['Stance mode', 'Controller', 'Stick dead zone', 'Button mapping']);
+    expect(optRowEls().map(optRowLabel).slice(0, 4)).toEqual(['Stance mode', 'Controller', 'Pad dead zone (this browser)', 'Button mapping']);   // SS-1 D2
     const ids = cat(options, 'controller').rows.map((r) => r.id);
     expect(ids[0]).toBe('stance-mode');                 // STM-1: offered again (OBF-11 retired); STANCE-TOP: first
     expect(ids.slice(1, 4)).toEqual(['pad-device', 'pad-dead', REMAP_ROW]);

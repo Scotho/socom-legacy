@@ -105,7 +105,7 @@ const run = (doors: DoorSet, seconds: number): void => { for (let k = 0; k < sec
 
 describe("SUP-02: a door's breakable pane on the page and in the room", () => {
   it("the page takes a pane the room broke: a live snapshot plays breakapane's sound and debris once and spends the record; a joiner's silent one turns it off with neither; the reset restores it silently", () => {
-    expect(SCENE_DEATH_ON_WIRE_READING).toBe('targetOff');
+    expect(SCENE_DEATH_ON_WIRE_READING).toBe('targetOffOrTold');
     expect(GLASS_FRAGMENTS_PLACEHOLDER).toBe('sound-and-pane-off');
     const parse = hull();
     const room = page(forkGround(parse));
@@ -226,8 +226,30 @@ describe("SUP-02: a door's breakable pane on the page and in the room", () => {
     expect(follower.sounds).toEqual(caller.sounds);
   });
 
-  it('the sound is placed at the centre of the pane as it stands now (SCENE_SOUND_PLACE_READING): shut, and turned with its leaf', () => {
-    expect(SCENE_SOUND_PLACE_READING).toBe('polygonBoxCentre');
+  it("the sound plays at the pane's world origin as it stands now (SCENE_SOUND_PLACE_READING, FUN_00310980): shut, and turned with its leaf", () => {
+    expect(SCENE_SOUND_PLACE_READING).toBe('nodeOrigin');
+    const ground = hull();
+    const places: (readonly number[] | null)[] = [];
+    // The pane's origin (4, 0, 0): its leaf-side edge, on the hinge's line -- not its box's centre (14, 20, 0).
+    const m: MapMeta = { ...meta(), worlds: new Map([[PANE, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4, 0, 0, 1]]]) };
+    const world = new WorldState(m, ground, groundGrid(ground), { sound: (_name, _path, _volume, at) => { places.push(at ?? null); } });
+    world.applyInitial();
+    expect(world.health.hitAt(PANE, M4).died).toBe(true);
+    expect(places).toEqual([[4, 0, 0]]);
+    world.reset();                                                          // whole again, shut
+    // The door's swing carried to the world (`DoorPage`'s `move`, `./main` and `./matchMount`): the pane turns with the leaf.
+    const doors = new DoorSet([door], ground, { moved: (d, delta) => { world.nodeMoved(d.path, delta); } });
+    expect(doors.use(0)).toBe(true);
+    run(doors, 1.5);
+    expect(world.health.hitAt(PANE, M4).died).toBe(true);
+    const at = places.at(-1)!;
+    expect(places).toHaveLength(2);
+    expect(Math.abs(at[0]!)).toBeLessThan(1e-3);                            // the leaf turned a quarter about the hinge
+    expect(Math.abs(at[2]!)).toBeCloseTo(4, 3);
+    expect(at[1]).toBeCloseTo(0, 3);
+  });
+
+  it("placeOf (a call's effect place): the centre of the pane's polygons as they stand now -- shut, and turned with its leaf", () => {
     const { world, ground } = page();
     expect(world.placeOf(PANE)).toEqual([14, 20, 0]);
     expect(world.placeOf('worldmodel/nothing')).toBeNull();

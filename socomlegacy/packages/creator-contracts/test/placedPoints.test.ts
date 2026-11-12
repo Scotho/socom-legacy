@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkCreatorRecord, layoutOfRecord, onlineLayoutRefusal, parseLayout, recordOfLayout, type Layout } from "../src/layout";
+import { checkCreatorRecord, layoutOfRecord, onlineLayoutRefusal, onlineRecordRefusal, parseLayout, recordOfLayout, type Layout } from "../src/layout";
 
 /**
  * The layout's placed tactical points and spectator views (a browser adaptation, FG.R2; no original): a point a name, a
  * kind and a place (kind 1 a nav point the compass marks); a view a name, a place and a camera's yaw and pitch (degrees,
- * the port's convention, as the disc's Scenic_Views). Kept by the file and the v3 record; refused online.
+ * the port's convention, as the disc's Scenic_Views). Kept by the file and the v3 record; admitted online (FP-1a: the
+ * room holds neither -- the lobby's page composes them as its Play does, `viewer/src/forge/placedPoints.ts`).
  */
 const layout = {
   forge: 1, base: { kind: "map", archive: "MP6" }, pieces: [], spawns: [],
@@ -32,7 +33,8 @@ describe("placed tactical points and spectator views", () => {
     expect("tacPoints" in recordOfLayout({ ...layout, tacPoints: undefined, scenicViews: undefined } as Layout, "none")).toBe(false);
   });
 
-  it("an online lobby refuses them", () => {
-    expect(onlineLayoutRefusal(layout).map((d) => d.code)).toEqual(["record.ONLINE_TACTICAL_POINTS", "record.ONLINE_SPECTATOR_VIEWS"]);
+  it("an online lobby admits them (FP-1a; refused record.ONLINE_TACTICAL_POINTS and record.ONLINE_SPECTATOR_VIEWS before)", () => {
+    expect(onlineLayoutRefusal(layout)).toEqual([]);
+    expect(onlineRecordRefusal(recordOfLayout(layout, "points"))).toEqual([]);
   });
 });

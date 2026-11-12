@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Group, PerspectiveCamera, Scene, type Object3D } from 'three';
 import {
   DEFAULT_RIFLE, HELD_SIDEARM, M67, arsenalOf, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot, type ThrowableRecord,
@@ -31,6 +31,13 @@ const launcherRef = (k: readonly number[]): HeldRef | null => {
   return { object: g, points: [] };
 };
 
+// The package runs `isolate: false` (vitest.config.ts): a worker keeps its evaluated modules from one file to the next.
+// So this file's two mocks reach `remotePlayers` only if this file is the one that loads it -- after roomPickups or
+// hostageProneTilt in the same worker it was the cached module, bound to the real `buildBody` (the v0.4.19 pre-release
+// run: "Cannot read properties of undefined (reading 'map')"). The worker's modules are dropped before this file's
+// imports, and again after its tests: the `remotePlayers` loaded here is bound to the stubs, and no later file draws it.
+vi.hoisted(() => { vi.resetModules(); });
+afterAll(() => { vi.resetModules(); });
 const output = vi.hoisted(() => ({ stowed: [] as boolean[], plays: [] as { launcher: Object3D; hand: Object3D }[] }));
 vi.mock('../../viewer/src/bodyView', () => ({ buildBody: () => ({ group: new Group(), dispose: () => {} }) }));
 vi.mock('../../viewer/src/play', async () => { const { Group: G } = await import('three'); return { Play: class {

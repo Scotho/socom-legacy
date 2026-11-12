@@ -31,6 +31,13 @@ describe('IP3 lobby prepare: the guard (an adaptation, off under the Xbox preset
     expect(lobbyPrepareAllowed({ graphics: 'xbox', deviceMemory: 8, search: '?lobbyprepare=1' })).toBe(false);
   });
 
+  it('VS-7: off under the Xbox device class (the certain bar, VS.R1), even with the address override; on for another class', () => {
+    expect(lobbyPrepareAllowed({ graphics: 'auto', deviceClass: 'xbox', deviceMemory: 8, search: '' })).toBe(false);
+    expect(lobbyPrepareAllowed({ graphics: 'auto', deviceClass: 'xbox', deviceMemory: 8, search: '?lobbyprepare=1' })).toBe(false);
+    expect(lobbyPrepareAllowed({ graphics: 'auto', deviceClass: 'standard', deviceMemory: 8, search: '' })).toBe(true);
+    expect(lobbyPrepareAllowed({ graphics: 'auto', deviceClass: 'high', deviceMemory: 8, search: '' })).toBe(true);
+  });
+
   it('off when the device memory is known and below the threshold; on when it is unknown or enough', () => {
     expect(lobbyPrepareAllowed({ graphics: 'auto', deviceMemory: 2, search: '' })).toBe(false);
     expect(lobbyPrepareAllowed({ graphics: 'auto', deviceMemory: 4, search: '' })).toBe(true);
@@ -241,11 +248,14 @@ describe('IP3 lobby prepare: the page\'s wiring (by its source) and the slot\'s 
     expect(fe).toMatch(/this\.lobbyPrepare\.frame\(this\.gameLobby\.commands\.missionName\(\), /);
   });
 
-  it('N4: the hand-off\'s `unprepare` spread into LobbyMatch, its port (a held loader only), and the loader\'s `hdPack` option -- pinned by text', () => {
+  it('N4: the hand-off\'s `unprepare` spread into LobbyMatch, its port (a held loader only), and no `hdPack` option (ML-6) -- pinned by text', () => {
     const fe = src('frontEnd.ts');
     expect(fe).toMatch(/\.\.\.\(lm\?\.unprepare \? \{ unprepare: lm\.unprepare \} : \{\}\),/);   // FrontEndSession: the port handed to LobbyMatch
     expect(fe).toMatch(/unprepare: \(\) => \{ \+\+lobbyAsk; void matchLoading\?\.held\(\)\?\.then\(\(l\) => \{ l\.dropPrepared\(\); \}, \(\) => undefined\); \},/);
-    expect(fe).toMatch(/m\.matchLoader\(from, undefined, \{\s*hdPack: \(\) => pictureExperimentalSettings\(picture\.get\(\)\)\.hdPack,/);   // F3: no prepare under HD
+    // B206 ML-6 (ML.R11): no picture asks for the HD pack, so the loader is given no `hdPack` (absent: never) -- a pack
+    // chosen in MODS is registered from the map's decodes after the world (ML-3), so a prepared match is kept under it.
+    expect(fe).toMatch(/m\.matchLoader\(from, undefined, \{\s*picture, \.\.\.\(win \?/);
+    expect(fe).not.toMatch(/pictureExperimentalSettings|hdPack: \(\) =>/);
     // The prepare is the mount's own stage 1: its stage-1 inputs from the page, as the hand-off's mount is given them.
     expect(fe).toMatch(/audio: \(\) => matchSound\.audio\(\), side: \(\) => session_\?\.gameLobby\.socket\?\.link\(\)\?\.team \?\? null,/);
     expect(fe).toMatch(/lobbySide: \(\) => \{ void matchLoading\?\.held\(\)\?\.then\(\(l\) => \{ l\.reseat\(\); \}, \(\) => undefined\); \},/);

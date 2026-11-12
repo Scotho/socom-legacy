@@ -27,6 +27,12 @@
  * `gameplayDigest` hashes those members alone (a name, a region's label, a visual, the map's own reference and any pack's
  * hash never move it), through the contract's `canonicalJson` and `sha256Hex`: the page's load and the room's compile
  * carry the same digest for the same map, and a pack re-published with the same gameplay keeps it.
+ *
+ * Version 2 (FP-4, FP.R2; additive, `ENGINE_CONTRACT_VERSION` 0.1.2) adds one field, read off the sample yard's map member
+ * (`test-fixtures/creator/sample-yard.forge.zip`): `visual.includesProps`, whether the visual GLB already draws the
+ * props. A v1 member reads as it did; a v1 member carrying it is refused `map.VERSION_FIELD`, and a reader that takes v1
+ * only (`ReadContentMapOptions.versions`) refuses a v2 member `map.VERSION_UNSUPPORTED`. Neither the version nor the
+ * visual is gameplay: a v1 and a v2 copy of one map digest equal.
  */
 import { canonicalJson, sha256Hex, type Sha256 } from "./digest.js";
 import { CONTENT_ASSET_ID, checkContentRef, checkPackRef, missingPackRefs, packRefKey, samePackRef, sortPackRefs, type ContentRef } from "./content.js";
@@ -36,6 +42,13 @@ import { FORGE_GAME_TYPES, LAYOUT_NAME_MAX, RECORD_CODES, RECORD_LIMITS, type Co
 
 export const CONTENT_MAP_SCHEMA = "s2u.creator/content-map" as const;
 export const CONTENT_MAP_VERSION = 1 as const;
+/** FP-4: the content map's version 2, additive over version 1 (`CONTENT_MAP_V2_FIELDS`). */
+export const CONTENT_MAP_VERSION_2 = 2 as const;
+/** The versions this reader takes, oldest first. */
+export const CONTENT_MAP_VERSIONS = Object.freeze([CONTENT_MAP_VERSION, CONTENT_MAP_VERSION_2] as const);
+export type ContentMapVersion = (typeof CONTENT_MAP_VERSIONS)[number];
+/** The fields version 2 adds over version 1, by path: every one the sample yard's map member carries that v1 lacks. */
+export const CONTENT_MAP_V2_FIELDS = Object.freeze(["visual.includesProps"] as const);
 
 /** The pack member that holds a map's definition: derived from the structured reference only, never a caller's path. */
 export const contentMapMemberPath = (mapId: string): string => `maps/${mapId}.json`;
@@ -94,6 +107,10 @@ export const CONTENT_MAP_PLANAR_TOLERANCE_ADAPTATION = 1e-6;
 /** The refusal codes, namespaced `map.`; the lobby's refusal joins the record's own online codes (`record.`). */
 export const CONTENT_MAP_CODES = {
   invalid: "map.MAP_INVALID",
+  /** FP-4: a member of a version the caller's reader does not take (`ReadContentMapOptions.versions`); `actual` names it. */
+  versionUnsupported: "map.VERSION_UNSUPPORTED",
+  /** FP-4: a v1 member carrying a field of a later version (`CONTENT_MAP_V2_FIELDS`); `expected` names that version. */
+  versionField: "map.VERSION_FIELD",
   refInvalid: "map.REF_INVALID",
   refMismatch: "map.REF_MISMATCH",
   /**
@@ -218,7 +235,8 @@ export interface ContentMapProp {
 
 export interface ContentMapDefinition {
   readonly schema: typeof CONTENT_MAP_SCHEMA;
-  readonly version: typeof CONTENT_MAP_VERSION;
+  /** The member's own version, kept: 1, or 2 (FP-4) when it may carry `visual.includesProps`. */
+  readonly version: ContentMapVersion;
   /** The caller's reference, attached by the reader (S3c): the member holds `mapId`, its `assetId`, never this. */
   readonly ref: ContentRef;
   readonly name: string;
@@ -230,8 +248,11 @@ export interface ContentMapDefinition {
   readonly objectives?: ContentMapObjectives;
   readonly navigation?: ContentMapNavigation;
   readonly props?: readonly ContentMapProp[];
-  /** The pack's GLB member the page draws (FUI-17); not gameplay. */
-  readonly visual?: { readonly member: string };
+  /**
+   * The pack's GLB member the page draws (FUI-17); not gameplay. `includesProps` (version 2 only, FP-4): whether that
+   * GLB already draws the map's props; absent, the member says nothing.
+   */
+  readonly visual?: { readonly member: string; readonly includesProps?: boolean };
   /** Every pack the map needs beside its own, each once (an own-pack prop needs no entry: S3d). */
   readonly dependencies: readonly PackRef[];
 }
@@ -239,6 +260,8 @@ export interface ContentMapDefinition {
 export interface ReadContentMapOptions {
   /** The packs this device holds (the registry's). Absent: dependencies are not checked against a device. */
   readonly available?: readonly PackRef[];
+  /** FP-4: the versions the caller takes (a v1-only consumer: `[1]`). Absent: every version this reader knows. */
+  readonly versions?: readonly ContentMapVersion[];
 }
 
 const FIELDS = ["schema", "version", "mapId", "name", "units", "up", "bounds", "regions", "spawns", "objectives", "navigation", "props", "visual", "dependencies"];
@@ -253,8 +276,8 @@ const extraKey = (v: Record<string, unknown>, keys: readonly string[]): string |
 
 class Refusals {
   readonly list: Diagnostic[] = [];
-  add(code: ContentMapCode, text: string, field?: string, actual?: string): void {
-    this.list.push(diagnostic({ source: "pack", severity: "error", code, text, field, actual, evidence: "validation" }));
+  add(code: ContentMapCode, text: string, field?: string, actual?: string, expected?: string): void {
+    this.list.push(diagnostic({ source: "pack", severity: "error", code, text, field, expected, actual, evidence: "validation" }));
   }
 }
 
@@ -277,8 +300,12 @@ export function readContentMapDefinition(json: unknown, ref: ContentRef, options
   if (raw["ref"] !== undefined) r.add(CONTENT_MAP_CODES.refInMember, "A map member names its map by mapId; its pack's reference is the reader's, never the member's.", "ref");
   const extra = extraKey(raw, [...FIELDS, "ref"]);
   if (extra) r.add(CONTENT_MAP_CODES.invalid, `A map names no field ${extra}.`, extra);
-  if (raw["schema"] !== CONTENT_MAP_SCHEMA || raw["version"] !== CONTENT_MAP_VERSION) {
-    r.add(CONTENT_MAP_CODES.invalid, `A map is ${CONTENT_MAP_SCHEMA} version ${CONTENT_MAP_VERSION}.`, "schema");
+  const known = raw["schema"] === CONTENT_MAP_SCHEMA && (CONTENT_MAP_VERSIONS as readonly unknown[]).includes(raw["version"]);
+  const version = known ? raw["version"] as ContentMapVersion : null;
+  if (!version) r.add(CONTENT_MAP_CODES.invalid, `A map is ${CONTENT_MAP_SCHEMA} version ${CONTENT_MAP_VERSIONS.join(" or ")}.`, "schema");
+  else if (options.versions && !options.versions.includes(version)) {
+    const takes = options.versions.join(", ");
+    r.add(CONTENT_MAP_CODES.versionUnsupported, `This reader takes ${CONTENT_MAP_SCHEMA} version ${options.versions.join(" or ")}; the member is version ${version}.`, "version", String(version), takes);
   }
   const refWhy = checkContentRef(ref);
   const mapId = raw["mapId"];
@@ -301,16 +328,19 @@ export function readContentMapDefinition(json: unknown, ref: ContentRef, options
   const objectives = raw["objectives"] === undefined ? undefined : readObjectives(raw["objectives"], r, inBounds, outside);
   const navigation = raw["navigation"] === undefined ? undefined : readNavigation(raw["navigation"], r, inBounds, outside);
   const props = raw["props"] === undefined ? undefined : readProps(raw["props"], r, inBounds, outside, dependencies ?? [], own);
-  let visual: { member: string } | undefined;
+  let visual: { member: string; includesProps?: boolean } | undefined;
   if (raw["visual"] !== undefined) {
     const v = raw["visual"];
-    if (!isObject(v) || extraKey(v, ["member"]) || typeof v["member"] !== "string" || !MEMBER.test(v["member"]) || v["member"].split("/").includes("..")) {
-      r.add(CONTENT_MAP_CODES.visualInvalid, "A map's visual is {member}, a pack member path.", "visual");
-    } else visual = { member: v["member"] };
+    if (!isObject(v) || extraKey(v, ["member", "includesProps"]) || typeof v["member"] !== "string" || !MEMBER.test(v["member"]) || v["member"].split("/").includes("..")
+      || (v["includesProps"] !== undefined && typeof v["includesProps"] !== "boolean")) {
+      r.add(CONTENT_MAP_CODES.visualInvalid, "A map's visual is {member, includesProps?}: a pack member path, and a boolean (version 2).", "visual");
+    } else if (v["includesProps"] !== undefined && version !== null && version < CONTENT_MAP_VERSION_2) {
+      r.add(CONTENT_MAP_CODES.versionField, `visual.includesProps is a field of ${CONTENT_MAP_SCHEMA} version 2; this member is version ${version}.`, "visual.includesProps", String(version), String(CONTENT_MAP_VERSION_2));
+    } else visual = { member: v["member"], ...(v["includesProps"] !== undefined ? { includesProps: v["includesProps"] as boolean } : {}) };
   }
   if (r.list.length > 0) return r.list;
   const def: ContentMapDefinition = {
-    schema: CONTENT_MAP_SCHEMA, version: CONTENT_MAP_VERSION, ref: cloneRef(ref), name: name as string, units: "metre", up: "+Y",
+    schema: CONTENT_MAP_SCHEMA, version: version!, ref: cloneRef(ref), name: name as string, units: "metre", up: "+Y",
     bounds: bounds!, regions: regions!, spawns: spawns!, dependencies: dependencies!,
     ...(objectives ? { objectives } : {}), ...(navigation ? { navigation } : {}), ...(props ? { props } : {}), ...(visual ? { visual } : {}),
   };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RdrNode } from '@s2u/archive';
 import {
-  arsenalOf, HELD_RIFLE, HELD_SIDEARM, type CollisionOwner, type GridParams, type Loadout, type MapArsenal, type SpawnSlot, type WorldPoly,
+  arsenalOf, HELD_RIFLE, HELD_SIDEARM, transformPoint, type CollisionOwner, type GridParams, type Loadout, type MapArsenal, type SpawnSlot, type WorldPoly,
 } from '@s2u/scene';
 import type { LoadedBody } from '../src/body';
 import { Hud } from '../src/hud';
@@ -16,6 +16,7 @@ import {
   cameraLook, centreClaim, encodeCommands, EYE_HEIGHT, faceToward, packGround, PROTOCOL_VERSION,
   type ClientEvent, type Command, type ServerEvent, type SimKits,
 } from '../src/sim';
+import { bodyPointToWorld, bodyVolumes, stanceVolumes, type BoneBox, type HitBody } from '../src/net/hitVolumes';
 import { hitBodiesOfPage } from '../src/teamBody';
 import type { WalkMode } from '../src/walk';
 
@@ -24,7 +25,7 @@ import type { WalkMode } from '../src/walk';
  * match is staged until the room answers -- refused, the page holds the type and picks the room holds; taken, the new
  * type with its own kit (`chooseCharacterType`, `PlayerLoadout.roomAnswer`). A spectator's choice reaches the room for
  * its seat (`NetPage.typeChosen`), and a seat whose type differs from the room's is told. And the in-page room hits a
- * player on its own type's capsules, off the page's own bodies (`hitBodiesOfPage`).
+ * player on its own type's bone boxes, off the page's own bodies (`hitBodiesOfPage`).
  */
 
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
@@ -480,12 +481,12 @@ function body(model: string, head: readonly number[]): LoadedBody {
   } as unknown as LoadedBody;
 }
 
-describe('the in-page room hits a player on its own type\'s capsules, off the page\'s bodies (hitBodiesOfPage)', () => {
+describe('the in-page room hits a player on its own type\'s bone boxes, off the page\'s bodies (hitBodiesOfPage)', () => {
   class Conn { readonly events: ServerEvent[] = []; send(f: string | Uint8Array): void { if (typeof f === 'string') this.events.push(JSON.parse(f) as ServerEvent); } close(): void { /* */ } }
 
   /** SEAL 3 (id 3, the hello's type) stands 100 east of SEAL 2 (id 2), who fires at a point 2 aside of its head's middle. */
-  function shot(type: number): { to: readonly number[]; head: readonly number[] } {
-    // SEAL 1's head a thin box (radius 0.5); SEAL 2's a wide one (radius 3): the round 2 aside passes the one, not the other.
+  function shot(type: number): { to: readonly number[]; head: readonly number[]; box: BoneBox; body: HitBody } {
+    // SEAL 1's head a thin box (half-width 0.5); SEAL 2's a wide one (half-width 3): the round 2 aside passes the one, not the other.
     const bodies = hitBodiesOfPage({ body: body('seal_A', [-0.5, 0, -0.5, 0.5, 2, 0.5]), terrorist: null, types: {
       seal: [body('seal_A', [-0.5, 0, -0.5, 0.5, 2, 0.5]), body('seal_E', [-3, 0, -3, 3, 2, 3])], terrorist: [],
     } }, null);
@@ -522,12 +523,42 @@ describe('the in-page room hits a player on its own type\'s capsules, off the pa
     run(1);
     const s = target.events.filter((e): e is Extract<ServerEvent, { type: 'shot' }> => e.type === 'shot').at(-1);
     expect(s).toBeDefined();
-    return { to: s!.to, head };
+    // BONE-BOXES: the target's head box as the room places it -- its type's hit body's idle sets (`stanceVolumes`, as the
+    // room's constructor makes them; cached per skeleton, so the same boxes) at its feet, yaw, posture and root tilt
+    // (`bodyVolumes`, the room's path for a body without motion)
+    const hit = bodies.seal[type]!;
+    const w = room.player(3)!.sim.walker;
+    const placed = bodyVolumes([w.state.x, w.state.y, w.state.z], w.state.yaw, w.posture, stanceVolumes(hit), w.rootTilt.q);
+    const box = placed.boxes!.find((b) => b.bone === hit.skeleton.indexOf('head'))!;
+    expect(box).toBeDefined();
+    return { to: s!.to, head, box, body: placed };
+  }
+
+  /** A world point in `box`'s own frame on `body`: the yaw undone about the feet, then the bone's matrix inverted (Cramer). */
+  function inBox(body: HitBody, box: BoneBox, p: readonly number[]): [number, number, number] {
+    const r = (body.yaw * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+    const ex = p[0]! - body.feet[0]!, ez = p[2]! - body.feet[2]!, m = box.w;
+    const v = [ex * c - ez * s - m[12]!, p[1]! - body.feet[1]! - m[13]!, ex * s + ez * c - m[14]!];
+    const col = (k: number): number[] => [m[4 * k]!, m[4 * k + 1]!, m[4 * k + 2]!];
+    const det3 = (a: number[], b: number[], d: number[]): number =>
+      a[0]! * (b[1]! * d[2]! - b[2]! * d[1]!) - b[0]! * (a[1]! * d[2]! - a[2]! * d[1]!) + d[0]! * (a[1]! * b[2]! - a[2]! * b[1]!);
+    const [x, y, z] = [col(0), col(1), col(2)], det = det3(x!, y!, z!);
+    return [det3(v, y!, z!) / det, det3(x!, v, z!) / det, det3(x!, y!, v) / det];
   }
 
   it('SEAL 2\'s wide head stops the round; SEAL 1\'s thin one lets it by', () => {
     const second = shot(1);
-    expect(Math.hypot(second.to[0]! - second.head[0]!, second.to[1]! - second.head[1]!, second.to[2]! - second.head[2]!)).toBeLessThan(3.01);
+    // the round ends on the wide head box's surface (research 398 s1: a record at the box's entry face), in its posed frame
+    const l = inBox(second.body, second.box, second.to);
+    const back = bodyPointToWorld(second.body, transformPoint(Float32Array.from(second.box.w), ...l));
+    for (let i = 0; i < 3; i++) expect(back[i]!).toBeCloseTo(second.to[i]!, 3);       // the inverse undoes the code's own placing
+    const k = second.box.box, EPS = 1e-3;
+    expect(Array.from(k)).toEqual([-3, 0, -3, 3, 2, 3]);                              // SEAL 2's own (wide) head box
+    for (let i = 0; i < 3; i++) {
+      expect(l[i]!).toBeGreaterThanOrEqual(k[i]! - EPS);
+      expect(l[i]!).toBeLessThanOrEqual(k[3 + i]! + EPS);
+    }
+    expect(Math.min(...[0, 1, 2].flatMap((i) => [Math.abs(l[i]! - k[i]!), Math.abs(l[i]! - k[3 + i]!)]))).toBeLessThan(EPS);
     const first = shot(0);
     expect(first.to[0]!).toBeGreaterThan(first.head[0]! + 50);             // past the target: its head is not where it went
   });

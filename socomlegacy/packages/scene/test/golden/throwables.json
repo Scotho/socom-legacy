@@ -1,5 +1,5 @@
 {
- "_source": "disc RUN/ZWEAPON.ZAR zweapon.rdr (ZWEAPON + ZAMMO records) through throwableRecord (packages/scene/src/projectile.ts); the Detonator by rdrGet; each record's Rumble_Modifiers as rumble, CTL-2; read 2026-10-23",
+ "_source": "disc RUN/ZWEAPON.ZAR zweapon.rdr (ZWEAPON + ZAMMO records) through throwableRecord (packages/scene/src/projectile.ts); the Detonator by rdrGet; each record's Rumble_Modifiers as rumble, CTL-2; read 2026-10-23; the hand grenades' ImpactDamage (0.2) carried since LATER 851, 2026-11-10",
  "records": {
   "M67": {
    "rumble": {"small": 0.03999999910593033, "large": {"time": 0.18000000715255737, "power": 175}},
@@ -26,7 +26,8 @@
    "ammo": "M67 Ammo",
    "ammoId": 11,
    "explosionDamage": 10,
-   "explosionRadius": 150
+   "explosionRadius": 150,
+   "impactDamage": 0.2
   },
   "HE": {
    "rumble": {"small": 0.03999999910593033, "large": {"time": 0.18000000715255737, "power": 175}},
@@ -53,7 +54,8 @@
    "ammo": "HE Grenade Ammo",
    "ammoId": 26,
    "explosionDamage": 11,
-   "explosionRadius": 100
+   "explosionRadius": 100,
+   "impactDamage": 0.2
   },
   "AN-M8": {
    "rumble": {"small": 0.03999999910593033, "large": {"time": 0.18000000715255737, "power": 175}},
@@ -80,7 +82,8 @@
    "ammo": "AN-M8 Ammo",
    "ammoId": 12,
    "explosionDamage": 0,
-   "explosionRadius": 0
+   "explosionRadius": 0,
+   "impactDamage": 0.2
   },
   "Mark141": {
    "rumble": {"small": 0.03999999910593033, "large": {"time": 0.18000000715255737, "power": 175}},
@@ -107,7 +110,8 @@
    "ammo": "Mark141 Ammo",
    "ammoId": 14,
    "explosionDamage": 0,
-   "explosionRadius": 150
+   "explosionRadius": 150,
+   "impactDamage": 0.2
   },
   "Claymore": {
    "rumble": {"small": 0.03999999910593033, "large": {"time": 0.18000000715255737, "power": 175}},

@@ -342,6 +342,40 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     expect('shownTick' in sent[1]!).toBe(false);
   });
 
+  // TRIGGER-SWAP fold (research 211 §10): the turret is a kit slot (`FUN_005463c0` D:L412214-412218 -> `FUN_005c4b10`), each
+  // round raising the kit's pull count (`FUN_005be9a0` D:L475514-475516), which the dismount leaves; only a let-go zeroes it
+  // (`FUN_005c0ae0` D:L476380-476382, D:L476399-476400). The page's count of the hold is handed to the rifle.
+  it('TRIGGER-SWAP fold: pageHands.heldPulls -- null mounted; the turret rounds of a hold still held at the dismount; 0 after the let-go', () => {
+    const { sent, run, acts } = seated('PKM TURRET');
+    run(0.5, true);
+    expect(sent.length).toBeGreaterThan(1);
+    expect(acts.pageHands.heldPulls()).toBeNull();
+    const dismount = (acts as unknown as { turrets: { mounted(): unknown } }).turrets;
+    vi.spyOn(dismount, 'mounted').mockReturnValue(null);
+    acts.turretFrame(1 / 60, false);
+    expect(acts.pageHands.heldPulls()).toBe(sent.length);
+    acts.trigger(false);
+    expect(acts.pageHands.heldPulls()).toBe(0);
+  });
+
+  // TRIGGER-SWAP fold's review F1: a press the release clip took (LATER 109, TURRET_RELEASE_ACTIONS_PLACEHOLDER) is the
+  // release's until let go -- `heldPulls` null through it and after the clip ends, so the firearm (`./matchFirearm`'s
+  // `triggerOwed`, set on every press the hands take, pulls only on a non-null count) is handed nothing; 0 after the let-go.
+  it("TRIGGER-SWAP fold's review F1: a press taken by the turret's release clip is not handed to the firearm while held", () => {
+    const { acts } = seated('PKM TURRET');
+    const t = (acts as unknown as { turrets: { mounted(): unknown; travelling(): boolean } }).turrets;
+    vi.spyOn(t, 'mounted').mockReturnValue(null);
+    const travel = vi.spyOn(t, 'travelling').mockReturnValue(true);
+    acts.turretFrame(1 / 60, false);
+    expect(acts.trigger(true)).toBe(true);                               // the release's: no round, no pin
+    expect(acts.pageHands.heldPulls()).toBeNull();
+    travel.mockReturnValue(false);                                       // the clip ends, the trigger still held
+    acts.turretFrame(1 / 60, false);
+    expect(acts.pageHands.heldPulls()).toBeNull();                       // still the release's: nothing owed the rifle
+    expect(acts.trigger(false)).toBe(true);
+    expect(acts.pageHands.heldPulls()).toBe(0);
+  });
+
   it("NCW-17's review F1: the turret claim's two ticks read at one moment (a browser's clock moves between two reads)", () => {
     const { sent, run, client } = seated('MGL FRAG TURRET');
     let clock = 3;
@@ -558,9 +592,11 @@ describe('one action part: /testroom mounts it and builds none of its pages itse
   // ACT-1 (ruling ACT.R1, research 250 s1): the front end mounts the same part with the same deps' shape -- `drops` since
   // PAR-4 (H120), after `win` as main.ts's; the `turret` block and `hostages` since ACT-2/ACT-5 -- and builds none of its pages itself either.
   it('matchMount.ts calls mountActions with the same deps shape main.ts does -- doors, traversal, grenade, remote, bombView\'s seven (PB-1: the own body and the sound lent), win -- and makes no RoomEvents, ActionPage, TurretPage, BombPage or ActionWiring of its own', () => {
-    const shape = /mountActions\(\{\s+walk, fly, doors, traversal, grenade(?:: throws\.grenade)?, remote, play, firearm,[^\n]*\n\s+net: \(\) => net, map: \(\) => (?:loaded|map), view: \(\) => view, world: \(\) => [^\n]+\n\s+craneToggle: \(valve\) => cranes\.toggleLocal\(valve\),\n\s+gatePress: \(action, seq\) => gates\.press\(action, seq\), cranePress: \(valve, seq\) => cranes\.press\(valve, seq\),[^\n]*\n\s+bombView: \{\n\s+roundAudio(?:: sound\.roundAudio)?, hud, remotePlayers: remote, effects(?:: firearm\.effects)?, worldBomb: (?:throws\.)?grenade\.worldBomb\(\),\n\s+ownBody: ownBombBody\(play, (?:throws\.)?throwPose, walk, \(\) => firearm\.item\(\) === 'pistol'\),[^\n]*\n\s+sound: bombSound\((?:gameAudio|sound\.audio)\),[^\n]*\n\s+pulse: worldPulse\(\(\) => (?:pageWorld|world\?\.world \?\? null)\),[^\n]*\n\s+\},\n\s+win: /;
+    const shape = /mountActions\(\{\s+walk, fly, doors, traversal, grenade(?:: throws\.grenade)?, remote, play, firearm,[^\n]*\n\s+net: \(\) => net, map: \(\) => (?:loaded|map), view: \(\) => view, world: \(\) => [^\n]+\n\s+craneToggle: \(valve\) => cranes\.toggleLocal\(valve\),\n\s+gatePress: \(action, seq\) => gates\.press\(action, seq\), cranePress: \(valve, seq\) => cranes\.press\(valve, seq\),[^\n]*\n\s+bombView: \{\n\s+roundAudio(?:: sound\.roundAudio)?, hud, remotePlayers: remote, effects(?:: firearm\.effects)?, worldBomb: (?:throws\.)?grenade\.worldBomb\(\),\n\s+ownBody: ownBombBody\(play, (?:throws\.)?throwPose, walk, \(\) => firearm\.item\(\) === 'pistol'\),[^\n]*\n\s+sound: bombSound\((?:gameAudio|sound\.audio)\),[^\n]*\n\s+pulse: worldPulse\(\(\) => (?:pageWorld|world\?\.world \?\? null)(?:, \(\) => map\?\.forgeSiteOutlines \?\? \[\])?\),[^\n]*\n\s+\},\n\s+win: /;
     // PB-9b (research 284 s8): an eighth, the bases' pulse on the page's world (`worldPulse`); the title keeps its registry name.
     // P8 (SWITCH_PREDICT_ADAPTATION): the gates' and the hooks' press lent beside the crane's offline toggle, in both.
+    // Forge (a browser adaptation, `forge/siteOutlines`): matchMount's pulse also lights the forge sites' donor outlines;
+    // main.ts never loads a forge map, so it keeps worldPulse's default (none). The deps' keys are the same in both.
     for (const f of ['main.ts', 'matchMount.ts']) {
       expect(src(f), f).toMatch(shape);
       expect(src(f), f).not.toMatch(/new (RoomEvents|ActionPage|TurretPage|BombPage|ActionWiring|TurretTrigger)\(/);
@@ -637,6 +673,21 @@ describe('mountActions: the VICTORY DANCE (research 303)', () => {
     acts.lanes(cross(true), cross(false), 1 / 60);
     acts.lanes(cross(false), cross(true), 1 / 60);
     expect(acts.wiring.lifecycle.down()).toBe(true);
+  });
+  // TRIGGER-SWAP fold's review F1: the dance's press (its NoFire, `FUN_005a7de0`) is the dance's until let go -- `heldPulls`
+  // null while it plays and after it stops with the trigger still held, so the firearm (`./matchFirearm`'s `triggerOwed`,
+  // set on every press the hands take, pulls only on a non-null count) is handed nothing; 0 after the let-go.
+  it("TRIGGER-SWAP fold's review F1: a press taken by the dance is not handed to the firearm while held", () => {
+    const { acts, reload } = danceRig();
+    acts.roomEvents.emit({ type: 'victory', id: 1, serial: 1, clip: 'victory_funky', elapsed: 0 });
+    expect(acts.trigger(true)).toBe(true);                            // the dance's: no round, no pin
+    expect(acts.pageHands.heldPulls()).toBeNull();
+    reload()!({ type: 'reloadStart' } as FireEvent);                  // the dance stops, the trigger still held
+    expect(acts.victoryState().playing).toBeNull();
+    acts.turretFrame(1 / 60, false);
+    expect(acts.pageHands.heldPulls()).toBeNull();                    // still the dance's: nothing owed the rifle
+    expect(acts.trigger(false)).toBe(true);
+    expect(acts.pageHands.heldPulls()).toBe(0);
   });
   it('Cross held and a d-pad side turn the list (FUN_00595320), the side no peek until let go; a welcome resets the offer', () => {
     const { acts, lanes } = danceRig({ doors: { target: () => ({}), action: () => false } });

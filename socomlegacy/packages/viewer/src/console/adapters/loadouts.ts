@@ -1,3 +1,4 @@
+import { mapLabel } from '@s2u/archive/mapNames';
 import type { ArmoryLoadoutProfile, ArmoryLoadoutRecord, MissionRecord } from '@s2u/ui';
 import { rowUi, stepItem, type ArmoryContext } from '../../armoryState';
 import { pick as pickItem } from '@s2u/scene';
@@ -302,7 +303,7 @@ export function liveLoadouts(notify: () => void, deps: LoadoutsDeps = {}): LiveL
     for (const r of all) {
       if (shown.has(r.mission) || !r[side]?.valid) continue;
       const n = Number(r.mission.slice(2));
-      out.push({ mission: r.mission, name: table?.find((x) => x.number === n)?.name ?? r.mission, state: 'unoffered' });
+      out.push({ mission: r.mission, name: mapLabel(table?.find((x) => x.number === n)?.name ?? r.mission), state: 'unoffered' });   // MN-1 F1
     }
     return { kind: 'ok', rows: out, empty: rows.length === 0 ? LOADOUT_NO_OFFER_WORDS : null };
   }
@@ -331,7 +332,7 @@ export function liveLoadouts(notify: () => void, deps: LoadoutsDeps = {}): LiveL
       return { label: r.label, values: c.options.map(nameOf), at: Math.max(0, c.options.indexOf(c.current)), open: c.options.map(() => fixed === null), fixed };
     });
     return {
-      kind: 'ok', mission, name: rows.find((r) => r.mission === mission)?.name ?? mission,
+      kind: 'ok', mission, name: rows.find((r) => r.mission === mission)?.name ?? mapLabel(mission),
       head: title ? `${mission} · ${title} · ${SIDE_LABEL[side]}` : `${mission} · ${SIDE_LABEL[side]}`,
       held: p?.valid ? `Stored on the server: type ${p.charSet - (side === 'terrorist' ? 4 : 0)}` : 'Nothing stored for this mission and side: the type\'s own kit',
       rows: [type, ...slots], busy, dirty: kitKey(recordOf(ctx, s)) !== e.base,
@@ -393,7 +394,7 @@ export function liveLoadouts(notify: () => void, deps: LoadoutsDeps = {}): LiveL
       if (!at) return null;
       const profile = recordOf(at.ctx, at.e.state);
       const e = at.e;
-      return send(profile, `Saved: ${mission} · ${SIDE_LABEL[side]}`, (ok) => { if (ok) e.base = kitKey(profile); });
+      return send(profile, `Saved: ${mapLabel(String(mission))} · ${SIDE_LABEL[side]}`, (ok) => { if (ok) e.base = kitKey(profile); });
     },
     defaults(): Promise<LoadoutOutcome | null> | null {
       const at = editing();
@@ -403,7 +404,7 @@ export function liveLoadouts(notify: () => void, deps: LoadoutsDeps = {}): LiveL
       const cleared = clearedRecord(stored());
       if (!cleared) return Promise.resolve({ ok: true, words: 'Defaults: the type\'s own kit' });
       const now = kitKey(recordOf(ctx, e.state));
-      return send(cleared, `Defaults: the stored loadout for ${mission} · ${SIDE_LABEL[side]} is cleared`, (ok) => { if (ok) e.base = now; });
+      return send(cleared, `Defaults: the stored loadout for ${mapLabel(String(mission))} · ${SIDE_LABEL[side]} is cleared`, (ok) => { if (ok) e.base = now; });
     },
     close(): void { if (mission !== null) editors.delete(key()); mission = null; },
     follow(r: () => boolean): void { round = r; roundWas = r(); },

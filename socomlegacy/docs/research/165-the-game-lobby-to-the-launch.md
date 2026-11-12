@@ -152,7 +152,7 @@ follow-up, 2026-10-05). CRgame's CROSS is ungated
 | `LOBBY_TEXT_CHAT_GATE_READING` (`gameLobbyCommands.ts`) | R1 / ENTER `do_chat` and `send_chat` not started; the panels drawn | text chat is ONL-23's, voice SVC-22's (OT.R8) | **retired 2026-10-10** by ONL-23 (research 266 §1): `do_chat` and `send_chat` run, `SendChatText` on the game socket |
 | `SWITCH_CLOSED_AT_COUNTDOWN_READING` (`packages/match/src/gameLobby.ts`) | SWITCH TEAMS and READY refused from the countdown's start to the launch, for every seat | `launch_10sec_anim` (the countdown's start) runs `ForceMPLaunch` then `DisableButton(Glswitchteams)`, `(weaponselect)`, `(PlayerReady)`, and `CountDown` disables the same three on every console once `mp_x_sec_clock` is under 11; neither `SwitchSides` (`FUN_0027d100` D:L125818-125831), the host's move (`FUN_002c4290` D:L165518-165569) nor `IsSwitchTeamsOK` (`FUN_002f8ce0` D:L197461-197476) tests the countdown (§8) | a capture of a lobby's countdown with a switch pressed |
 | `READY_GATE_SEATS_READING` (`packages/match/src/gameLobby.ts`) | the session master's READY alone waits 30 s; a joiner's only its 5 s repeat | `SetupSessionMaster` holds PlayerReady `WHILE mp_45_sec_clock != 0`, `SetupNormalJoiner` holds nothing from the briefing room; `ReadyToLoad` (`FUN_0027caf0` D:L125595-125611) tests only its repeat (§8) | a capture of a joiner's READY taken at once (ONL-32's two-instance lobby) |
-| `MISSION_VARS_ASYNC_ADAPTATION` (`gameLobbyCommands.ts`) | the mission's `UiVars` added when the page's read of the map's `READERM.ZAR` resolves, and only while the lobby still stands on that mission and the seat is held (or the creator is the master) | an adaptation (2026-11-06, LOBBY-MAPNAME, §9): `FUN_002acc10` reads `mission.rdr` synchronously inside `AdvanceMPMission` (D:L123881); the page reads the archive asynchronously (the shared ARMORY's kept read, `frontEnd.ts`' `armoryRead`), so `MPgamename` is empty for the frames the read takes | not a stand-in: the same entries and the same Add; a capture of the lobby's first frames (ONL-32) would show how long the original's title takes, if anyone asks |
+| `MISSION_VARS_ASYNC_ADAPTATION` (`gameLobbyCommands.ts`) | the mission's `UiVars` added when the page's read of the map's `READERM.ZAR` resolves, and only while the lobby still stands on that mission in the same game (the world id the read started in); D:L123856's test (the seat held, or the creator the master) is the call's, not the resolution's -- *corrected 2026-11-11, LOBBY-MAP-STALE (§9): the resolution tested the seat too, and dropped the next map's entries when they landed in the rotation's 4021 gap* | an adaptation (2026-11-06, LOBBY-MAPNAME, §9): `FUN_002acc10` reads `mission.rdr` synchronously inside `AdvanceMPMission` (D:L123881); the page reads the archive asynchronously (the shared ARMORY's kept read, `frontEnd.ts`' `armoryRead`), so `MPgamename` is empty for the frames the read takes | not a stand-in: the same entries and the same Add; a capture of the lobby's first frames (ONL-32) would show how long the original's title takes, if anyone asks |
 | `INPUT_STRING_CALLED_READING` (`packages/ui/src/screens/screenScripts.ts`) | an animation with none of its own read the latest binding's argument | the former reading mistook `DAT_00414be8` for the screen; it is the current animation instance | **retired 2026-10-23 (MLS-PASS)**: CALL flag 1 copies the caller's inputs; per-instance lookup replaces the fallback, reviewed reading at `864603c5f` ([research 363](363-native-ui-call-inputs.md) §§1-3) |
 
 Adaptations, named and not ledger suffixes: `GAME_LOBBY_SERVER_MASTER_ADAPTATION`, `GAME_JOIN_NO_DME_ADAPTATION`,
@@ -268,5 +268,33 @@ lobby's ARMORY already makes on the lobby's entry, so no second decode. The read
 Tests: `packages/ui/test/screens/gameLobbyScreen.test.ts` (LOBBY-MAPNAME: `MPgamename` draws FROSTFIRE on MP2 at
 TEMPORARY; the creator's lobby, its welcome after `check_loop`; MP72's `LOAD_PROGRESS` a real; the asynchronous read
 resolving later, and a read for a mission the lobby has left adding nothing),
+`packages/ui/test/screens/gameLobbyMapTitle.test.ts` (LOBBY-ONE-BEHIND and LOBBY-MAP-STALE, below),
 `packages/viewer/test/gameLobbyHost.test.ts` (the mount hands `missionVars` to the row), `packages/ui/test/loading.test.ts`
 (the disc's entries and their node types, every map). Confidence: **reading, pending review**; no capture of the lobby compared.
+
+**LOBBY-MAP-STALE (2026-11-11).** A player's report (Cobra89, relayed by the owner): after a match the returned lobby
+still shows the last map's name, while the ARMORY shows the right one. The cause was the port's: at the end of a match
+the room sends the returned view with the next map, then rotates and closes every seat with 4021. The view's `nextMap`
+moved the lobby's mission and started the next map's asynchronous read (LOBBY-ONE-BEHIND, research 309 §2.2); when
+4021 dropped the seat before the read landed, the resolution's guard, which also tested the seat (`inSession`), threw
+the entries away, and the new room's welcome on that same map loaded nothing again (`moveMission` returned on the same
+name). `mission_title`, TEMPORARY and never cleared, kept the last map's title; the ARMORY keys on the moved mission and
+draws its own title, so it was right. A joined seat met it; the creator mostly did not (its `creatorMaster` survives a
+4021). The original never holds a mission apart from its load: `FUN_00279490` writes the next map into 0x414e00 and
+loads it at once (D:L123864-123881), as does the lobby's other map writer, `FUN_0027eb50` (D:L126673-126674), so no
+socket state stands between the call's network test (D:L123856) and the Add. The port now (a) tests D:L123856 at the
+call only, and at the resolution only that the lobby still stands on that mission in the same game (the world id the
+read started in), and (b) records which mission's entries landed (`varsLoaded`, cleared when a game is held) and lets a
+move onto the mission already held load it again when they have not -- the entries of a read dropped by a move, or of a
+failed one, are asked for again at the same map's welcome. Asked for, not read again: the page's read is the kept one
+(`keepMissionRead`, `viewer/src/roundScreens.ts`), which hands back the same promise for the mission it holds, so a read
+that landed in the 4021 gap is added at the welcome, while a read that failed (null, no world for the map, or rejected)
+stays failed until the lobby moves to another mission -- open: the kept read forgetting a failure is a separate task.
+The owner's note that a trip to the ARMORY and back puts the title right is not
+borne out by the code: the ARMORY's way back skips `AdvanceMPMission` (`check_loop`'s `GoneToArmory`, P:L7109-7113) and
+no ARMORY path writes `mission_title`; a later return whose read beat the 4021 looks the same. Tests:
+`packages/ui/test/screens/gameLobbyMapTitle.test.ts` (the read landing in the 4021 gap kept, the welcome on that map
+drawing it; a failed read asked for again at the same map's welcome -- the stub makes a fresh promise at each call, so
+the test holds the lobby's ask, not the page's kept read; a left game's read adding nothing to the next game on the same
+mission), unit tests with a stub read -- no socket, no page, no browser. A live playtest of a joined seat across a
+rotation, not run, would confirm the fix end to end (open). Confidence: **reading, pending review**.

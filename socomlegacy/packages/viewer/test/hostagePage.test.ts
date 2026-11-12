@@ -12,7 +12,7 @@ import {
   type HostagePageDeps,
 } from '../src/hostagePage';
 import type { HostageStateWire } from '../src/net/protocol';
-import { RESCUED_REORDER_READING } from '../src/net/hostageOrder';
+import { orderCellOf, RESCUED_REORDER_READING } from '../src/net/hostageOrder';
 
 /**
  * HX-4a (web sprint 31; research 239 s1, s3; ruling HX.R8): the `hostages` part's page module, headless -- the prompt
@@ -107,8 +107,11 @@ describe('HX-4a: the hostages part on the page (research 239 s1, s3)', () => {
   });
 
   const MP6 = fixture('RUN/MP6.ZDB');
-  it.skipIf(!MP6)(`the page's LoadedMap.ai (aiMapsFromBytes) gives Desert Glory's base sub-map grid for the order's cells (ORDER_CELL_FIELD_READING): min (705.263, 1124.72), 10-unit cells, 167x128 -- the first hostage's start (1750.26, 1179.72) is cell (104, 5), as the room's aiCellOf gives it${MP6 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
-    const grid = aiMapsFromBytes(MP6!, parseZdb(MP6!))!.maps[0]!;
+  it.skipIf(!MP6)(`the page's LoadedMap.ai (aiMapsFromBytes) gives Desert Glory's base sub-map grid: min (705.263, 1124.72), 10-unit cells, 167x128 -- the first hostage's start (1750.26, 1179.72) is cell (104, 5); the order's cell (orderCellOf, ORDER_CELL_FIELD_READING) locates it there and a point on the jail's upper floor on sub-map 3, its own (12, 10)${MP6 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+    const ai = aiMapsFromBytes(MP6!, parseZdb(MP6!))!, grid = ai.maps[0]!;
+    expect(orderCellOf(ai, [1750.26, 50.99, 1179.72])).toEqual({ map: 0, x: 104, z: 5 });
+    expect(orderCellOf(ai, [1740.3, 90.16, 1249.7])).toEqual({ map: 3, x: 12, z: 10 });
+    expect(orderCellOf(undefined, [1750.26, 50.99, 1179.72])).toBeNull();
     expect(grid.index).toBe(0);
     expect(grid.min[0]).toBeCloseTo(705.263, 3);
     expect(grid.min[2]).toBeCloseTo(1124.72, 2);

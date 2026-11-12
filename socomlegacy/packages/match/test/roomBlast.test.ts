@@ -317,10 +317,14 @@ describe('the room\'s blast (FUN_005a0e70)', () => {
 const C4_WALL = 'worldmodel/access1/good_parts/di_good';
 function c4Map(): SimMap {
   const wall: WorldPoly = { ...FLOOR, path: C4_WALL, ditype: 2, points: Float32Array.from([-40, 0, 330, 40, 0, 330, 40, 60, 330, -40, 60, 330]) };
-  const polys: WorldPoly[] = [FLOOR, wall];
+  // Research 386 §3.2: the blast's line to a head is one-sided (`blastSeen`), so the wall has both faces, as MP83's `access1`
+  // barrier it copies has on the disc (`di_good` at z 1593.37, -z, and 1593.75, +z; review 3) -- its face toward the
+  // charge (normal -z) the one that stops the M67's line. Many disc faces have no back face (386 §3.2).
+  const back: WorldPoly = { ...wall, points: Float32Array.from([-40, 60, 330, 40, 60, 330, 40, 0, 330, -40, 0, 330]) };
+  const polys: WorldPoly[] = [FLOOR, wall, back];
   const owners: CollisionOwner[] = [
     { modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 },
-    { modelName: 'worldmodel', path: C4_WALL, first: 1, count: 1, flags: 0x1001 },
+    { modelName: 'worldmodel', path: C4_WALL, first: 1, count: 2, flags: 0x1001 },
   ];
   const ground = packGround(PARAMS, polys, owners);
   const slot = (side: 0 | 1, index: number, x: number, z: number): SpawnSlot => ({

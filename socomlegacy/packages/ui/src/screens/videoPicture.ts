@@ -6,34 +6,32 @@ import type { Widget } from '../widgets/host';
 /**
  * OT.R79 (the owner, 2026-10-23: "please change these video options to our options that are rendered in the test room.
  * MODERN / PS2 / EXPERIMENTAL for now"; LATER 378) -- an intended divergence, a browser adaptation on the product track:
- * VIDEO's VIDEO MODE strip offers the page's three pictures, as `/testroom`'s picture selector names them, in place of the
- * PS2's INTERLACED / PROGRESSIVE SCAN (480p). The strip keeps the original's look -- its boxes are the disc's own
- * `VideoNTSC` / `VideoDTV` CHECKBOX specs (`dlgOptions_Video.rdr`), a third cloned from `VideoDTV` at the disc's own step
- * (200 -> 320, so 440) -- with literal captions in the disc's font, and none of the disc's box scripts: `video_ntsc` /
+ * VIDEO's VIDEO MODE strip offers the page's pictures (MODERN and PS2 since B206 ML-6 removed the third), as `/testroom`'s
+ * picture selector names them, in place of the PS2's INTERLACED / PROGRESSIVE SCAN (480p). The strip keeps the
+ * original's look -- its boxes are the disc's own `VideoNTSC` / `VideoDTV` CHECKBOX specs (`dlgOptions_Video.rdr`), at the
+ * disc's own place (200, 320) -- with literal captions in the disc's font, and none of the disc's box scripts: `video_ntsc` /
  * `video_dtv` (`SwitchProgressiveVideo`, the AreYouSure popups and the progressive-scan boot) are superseded. The card's
  * `video_mode` valve is never written here: a console card round-trips with its own value. The choice is the page's
  * (`s2u.viewer.picture`, viewer `./picture`), not the card's.
  */
-export const VIDEO_PICTURE_ADAPTATION = 'OT.R79: VIDEO MODE offers the page\'s MODERN / PS2 / EXPERIMENTAL pictures' as const;
+export const VIDEO_PICTURE_ADAPTATION = 'OT.R79: VIDEO MODE offers the page\'s MODERN / PS2 pictures' as const;
 
-export type VideoPicture = 'modern' | 'ps2' | 'experimental';
-/** The strip's order (the owner's): MODERN, PS2, EXPERIMENTAL. */
-export const VIDEO_PICTURES: readonly VideoPicture[] = ['modern', 'ps2', 'experimental'];
 /**
- * The boxes' captions, literal, in the disc's font. HD.R8 (the owner, 2026-10-31, OT.R92): the third is "HD (GoE Soul)"
- * (was EXPERIMENTAL) -- the Experimental picture with the HD texture pack, in every match (viewer `./picture`).
+ * B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110, the owner 2026-11-06: "we're going to remove the actual in
+ * game setting and use this mechanism for it to be a thunderforge pack"): the third picture -- EXPERIMENTAL, captioned
+ * "HD (GoE SouL)" by HD.R8 and held by HD-HOLD (`VIDEO_PICTURE_HD_OFFERED`, false) -- is removed with its hold. The HD
+ * pack is a texture pack chosen in Home > Experiments > Mods, under either picture; a stored `experimental` reads MODERN
+ * (viewer `./picture` `parsePicture`).
  */
-export const VIDEO_PICTURE_CAPTIONS: readonly string[] = ['MODERN', 'PS2', 'HD (GoE Soul)'];
-/**
- * HD-HOLD (the owner, 2026-11-01: "Hide/disable the HD pack. It's not ready until after the GPU work. leave it in the
- * build just don't allow people to turn it on"): false, VIDEO's strip shows MODERN and PS2 only, Home's Display "Video"
- * row the same, and the page's keeper (viewer `./picture`) neither stores nor reads the HD picture. True restores the third.
- */
-export const VIDEO_PICTURE_HD_OFFERED: boolean = false;
+export type VideoPicture = 'modern' | 'ps2';
+/** The strip's order (the owner's): MODERN, PS2. */
+export const VIDEO_PICTURES: readonly VideoPicture[] = ['modern', 'ps2'];
+/** The boxes' captions, literal, in the disc's font. */
+export const VIDEO_PICTURE_CAPTIONS: readonly string[] = ['MODERN', 'PS2'];
 /** The boxes' names: none the disc's scripts know, so no `video_ntsc` / `video_dtv` reaches them. */
-export const VIDEO_PICTURE_BOXES: readonly string[] = ['PictureModern', 'PicturePS2', 'PictureExperimental'];
+export const VIDEO_PICTURE_BOXES: readonly string[] = ['PictureModern', 'PicturePS2'];
 /** The boxes' check animations: none of the disc's sets holds them; the gate (`videoPictureGate`) takes their start. */
-export const VIDEO_PICTURE_ANIMATIONS: readonly string[] = ['picture_modern', 'picture_ps2', 'picture_experimental'];
+export const VIDEO_PICTURE_ANIMATIONS: readonly string[] = ['picture_modern', 'picture_ps2'];
 /** The front end's default picture (the merge controller's call B', 2026-10-23): MODERN, what the front end's match drew before OT.R79. */
 export const VIDEO_PICTURE_DEFAULT: VideoPicture = 'modern';
 
@@ -43,7 +41,7 @@ const STRIP = 'video_mode';
 type Strip = Extract<DialogWidget, { type: 'RADIOSTRIP' }>;
 type Box = Extract<DialogWidget, { type: 'CHECKBOX' }>;
 
-/** VIDEO's design with the strip's three picture boxes (OT.R79); a design without the disc's two boxes as it was. */
+/** VIDEO's design with the strip's two picture boxes (OT.R79); a design without the disc's two boxes as it was. */
 export function videoPictureDesign(design: DialogDesign): DialogDesign {
   const at = design.controls.findIndex((c) => c.name === STRIP && c.widget.type === 'RADIOSTRIP');
   if (at < 0) return design;
@@ -61,7 +59,7 @@ export function videoPictureDesign(design: DialogDesign): DialogDesign {
       },
     };
   };
-  const subordinates = VIDEO_PICTURE_HD_OFFERED ? [box(ntsc, 0), box(dtv, 1), box(dtv, 2)] : [box(ntsc, 0), box(dtv, 1)];
+  const subordinates = [box(ntsc, 0), box(dtv, 1)];
   return { ...design, controls: design.controls.map((c, i) => (i === at ? { ...c, widget: { ...strip, subordinates } } : c)) };
 }
 
@@ -87,7 +85,6 @@ export function videoPictureGate(set: (picture: VideoPicture) => void): UiBindin
   return (b) => {
     const i = b.animation === null ? -1 : VIDEO_PICTURE_ANIMATIONS.indexOf(b.animation.toLowerCase());
     if (i < 0) return false;
-    if (VIDEO_PICTURES[i] === 'experimental' && !VIDEO_PICTURE_HD_OFFERED) return true;   // HD-HOLD
     set(VIDEO_PICTURES[i]!);
     return true;
   };

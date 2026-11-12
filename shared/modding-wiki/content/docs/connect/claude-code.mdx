@@ -1,0 +1,124 @@
+---
+title: "Connect Claude Code"
+description: "Add the socom2legacy connection service to Claude Code once and sign in as a guest, then connect it to the Forge or the solo test room you have open with one link and one Allow."
+status: "Forge, local only"
+source: ["socomlegacy/packages/viewer/src/agent/setup.ts", "socomlegacy/packages/viewer/src/agent/panel.ts", "socomlegacy/packages/viewer/src/agent/codes.ts", "socomlegacy/packages/viewer/src/agent/connection.ts", "socomlegacy/packages/forge-agent/src/gateway.ts", "socomlegacy/packages/forge-agent/src/mcp.ts", "socomlegacy/packages/forge-agent/src/tools/area.ts", "socomlegacy/packages/forge-agent/src/oauth.ts"]
+---
+
+**Status: Forge, local only.** Claude Code connects to the Forge or the solo test room open in your browser, never a
+lobby or an online match. Claude Code's registration, guest sign-in and login were checked against Claude Code
+2.1.310 on Windows (the compatibility record), on the earlier panel and its earlier sign-in wording; the one-link flow
+itself is not measured yet.
+
+This page follows the card's three moments -- Connect, Allow, Connected -- for Claude Code. What connecting means, the
+permissions, staying connected and how to disconnect are on [Connect an agent](/connect/).
+
+## 1. Connect
+
+In the page, open **Connect an agent** and choose **Claude Code**.
+
+### First time with Claude Code?
+
+The box shows the command to run once, in a terminal where Claude Code runs ("Run this once where your agent runs.").
+With the production connection service:
+
+```sh
+claude mcp add --transport http --scope user socom2legacy https://agent.socom2legacy.com/mcp
+```
+
+That adds the server for every project (the box's **Every project** row). For one project only (**Or this project
+only**):
+
+```sh
+claude mcp add --transport http --scope local socom2legacy https://agent.socom2legacy.com/mcp
+```
+
+The card's **Connection service** box shows the address in use: copy the box's command rather than this page's when
+they differ. A developer running `npm run forge:agent` gets `http://127.0.0.1:5360/mcp` in its place.
+
+"Then sign in: run /mcp in Claude Code and choose socom2legacy. Your browser opens the connection service’s guest
+sign-in." That page asks "Allow Claude Code to sign in to SOCOM 2 Legacy as a guest?" (the name is the one Claude Code
+reports) and says "This only lets it ask to connect. You still press Allow on your own page before it can do anything
+there." Press **Approve**. The request ends in five minutes.
+
+Once this browser has connected Claude Code, the box starts folded.
+
+### Copy connect link
+
+Press **Copy connect link**. It copies one line:
+
+```text
+Connect to my SOCOM 2 Legacy page: https://agent.socom2legacy.com/join/<code>
+```
+
+"Paste it into Claude Code. You’ll approve here." The link works once and expires in five minutes; the card counts
+down ("Link expires in 4:59"). If the browser does not let the page write to the clipboard, the card shows the line to
+select and copy yourself ("Copy failed · Select and copy the link below").
+
+Paste the link only into your own agent, and never share it -- not in a chat, a stream or a screenshot. Anyone
+holding it can ask to connect within its five minutes, and the Allow card shows the name the caller reports for
+itself.
+
+*Screenshot: `connect/claude-code-connect.png`, not on this site yet.* It is added in the screenshot pass.
+
+## 2. Allow
+
+The card says "Claude Code wants to connect". Every permission Claude Code asked for is a switch, all on. Turn off any
+you do not want, then press **Allow** (or **Decline**). Tick "Remember Claude Code on this browser" to make the next
+connect a single Allow with the same switches. The small print "Check: the code … matches your agent's" is there if
+you want to compare it with the code Claude Code reports; it is not a step.
+
+*Screenshot: `connect/claude-code-allow.png`, not on this site yet.*
+
+## 3. Connected
+
+The card shows Claude Code's name, each permission as a chip (on or off), the recent activity, the note box ("Tell
+your agent…"), the local files and **Disconnect**.
+
+*Screenshot: `connect/claude-code-connected.png`, not on this site yet.*
+
+## Troubleshooting
+
+| what the card says | what to do |
+|---|---|
+| "Connect failed: The connection service is not hosted for this page yet." | A production build: no service answers at this address. Check the **Connection service** box, or press **Try again** later. |
+| "Connect failed: Start the local connection service and page with npm run forge:agent, then try again." | A development build: no local service answers. Run `npm run forge:agent`, then **Try again**. |
+| "Connect failed: The connection service is busy. Try again shortly." (or "… is unavailable …", "… did not answer in time …") | The service is there but cannot take the request now. Wait, then **Try again**. |
+| "Connect failed: The connection service does not accept this page's address." | Press **Check the connection service address**: this page names a service that does not serve it. |
+| "The link expired. Copy a fresh one." | Five minutes passed before Claude Code connected. Press **Copy a fresh link** and paste the new line. |
+| "The direct route between this page and the connection service did not open. A firewall or this network may block it." | Press **Try again**; if it fails again, try another network (**Details** lists the routes tried). |
+| "Connect failed: Keep this page visible while connecting your agent." | Keep the tab in view while you press **Copy connect link**. |
+| "Paused while this tab is hidden: come back to run tests again." | Not a failure: Claude Code is still connected. Bring the tab back; a test that was running was stopped, and Claude Code sends it again. |
+| "Connect failed: Too long passed since the reload to reconnect. Connect again with a fresh link." | Reconnect lasts two minutes after a reload. Press **Copy connect link** again. |
+| no socom2legacy tools in Claude Code, or it says it is not signed in | Run `/mcp` in Claude Code, choose socom2legacy and sign in. |
+
+## For agents
+
+```json
+{
+  "page": "/connect/claude-code/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "For an agent running in Claude Code: the socom2legacy MCP server is added with claude mcp add --transport http and signed in from /mcp as a guest (scope bootstrap); the person pastes one /join/ link and you call agent_pair with it, which waits for their Allow.",
+  "inputs": [
+    "the person ran: claude mcp add --transport http --scope user socom2legacy <endpoint> (or --scope local); <endpoint> is the page's Connection service, production https://agent.socom2legacy.com/mcp, development http://127.0.0.1:5360/mcp",
+    "the server's tools reach you as mcp__socom2legacy__<tool> -- mcp__socom2legacy__agent_guide, mcp__socom2legacy__agent_pair, mcp__socom2legacy__agent_wait, mcp__socom2legacy__agent_status, mcp__socom2legacy__agent_capabilities, mcp__socom2legacy__agent_request, mcp__socom2legacy__forge_read and the rest of the fourteen on /connect/ (Claude Code's own mcp__<server>__<tool> naming convention; not checked by this project)",
+    "the pasted line: 'Connect to my SOCOM 2 Legacy page: <gateway origin>/join/<invitation>'"
+  ],
+  "outputs": [
+    "if the tools are absent or answer unauthorized: tell the person to run /mcp in Claude Code, choose socom2legacy and sign in (the browser opens the guest sign-in page: Approve); you cannot sign in for them",
+    "then the sequence of /connect/: agent_guide first if you have not yet; agent_pair {invitation: the whole join link, clientName: 'Claude Code'} -- omit permissions to ask for all six; it waits (default 45 s, waitSeconds up to 90) and answers paired, declined or pending (then agent_wait {sessionId}; never repeat agent_pair); on pending, tell the person the comparisonCode (agent_pair returns it in `comparisonCode` and in `next`) so they can check it against the card's small print if they want; read the granted permissions; agent_capabilities, then agent_request target.status; agent_disconnect when done",
+    "on INVITATION_EXPIRED: ask the person to press Copy connect link again and paste the new line; never reuse an old link; on PERMISSION_DENIED: ask the person, never work around it; every refusal's hint says the next step"
+  ],
+  "see_also": [
+    "/connect/",
+    "/connect/codex/",
+    "/connect/claude-desktop/",
+    "/connect/other/",
+    "/guides/test-locally/"
+  ]
+}
+```

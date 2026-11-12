@@ -26,22 +26,22 @@ const json = (status: number, body: unknown): Response => new Response(JSON.stri
 describe('fetchCreateGameOffer: <base>/maps read once, the offer\'s map numbers or null', () => {
   it('an explicitly enabled all-map test server offers its played maps beyond the four defaults', async () => {
     expect(await fetchCreateGameOffer('http://h', async () => json(200, {
-      maps: ['MP2', 'MP6', 'MP83'], offer: 'served', allCreateGameMaps: true,
-    }))).toEqual([2, 6, 83]);
+      maps: ['MP2', 'MP10', 'MP83'], offer: 'served', allCreateGameMaps: true,
+    }))).toEqual([2, 10, 83]);
     expect(await fetchCreateGameOffer('http://h', async () => json(200, {
-      maps: ['MP2', 'MP6'], offer: 'served', allCreateGameMaps: 'true',
+      maps: ['MP2', 'MP10'], offer: 'served', allCreateGameMaps: 'true',
     }))).toEqual([2]);
   });
   it('asks <base>/maps, revalidating the short cache, no header of its own; "served" gives the numbers of the four it names (OT.R58)', async () => {
     const asked: [string, RequestInit | undefined][] = [];
-    const offer = await fetchCreateGameOffer('https://nightly.example.com', async (url, init) => { asked.push([String(url), init]); return json(200, { maps: ['MP72', 'MP2', 'MP6', 'MP3', 'MP7'], offer: 'served' }); });
-    expect(offer).toEqual([72, 2, 7]);
+    const offer = await fetchCreateGameOffer('https://nightly.example.com', async (url, init) => { asked.push([String(url), init]); return json(200, { maps: ['MP72', 'MP2', 'MP10', 'MP3', 'MP7', 'MP12', 'MP1'], offer: 'served' }); });
+    expect(offer).toEqual([72, 2, 7, 12, 1]);                  // V13-2, V13-3: THE RUINS and BLIZZARD among the six
     expect(asked.map(([u, i]) => [u, i?.cache, i?.headers ?? null])).toEqual([['https://nightly.example.com/maps', 'no-cache', null]]);
   });
 
   it('LATER 66: a served answer naming no map (central with no host up) offers none -- an empty list, not the four', async () => {
     expect(await fetchCreateGameOffer('http://h', async () => json(200, { maps: [], offer: 'served' }))).toEqual([]);
-    expect(await fetchCreateGameOffer('http://h', async () => json(200, { maps: ['MP6', 'MP3'], offer: 'served' }))).toEqual([]);
+    expect(await fetchCreateGameOffer('http://h', async () => json(200, { maps: ['MP10', 'MP3'], offer: 'served' }))).toEqual([]);
   });
 
   it('null -- the release\'s four stand -- on no offer field, a 404 (a server before MAPS-4), a network error, a bad body, or no answer in time', async () => {
@@ -58,9 +58,11 @@ describe('fetchCreateGameOffer: <base>/maps read once, the offer\'s map numbers 
 });
 
 const MISSIONS: MissionRecord[] = [
-  { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true },
+  { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
+  { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 1, name: 'BLIZZARD', type: 2, multiplayer: true },
   { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true }, { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true },
-  { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true },
+  { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true }, { number: 10, name: 'BLOOD LAKE', type: 4, multiplayer: true },
+  { number: 12, name: 'THE RUINS', type: 2, multiplayer: true },
 ];
 const disc = (): FrontEndDisc => ({ dialog: () => null, sets: [], faces: [], captions: null, loader: {}, missing: [] });
 const cmd = (fn: string, arg: string): ZAnimUiCommand => ({ anim: 'init_cg_screen', sequence: 'NA', nodeIndex: 0, node: null, opcodeByte: 0, fn, arg, loc: 0, bytes: new Uint8Array(16) });
@@ -71,19 +73,19 @@ describe('the session hands the offer to CREATE GAME (FrontEndSession option cre
     return playListNumbers(s.uiVars.find('NB7_ROWS')?.value);
   };
 
-  it('the four the server\'s offer names, read at each GetAvailableMPMissions; none (null or absent): the four; the whole offer only on the server\'s all-maps word (BAM.R4)', () => {
+  it('the eight (V13-2, V13-3, DF-14) the server\'s offer names, read at each GetAvailableMPMissions; none (null or absent): the eight; the whole offer only on the server\'s all-maps word (BAM.R4)', () => {
     let offer: readonly number[] | null = null;
     const s = new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS, createGameOffer: () => offer });
-    expect(rows(s)).toEqual([51, 72, 2, 7]);
-    offer = [72, 2, 6];
-    expect(rows(s)).toEqual([72, 2]);                         // OT.R58: MP6 never listed, whatever the offer
-    expect(rows(new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS }))).toEqual([51, 72, 2, 7]);
+    expect(rows(s)).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    offer = [72, 2, 10];
+    expect(rows(s)).toEqual([72, 2]);                         // OT.R58: MP10 (outside the eight) never listed, whatever the offer
+    expect(rows(new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS }))).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
     // BAM.R4 / P537-L2: the server's CREATE_GAME_ALL_MAPS word (`allBotGames`, `CreateGameOfferRead.allMaps`) lists it whole.
     let all = false;
     const t = new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS, createGameOffer: () => offer, allBotGames: () => all });
     expect(rows(t)).toEqual([72, 2]);
     all = true;
-    expect(rows(t)).toEqual([72, 2, 6]);
+    expect(rows(t)).toEqual([72, 2, 10]);
   });
 
   it('the page reads it from its own origin, as CREATE GAME\'s request goes, started by the room list (source inspection)', () => {
@@ -124,7 +126,7 @@ describe('CreateGameOfferRead: nothing asked until the player goes online (OT.R1
 
   it('made: no request; the room list\'s first request starts the one read, later ones do not; current() is its answer', async () => {
     const asked: string[] = [];
-    const read = new CreateGameOfferRead('http://h', async (url) => { asked.push(String(url)); return json(200, { maps: ['MP6', 'MP51'], offer: 'served' }); });
+    const read = new CreateGameOfferRead('http://h', async (url) => { asked.push(String(url)); return json(200, { maps: ['MP10', 'MP51'], offer: 'served' }); });
     const listed: number[] = [];
     const rooms = offerWithRooms({ channelList: async () => { listed.push(1); return []; } }, read);
     expect(asked).toEqual([]);
@@ -132,7 +134,7 @@ describe('CreateGameOfferRead: nothing asked until the player goes online (OT.R1
     await rooms.channelList({ applicationId: 0, pageId: 1, pageSize: 10 } as never, 'T');
     await new Promise((r) => setTimeout(r, 0));
     expect([asked, listed.length]).toEqual([['http://h/maps'], 2]);
-    expect(read.current()).toEqual([51]);                     // OT.R58: MP6 dropped, MP51 kept
+    expect(read.current()).toEqual([51]);                     // OT.R58: MP10 dropped, MP51 kept
   });
 
   it('CREATE GAME\'s rows reached first (a deep link): current() starts the read and says null meanwhile', async () => {
@@ -145,15 +147,15 @@ describe('CreateGameOfferRead: nothing asked until the player goes online (OT.R1
 
   it('LATER 66 (the review\'s M1): an empty served answer (no host up) is not kept -- the next CREATE GAME open asks again and lists the four once a host is back; a non-empty one is kept', async () => {
     const asked: string[] = [];
-    const answers = [{ maps: [], offer: 'served' }, { maps: ['MP6', 'MP2', 'MP7', 'MP51', 'MP72'], offer: 'served' }];
+    const answers = [{ maps: [], offer: 'served' }, { maps: ['MP10', 'MP2', 'MP7', 'MP51', 'MP72', 'MP1'], offer: 'served' }];
     const read = new CreateGameOfferRead('http://h', async (url) => { asked.push(String(url)); return json(200, answers[Math.min(asked.length - 1, 1)]); });
     expect(read.current()).toBeNull();                         // the first open: the read started
     await new Promise((r) => setTimeout(r, 0));
     expect(read.current()).toEqual([]);                        // the next open: none offered -- and asked again
     await new Promise((r) => setTimeout(r, 0));
-    expect(read.current()).toEqual([2, 7, 51, 72]);            // the host back: the four, in the answer's order
+    expect(read.current()).toEqual([2, 7, 51, 72, 1]);         // the host back: the six it serves, in the answer's order
     await new Promise((r) => setTimeout(r, 0));
-    expect(read.current()).toEqual([2, 7, 51, 72]);
+    expect(read.current()).toEqual([2, 7, 51, 72, 1]);
     expect(asked).toEqual(['http://h/maps', 'http://h/maps']);   // kept from then: no new traffic
   });
 

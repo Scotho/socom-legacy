@@ -1,6 +1,7 @@
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import type {} from '../src/hook';
+import { measureHold, mustSeparate, mustToss, shorterHold, type Hold } from './grenadeHold';
 import { holdReleased } from './loadHold';
 
 // A browser playtest instrument: normal R1/Triangle/Square input, observed every rendered frame.
@@ -15,7 +16,7 @@ test.use({ hasTouch: true, isMobile: true, viewport: { width: 915, height: 412 }
 
 class Inputs {
   private points = new Map<number, { id: number; x: number; y: number }>();
-  constructor(private page: Page, private cdp: CDPSession, private source: Source) {}
+  constructor(private page: Page, private cdp: CDPSession, readonly source: Source) {}
   async button(id: 'r1' | 'triangle' | 'square', down: boolean) {
     if (this.source === 'controller') {
       await this.page.evaluate(({ id, down }) => {
@@ -85,6 +86,8 @@ async function reset(page: Page, stance: 'stand' | 'crouch' | 'prone') {
   await page.evaluate(() => {
     const trace: Trace = { frames: [], marks: {}, active: true };
     (window as unknown as ProbeWindow).__grenadeFlow = trace;
+    // Registered after the game's frame callback, so it runs after it every frame: `t` is no earlier than the game's
+    // clock read this frame and earlier than the next one's -- `./grenadeHold` brackets the counted hold with it.
     const frame = () => {
       if (!trace.active) return;
       const v = window.__viewer, g = v.grenade(), m = v.mover();
@@ -94,14 +97,34 @@ async function reset(page: Page, stance: 'stand' | 'crouch' | 'prone') {
     };
     requestAnimationFrame(frame);
   });
+  // Two probe samples before any press, so a hold's first raising frame always has a sample two before it and the
+  // counted hold an upper bound (`./grenadeHold`; the fresh review's blocker: a press before the second sample left none).
+  await page.waitForFunction(() => (window as unknown as ProbeWindow).__grenadeFlow.frames.length >= 2);
 }
 async function mark(page: Page, key: string) {
   await page.evaluate(key => { (window as unknown as ProbeWindow).__grenadeFlow.marks[key] = performance.now(); }, key);
 }
 async function release(page: Page, input: Inputs, power: number) {
   await mark(page, 'press'); await input.button('r1', true);
-  await expect.poll(() => page.evaluate(() => window.__viewer.grenade().power), { intervals: [10], timeout: 5000 }).toBeGreaterThanOrEqual(power);
-  await mark(page, 'release'); await input.button('r1', false);
+  // The target seen from inside the page, the frame it is reached (marked there), then one round trip to let go: was a
+  // 10 ms poll, a mark and the release, each a round trip, which a slow renderer stretched into a longer hold. The
+  // hold the game counted is measured from the trace either way (`finish`, `./grenadeHold`).
+  // The controller's pad is the page's own stub, so its R1 is let go in the same check, the frame the target is seen;
+  // the touch release needs the CDP round trip below.
+  const seen = await page.evaluate(({ target, pad }) => new Promise<boolean>(resolve => {
+    const until = performance.now() + 5000;
+    const check = () => {
+      if (window.__viewer.grenade().power >= target) {
+        (window as unknown as ProbeWindow).__grenadeFlow.marks.release = performance.now();
+        if (pad) Object.assign(navigator.getGamepads()[0]!.buttons[5]!, { pressed: false, value: 0 });
+        resolve(true);
+      } else if (performance.now() > until) resolve(false);
+      else requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  }), { target: power, pad: input.source === 'controller' });
+  expect(seen, `the held power reached ${power} within 5 s`).toBe(true);
+  await input.button('r1', false);
   await expect.poll(() => page.evaluate(() => window.__viewer.grenade().lastThrow !== null), { intervals: [10], timeout: 5000 }).toBe(true);
 }
 async function finish(page: Page, name: string) {
@@ -114,7 +137,9 @@ async function finish(page: Page, name: string) {
   const ready = data.frames.find(f => f.thrown && f.phase === 'ready');
   const firstJump = data.frames.find(f => f.airborne);
   const maxRise = Math.max(...data.frames.map(f => (f.feet?.[1] ?? 0) - (data.frames[0]!.feet?.[1] ?? 0)));
-  const result = { name, clip: data.thrown?.clip, power: data.thrown?.power, aimSin: data.thrown?.aimSin,
+  // The hold the game counted, in real seconds, and the thrown power it allows (`./grenadeHold`); null without a press.
+  const hold: Hold | null = data.marks.press !== undefined ? measureHold(data.frames, data.thrown?.power ?? NaN) : null;
+  const result = { name, clip: data.thrown?.clip, power: data.thrown?.power, aimSin: data.thrown?.aimSin, hold,
     inputToFlightMs: out.t - data.marks.release!, animationToFlightMs: out.t - start.t,
     inputToReadyMs: ready ? ready.t - data.marks.release! : null, left: data.left,
     jumped: !!firstJump, maxRise,
@@ -126,15 +151,18 @@ async function finish(page: Page, name: string) {
   console.log('GRENADE_FLOW', JSON.stringify(result));
   expect(data.left, 'exactly one grenade was spent').toBe(2);
   expect(data.thrown?.fromHand).toBe(true);
+  if (hold) expect(hold.matches, `${name}: the thrown power is the held power over the real time the game counted ` +
+    `(${JSON.stringify(hold)})`).toBe(true);
   return result;
 }
 
 for (const source of ['mobile', 'controller'] as const) {
   test(`${source}: measure standing crouched and prone short and full grenade throws`, async ({ page }) => {
     const input = await prepare(page, source);
-    let tosses = 0;
+    let tosses = 0, tossDemanded = false;
+    const unmeasured = (description: string) => test.info().annotations.push({ type: 'not measurable on this host', description });
     for (const stance of ['stand', 'crouch', 'prone'] as const) {
-      const thrown: number[] = [];
+      const thrown: number[] = [], holds: Hold[] = [];
       for (const power of [0.25, 0.85]) {
         await reset(page, stance);
         await release(page, input, power);
@@ -150,10 +178,35 @@ for (const source of ['mobile', 'controller'] as const) {
         expect(r.aimSin ?? 1, 'the aim held under the toss sine (0.3)').toBeLessThan(0.3);
         if (r.clip?.includes('toss')) tosses++;
         thrown.push(r.power ?? NaN);
+        holds.push(r.hold!);
       }
-      expect(thrown[0], `${stance}: the short hold throws with less power than the full hold`).toBeLessThan(thrown[1]!);
+      // The power follows the real time held (each throw checked in `finish`), so the short hold throws weaker only when
+      // it was held less long; a slow host can hold the "short" as long as the full one (RC1, SwiftShader: 0.9029 short,
+      // 0.8779 full). Compared when the bracket shows the short hold the shorter; otherwise said, never counted a pass.
+      // A short hold with no stall in its counted frames (`mustSeparate`: none past FAST_FRAME_MS) must be measured
+      // apart: there a short hold as long as the full one is the release's own delay, not the host (the review's F1).
+      if (mustSeparate(holds[0]!)) {
+        expect(shorterHold(holds[0]!, holds[1]!), `${stance}: the short hold, no counted frame over ` +
+          `${holds[0]!.longestFrameMs.toFixed(1)} ms (median ${holds.map(h => h.frameMs.toFixed(1)).join('/')} ms), ` +
+          `is measurably the shorter (${JSON.stringify(holds)})`).toBe(true);
+      }
+      if (shorterHold(holds[0]!, holds[1]!)) {
+        expect(thrown[0], `${stance}: the short hold throws with less power than the full hold`).toBeLessThan(thrown[1]!);
+      } else {
+        unmeasured(`${stance}: short vs full not compared -- the short hold was not measurably the shorter ` +
+          `(short ${holds[0]!.heldLowS.toFixed(3)}-${holds[0]!.heldHighS.toFixed(3)} s, ` +
+          `full ${holds[1]!.heldLowS.toFixed(3)}-${holds[1]!.heldHighS.toFixed(3)} s; the short hold's longest counted ` +
+          `frame ${holds[0]!.longestFrameMs.toFixed(1)} ms, median ${holds.map(h => h.frameMs.toFixed(1)).join('/')} ms)`);
+      }
+      if (mustToss(holds[0]!)) tossDemanded = true;
     }
-    expect(tosses, 'at least one short hold threw under 0.6, so a toss clip was played').toBeGreaterThan(0);
+    // A toss is owed where a short hold's counted time cannot reach 0.6 (`mustToss`); the clip check above holds each
+    // throw's clip to its power either way.
+    if (tossDemanded || tosses > 0) {
+      expect(tosses, 'at least one short hold threw under 0.6, so a toss clip was played').toBeGreaterThan(0);
+    } else {
+      unmeasured('no toss clip: every short hold was held long enough to reach 0.6, so none was owed');
+    }
   });
 
   for (const stance of ['crouch', 'prone'] as const) test(`${source}: ${stance} short throw then rise and jump escape`, async ({ page }) => {

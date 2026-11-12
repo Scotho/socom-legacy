@@ -242,7 +242,8 @@ test('walk mode on Frostfire: the flashbang whites out by the game\'s rule; the 
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
   // Web sprint 4 M7: the Mark141, the claymore (and its Detonator) and an M67 -- the kit's three equipment slots.
-  await page.goto(`${TEST_ROOM}?mode=play&fly&devmode&kit=54,15,123,153,121`);
+  // GLOW_TARGET_SCALE_ADAPTATION: the white-out's screenshot at the full glow target (SwiftShader would take half).
+  await page.goto(`${TEST_ROOM}?mode=play&fly&devmode&kit=54,15,123,153,121&glowscale=full`);
   const status = page.locator('#status');
   await expect(status).toContainText('triangles');
   await page.locator('#maps').selectOption('RUN/MP2.ZDB');

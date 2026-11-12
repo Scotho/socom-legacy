@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RenderedSound } from '@s2u/sound';
 import { GameAudio, type AudioOut, type StreamPlay } from '../src/audio';
 import { RoundAudioHost } from '../src/roundAudioHost';
-import { FORGE_ESCORT_LINES_ADAPTATION, RoundAudio, UNLOCK_RETRY_PLACEHOLDER, type RoundAudioOut } from '../src/roundAudio';
-import type { RoundCues } from '../src/roundCues';
+import { readFileSync } from 'node:fs';
+import { ESCORT_EXTRACTED_SCALE_READING, FORGE_ESCORT_LINES_ADAPTATION, RoundAudio, UNLOCK_RETRY_PLACEHOLDER, type RoundAudioOut } from '../src/roundAudio';
+import type { BombStep, RoundCues } from '../src/roundCues';
 
 /**
  * The round's announcement, win music and team intro (research 124 §6; ported from Chris's browser-beta-v5
@@ -323,6 +324,23 @@ describe("FORGE_ESCORT_LINES_ADAPTATION: a Forge escort with no line of its own 
       [FORGE_ESCORT_LINES_ADAPTATION.staged.text, FORGE_ESCORT_LINES_ADAPTATION.staged.scale],
       [FORGE_ESCORT_LINES_ADAPTATION.extracted.text, FORGE_ESCORT_LINES_ADAPTATION.extracted.scale],
     ]);
-    expect(FORGE_ESCORT_LINES_ADAPTATION.staged).toEqual({ text: 'A VIP IS IN THE EXTRACTION ZONE', scale: 0.7 });
+  });
+
+  it("its two lines are the disc's RescueN / EndRescueN first lines on every escort map (the parity pin, ESCORT_IN_ROUND_LINES_READING)", () => {
+    // The parity reading (golden/round-cues.json, re-derived off the disc by roundCues.parity.test.ts): MP52 @3836 and
+    // EndRescueN's text and scale on MP52, MP53, MP82, for every VIP.
+    const golden = JSON.parse(readFileSync(new URL('./golden/round-cues.json', import.meta.url), 'utf8')) as { maps: Record<string, RoundCues> };
+    const first = (steps: readonly BombStep[] | undefined): { text: string; scale: number } => {
+      const s = steps?.[0] as { message?: string; scale?: number } | undefined;
+      return { text: s?.message ?? '', scale: s?.scale ?? Number.NaN };
+    };
+    for (const map of ['MP52', 'MP53', 'MP82']) {
+      const e = golden.maps[map]!.escort!;
+      for (const vip of ['VIP1', 'VIP2', 'VIP3']) {
+        expect(first(e.staged[vip]), `${map} ${vip}`).toEqual(FORGE_ESCORT_LINES_ADAPTATION.staged);
+        expect(first(e.extracted[vip]), `${map} ${vip}`).toEqual(FORGE_ESCORT_LINES_ADAPTATION.extracted);
+        expect(first(e.extracted[vip]).scale, `${map} ${vip}`).toBe(ESCORT_EXTRACTED_SCALE_READING);
+      }
+    }
   });
 });

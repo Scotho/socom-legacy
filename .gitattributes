@@ -37,4 +37,6 @@ package-lock.json text eol=lf
 socomlegacy/test-fixtures/RUN/** binary -eol
 # RV2-00's recorded replay fixtures (gzip): the same, never normalised -- an LF rewrite would corrupt the gzip stream.
 socomlegacy/test-fixtures/replay/** binary -eol
+# FP-4's creator fixture (a zip): the same, never normalised.
+socomlegacy/test-fixtures/creator/** binary -eol
 *.s2r binary

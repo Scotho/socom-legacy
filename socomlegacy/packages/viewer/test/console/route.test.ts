@@ -90,7 +90,9 @@ describe('CX-9a: / is the console launcher, /setup the old page (CX.R8)', () => 
     const at = Object.fromEntries(Object.entries(input).map(([name, file]) => [name, relative(here, file).split(sep).join('/')]));
     expect(at).toEqual({
       console: 'index.html', setup: 'setup/index.html', news: 'news/index.html', roadmap: 'roadmap/index.html',
-      journey: 'journey/index.html', archive: 'archive/index.html', server: 'server/index.html', status: 'status/index.html',
+      journey: 'journey/index.html', archive: 'archive/index.html', server: 'server/index.html', status: 'status/index.html', agent: 'agent/index.html',
+      leaderboard: 'leaderboard/index.html',   // LCM-11b: the stats page (sitePaths.ts STATS_PAGES)
+      match: 'leaderboard/match/index.html', player: 'leaderboard/player/index.html',   // LCM-16: /match/<id> and /player/<name>, each its own document
     });
     expect(isConsole(readFileSync(resolve(here, 'index.html'), 'utf-8'))).toBe(true);
     expect(isOldPage(readFileSync(resolve(here, 'setup/index.html'), 'utf-8'))).toBe(true);

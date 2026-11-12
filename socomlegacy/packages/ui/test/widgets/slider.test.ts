@@ -118,3 +118,18 @@ describe('SLIDERBAR: the value (R117.3, FUN_00371d00 and FUN_00371c50)', () => {
     expect(h.take()).toEqual([]);
   });
 });
+
+
+it('pointer positions use the slider mapping and notify the page, while disabled sliders stay unchanged', () => {
+  const vars = new UiVarManager();
+  const { s } = make(vars, 'CENTER_VALUE', '0.25', 'UIVAR', r('NAME', 'MUSIC_VOLUME', 'TYPE', 'REAL', 'VALUE', '0.25'));
+  const h = new RecordingHost();
+  s.seek(0.75, h);
+  expect(s.position).toBe(0.75);
+  expect(vars.find('MUSIC_VOLUME')?.value).toEqual({ type: 'real', value: 0.625 });
+  expect(h.take()).toEqual(['sound SELECTION', 'event 0x28']);
+  s.seek(0.75, h); expect(h.take()).toEqual([]);
+  s.seek(-1, h); expect(s.position).toBe(0);
+  s.seek(2, h); expect(s.position).toBe(1);
+  s.setEnabled(false); s.seek(0.5, h); expect(s.position).toBe(1);
+});

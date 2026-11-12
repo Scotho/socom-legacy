@@ -53,6 +53,17 @@ describe('stage-only local-file dropzone adaptation', () => {
     expect(r.stage).not.toHaveBeenCalled(); expect(r.host.querySelector<HTMLInputElement>('input')!.disabled).toBe(true);
     expect(r.host.textContent).toContain('Build'); r.zone.dispose();
   });
+  it("names its owner's blocked reason, keeping the Build sentence as the default (LATER 799)", () => {
+    const host = document.createElement('div'); document.body.append(host);
+    let reason = 'Open Content to add local files.';
+    const zone = mountFileDropzone(host, { stage: vi.fn(async () => {}), allowed: () => false, blockedReason: () => reason });
+    const status = () => host.querySelector('[role=status]')!.textContent;
+    expect(status()).toBe('Open Content to add local files.');
+    reason = 'Return to Build to add local files.'; zone.refresh(); expect(status()).toBe('Return to Build to add local files.');
+    zone.dispose();
+    const plain = rig(); plain.block(); expect(plain.root().querySelector('[role=status]')!.textContent).toBe('Return to Build to add local files.');
+    plain.zone.dispose();
+  });
   it('prevents duplicate reads and ignores completion after disposal', async () => {
     const r = rig(); let finish!: () => void;
     r.stage.mockImplementation(() => new Promise<void>(done => { finish = done; }));

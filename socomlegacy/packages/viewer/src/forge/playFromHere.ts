@@ -51,6 +51,25 @@ export function standFromHere(grid: Grid, ground: GroundData, view: ViewStand): 
 }
 
 /**
+ * LATER 803 (a browser adaptation, product track; FG-50, FP.R15): where Walk stands the feet. The floor under the view
+ * (`standFromHere`), else the layout's spawn marker, else -- a disc map's base only, `mapStand` null otherwise -- the
+ * map's own computed stand (`../matchCore` `standOf`: spawn A's feet, its eye `from` above them), when the walk's
+ * ground has a floor there at or below that eye (the same test `standFromHere` makes under the camera). FP.R15 opens a
+ * disc map at a still camera that often has no floor under it, and a bare map has no marker. Null: nowhere to stand.
+ */
+export function walkFeet(
+  grid: Grid, ground: GroundData, view: ViewStand, marker: readonly [number, number, number] | null,
+  mapStand: { feet: readonly [number, number, number] | null; from: readonly [number, number, number] } | null,
+): [number, number, number] | null {
+  const here = standFromHere(grid, ground, view);
+  if (here) return here.at;
+  if (marker) return [marker[0], marker[1], marker[2]];
+  const feet = mapStand?.feet;
+  if (!mapStand || !feet) return null;
+  return floorUnder(grid, ground, [[feet[0], feet[2]]], mapStand.from[1]);
+}
+
+/**
  * The local player's start stood at `spot` facing `yaw`. The room's classic round start takes the side's slots in
  * index order and the seat `clientIndex % count` (`room.ts` `pick`); the forge seats the player at client index 0,
  * so this slot is index 0 of `side`. Every other slot is kept, and `slots` is not changed -- the caller can leave

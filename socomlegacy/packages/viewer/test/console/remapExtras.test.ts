@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { remapAdapter } from '../../src/console/adapters/remap';
 import { prompts } from '../../src/console/render/legend';
-import { REMAP_ACTION_ROW, REMAP_SAME_THUMB_WARNING } from '../../src/console/render/remap';
+import { remapActionRow, REMAP_SAME_THUMB_WARNING } from '../../src/console/render/remap';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { REMAP_ROW, type Adapters } from '../../src/console/state';
 import { PadBinding } from '../../src/padBinding';
@@ -77,7 +77,7 @@ const stored = (p: Pad): unknown => JSON.parse(localStorage.getItem(extrasKey(p)
 describe('h59U9CLb: the Extra binds row', () => {
   it('one row before Finish, labelled a browser adaptation, folded; none without a controller', () => {
     const { ctl } = openMapping();
-    expect(titles()).toEqual(['Stance mode', 'Stick dead zone', ...ACTIONS, 'Extra binds', 'Finish']);   // STANCE-TOP's order; DEAD-UP's dead zone second
+    expect(titles()).toEqual(['Stance mode', 'Pad dead zone (this browser)', ...ACTIONS, 'Extra binds', 'Finish']);   // STANCE-TOP's order; DEAD-UP's dead zone second
     expect(sub(rowAt('Extra binds'))).toContain('Browser adaptation');
     ctl.S.rm.row = rowAt('Extra binds'); page!.render();
     expect(said(ctl)[0]).toEqual(['cross', 'Show']);
@@ -117,7 +117,7 @@ describe('h59U9CLb: making, showing and removing an extra', () => {
     expect(stored(p)).toEqual({ version: 1, doubles: [{ button: SQUARE, action: 'fireMode' }], combos: [] });
     expect(titles()).toContain('Square adds Fire mode');
     expect(ctl.S.toast).toBe('Square now also does Fire mode.');
-    expect(titles()[REMAP_ACTION_ROW + SQUARE]).toBe('Square');
+    expect(titles()[remapActionRow() + SQUARE]).toBe('Square');
   });
   it('a combo: Cross, the modifier held, then the button with it; a same-thumb pair kept with its one-line warning', () => {
     const { ctl, p } = opened();

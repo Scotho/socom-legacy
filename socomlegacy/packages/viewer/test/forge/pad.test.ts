@@ -15,7 +15,9 @@ const pad = (down: number[] = [], axes: number[] = [0, 0, 0, 0], analog: Record<
 const CROSS = 0, CIRCLE = 1, SQUARE = 2, TRIANGLE = 3, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9, L3 = 10, R3 = 11, UP = 12, DOWN = 13, LEFT = 14, RIGHT = 15;
 
 describe('FORGE: the controller scheme', () => {
-  it('fires each button once at its press: the tools, the edits, undo, redo, snap, play', () => {
+  // OT.R112 (the Forge's UI is its contributor's): the owner's remap (06d558635, `../../src/forge/pad.ts`'s header) --
+  // SELECT is undo at a tap's release and redo held past PAD_HOLD_MS, L3 snaps, R3 frames the selection.
+  it('fires each button once at its press: the tools, the edits, snap, frame, the menu; SELECT not at its press', () => {
     const p = new ForgePad();
     p.frame(pad(), 0);
     const names = [CROSS, SQUARE, TRIANGLE, L1, R1, SELECT, L3, R3, START].map((b, i) => {
@@ -25,7 +27,19 @@ describe('FORGE: the controller scheme', () => {
       p.frame(pad(), t + 32);
       return a;
     });
-    expect(names).toEqual([['act'], ['duplicate'], ['delete'], ['prevTool'], ['nextTool'], ['undo'], ['redo'], ['snap'], ['menu']]);
+    expect(names).toEqual([['act'], ['duplicate'], ['delete'], ['prevTool'], ['nextTool'], [], ['snap'], ['frame'], ['menu']]);
+  });
+
+  it('SELECT: a tap undoes at its release; held past PAD_HOLD_MS it redoes once, its release then nothing (OT.R112)', () => {
+    const p = new ForgePad();
+    p.frame(pad(), 0);
+    expect(p.frame(pad([SELECT]), 100).actions).toEqual([]);
+    expect(p.frame(pad(), 116).actions).toEqual(['undo']);
+    expect(p.frame(pad([SELECT]), 200).actions).toEqual([]);
+    expect(p.frame(pad([SELECT]), 200 + PAD_HOLD_MS - 1).actions).toEqual([]);
+    expect(p.frame(pad([SELECT]), 200 + PAD_HOLD_MS).actions).toEqual(['redo']);
+    expect(p.frame(pad([SELECT]), 200 + PAD_HOLD_MS + 100).actions).toEqual([]);
+    expect(p.frame(pad(), 200 + PAD_HOLD_MS + 200).actions).toEqual([]);
   });
 
   it('FG-47: in the build (the page sets crossHolds), a Cross tap acts at its release; Cross held past the tap picks once, its release acts not', () => {

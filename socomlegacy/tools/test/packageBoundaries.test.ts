@@ -486,6 +486,13 @@ describe('rule (c), no package imports from tools/ (R7), on inline samples', () 
   });
 });
 
+/**
+ * The scans below parse every package's sources (rule (c) reads all of packages/*): about 2 s on an idle host, and past
+ * vitest's 5 s default on a loaded one (the AWS spares' root-run suites, 2026-11-11; the v0.4.19 plan, "The gate").
+ * A wall-clock bound of the instrument, not of the game: product track, no original.
+ */
+const PACKAGE_SCAN_TIMEOUT_MS = 60_000;
+
 describe('the package boundaries (W6.R2)', () => {
   it('has the three new packages, each with a src/index.ts', () => {
     for (const pkg of NEW) expect(existsSync(join(srcOf(pkg), 'index.ts')), `packages/${pkg}/src/index.ts`).toBe(true);
@@ -508,7 +515,7 @@ describe('the package boundaries (W6.R2)', () => {
     }
     expect(offenders).toEqual([]);
     expect(scanned).toBeGreaterThan(50);
-  });
+  }, PACKAGE_SCAN_TIMEOUT_MS);
 
   it('(c) no package imports from tools/ (R7: the card file reader is a dev instrument)', () => {
     const offenders: string[] = [];
@@ -524,7 +531,7 @@ describe('the package boundaries (W6.R2)', () => {
     }
     expect(offenders).toEqual([]);
     expect(scanned).toBeGreaterThan(50);
-  });
+  }, PACKAGE_SCAN_TIMEOUT_MS);
 
   it('(b) the new packages import no three and name no browser global', () => {
     const offenders: string[] = [];
@@ -538,5 +545,5 @@ describe('the package boundaries (W6.R2)', () => {
       }
     }
     expect(offenders).toEqual([]);
-  });
+  }, PACKAGE_SCAN_TIMEOUT_MS);
 });

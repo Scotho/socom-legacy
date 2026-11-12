@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { simMapFromBytes } from '../src/sim';
 import {
@@ -64,5 +65,35 @@ describe(`HX-5: the hostages on the compass${MP6 ? '' : ` (MP6: ${FIXTURES_ABSEN
     expect(Math.max(...seen)).toBeCloseTo(1, 6);
     const rise = 250 / 128 / 60;                                              // a frame's step, in alpha
     for (let k = 1; k < seen.length; k++) expect(Math.abs(seen[k]! - seen[k - 1]!)).toBeLessThanOrEqual(rise + 1e-9);
+  });
+});
+
+/**
+ * DF-10: Fish Hook's two kind-1 zones each get their type-6 mark (EXTRACTION_MARK_READING: one per kind-1 zone on
+ * sub-map 0, `FUN_002abd40` D:L151857 -> `FUN_002a42b0` D:L147723) at the centre cell corner + (w >> 1, h >> 1) and that
+ * cell's height (`zoneCentre`): Safety (134,168) 127x18 -> cell (197,177), Safety2 (110,92) 24x94 -> cell (122,139)
+ * (research 175 §5.4, 190 §3.2's table, which left MP71's centres unlisted). MP71 is not a committed fixture yet (DF-2):
+ * the fixture first, else `SOCOM_DISC`'s; without either the case skips and says so.
+ */
+const MP71_DISC = process.env.SOCOM_DISC ? `${process.env.SOCOM_DISC}/RUN/MP71.ZDB` : null;
+const MP71 = fixture('RUN/MP71.ZDB') ?? (MP71_DISC && existsSync(MP71_DISC) ? new Uint8Array(readFileSync(MP71_DISC)) : null);
+
+describe(`DF-10: Fish Hook's compass marks${MP71 ? '' : ' (MP71: neither the fixture nor SOCOM_DISC -- skipped)'}`, () => {
+  it.skipIf(!MP71)("two ret_extraction.tif marks at Safety's centre (1934.58, 1721.81) and Safety2's (1184.58, 1341.81), file order; the three ret_hostage.tif marks on the starts drop one by one as each is rescued or dies (MARK_REMOVED_ON_RESCUE_READING) while both zone marks stay", () => {
+    const map = simMapFromBytes(MP71!, 'RUN/MP71.ZDB');
+    const points = extractionPoints(map.ai);
+    expect(points).toHaveLength(2);
+    const want: [number, number, number][] = [[1934.579, 49.259, 1721.809], [1184.579, 45.583, 1341.809]];
+    for (const [i, w] of want.entries()) for (let k = 0; k < 3; k++) expect(points[i]![k]).toBeCloseTo(w[k]!, 2);
+    const starts = map.escortees!.map((e) => ({ at: e.at, alive: true, rescued: false }));
+    expect(starts).toHaveLength(3);
+    const zoneMarks = points.map((p) => ({ bitmap: 'ret_extraction.tif', x: p[0], z: p[2], pulse: true }));
+    const hostageMark = (i: number) => ({ bitmap: 'ret_hostage.tif', x: starts[i]!.at[0]!, z: starts[i]!.at[2]!, pulse: true });
+    expect(hostageMarks(starts, points)).toEqual([hostageMark(0), hostageMark(1), hostageMark(2), ...zoneMarks]);
+    starts[0]!.rescued = true;                                                 // rescued in Safety2: its anchor freed
+    expect(hostageMarks(starts, points)).toEqual([hostageMark(1), hostageMark(2), ...zoneMarks]);
+    starts[1]!.rescued = true;                                                 // rescued in Safety
+    starts[2]!.alive = false;                                                  // killed: none
+    expect(hostageMarks(starts, points)).toEqual(zoneMarks);
   });
 });

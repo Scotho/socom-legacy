@@ -7,6 +7,7 @@ import { GatewayState } from "../src/sessions.js";
 import { createGateway } from "../src/gateway.js";
 import { createHash } from "node:crypto";
 import { freePort } from "./ports.js";
+import { LIMITS, OPERATION_MANUAL, OPERATIONS, PERMISSIONS } from "@s2u/forge-agent-protocol";
 it("SDK initializes, discovers bootstrap tools and refuses unpaired commands in memory", async () => {
   const state = new GatewayState({ origins: [] }),
     server = createMcpServer(state, "guest", "http://127.0.0.1:5360");
@@ -144,6 +145,59 @@ it("HTTP MCP and REST share authorization and guest consent is CSRF protected", 
     ).toBe(403);
   } finally {
     await client?.close();
+    await g.close();
+  }
+});
+// AX-1 (contract C1, ruling AX.R6; a browser adaptation): the manual before pairing -- a summary, then detail on ask.
+it("agent_capabilities answers a compact summary, an area or an operation in full, and names the valid values otherwise", async () => {
+  const state = new GatewayState({ origins: [] }),
+    server = createMcpServer(state, "guest", "http://127.0.0.1:5360");
+  const client = new Client({ name: "test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  await client.connect(b);
+  const call = async (args: Record<string, unknown>) => client.callTool({ name: "agent_capabilities", arguments: args });
+  try {
+    const summary = await call({});
+    const s = summary.structuredContent as Record<string, any>;
+    expect(JSON.stringify(s).length).toBeLessThan(10 * 1024);
+    expect(s.operations["forge.read"]).toMatchObject({ permission: "inspect", surfaces: ["forge-editor"], area: "forge" });
+    expect(Object.keys(s.operations)).toHaveLength(Object.keys(OPERATIONS).length);
+    expect(s.areas.map((x: { area: string }) => x.area)).toEqual(["forge", "forge-edit", "play", "testroom", "camera", "packs", "session"]);
+    expect(s.detail).toMatch(/area/);
+    expect(s).toMatchObject({ limits: LIMITS, permissions: PERMISSIONS });
+    expect(typeof s.instructions).toBe("string");
+
+    const area = (await call({ area: "forge-edit" })).structuredContent as Record<string, any>;
+    expect(area.operations["forge.edit"].nested["piece.move"].args).toEqual(OPERATION_MANUAL["forge.edit"]!.nested!["piece.move"]!.args);
+    expect(Object.keys(area.operations)).not.toContain("forge.read");
+
+    const nested = (await call({ operation: "piece.move" })).structuredContent as Record<string, any>;
+    expect(nested.operations["forge.edit"].nested).toEqual({ "piece.move": OPERATION_MANUAL["forge.edit"]!.nested!["piece.move"] });
+    const wire = (await call({ operation: "testroom.map" })).structuredContent as Record<string, any>;
+    expect(wire.operations["testroom.map"].example).toEqual(OPERATION_MANUAL["testroom.map"]!.example);
+
+    const unknown = await call({ area: "nowhere" });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.structuredContent).toMatchObject({ code: "UNKNOWN_AREA", valid: ["forge", "forge-edit", "play", "testroom", "camera", "packs", "session"] });
+    const unknownOp = await call({ operation: "piece.fly" });
+    expect(unknownOp.isError).toBe(true);
+    expect((unknownOp.structuredContent as { valid: string[] }).valid).toEqual(expect.arrayContaining(["forge.read", "piece.move", "map.load"]));
+  } finally {
+    await client.close();
+    await server.close();
+    await state.close();
+  }
+});
+it("GET /api/v1/schema serves the full manual beside the summary", async () => {
+  const port = await freePort();
+  const g = createGateway({ issuer: `http://127.0.0.1:${port}`, origins: [], development: true });
+  await g.listen(port);
+  try {
+    const body = (await (await fetch(`http://127.0.0.1:${port}/api/v1/schema`)).json()) as Record<string, any>;
+    expect(body.manual).toEqual(JSON.parse(JSON.stringify(OPERATION_MANUAL)));
+    expect(body.operations["forge.read"].permission).toBe("inspect");
+  } finally {
     await g.close();
   }
 });

@@ -68,16 +68,22 @@ test('no disc: the first key unlocks, a move is silent, and no sound file is req
 const ISO = process.env.SOCOM_ISO ?? '';
 test('with the disc: a move plays HUDUI\'s own sound, rendered off the disc', async ({ page }) => {
   test.skip(!ISO || !existsSync(ISO), 'SOCOM_ISO absent');
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);                                         // the disc read, then its copy into storage (below)
   await stubAudio(page);
   await page.goto('/');
   await page.setInputFiles('#disc-page-file', ISO);
   // LR-23 (LR.R22): the Disc step is the legend's status chip; READY is its "Disc ready" (was LR-13's disc check of Play's panel).
   await expect(page.locator('#legend .cx-mark[data-mark="disc"] .cx-mark__word')).toHaveText('Disc ready', { timeout: 120_000 });   // LR-24: the disc mark (was: the chip)
-  // The disc's own copy (DX-3) may be offered or refused here; the opened image is the disc either way, so its dialog is
-  // closed and the sounds come off the image.
+  // The disc's own copy (DX-3): this profile is fresh, so the image read starts its copy into this browser's storage, and
+  // its popover shows once the extraction is imported -- before or after "Disc ready", so it is waited for, never sampled
+  // once (that sample was this case's race). A player lets it run: it ends EXTRACTED, closes itself, and the disc is ready
+  // from storage. Its Close is not pressed: the head's × is Circle, Cancel while it runs (EXTRACTION PAUSED, the popover
+  // stays), and the paused popover's Close by IX.R4 exits without the disc, so no sound could come off it
+  // (`test/console/adapters/discExtract.test.ts`, "clicked: the head's Close while it runs pauses it").
   const extract = page.locator('#overlay .cx-extract');
-  if (await extract.count()) { await extract.getByRole('button', { name: 'Close', exact: true }).last().click(); await expect(extract).toHaveCount(0); }
+  await expect(extract, 'the disc copy\'s popover is offered').toHaveCount(1, { timeout: 30_000 });
+  await expect(extract, 'the disc copy ends EXTRACTED and closes itself').toHaveCount(0, { timeout: 180_000 });
+  await expect(page.locator('#legend .cx-mark[data-mark="disc"] .cx-mark__word')).toHaveText('Disc ready');
   await page.keyboard.press('ArrowDown');                           // the first gesture: the context made
   await expect.poll(async () => {
     await page.keyboard.press('ArrowDown');

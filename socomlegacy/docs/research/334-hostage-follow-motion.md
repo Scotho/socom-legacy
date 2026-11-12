@@ -592,3 +592,62 @@ moving or invoking correction. Airborne and active clip velocity remain body-own
 | Name | Status | Evidence needed |
 | --- | --- | --- |
 | `HOSTAGE_YIELD_SEED_PLACEHOLDER` | placeholder | Explicit seed1 for the room's Yield-only stream. Read original room seeding and all shared RNG consumers; compare a call trace before claiming original random timing. |
+
+## 14. Readings: the follower at an action cell (DF-10, 2026-11-08; reading, DF-10's review PASS WITH FINDINGS, medium)
+
+DF-10 asked what the original does when a FOLLOW hostage meets a shut door (DF-10's row; the readiness report's
+Fish Hook nav-ai line). Read in `FUN_00567900` and, where the decompilation lost the jump, the retail ELF
+(`game/disc/socom2_game.elf` under `SOCOM_PC_ROOT`) disassembled at the addresses below:
+
+- **The dispatch.** When the route point's cell carries an action and is not the last point, the follower reads the
+  cell's marker (`FUN_0052d8b0`) and jumps through the eight-entry table at 0x65c990 by the marker's type, its u16 at
+  +6 bits 7-11 (the marker word's bits 23-27; D:L429545-429551, the jump at 0x567c40-0x567c54). The table reads
+  `[0x5682c0, 0x567ee8, 0x5682c0, 0x5682c0, 0x567ce8, 0x5682c0, 0x5682c0, 0x567c60]`; a type of 8 or more branches to
+  0x5682c0 before it (0x567c34-0x567c38). 0x5682c0 is the plain steering (research 200 §3.1, which named type 1
+  WINDOW; MP71 places type 1 at its doors, below).
+- **Type 1, 0x567ee8-0x567fb4.** The marker's action id (word bits 4-19) is looked up in the map's action list
+  (`FUN_002b4d80` D:L157171-157185, matching each action's +0x3c, the action's load index: D:L157310). No action:
+  plain steering (0x567efc). `$s0` zero: plain steering (0x567f04; its meaning not transcribed). The action's valve
+  (+0x18, then its u16 at +4) nonzero: plain steering (0x567f0c-0x567f14). Zero: `FUN_005f5c00(actor, 0xb, 0 or 3)`
+  (0x567fa8-0x567fb4; the 3 when the stack's top is a CAiSAction below sub-state 5 on another action, 0x567f1c-0x567fa0), a push of AI state 0xb. The factory
+  `FUN_005f6550` builds 0xb at D:L506016-506025 with vtable 0x669660, whose type record (0x6628b0) names
+  **CAiSAction** (string 0x662890); `FUN_005f0180` (D:L502697-502761) aims it at the action. The gate `FUN_005f5cd0`
+  (D:L505594 on) admits it on a FOLLOW stack [9, 0x17]: the allowed-next masks' AND 0x1ffffdfe & 0x190f4bc0 = 0x190f49c0
+  keeps bit 11 (`AI_STACK_MASKS_READING`).
+- **The second push, D:L429523-429540** (DF-10's review F1, 2026-11-09, `agent-mail/evidence/mega/REVIEW-DF-TASKS-AND-BATCH.md`; filed, not yet built): before the table, for a marker of **any type but 4**, a bound
+  action whose valve reads **1** pushes the same CAiSAction, `FUN_005f5c00(param_2, 0xb, 0)`. Dead today (no marker
+  binds, `FOLLOW_ACTION_BIND_PLACEHOLDER`), but whoever settles the placeholder must carry this branch beside type 1's
+  valve-0 push; `followActionDispatch` (`match/src/hostageFollow.ts`) does not model it.
+- **What MP71 carries** (the repository's AI reader over `RUN/MP71.ZDB` `AIMAPS.MPS`, dev disc): six markers, all type 1
+  and all id 0xffff -- base map (238,45), (251,65), (223,83), (217,65); `tophost` (10,4), (15,24) -- one at each of the
+  six `DOOR` records (`actions.rdr`: six of type code 0, then six of type 8 -- the three access points and three planks of research 175 §5.4). MP6 places one type-0 marker
+  at cdoor1 (id 0xffff); MP10 and MP11 none.
+- **The binding.** The AI maps' load sets every marker's id to DAT_0065ab30, which the ELF holds as 0xffff
+  (`FUN_0052bb70` D:L395962); actions take ids 0, 1, ... as they load. So no action answers a marker and the type-1
+  handler steers: **a FOLLOW hostage at a shut door neither presses nor waits on it; it walks its route into the
+  leaf, whose collision stops it** -- the port's behaviour since HF (§2, "Followers never activate doors"; the MP6 jail
+  door case in `hostageFollow.test.ts`). No writer of an action id into a marker was found in this read, and the case
+  that one exists is strong (the fresh review, 2026-11-08): `FUN_0052daa0` -> `FUN_00530bd0` (D:L398970) finds a marker
+  **by action id** (word bits 4-19) and is called from eight sites -- D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723, the last inside
+  `FUN_005f0180`, the function that aims CAiSAction -- beside `FUN_002b5760` (D:L157531-157546, a callback each action
+  registers). If every marker stays 0xffff, all of them are dead code in retail. Hence `FOLLOW_ACTION_BIND_PLACEHOLDER`,
+  not a reading: the settling read is a writer outside the `& 0xfff0000f | x << 4` idiom this read searched (a u16 store
+  at the marker's +4 or +6, say).
+
+| Name | Kind | What it means; evidence to settle it |
+|---|---|---|
+| `FOLLOW_ACTION_CELL_READING` | reading (DF-10's review, `agent-mail/evidence/mega/REVIEW-DF-TASKS-AND-BATCH.md`) | `match/src/hostageFollow.ts` `followActionDispatch`: type 1 with a bound action whose valve is 0 pushes CAiSAction (0xb); any other table type, no bound action or a nonzero valve, plain steering; types 4 and 7 (0x567ce8, 0x567c60) unread. Disassembly 0x567c28-0x567c54 and 0x567ee8-0x567fb4, D:L429545-429551, D:L157171-157185, D:L506016-506025, D:L502697-502761. Unit-tested on synthetic words; dev-disc on MP6, MP10, MP11, MP71. Settles: the `$s0` test at 0x567f04 transcribed. |
+| `FOLLOW_ACTION_BIND_PLACEHOLDER` | placeholder | `markerAction`: a marker binds the action whose load index equals its id; on the four EXTRACTION maps every marker id is 0xffff after the load (D:L395962), so none binds and the follower steers into a shut leaf. Against it: `FUN_0052daa0` -> `FUN_00530bd0` (D:L398970) finds a marker by action id from eight sites (D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723; the last in `FUN_005f0180`) beside `FUN_002b5760` (D:L157531-157546), all dead in retail if no marker binds. Settles: a writer of an action id into a marker outside the `& 0xfff0000f | x << 4` idiom (a u16 store at +4 or +6) found in the code, or a memory read of MP71's marker table (sub-map 0's list at +0x100, 40-byte records) on a running console after the map loads; a capture of a led hostage at MP71's door_ft_2 shut (H131's session). A settler also carries the second push (D:L429523-429540: any marker type but 4, the bound action's valve 1 -> `FUN_005f5c00(param_2, 0xb, 0)`; §14, DF-10's review F1), which `followActionDispatch` does not model. |
+
+The room needs no change for it: on every retail Extraction map the dispatch answers plain steering, which the
+follower already does. DF-10's other cases pin readings already filed (research 175 §3/§5.4, 190, 237, 239) on MP71
+and add no constant: the room's two zones (`roomExtraction.test.ts`, `extractionLayers.test.ts`: the shared edge
+x 1299.579 under half-open membership -- column 133 Safety2's, 134 Safety's -- and **no** stored cell of `tophost` or
+`topboat` over either rectangle, so 175 §5.4's top-floor lookalike cannot arise on the disc), the two type-6 marks at
+the centre cells (197,177) = (1934.58, 49.26, 1721.81) and (122,139) = (1184.58, 45.58, 1341.81)
+(`hostageMarks.test.ts`), `cuesOf('MP71')` with every id 7100-7113 it names filled from `mp71LOC`
+(`roundCues.test.ts`; 7104 and 7106, the elimination lines, the page posts from `eliminationLines` in the same
+words), and the eight emitters -- `doggy_ruff1-3` on `dog1-3` (`~DIST_DOGS`), `chimes_ring1-3` on `chime1-3`
+(`~WIND_CHIMES`), `ocean_waves1-2` on `ocean1-2` (`~WATER_LAPPING`) -- on placed nodes, every bed and emitter sound in
+`MP71_am.bnk` (`audio.test.ts`). Evidence: unit and dev-disc (the disc as `SOCOM_DISC`; MP71 is not a committed fixture
+until DF-2), no browser run, no capture.

@@ -134,6 +134,7 @@ dist/
 !/socomlegacy/test-fixtures/RUN/MOTION_P.ZAR
 !/socomlegacy/test-fixtures/RUN/MP2.ZDB
 !/socomlegacy/test-fixtures/RUN/MP6.ZDB
+!/socomlegacy/test-fixtures/RUN/MP71.ZDB
 !/socomlegacy/test-fixtures/RUN/MP72.ZDB
 !/socomlegacy/test-fixtures/RUN/MPZANIM.ZAR
 !/socomlegacy/test-fixtures/RUN/READERC.ZAR
@@ -149,11 +150,18 @@ dist/
 !/socomlegacy/test-fixtures/RUN/UI/UI_TXR.ZED
 !/socomlegacy/test-fixtures/RUN/UIZANIM.ZAR
 !/socomlegacy/test-fixtures/RUN/ZWEAPON.ZAR
-# RV2-00's recorded replay (the manifest's replay/ entry, recorded by a real Room, not a disc file): replay/ walked, its
-# files ignored but this one, by name.
+# RV2-00's recorded replays (the manifest's replay/ entries, recorded by a real Room, not disc files): replay/ walked,
+# its files ignored but these, by name (the -p13 file: the same recording at protocol 13, kept so an older one decodes).
 !/socomlegacy/test-fixtures/replay/
 /socomlegacy/test-fixtures/replay/**
 !/socomlegacy/test-fixtures/replay/mp2-classic-two-rounds.s2r
+!/socomlegacy/test-fixtures/replay/mp2-classic-two-rounds-p13.s2r
+!/socomlegacy/test-fixtures/replay/mp2-classic-two-rounds-p14.s2r
+# FP-4's creator fixture (the manifest's creator/ entry: the modder's synthetic CC0 test package, no game data):
+# creator/ walked, its files ignored but this one, by name.
+!/socomlegacy/test-fixtures/creator/
+/socomlegacy/test-fixtures/creator/**
+!/socomlegacy/test-fixtures/creator/sample-yard.forge.zip
 /socomlegacy/test-fixtures/RUN/SOUNDS/BNKSTORE.ZAR
 /socomlegacy/test-fixtures/iso/frostfire-only.iso
 /socomlegacy/test-fixtures/iso/frostfire-flylock.iso
@@ -193,3 +201,5 @@ release.tgz
 # The owner's private host notes (addresses, account names, Cloudflare ids, key paths -- never a password or token):
 # socomlegacy/deploy/RUNBOOK.md, "Reaching a host box". Never committed.
 /.private/
+# LCM-18b: the medal tool's output (socomlegacy/tools/cards/extractMedals.ts) is disc art (RS.R8), never committed
+medal-*.png

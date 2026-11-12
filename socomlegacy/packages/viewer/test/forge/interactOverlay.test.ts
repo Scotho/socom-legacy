@@ -45,7 +45,7 @@ describe('the guides filled, as the spawn discs are', () => {
 
 const ISO = process.env['SOCOM_ISO'];
 describe.skipIf(!ISO || !existsSync(ISO))('door swings on the disc (SOCOM_ISO)', () => {
-  it("Frostfire's doors each swing a quarter turn or so; a left and a right door the opposite ways", async () => {
+  it("Frostfire's three doors (bdoor_4, wdoor_1, wdoor_2) each swing about a quarter turn, all the same way by singleDoor_right", async () => {
     const { IsoAssetSource } = await import('@s2u/archive');
     const { fsBlob } = await import('../../../../tools/fmv-spike');
     const { loadMap } = await import('../../src/loadMap');
@@ -61,9 +61,11 @@ describe.skipIf(!ISO || !existsSync(ISO))('door swings on the disc (SOCOM_ISO)',
       expect(Math.abs(s.swing!.angle), s.name).toBeGreaterThan(Math.PI / 4);
       expect(Math.abs(s.swing!.angle), s.name).toBeLessThan(Math.PI);
     }
-    const sign = (word: RegExp) => swings.filter((s) => word.test(s.name)).map((s) => Math.sign(s.swing!.angle));
-    const left = sign(/left/i), right = sign(/right/i);
-    if (left.length && right.length) expect(left[0]).toBe(-right[0]!);
+    // FP-1b (the review's F3), measured off the disc: Frostfire has three doors, each swinging by the one program
+    // `singleDoor_right`, all the same way (a positive turn, about 100 degrees) -- no left door to swing against them.
+    expect(swings.map((s, i) => [map.doors![i]!.node, s.name, Math.sign(s.swing!.angle)])).toEqual([
+      ['bdoor_4', 'singleDoor_right', 1], ['wdoor_1', 'singleDoor_right', 1], ['wdoor_2', 'singleDoor_right', 1],
+    ]);
   }, 120_000);
 });
 

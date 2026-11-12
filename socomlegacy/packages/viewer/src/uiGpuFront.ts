@@ -5,9 +5,9 @@
  * fallback) or `#front-end-gpu` (the WebGL2 canvas the surface draws on) -- never a byte of the frame (the GPU frame is
  * `GpuUiPresenter`'s, the software frame `CpuUiPresenter`'s, both held to the original elsewhere).
  *
- * - **Made only when the switch asks `front` of the GPU** (`uiGpuFrontWanted`: `on` or `shadow` at either scale). The
- *   landed table keeps every cell `off`, so on every player's page nothing here runs and the page is `#front-end` alone
- *   (GM.R16). GM-16: `shadow` makes the canvas and its surface too -- the surface shows the software's frame on
+ * - **Made only when the switch asks `front` of the GPU** (`uiGpuFrontWanted`: `on` or `shadow` at either scale). Since
+ *   the flip (GM.R18) the landed table is every cell `on`, so every page makes it; `?uiGpu=off` and the storage kill leave
+ *   the page `#front-end` alone. GM-16: `shadow` makes the canvas and its surface too -- the surface shows the software's frame on
  *   `#front-end` and draws the GPU's offscreen for the guard, so `#front-end-gpu` stays in standby (never presented).
  * - **`#front-end-gpu`** is `#front-end`'s sibling, placed after it with the same placement (`place`), so the same CSS
  *   box; registered for BRIGHTNESS by `frameCanvas` (the same filter on both); SCREEN POSITION lays its origin
@@ -26,13 +26,19 @@
  *   inside: L0-L4; in shadow, the software shown).
  *   The surface's own session kill (`loss-limit`, `restore-timeout`) keeps the surface, whose L3 is the 1x software for
  *   the rest of the session (the plan's ladder; `UI_GPU_LOSS_FALLBACK_ADAPTATION`), never today's 65-87 ms 4x frame;
- *   any other kill (a guard trip, GM-16) or `off` at that scale is today's path on `#front-end` at the player's scale
- *   (GM.R16). This settles GM-12a's open question for the controller to confirm (the 16:37Z Log entry).
+ *   any other kill (a guard trip, GM-16) or `off` at that scale is the page's own software on `#front-end`.
+ *   This settles GM-12a's open question for the controller to confirm (the 16:37Z Log entry).
+ * - **GM-28 (GM.R19, the owner's "the original 1x frame"): the scale a frame is drawn at follows what presents.** The
+ *   menus' HD options (the pack's scale, its lookup, the quad cache) go to the surface only (`uiGpuFrontFrameOptions`),
+ *   which draws them on the GPU while it presents and the 1x software otherwise (`./uiGpuPresenter`); every frame the
+ *   page draws on `#front-end` itself -- before the surface's `import()` lands, after a failed load, a guard trip, `off`
+ *   by any route -- is the 1x frame (`UI_GPU_LOSS_FALLBACK_ADAPTATION`). GM.R16's "`off` at the player's scale" is
+ *   withdrawn by GM.R19.
  */
 
-import { frameCanvas } from './brightness';
-import type { UiGpuSurface, UiGpuSwitch } from './uiGpuSwitch';
-import type { UiPresenter } from './uiPresenter';
+import { uiGpuLossFallbackOptions, type UiGpuFallbackable, type UiGpuSurface, type UiGpuSwitch } from './uiGpuSwitch';
+import type { UiGpuLadder } from './uiGpuSwitch';
+import { UiGpuCanvasMount, uiGpuSurfacePath, uiGpuSurfaceWanted, type UiGpuMountSurface, type UiGpuResolveAt } from './uiGpuSurfaceMount';
 
 /** The GPU canvas's id (the plan, "Canvases and contexts"). */
 export const FRONT_END_GPU_ID = 'front-end-gpu';
@@ -40,35 +46,40 @@ export const FRONT_END_GPU_ID = 'front-end-gpu';
 /**
  * UI_GPU_STANDBY_CLASS (a browser adaptation): `#front-end-gpu` while the software's frame shows -- `visibility: hidden`
  * (`./styles.css`), so its CSS box stays laid out (SCREEN POSITION reads it) and the pointer passes to `#front-end`.
+ * GM-19a: defined with the shared mount (`./uiGpuSurfaceMount`), which every surface's GPU canvas uses.
  */
-export const UI_GPU_STANDBY_CLASS = 's2u-ui-gpu-standby';
+export { UI_GPU_STANDBY_CLASS } from './uiGpuSurfaceMount';
 
 const FRONT: UiGpuSurface = 'front';
 
 /** What the page needs of the switch. */
 export type FrontEndGpuSwitch = Pick<UiGpuSwitch, 'resolve'>;
 
-/** The surface as the page uses it (`UiGpuSurfacePresenter`'s calls). */
-export interface FrontEndGpuSurface extends UiPresenter {
-  /** The canvas the last frame went to: `gpu` (L0, L1) or `software` (`#front-end`). */
-  readonly lastPath: 'gpu' | 'software' | null;
-  release(): void;
-  returned(): void;
-  dispose(): void;
-}
+/** The surface as the page uses it (`UiGpuSurfacePresenter`'s calls; GM-19a: the shared mount's `UiGpuMountSurface`). */
+export type FrontEndGpuSurface = UiGpuMountSurface;
+
+const frontAt = (sw: FrontEndGpuSwitch): UiGpuResolveAt => (scale) => sw.resolve(FRONT, scale);
 
 /** Whether the page makes the front end's GPU canvas: the switch asks `on` or `shadow` of `front` at scale 1 or at an HD scale. */
 export function uiGpuFrontWanted(sw: FrontEndGpuSwitch): boolean {
-  const gpu = (m: string): boolean => m === 'on' || m === 'shadow';
-  return gpu(sw.resolve(FRONT, 1).mode) || gpu(sw.resolve(FRONT, 2).mode);
+  return uiGpuSurfaceWanted(frontAt(sw));
 }
 
 /** The path the front end's frame takes at `scale`: the surface (`gpu`) or today's software on `#front-end`. */
 export function uiGpuFrontPath(sw: FrontEndGpuSwitch, scale: number): 'gpu' | 'software' {
-  const r = sw.resolve(FRONT, scale);
-  if (r.mode === 'on' || r.mode === 'shadow') return 'gpu';     // GM-16: a shadow surface shows the software itself
-  if (r.source === 'session' && r.requested === 'on' && (r.reason === 'loss-limit' || r.reason === 'restore-timeout')) return 'gpu';
-  return 'software';
+  return uiGpuSurfacePath(frontAt(sw), scale);
+}
+
+/**
+ * GM-28 (GM.R19; `UI_GPU_LOSS_FALLBACK_ADAPTATION`, a browser adaptation): the options a front-end frame is drawn with --
+ * the menus' HD options as chosen (`hd`) when `gpu` (the frame goes to the GPU surface, which keeps them only while it
+ * presents; or the perf instrument's forced HD path, `?uiPerfHd`, a development build only), the original 1x frame
+ * otherwise (`uiGpuLossFallbackOptions`: scale 1, no HD lookup, no quad cache). A scale-1 frame is unchanged in substance.
+ * GM-19a / GM-23: the overlay's and the loading screen's frames are decided by the same rule.
+ */
+export function uiGpuFrontFrameOptions<O extends UiGpuFallbackable & { readonly scale: number }>(hd: O, gpu: boolean): O | (Omit<O, 'hd' | 'quadCache' | 'scale'> & { scale: number }) {
+  if (gpu || (hd.scale === 1 && hd.hd === undefined && hd.quadCache === undefined)) return hd;   // nothing to drop: no copy a frame
+  return uiGpuLossFallbackOptions(hd);
 }
 
 export interface FrontEndGpuOptions {
@@ -84,31 +95,25 @@ export interface FrontEndGpuOptions {
   laid?: () => void;
   /** A failure's line (the console). */
   log?: (line: string) => void;
+  /** The flip's review F2: the surface down for the session (L4, L3), told once (`UiGpuCanvasMountOptions.down`). */
+  down?: (level: 'L3' | 'L4', reason: string | null) => void;
+  /**
+   * The flip's re-check 2 (GM-30's rule; a test and playtest instrument): where the page's own software frames are counted
+   * while the surface is down -- the switch's `hostFor('front')`. Absent, nothing is counted.
+   */
+  ladder?: UiGpuLadder;
 }
 
-/** The front end's GPU canvas, its swap and its surface (see the module's comment). */
-export class FrontEndGpu {
-  readonly canvas: HTMLCanvasElement;
-  private surf: FrontEndGpuSurface | null = null;
-  private pending: 'gpu' | 'software' = 'software';
-  private showing: 'gpu' | 'software' = 'software';
-  private asked = false;
-  private gone = false;
-  /** `#front-end` holds no frame newer than the GPU canvas's (the last frame drawn went to the GPU). */
-  private twinStale = false;
-  /** A `want('software')` held until a software frame is on `#front-end` (GM-12b review F1). */
-  private held = false;
-
-  private constructor(private readonly o: FrontEndGpuOptions) {
-    const c = o.doc.createElement('canvas');
-    c.id = FRONT_END_GPU_ID;
-    c.width = 640;
-    c.height = 448;
-    o.place(c);
-    c.classList.add(UI_GPU_STANDBY_CLASS);
-    o.twin.after(c);
-    frameCanvas(c);   // OPT-11 (research 358): BRIGHTNESS on this frame as on #front-end's
-    this.canvas = c;
+/**
+ * The front end's GPU canvas, its swap and its surface (see the module's comment): `#front-end-gpu` on the shared mount
+ * (`./uiGpuSurfaceMount` `UiGpuCanvasMount`, GM-19a's factoring of what was this class), for `front`.
+ */
+export class FrontEndGpu extends UiGpuCanvasMount {
+  private readonly ladder: UiGpuLadder | undefined;
+  private constructor(o: FrontEndGpuOptions) {
+    const { ladder, ...rest } = o;                              // not the mount's: its `readyOn` count is the overlay's and the panel's
+    super({ ...rest, id: FRONT_END_GPU_ID, label: 'front', resolveAt: frontAt(o.sw) });
+    this.ladder = ladder;
   }
 
   /** The canvas made beside `twin` when the switch asks `front` of the GPU; null otherwise (nothing made). */
@@ -116,84 +121,14 @@ export class FrontEndGpu {
     return uiGpuFrontWanted(o.sw) ? new FrontEndGpu(o) : null;
   }
 
-  /** The surface, once loaded (null before, after a failed load and after `dispose`). */
-  get surface(): FrontEndGpuSurface | null { return this.surf; }
-  /** The canvas showing since the last commit. */
-  get shown(): 'gpu' | 'software' { return this.showing; }
-
-  /** The surface landed: kept, or let go at once when the page has already let this go. */
-  attach(surface: FrontEndGpuSurface): void {
-    if (this.gone) { surface.dispose(); return; }
-    this.surf = surface;
-  }
-
-  /** Whether this tick's frame at `scale` goes through the surface. */
-  drawsOn(scale: number): boolean {
-    return this.surf !== null && !this.gone && uiGpuFrontPath(this.o.sw, scale) === 'gpu';
-  }
-
-  /** A frame drawn this tick: through the surface (`gpu`; its canvas the one it says) or today's path on `#front-end`. */
-  drawn(gpu: boolean): void {
-    this.pending = gpu && this.surf ? this.surf.lastPath ?? 'software' : 'software';
-    this.twinStale = this.pending === 'gpu';      // a GPU frame: #front-end's last frame is older than what shows
-    this.held = false;
-    if (!gpu) this.loadOnce();
-  }
-
   /**
-   * The canvas to show at the next commit (the surface's `shown`). GM-12b review F1: a `software` said outside a draw (a
-   * `webglcontextlost` between frames) while `#front-end` holds no frame newer than the GPU canvas's is held -- the GPU
-   * canvas stays until a software frame is drawn (`drawn`), so `#front-end`'s old frame never shows; taken at once while
-   * the canvases are hidden (the match's `leave`: its release), when nothing shows.
+   * The flip's re-check 2: a frame drawn this tick; while the surface is down (L4, L3), a frame of the page's own software
+   * is counted on the ladder with the level and reason `down` carried, as the overlay's and the panel's are (GM-30). A
+   * frame through the surface (`gpu`) is the surface's own to count, never counted here. The front end's loop calls no
+   * `readyOn`, so this is its only count of those frames.
    */
-  want(which: 'gpu' | 'software'): void {
-    if (which === 'software' && this.twinStale && !this.o.twin.hidden) { this.held = true; return; }
-    this.held = false;
-    this.pending = which;
-  }
-
-  /** The tick boundary: the canvas to show applied, `#front-end`'s `hidden` and classes mirrored. */
-  commit(): void {
-    const c = this.canvas, twin = this.o.twin;
-    if (this.held && twin.hidden) { this.held = false; this.pending = 'software'; }   // hidden: nothing shows, the hold taken
-    if (c.hidden !== twin.hidden) c.hidden = twin.hidden;
-    const standby = this.pending !== 'gpu';
-    const classes = [...twin.classList];
-    if (standby) classes.push(UI_GPU_STANDBY_CLASS);
-    const want = classes.join(' ');
-    if (c.className !== want) c.className = want;
-    if (this.showing !== this.pending) {
-      this.showing = this.pending;
-      this.o.laid?.();
-    }
-  }
-
-  /** The match's `leave`: the surface's context let go (`UiGpuSurfacePresenter.release`). */
-  release(): void { this.surf?.release(); }
-  /** The match's return: the surface asks for its context back at its next frame. */
-  returned(): void { this.surf?.returned(); }
-
-  /** The session's close or the page's stop: the surface let go for good, the software shown. */
-  dispose(): void {
-    this.gone = true;
-    this.surf?.dispose();
-    this.surf = null;
-    this.pending = 'software';
-    this.held = false;
-    this.commit();
-  }
-
-  /** The page's stop: disposed and the canvas taken off the page. */
-  remove(): void {
-    this.dispose();
-    this.canvas.remove();
-  }
-
-  private loadOnce(): void {
-    if (this.asked || this.gone) return;
-    this.asked = true;
-    this.o.load(this.canvas).then((s) => this.attach(s), (e: unknown) => {
-      (this.o.log ?? console.warn)(`[uiGpu] front: the GPU surface did not load, today's path kept: ${e instanceof Error ? e.message : String(e)}`);
-    });
+  override drawn(gpu: boolean): void {
+    super.drawn(gpu);
+    if (!gpu && this.downAt) this.ladder?.fallback(this.downAt.level, this.downAt.reason);
   }
 }

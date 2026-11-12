@@ -7,7 +7,7 @@ import {
   aimTwist, circle, deadZone, EXPLOSION_SHAKES, explosionShake, ViewBob, FULL_AXIS, LOOK_GAIN, LookLaw,
   MAX_PITCH_RATE, MAX_YAW_RATE, MOUSE_RADIANS_PER_COUNT, nudgePitch, PITCH_PER_YAW, pitchStickOf, RAMP_PER_SECOND, ramp,
   rampStep,
-  runningLean, ScreenShake, stepPitch, stickCurve, throttle, viewOffset, zoomScale,
+  runningLean, ScreenShake, stepPitch, stickCurve, throttle, viewOffset, viewOffsetPerPixelX, zoomScale,
 } from '../src/look';
 import { WalkMode } from '../src/walk';
 import { vi } from 'vitest';
@@ -212,9 +212,15 @@ describe('the view bob (BOBBING_FIRSTPERSON), in the views from the eye', () => 
     expect(bob.step(TICK, 0.5, 1, true)).toBeCloseTo(4 * Math.cos(30 * TICK), 9);
   });
 
-  it('as a view offset: 6 pixels down on a 448-high frame; x at 4:3 of 640', () => {
+  // LATER 621 (research 381 section 2, 2026-11-10): across, the original's projection's tan(hfov) / 320 per PS2 pixel
+  // (FUN_00294070 D:L138944-138945, cam+0x290 = 320 / tan(hfov) by FUN_002915f0) over the page's tan(vfov) / 224 per
+  // page pixel -- 1.0756 at the maps' fov (0.6109 0.4276, research 72); was 4/3 x 448 / 640 = 0.933. Down unchanged.
+  it('as a view offset: 6 pixels down on a 448-high frame; across, tan(hfov)/320 over tan(vfov)/224', () => {
     expect(viewOffset(0, 6)).toEqual([-0, -6]);
-    expect(viewOffset(150, 0)[0]).toBeCloseTo(-150 * (4 / 3) * 448 / 640, 9);   // 140 of the frame's 448
+    const perX = (Math.tan(0.6109) / 320) / (Math.tan(0.4276) / 224);
+    expect(perX).toBeCloseTo(1.0756, 4);
+    expect(viewOffsetPerPixelX()).toBeCloseTo(perX, 12);
+    expect(viewOffset(150, 0)[0]).toBeCloseTo(-150 * perX, 9);                 // 161.3 of the frame's 448
     expect(viewOffset(0, 900)).toEqual([-0, -200]);
   });
 });

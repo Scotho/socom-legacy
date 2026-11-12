@@ -184,7 +184,7 @@ The sequence the page draws from the key that skips Intro_2 (1.1 s into it, as t
 | ticks after the key | what is drawn | MENUFADER |
 |---|---|---|
 | 0-16 | Intro_2's picture under the switch's fade, then black | 0.24 -> 0.99 (the switch, 2 x min(dt, 0.05) a frame), the countdown |
-| 17 | `dlgMenu` built: the dialog as its file has it -- `LoadGameBack`'s popup_bg whole under the logo, every roller item lit, the arrows whole (mean 33.9) | 1.0, the quad's alpha 128: added, nothing |
+| 17 | `dlgMenu` built: the dialog as its file has it -- `LoadGameBack`'s popup_bg whole under the logo, every roller item lit, the arrows whole (mean 34.0; 33.9 before GM-15d drew the 3D pass's models by the GS's top-left rule and GEQUAL, research 380 §4) | 1.0, the quad's alpha 128: added, nothing |
 | 18 on | the menu whole (20.6 - 25.2 over the black stand-in while the roller settles, 22.4 after) | 0.95 -> -0.45, 0 on tick 40, -0.02 -> -0.47, 0 from tick 62 |
 
 Until MENU-FADE the page drew tick 17 black, ticks 18-32 as a ramp (mean 1.3 -> 22.6), ticks 33-61 black but for tick

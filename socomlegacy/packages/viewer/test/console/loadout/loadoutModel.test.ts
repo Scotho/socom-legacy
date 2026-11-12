@@ -31,7 +31,7 @@ function drive(ctx: ArmoryContext, col: number, row: number, presses: readonly (
 
 describe('the loadout editor\'s rules are the ARMORY\'s', () => {
   it('the missions are the first release\'s maps, upper-cased as the page keys them', () => {
-    expect(LOADOUT_MISSIONS).toEqual(['MP2', 'MP7', 'MP51', 'MP72']);              // OT.R45: Night Stalker the fourth
+    expect(LOADOUT_MISSIONS).toEqual(['MP1', 'MP2', 'MP6', 'MP7', 'MP12', 'MP51', 'MP71', 'MP72']);  // OT.R45: Night Stalker the fourth; V13-2, V13-3: Blizzard, The Ruins; DF-14: Desert Glory, Fish Hook
   });
 
   it('the context is the one the shared ARMORY screen builds from the mission\'s data', () => {

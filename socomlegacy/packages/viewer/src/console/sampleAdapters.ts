@@ -74,7 +74,7 @@ export const SAMPLE_OPT_CATS: readonly OptCat[] = [
     { id: 'voice', label: 'Voice chat volume', values: PCT, def: 8, about: 'How loud your teammates are.', note: 'Saved to your memory card.' },
   ] },
   { id: 'controller', label: 'Controller', icon: 'pad', rows: [
-    { id: 'dead', label: 'Stick dead zone', values: ['16%', '20%', '24%', '28%', '32%'], def: 2, about: 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', note: 'Saved to this browser.' },
+    { id: 'dead', label: 'Pad dead zone (this browser)', values: ['16%', '20%', '24%', '28%', '32%'], def: 2, about: 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', note: 'Saved to this browser.' },
     { id: 'vib', label: 'Vibration', values: ['Off', 'On'], def: 1, about: 'Rumble when you fire and take hits, where your controller supports it.', note: 'Saved to this browser.' },
     { id: 'invert', label: 'Invert look', values: ['Off', 'On'], def: 0, about: 'Pushing up looks down.', note: 'Saved to your memory card.' },
     { id: 'remap', label: 'Button mapping', action: 'Remap', hint: 'Choose what each button does', about: 'Choose which button does what, action by action.', note: 'Opens the mapping screen.' },

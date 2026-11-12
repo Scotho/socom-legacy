@@ -130,11 +130,13 @@ Beside the list, timing it: **the load-phase marks** (`@s2u/ui` `loadPhases.ts`,
 makes one `PhaseMarks` on the page's clock at its start (`loadBudget.ts`), marks the disc chosen (through
 `DiscChoice`, which takes a refused disc's mark back), the disc indexed and the map's first frame (`main.ts`), and
 hands the marks, typed by `LoadPhase`, to the debug hook (`hook.ts`). The Sony frame, the main menu and the lobby are
-owed rows, each naming the sprint that first draws it. `main.ts` also reads `VIDEO_PICTURE_HD_OFFERED` (`@s2u/ui`
-`screens/videoPicture.ts`; HD-HOLD, the owner, 2026-11-01): while it is false the test room's HD pack is never turned on.
+owed rows, each naming the sprint that first draws it. (`VIDEO_PICTURE_HD_OFFERED`, HD-HOLD's switch that `main.ts` read,
+went with the HD picture in B206 ML-6: the test room's packs follow the MODS choice.)
 
 What sits outside the three until it is folded in: the ARMORY's sprint-5 runtime (`viewer/src/uiScript.ts`,
 `armory*.ts`) and its readers in `scene` (`ui*.ts`), which PLAT-34 folds into the generic runtime.
+
+The shared controller settings bridge -- on `agent/mega` in `playerSettings.ts`, the test room's card reads -- uses `initSystemTuners` to initialize a fresh live tuner manager (`pageEarlyCommits`' `adopt`) and `lookStickOf` to derive aiming from the current preset and tuners (`pageCardReads`) before a native Options session exists. The original conversions and preset values are retained.
 
 ## What is SOCOM-specific, and what is plain PS2
 

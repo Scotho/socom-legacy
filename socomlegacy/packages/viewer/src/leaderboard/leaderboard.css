@@ -1,0 +1,173 @@
+/*
+ * LCM-11b / LCM-16: the /leaderboard page (LCM.R11, R14; the mockup docs/specs/assets/live-cards/pages.html v9) inside the
+ * project site's shell. The shell, the breadcrumb, the identity block, the stats table, the figures, the states and the
+ * one focus ring are the site's (../projectSite/site.css); this file places what is the leaderboard's alone -- the find
+ * box, the control bar, the cards, the table's position column, its tiers and its sort marks, the pager -- on ds tokens.
+ * It never restyles an .s2u-action's colours or states: it lays out what sits inside one. A browser adaptation (product
+ * track). LCM-LB (the leaderboards' polish pass, the design review's work list): the head's panel, Sort by and the weapon,
+ * the table's tiers, No. 1's caption, the phone's podium and bar.
+ */
+
+/* the head: the board's facts and the find box (a labelled ds field and a ds action), its answer kept in place in one line */
+.lb-hero { padding-bottom: var(--s2u-space-8); }
+.lb-hero-panel { margin-top: var(--s2u-space-6); }
+.lb-find { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--s2u-space-2); max-width: calc(10 * var(--s2u-space-12)); margin-top: var(--s2u-space-6); }
+.lb-find-field { flex: 1 1 calc(5 * var(--s2u-space-12)); }
+.lb-find-field input { min-height: var(--s2u-space-12); }
+.lb-find-go { min-height: var(--s2u-space-12); }
+.lb-find-out { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s2u-space-3); font: var(--s2u-type-body-small); min-height: 1lh; margin-top: var(--s2u-space-1); }
+.lb-find-msg { font: var(--s2u-type-body-small); color: var(--s2u-gold-display); overflow-wrap: anywhere; }
+.lb-find-link { max-width: 100%; overflow-wrap: anywhere; }
+
+/* the one control bar (LCM.R14): five board cells and the period, ds actions laid out as cells. LCM-20: the period takes its
+   own row under the boards at every width -- beside them it left each cell about 118 px and cut the leader's name at 1440 --
+   so the five cells share the whole column; the bar is still one block, one control bar */
+.lb-ctl {
+  display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: var(--s2u-space-3);
+  /* a board cell's least width: its padding and its longest label, 'HEADSHOT %' (about 90 px in the nav type, Oswald's own
+     advances), so the cells go to a second row before a label passes its cell's edge -- never cut (an adaptation) */
+  --lb-board-min: calc(2 * var(--s2u-space-12) + 2 * var(--s2u-space-4));
+}
+.lb-boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--lb-board-min), 1fr)); gap: var(--s2u-space-2); }
+.lb-board { flex-direction: column; align-items: flex-start; justify-content: center; gap: var(--s2u-space-1); min-width: 0; padding: var(--s2u-space-3) var(--s2u-space-4); text-align: left; }
+.lb-board .lb-l { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; white-space: nowrap; }
+/* LCM-20: the leader on one line, the value under it (two lines on desktop); each line cut only past the cell's edge */
+.lb-board .lb-v { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+.lb-board .lb-v > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-board .lb-v-sep { display: none; }
+.lb-board .lb-v b { font-weight: 600; color: var(--s2u-text); }
+.lb-board[aria-pressed="true"] .lb-v b { color: var(--s2u-gold-display); }
+/* LCM-LB: the period, Sort by and (the kills board's) weapon on one row under the boards; the selects are ds fields */
+.lb-ctl-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2u-space-3) var(--s2u-space-6); }
+.lb-period { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: var(--s2u-space-1) var(--s2u-space-3); }
+.lb-period .lb-l { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); }
+.lb-period .project-filters { margin: 0; }
+.lb-sort-field, .lb-weapon { flex: 0 1 calc(5 * var(--s2u-space-12)); }
+.lb-sort-field .s2u-field__label, .lb-weapon .s2u-field__label { margin-top: 0; }
+.lb-sort-field select, .lb-weapon select { min-height: var(--s2u-space-12); }
+.lb-weapon[hidden] { display: none; }
+.lb-weapon-msg { font: var(--s2u-type-body-small); color: var(--s2u-gold-display); }
+.lb-weapon-msg:empty { display: none; }
+.lb-ctl-note { margin-top: var(--s2u-space-3); font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+
+/* the body: dimmed (not hidden) while a new board is asked; its loading line keeps the page's height */
+.lb-body { margin-top: var(--s2u-space-8); }
+.lb-body[data-lb-state="loading"] { min-height: var(--project-stats-reserve); }
+.lb-body[aria-busy="true"] { opacity: var(--s2u-disabled); transition: opacity var(--s2u-dur-fast) var(--s2u-ease); }
+
+/* Nos. 1 to 3: No. 1 a feature card on its map's still (under the ds backdrop shade), Nos. 2 and 3 beside it */
+.lb-podium { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-rows: auto auto; gap: var(--s2u-space-4); }
+.lb-card {
+  position: relative; overflow: hidden; isolation: isolate; display: flex; flex-direction: column; justify-content: flex-end; gap: var(--s2u-space-4);
+  min-width: 0; min-height: calc(3 * var(--s2u-space-12) + var(--s2u-space-6)); padding: var(--s2u-space-6);
+  background: var(--s2u-tab); border: 1px solid var(--s2u-highlight); border-top: var(--s2u-rule-w) solid var(--s2u-highlight);
+}
+/* LCM-LB (the review's item 9): No. 1's caption at its head, its identity, map and figures at its foot */
+.lb-card--first { grid-row: 1 / span 2; justify-content: space-between; min-height: calc(7 * var(--s2u-space-12)); padding: var(--s2u-space-8); border-top-color: var(--s2u-gold); }
+.lb-card-rank { margin: 0; font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-gold-display); }
+.lb-card-foot { display: flex; flex-direction: column; gap: var(--s2u-space-4); min-width: 0; }
+.lb-card-sub { margin: 0; font: var(--s2u-type-body-small); color: var(--s2u-text); }
+.lb-card-img { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center; }
+.lb-card-img::after { content: ""; position: absolute; inset: 0; background: var(--s2u-backdrop-shade); }
+/* the big position: decorative (aria-hidden; the card says "No. n" in words), in the ds display face */
+.lb-card-num { position: absolute; top: var(--s2u-space-2); right: var(--s2u-space-6); z-index: -1; font: var(--s2u-type-story-title); font-size: calc(2 * var(--s2u-space-12)); line-height: 1; color: var(--s2u-highlight); pointer-events: none; }
+.lb-card--first .lb-card-num { font-size: calc(3 * var(--s2u-space-12)); color: var(--s2u-gold-source); }
+.lb-card.lb-me { border-color: var(--s2u-gold); }
+.lb-kpis { display: flex; flex-wrap: wrap; gap: var(--s2u-space-2) var(--s2u-space-8); margin: 0; }
+.lb-kpis div { display: flex; flex-direction: column; gap: var(--s2u-space-1); }
+.lb-kpis dt { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); }
+.lb-kpis dd { margin: 0; font: var(--s2u-type-stat-number); font-variant-numeric: tabular-nums; color: var(--s2u-text-strong); }
+.lb-kpis dd.lb-g { color: var(--s2u-gold-display); }
+
+/* all players: the position column sticks with the player's, the sorted column marked, the sort controls in the header */
+.lb-sec { margin-top: var(--s2u-space-12); }
+.lb-table-wrap {
+  /* the position column's width, so the player column sticks beside it: an adaptation, on the ds scale -- its padding and
+     five digits ('99999' is about 43 px in the panel-heading type's tabular figures), so no number runs under the player */
+  --lb-pos-w: calc(var(--s2u-space-12) + var(--s2u-space-6));
+  /* LCM-LB (the review's item 1): the identity 200 px, so ten columns fit the 1021 px column at 1440 */
+  --project-ident-max: calc(4 * var(--s2u-space-12) + var(--s2u-space-2));
+  /* LCM-LB (the review's item 3): the frame never scrolls up and down -- a backstop; the name's hit box below fits its row,
+     so nothing is hidden here (scrollHeight is clientHeight) */
+  overflow-y: hidden;
+  /* LCM-LB (the render fold): the least the identity gives up before the frame scrolls sideways -- a medal, its gap and
+     about eight letters of a name, cut with an ellipsis (an adaptation) */
+  --lb-ident-min: calc(2 * var(--s2u-space-12));
+}
+/* LCM-LB (the render fold): the identity is as wide as its name, up to the site's cap and down to --lb-ident-min, so a
+   board whose sorted column is one more (Acc. %, Plants, Defuses, Rescues, Assists and its "since" line, Time, Resp. kills)
+   still fits the frame at 768 and 390 px; the cap is the site's (200 px wide, 128 px on the phone) */
+.lb-table .project-stat-player .project-ident { width: auto; min-width: var(--lb-ident-min); max-width: var(--project-ident-max); }
+/* LCM-LB (the render fold): a name's 44 px hit box inside its 52 px row, the site's ring (2 px at a 2 px offset) included,
+   so the last row's ring is never cut by the frame: 12 px over the 24 px line and 8 px under it (the line sits 13.5 px from
+   the row's foot); under a clan tag the line sits at the identity's foot (6.5 px from the row's), so the whole hit box
+   rises over the tag and nothing hangs below the line */
+.lb-table a.project-ident-name { padding-block: var(--s2u-space-3) var(--s2u-space-2); margin-block: calc(-1 * var(--s2u-space-3)) calc(-1 * var(--s2u-space-2)); }
+.lb-table .project-ident-tag + a.project-ident-name { padding-block: calc(var(--s2u-hit-min) - 1lh) 0; margin-block: calc(1lh - var(--s2u-hit-min)) 0; }
+.lb-table .lb-pos { position: sticky; left: 0; z-index: 1; box-sizing: border-box; width: var(--lb-pos-w); min-width: var(--lb-pos-w); max-width: var(--lb-pos-w); padding-inline: var(--s2u-space-3); background: var(--s2u-tab); text-align: left; }
+.lb-table tbody .lb-pos { font: var(--s2u-type-panel-heading); font-variant-numeric: tabular-nums; color: var(--s2u-text-dim); }
+.lb-table .project-stat-player { left: var(--lb-pos-w); }
+.lb-table th.lb-sorted, .lb-table td.lb-sorted { color: var(--s2u-gold-display); }
+.lb-table td.lb-sorted { font-weight: 600; }
+.lb-table td.lb-dim { color: var(--s2u-text-dim); }
+.lb-table tr.lb-me > * { background-color: var(--s2u-tab-lit); }
+.lb-table tr.lb-me > .lb-pos { box-shadow: inset var(--s2u-rule-w) 0 0 var(--s2u-gold); }
+/* LCM-LB (the review's item 2): the sort mark sits in the cell's right padding and takes no width of its own */
+.lb-table th.lb-sortable { position: relative; padding-right: var(--s2u-space-4); }
+.lb-table .lb-sort { flex-direction: column; align-items: flex-end; justify-content: center; min-height: var(--s2u-hit-min); padding-inline: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; text-decoration: none; white-space: nowrap; }
+.lb-table .lb-sort:hover .lb-sort-l { text-decoration: underline; }
+.lb-th-since { display: block; font: var(--s2u-type-stat-caption); color: var(--s2u-text-dim); }
+.lb-sort-mark { position: absolute; right: var(--s2u-space-1); top: 50%; transform: translateY(-50%); color: var(--s2u-text-dim); opacity: 0; pointer-events: none; transition: opacity var(--s2u-dur-fast) var(--s2u-ease); }
+.lb-sortable:hover .lb-sort-mark, .lb-sortable:focus-within .lb-sort-mark { opacity: 1; }
+.lb-table th[aria-sort] .lb-sort-mark { opacity: 1; color: var(--s2u-gold-display); }
+.lb-bar-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2u-space-3); margin-top: var(--s2u-space-4); }
+.lb-count { font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+.lb-pager { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-2); }
+.lb-pager .s2u-action { min-width: var(--s2u-hit-min); padding-inline: var(--s2u-space-3); font-variant-numeric: tabular-nums; }
+.lb-gap { min-width: var(--s2u-space-6); text-align: center; color: var(--s2u-text-dim); }
+
+/* LCM-LB (the review's item 1): a column's tier -- 3 from 1100 px, 2 from 768 px, 1 always (`COLUMN_TIERS_ADAPTATION`; the seven-column boards overflow below 768) */
+@media (max-width: 1099px) {
+  .lb-table [data-tier="3"] { display: none; }
+}
+@media (max-width: 767px) {
+  .lb-table [data-tier="2"] { display: none; }
+}
+/* LCM-LB (the review's item 10): from 1024 px the facts and the find box are a panel beside the title */
+@media (min-width: 1024px) {
+  .lb-hero { display: grid; grid-template-columns: minmax(0, 1fr) calc(7 * var(--s2u-space-12)); column-gap: var(--s2u-space-12); align-items: end; }
+  .lb-hero > :not(.lb-hero-panel) { grid-column: 1; }
+  .lb-hero-panel { grid-column: 2; grid-row: 1 / span 3; margin-top: 0; padding: var(--s2u-space-6); background: var(--s2u-tab); border: 1px solid var(--s2u-highlight); }
+  .lb-hero-panel .lb-find { flex-wrap: nowrap; margin-top: var(--s2u-space-4); }
+  .lb-hero-panel .lb-find-field { flex: 1 1 0; }
+}
+@media (max-width: 640px) {
+  .lb-find { max-width: none; }
+  /* LCM-LB (the review's item 13): the five boards two a row, the fifth across; each cell its label over its leader */
+  .lb-boards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lb-board:nth-child(5) { grid-column: 1 / -1; }
+  .lb-board { flex-direction: column; align-items: flex-start; justify-content: center; gap: var(--s2u-space-1); }
+  .lb-board .lb-v { display: block; min-width: 0; max-width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-board .lb-v > * { display: inline; }
+  .lb-board .lb-v-sep { display: inline; }
+  .lb-period { flex-direction: column; align-items: flex-start; }
+  .lb-ctl-row { flex-direction: column; align-items: stretch; }
+  .lb-sort-field, .lb-weapon { flex: 1 1 auto; }
+  .lb-ctl-note-sort { display: none; }
+  .lb-podium { grid-template-columns: minmax(0, 1fr); }
+  .lb-card--first { grid-row: auto; min-height: calc(5 * var(--s2u-space-12)); padding: var(--s2u-space-6); }
+  .lb-card--first .lb-card-num { font-size: calc(2 * var(--s2u-space-12)); }
+  /* LCM-LB (the review's item 12): Nos. 2 and 3 compact rows of two figures; No. 1's figures two a row */
+  .lb-card:not(.lb-card--first) { min-height: 0; padding: var(--s2u-space-4); }
+  .lb-card:not(.lb-card--first) .lb-card-num { font-size: var(--s2u-space-12); }
+  .lb-card:not(.lb-card--first) .lb-kpis div:nth-child(n + 3) { display: none; }
+  .lb-kpis { display: grid; grid-template-columns: repeat(2, max-content); column-gap: var(--s2u-space-8); }
+  /* LCM-LB (the review's item 1): the score and its partner beside the name, every cell on the 8 px step */
+  .lb-table [data-tier="2"], .lb-table [data-tier="3"] { display: none; }
+  .lb-table-wrap { --lb-pos-w: var(--s2u-space-12); --project-ident-max: calc(2 * var(--s2u-space-12) + var(--s2u-space-8)); }
+  .lb-table th, .lb-table td, .lb-table .lb-pos { padding-inline: var(--s2u-space-2); }
+  .lb-table th.lb-sortable { padding-right: var(--s2u-space-4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lb-sort-mark, .lb-body[aria-busy="true"] { transition: none; }
+}

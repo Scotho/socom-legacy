@@ -4,19 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CardSlots } from '@s2u/card';
 import type { ValveEntry } from '@s2u/ui';
 import { bootConsole, type ConsolePage } from '../../../src/console/app';
-import { liveOptions, CONSOLE_KEYS, DETAIL_DISTANCE_ROW, PERF_LINE_COPIED_MS_ADAPTATION, PERF_LINE_ROW, RENDER_SCALE_ROW, SHADOWS_ROW, SHOW_FPS_ROW, VIDEO_PICTURE_ROW } from '../../../src/console/adapters/options';
+import { liveOptions, type LiveOptions, CONSOLE_KEYS, DETAIL_DISTANCE_ROW, DEVICE_DETECTED_ROW, DEVICE_MEMORY_ROW, DEVICE_NOT_RIGHT_ROW, NAME_TAGS_ROW, PERF_LINE_COPIED_MS_ADAPTATION, PERF_LINE_ROW, RANGE_READOUT_ROW, RENDER_SCALE_ROW, SHADOWS_ROW, SHOW_FPS_ROW, VIDEO_PICTURE_ROW, VIDEO_PRESET_ROW, VIDEO_RESTORE_ROW, VIDEO_ROW_IDS } from '../../../src/console/adapters/options';
+import { NAME_TAGS_KEY } from '../../../src/nameTags';
+import { RANGE_READOUT_KEY } from '../../../src/rangeReadout';
 import { FPS_SHOWN_KEY } from '../../../src/matchFps';
-import { VIDEO_SETTINGS_KEY, videoSettingsKeeper, type VideoSettings } from '../../../src/videoSettings';
+import { PRESET_VALUES, VIDEO_SCHEMA, videoSettingsKeeperV2, type VideoSettingsV2 } from '../../../src/videoSettings';
 import { DETAIL_DISTANCE_KEY } from '../../../src/detailDistance';
-import { GRAPHICS_BACKEND_KEY } from '../../../src/graphicsBackend';
-import { PICTURE_KEY, pagePicture, pictureExperimentalSettings } from '../../../src/picture';
-import { VIDEO_PICTURE_CAPTIONS, VIDEO_PICTURE_HD_OFFERED } from '@s2u/ui';
+import { GRAPHICS_BACKEND_APPLY_NOTE, GRAPHICS_BACKEND_KEY } from '../../../src/graphicsBackend';
+import { PICTURE_KEY, pagePicture, type VideoPicture } from '../../../src/picture';
+import { VIDEO_PICTURE_CAPTIONS } from '@s2u/ui';
+import { GRAPHICS_DEMOTED_KEY } from '../../../src/graphicsDemotion';
 import { IOS_STORAGE_NOTE, setInstallPromptForTest, type InstallSurface } from '../../../src/pwa/install';
 import { sampleAdapters } from '../../../src/console/sampleAdapters';
-import type { Adapters } from '../../../src/console/state';
+import { optCategories, type Adapters, type ConsoleState } from '../../../src/console/state';
 import type { DiscAssets } from '../../../src/modern/discAssets';
 import type { LauncherSnapshot, LauncherState } from '../../../src/modern/launcherState';
-import { cardOptionStore } from '../../../src/modern/settings/store';
+import { cardOptionStore, TUNER_SAVE_SETTLE_MS_ADAPTATION } from '../../../src/modern/settings/store';
+import { observeOptionCommits } from '../../../src/nativeOptionsContext';
 import { mountShell } from '../shell';
 import { optRows } from '../optRows';
 
@@ -30,8 +34,10 @@ import { optRows } from '../optRows';
  * A memory card over an in-memory storage. A browser adaptation with no original (OT.R28).
  */
 let page: ConsolePage | null = null;
+/** VS-2: every boot's adapter (a test may boot twice), disposed after its test -- its video keeper's observer would otherwise draw every later test's page. */
+const booted: { dispose(): void }[] = [];
 beforeEach(() => { localStorage.clear(); mountShell(document); });
-afterEach(() => { page?.dispose(); page = null; localStorage.clear(); });
+afterEach(() => { page?.dispose(); page = null; for (const b of booted.splice(0)) b.dispose(); localStorage.clear(); });
 const flush = async (): Promise<void> => { for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0)); };
 
 const memory = (): CardSlots => {
@@ -61,6 +67,7 @@ function boot(o: { ready?: boolean; slots?: CardSlots; touch?: boolean; install?
   const l = launcher(!!o.ready);
   const touch = o.touch ?? true;
   const options = liveOptions(() => { page?.render(); }, { store, launcher: l, signedIn: () => false, pads: () => [], touch: () => touch, ...(o.install ? { install: () => o.install! } : {}) });
+  booted.push(options);
   const sample = sampleAdapters();
   page = bootConsole(document, window, { ...sample, data: 'live', states: undefined, options, session: { ...sample.session, signedIn: () => false } } as Adapters, { keymap: true });
   return { ctl: page.ctl, store, options, launcher: l, slots };
@@ -233,7 +240,7 @@ describe('the options adapter: the real set', () => {
     ctl.press('cross');
     await flush();
     expect(ctl.S.toast).toBe('');                        // no remap adapter in this boot: the row's action is the adapter's, silent
-    expect(rollers().find(([l]) => l === 'Stick dead zone')![1]).toBe('Connect a controller');
+    expect(rollers().find(([l]) => l === 'Pad dead zone (this browser)')![1]).toBe('Connect a controller');   // SS-1 D2: named apart from the card's Dead zone
   });
 
   // STM-1 (STM.R1, the owner, 2026-10-30, reversing OBF-11): the Stance mode row is offered again, COMBINED / SEPARATE,
@@ -417,65 +424,114 @@ describe('Display: Detail distance (PF.R60, a browser adaptation)', () => {
 });
 
 
-describe('Display: graphics compatibility (browser adaptation)', () => {
-  it('offers a saved compatibility setting without a disc and resets to automatic', () => {
+describe('Display: Graphics (VS-2: the schema\'s renderer row, through the video keeper; VS.R4)', () => {
+  const rowOf = (options: ReturnType<typeof boot>['options']) => options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
+  it('Automatic / WebGL2 / WebGPU, Automatic by default; a choice saves through the keeper, which an observer (a prepared match) hears', () => {
     const { options } = boot();
-    const row = options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
-    // WEBGL2-DEFAULT (the owner's word, 2026-11-05; a browser adaptation): Automatic is WebGL2; WebGPU is its own value.
-    expect(row).toMatchObject({ label: 'Graphics mode', values: ['Automatic', 'Compatibility', 'Xbox', 'WebGPU'], def: 0 });
-    expect(row.about).toBe('Automatic uses WebGL2 for now, the same as Compatibility. WebGPU asks for WebGPU where the browser offers it; if the game loads to a black screen, use Automatic or Compatibility. Xbox also turns off edge smoothing for better performance.');
+    const row = rowOf(options);
+    expect(row).toMatchObject({ label: 'Graphics', values: ['Automatic', 'WebGL2', 'WebGPU'], def: 0 });
+    expect(row.about).toBe(VIDEO_SCHEMA.find((r) => r.key === 'graphics')!.effect);
     expect(row.locked).toBeUndefined();
-    expect(row.note).toContain('Reload');
-    options.set('graphics-backend', 1);
-    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('webgl2');
-    expect(options.value('graphics-backend')).toBe(1);
+    expect(row.note).toContain(GRAPHICS_BACKEND_APPLY_NOTE);
+    expect(row.note).not.toMatch(/Reload/);
+    const heard: VideoSettingsV2[] = [];
+    const stop = videoSettingsKeeperV2().observe((v) => heard.push(v));
     options.set('graphics-backend', 2);
-    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('xbox');
-    expect(options.value('graphics-backend')).toBe(2);
-    options.set('graphics-backend', 3);
-    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('webgpu');
-    expect(options.value('graphics-backend')).toBe(3);
+    expect([localStorage.getItem(GRAPHICS_BACKEND_KEY), options.value('graphics-backend'), heard.map((v) => v.graphics)]).toEqual(['webgpu', 2, ['webgpu']]);
+    options.set('graphics-backend', 1);
+    expect([localStorage.getItem(GRAPHICS_BACKEND_KEY), options.value('graphics-backend')]).toEqual(['webgl2', 1]);
     options.reset('graphics-backend');
-    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('auto');
+    expect([localStorage.getItem(GRAPHICS_BACKEND_KEY), options.value('graphics-backend')]).toEqual(['auto', 0]);
     options.set('graphics-backend', 99);
     expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('auto');
+    expect(heard.map((v) => v.graphics)).toEqual(['webgpu', 'webgl2', 'auto']);
+    stop();
+  });
+  it('never through saveGraphicsBackend: no observer would hear it (VS-6\'s dependency); no reload text anywhere in the adapter', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const src = readFileSync(resolve(import.meta.dirname, '../../../src/console/adapters/options.ts'), 'utf8');
+    expect(src).not.toMatch(/saveGraphicsBackend\(/);
+    expect(src).not.toMatch(/Reload the page/);
+  });
+  it('a saved Xbox pick reads Automatic and is never cleared by the row\'s reset; "Not right?" under Detected clears it (VS-7 F5)', async () => {
+    const { options } = boot();
+    expect(options.categories().find(c => c.id === 'display')!.rows.map((r) => r.id)).not.toContain(DEVICE_NOT_RIGHT_ROW);
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    options.reset('graphics-backend');
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('xbox');
+    const ids = options.categories().find(c => c.id === 'display')!.rows.map((r) => r.id);
+    expect(ids.indexOf(DEVICE_NOT_RIGHT_ROW)).toBe(ids.indexOf(DEVICE_DETECTED_ROW) + 1);
+    expect(await options.action(DEVICE_NOT_RIGHT_ROW)).toMatch(/Automatic/);
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('auto');
+    expect(options.categories().find(c => c.id === 'display')!.rows.map((r) => r.id)).not.toContain(DEVICE_NOT_RIGHT_ROW);
+  });
+  // WG-7 (W5; WEBGPU-DEFAULT, MEGA.R8): after a WebGPU error demoted Automatic, the WebGL2 value says why (the VS-2 row's
+  // own words); a choice made here, even the value held, clears it.
+  it('a demoted Automatic shows as WebGL2 (set after a WebGPU error) until the player chooses again', () => {
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'webgl2');
+    localStorage.setItem(GRAPHICS_DEMOTED_KEY, 'WebGPU device lost at 03:30:43Z');
+    const { options } = boot();
+    const row = (): { values?: readonly string[] } => options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
+    expect(row().values).toEqual(['Automatic', 'WebGL2 (set after a WebGPU error)', 'WebGPU']);
+    expect(options.value('graphics-backend')).toBe(1);
+    options.set('graphics-backend', 1);
+    expect(localStorage.getItem(GRAPHICS_DEMOTED_KEY)).toBeNull();
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('webgl2');
+    expect(row().values).toEqual(['Automatic', 'WebGL2', 'WebGPU']);
+  });
+  // Review F1 (2026-11-09): a named preset or Restore defaults moves the saved Graphics mode off WebGL2 through the
+  // keeper; the reason goes with it, so a later WebGL2 pick of the player's own reads plain "WebGL2".
+  it('a preset or Restore defaults after a demotion forgets the reason: a later WebGL2 pick reads plain WebGL2 (review F1)', async () => {
+    const row = (o: ReturnType<typeof boot>['options']): { values?: readonly string[] } => o.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
+    for (const leave of ['preset', 'restore'] as const) {
+      localStorage.clear();
+      localStorage.setItem(GRAPHICS_BACKEND_KEY, 'webgl2');
+      localStorage.setItem(GRAPHICS_DEMOTED_KEY, 'WebGPU device lost at 03:30:43Z');
+      const { options } = boot();
+      if (leave === 'preset') options.set(VIDEO_PRESET_ROW, 2);
+      else await options.action(VIDEO_RESTORE_ROW);
+      expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).not.toBe('webgl2');
+      expect(localStorage.getItem(GRAPHICS_DEMOTED_KEY)).toBeNull();
+      options.set('graphics-backend', 1);
+      expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('webgl2');
+      expect(row(options).values).toEqual(['Automatic', 'WebGL2', 'WebGPU']);
+    }
   });
   it('shows and locks an address override rather than pretending the saved choice is active', () => {
     history.replaceState(null, '', '/?renderer=webgl2');
     try {
       const { options } = boot();
-      const row = options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
-      expect(row.locked).toBe('Selected by address: Compatibility');
+      const row = rowOf(options);
+      expect(row.locked).toBe('Selected by address: WebGL2');
       expect(options.value('graphics-backend')).toBe(1);
       options.reset('graphics-backend');
       expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBeNull();
     } finally { history.replaceState(null, '', '/'); }
   });
-  it('names a ?renderer=webgpu address as WebGPU (WEBGL2-DEFAULT)', () => {
+  it('names a ?renderer=webgpu address as WebGPU (WEBGPU-DEFAULT)', () => {
     history.replaceState(null, '', '/?renderer=webgpu');
     try {
       const { options } = boot();
-      const row = options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
-      expect(row.locked).toBe('Selected by address: WebGPU');
-      expect(options.value('graphics-backend')).toBe(3);
+      expect(rowOf(options).locked).toBe('Selected by address: WebGPU');
+      expect(options.value('graphics-backend')).toBe(2);
     } finally { history.replaceState(null, '', '/'); }
   });
 });
 
 // HD-4 item 4 (the owner, 2026-11-01: "make sure home gets the video too"; OT.R79, HD.R8; a browser adaptation): Home's
 // Display offers the page's picture -- the one VIDEO MODE's strip sets -- through the page's one keeper (`./picture`).
-// HD-HOLD (the owner, 2026-11-01: "Hide/disable the HD pack ... leave it in the build just don't allow people to turn it
-// on"): while VIDEO_PICTURE_HD_OFFERED is false the row offers Modern and PS2 only and the keeper never takes the HD
-// picture. Flipping the constant back makes these pins expect the third value again.
-describe('Display: Video (OT.R79 / HD.R8, a browser adaptation)', () => {
-  const HD = VIDEO_PICTURE_HD_OFFERED;
+// B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE SouL) value is removed with the picture and
+// HD-HOLD -- the row offers Modern and PS2, and the HD pack is chosen in Home > Experiments > Mods.
+describe('Display: Video (OT.R79, a browser adaptation)', () => {
   const videoRow = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === VIDEO_PICTURE_ROW)!;
-  it('offers Modern, PS2 and the strip\'s own HD caption (HD-HOLD: Modern and PS2 only), Modern by default', () => {
+  it('offers Modern and PS2 (ML-6: no HD value), Modern by default; the about names no HD picture', () => {
     const { options } = boot();
     const row = videoRow(options);
     expect(row).toMatchObject({ label: 'Video', def: 0 });
-    expect(row.values).toEqual(HD ? ['Modern', 'PS2', VIDEO_PICTURE_CAPTIONS[2]] : ['Modern', 'PS2']);
-    expect(VIDEO_PICTURE_CAPTIONS[2]).toBe('HD (GoE Soul)');                       // the caption stays in the build
+    expect(row.values).toEqual(['Modern', 'PS2']);
+    expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2']);
+    expect(JSON.stringify(row)).not.toMatch(/GoE SouL/);
     expect(options.value(VIDEO_PICTURE_ROW)).toBe(0);
   });
   it('a choice here is the page\'s picture: stored, heard by the keeper the VIDEO strip and a match read', () => {
@@ -485,12 +541,8 @@ describe('Display: Video (OT.R79 / HD.R8, a browser adaptation)', () => {
     const stop = pagePicture().observe((p) => heard.push(p));
     options.set(VIDEO_PICTURE_ROW, 1);
     expect([localStorage.getItem(PICTURE_KEY), pagePicture().get(), heard]).toEqual(['ps2', 'ps2', ['ps2']]);
-    options.set(VIDEO_PICTURE_ROW, 2);                                              // HD-HOLD: asked anyway, the keeper refuses it
-    const third = HD ? 'experimental' : 'ps2';
-    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get(), heard]).toEqual([third, third, HD ? ['ps2', 'experimental'] : ['ps2']]);
-    // A Home-started match reads this keeper (`./frontEnd` hands it to `./matchMount`): HD (GoE Soul)'s settings, the pack
-    // on; under HD-HOLD the picture stays PS2, the experimental renderer and the pack off.
-    expect(pictureExperimentalSettings(pagePicture().get())).toMatchObject(HD ? { enabled: true, hdPack: true } : { enabled: false, hdPack: false });
+    options.set(VIDEO_PICTURE_ROW, 2);                                              // ML-6: no third value; nothing changes
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get(), heard]).toEqual(['ps2', 'ps2', ['ps2']]);
     options.set(VIDEO_PICTURE_ROW, 0);
     expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual(['modern', 'modern']);
     stop();
@@ -498,8 +550,8 @@ describe('Display: Video (OT.R79 / HD.R8, a browser adaptation)', () => {
   it('the VIDEO strip\'s choice (the keeper\'s set) reads back here, and PS2 still locks Detail distance', () => {
     const { options } = boot();
     pagePicture().set('modern');
-    pagePicture().set('experimental');                                             // HD-HOLD: refused, the row stays Modern
-    expect(options.value(VIDEO_PICTURE_ROW)).toBe(HD ? 2 : 0);
+    pagePicture().set('experimental' as unknown as VideoPicture);                  // ML-6: no such picture, the row stays Modern
+    expect(options.value(VIDEO_PICTURE_ROW)).toBe(0);
     pagePicture().set('ps2');
     expect(options.value(VIDEO_PICTURE_ROW)).toBe(1);
     const detail = options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === DETAIL_DISTANCE_ROW)!;
@@ -507,12 +559,12 @@ describe('Display: Video (OT.R79 / HD.R8, a browser adaptation)', () => {
     options.set(VIDEO_PICTURE_ROW, 0);
     expect(options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === DETAIL_DISTANCE_ROW)!.locked).toBeUndefined();
   });
-  it('review F2: where no front-end match follows the picture (the overlay over the test room, the forge) the row is not offered', async () => {
+  it('review F2: where no match follows the picture (the overlay over the forge, the launch sheet) the row is not offered', async () => {
     const off = liveOptions(() => {}, { signedIn: () => false, pads: () => [], videoPicture: false });
     expect(off.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id)).not.toContain(VIDEO_PICTURE_ROW);
     off.dispose();
     const { videoPictureFollows, OVERLAY_PAGE_KINDS } = await import('../../../src/modern/overlay/page');
-    expect(OVERLAY_PAGE_KINDS.filter(videoPictureFollows)).toEqual(['console', 'front-end', 'disc']);
+    expect(OVERLAY_PAGE_KINDS.filter(videoPictureFollows)).toEqual(['console', 'front-end', 'disc', 'viewer']);   // RB-16: the test room follows it too
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
     const read = (f: string): string => readFileSync(resolve(import.meta.dirname, '../../../src', f), 'utf8');
@@ -529,60 +581,205 @@ describe('Display: Video (OT.R79 / HD.R8, a browser adaptation)', () => {
   });
 });
 
-// CPS-4a (CPS.R7, a browser adaptation; the owner, Craig, 2026-11-02: "Start building out new video settings with sensible
-// defaults in the client itself"): Display's Render scale, Shadows and Show FPS, through the page's one video keeper
-// (`../../../src/videoSettings`); Show FPS is the START menu's own key.
-describe('Display: Render scale, Shadows and Show FPS (CPS.R7, a browser adaptation)', () => {
-  const rowOf = (options: ReturnType<typeof boot>['options'], id: string) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === id)!;
-  it('the three rows sit with the browser\'s Display rows, in order, after Video', () => {
+// VS-2 (the video settings plan, product track; every row a browser adaptation with no original): Display's "This browser"
+// rows drawn from `VIDEO_SCHEMA` (`../../../src/videoSettings`) through the page's v2 keeper, under the spec §4.2's groups.
+describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const display = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows;
+  const rowOf = (options: ReturnType<typeof boot>['options'], id: string) => display(options).find((r) => r.id === id);
+  const BROWSER = [VIDEO_PRESET_ROW, RENDER_SCALE_ROW, 'video-ceiling', 'video-frame-cap', SHOW_FPS_ROW, SHADOWS_ROW, DETAIL_DISTANCE_ROW, 'video-antialias', 'graphics-backend', VIDEO_PICTURE_ROW, NAME_TAGS_ROW, RANGE_READOUT_ROW, VIDEO_RESTORE_ROW, DEVICE_MEMORY_ROW, DEVICE_DETECTED_ROW, PERF_LINE_ROW];
+  const CUSTOM = [VIDEO_PRESET_ROW, RENDER_SCALE_ROW, 'video-ceiling', 'video-frame-cap', SHOW_FPS_ROW, SHADOWS_ROW, DETAIL_DISTANCE_ROW, 'video-antialias', 'video-filtering', 'graphics-backend', 'video-power', VIDEO_PICTURE_ROW, NAME_TAGS_ROW, RANGE_READOUT_ROW, 'video-colour-filter', VIDEO_RESTORE_ROW, DEVICE_MEMORY_ROW, DEVICE_DETECTED_ROW, PERF_LINE_ROW];
+  const tail = (options: ReturnType<typeof boot>['options']) => { const ids = display(options).map((r) => r.id); return ids.slice(ids.indexOf(VIDEO_PRESET_ROW)); };
+
+  it('the rows in the schema\'s order under the groups Quality, Display, Detail, Renderer, Picture, This device; the Custom-only rows under Custom only', () => {
     const { options } = boot();
-    const ids = options.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id);
-    expect(ids.slice(ids.indexOf(VIDEO_PICTURE_ROW))).toEqual([VIDEO_PICTURE_ROW, RENDER_SCALE_ROW, DETAIL_DISTANCE_ROW, SHADOWS_ROW, SHOW_FPS_ROW, 'graphics-backend', PERF_LINE_ROW]);   // CPS-5: the Copy row last
+    expect(tail(options)).toEqual(BROWSER);
+    expect(display(options).filter((r) => r.section !== undefined).map((r) => [r.id, r.section])).toEqual([
+      [VIDEO_PRESET_ROW, 'This browser'], [RENDER_SCALE_ROW, 'Display'], [SHADOWS_ROW, 'Detail'], ['graphics-backend', 'Renderer'], [VIDEO_PICTURE_ROW, 'Picture'], [DEVICE_MEMORY_ROW, 'This device'],
+    ]);
+    videoSettingsKeeperV2().set({ preset: 'custom' });
+    expect(tail(options)).toEqual(CUSTOM);
+    for (const r of VIDEO_SCHEMA) expect(rowOf(options, VIDEO_ROW_IDS[r.key])!.about, String(r.key)).toBe(r.effect);
   });
-  it('Render scale: Performance / Balanced / Quality, Balanced by default; Left and Right step it, Square resets to Balanced', () => {
+
+  it('Preset: Automatic by default, Custom offered only when the rows differ; choosing a preset writes its values; a deviation flips it to Custom', () => {
+    const { options } = boot();
+    expect(rowOf(options, VIDEO_PRESET_ROW)).toMatchObject({ label: 'Preset', values: ['Automatic', 'Performance', 'Balanced', 'Quality'], def: 0 });
+    expect(options.value(VIDEO_PRESET_ROW)).toBe(0);
+    options.set(VIDEO_PRESET_ROW, 1);
+    const v = videoSettingsKeeperV2().get();
+    expect(v).toMatchObject({ preset: 'performance', ...PRESET_VALUES.performance, overlay: 'off' });
+    expect(options.value(SHADOWS_ROW)).toBe(0);                                         // Performance: shadows Off (VS.R3)
+    options.set(SHADOWS_ROW, 2);
+    expect(videoSettingsKeeperV2().get().preset).toBe('custom');
+    expect(rowOf(options, VIDEO_PRESET_ROW)!.values).toEqual(['Automatic', 'Performance', 'Balanced', 'Quality', 'Custom']);
+    expect(options.value(VIDEO_PRESET_ROW)).toBe(4);
+    options.set(VIDEO_PRESET_ROW, 3);
+    expect(videoSettingsKeeperV2().get()).toMatchObject({ preset: 'quality', ...PRESET_VALUES.quality });
+    expect(rowOf(options, VIDEO_PRESET_ROW)!.values).toHaveLength(4);
+    options.reset(VIDEO_PRESET_ROW);
+    expect(videoSettingsKeeperV2().get().preset).toBe('auto');
+  });
+
+  it('Render scale: a 50-100 % slider by 5; its steps staged and written through the keeper once, 400 ms after the last (#726\'s pattern); locked under PS2', () => {
+    vi.useFakeTimers();
     const { ctl, options } = boot();
-    const row = rowOf(options, RENDER_SCALE_ROW);
-    expect(row).toMatchObject({ label: 'Render scale', values: ['Performance', 'Balanced', 'Quality'], def: 1 });
-    expect(row.locked).toBeUndefined();
-    expect(options.value(RENDER_SCALE_ROW)).toBe(1);
+    expect(rowOf(options, RENDER_SCALE_ROW)).toMatchObject({ label: 'Render scale', values: ['50%', '55%', '60%', '65%', '70%', '75%', '80%', '85%', '90%', '95%', '100%'], def: 10 });
     open(ctl, 'display');
-    expect(rollers().find(([l]) => l === 'Render scale')).toEqual(['Render scale', 'Balanced']);
-    const heard: VideoSettings[] = [];
-    const stop = videoSettingsKeeper().observe((v) => heard.push(v));
+    expect(document.querySelector(`#stage [data-id="${RENDER_SCALE_ROW}"]`)?.className ?? '').toMatch(/slider/);
+    const heard: VideoSettingsV2[] = [];
+    const stop = videoSettingsKeeperV2().observe((v) => heard.push(v));
+    options.step!(RENDER_SCALE_ROW, -1);
+    options.step!(RENDER_SCALE_ROW, -1);
+    expect([options.value(RENDER_SCALE_ROW), videoSettingsKeeperV2().get().renderScalePct, heard.length]).toEqual([8, 100, 0]);
+    vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION - 1);
+    expect(heard.length).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect([videoSettingsKeeperV2().get().renderScalePct, videoSettingsKeeperV2().get().preset, heard.length]).toEqual([90, 'custom', 1]);
     options.step!(RENDER_SCALE_ROW, 1);
-    expect([options.value(RENDER_SCALE_ROW), JSON.parse(localStorage.getItem(VIDEO_SETTINGS_KEY)!).renderScale, videoSettingsKeeper().get().renderScale]).toEqual([2, 'quality', 'quality']);
-    options.set(RENDER_SCALE_ROW, 0);
-    expect(videoSettingsKeeper().get().renderScale).toBe('performance');
-    options.reset(RENDER_SCALE_ROW);
-    expect([options.value(RENDER_SCALE_ROW), videoSettingsKeeper().get().renderScale]).toEqual([1, 'balanced']);
-    expect(heard.map((v) => v.renderScale)).toEqual(['quality', 'performance', 'balanced']);   // a match running hears each
-    options.set(RENDER_SCALE_ROW, 9);
-    expect(videoSettingsKeeper().get().renderScale).toBe('balanced');
+    options.set(SHADOWS_ROW, 0);                                                         // another row's change writes the staged step first
+    expect(videoSettingsKeeperV2().get().renderScalePct).toBe(95);
     stop();
-  });
-  it('Render scale is locked under the PS2 picture: its 640 x 448 frame is drawn whatever is chosen', () => {
     localStorage.setItem(PICTURE_KEY, 'ps2');
-    const { options } = boot();
-    expect(rowOf(options, RENDER_SCALE_ROW).locked).toBe('PS2 picture: 640 x 448');
+    expect(rowOf(options, RENDER_SCALE_ROW)!.locked).toBe('PS2 picture: 640 x 448');
   });
-  it('Shadows: Off / On, On by default; the toggle round-trips through the keeper\'s one key', () => {
+
+  it('dispose writes a staged render scale step, and draws nothing into the console being torn down (review F1)', () => {
+    vi.useFakeTimers();
     const { options } = boot();
-    expect(rowOf(options, SHADOWS_ROW)).toMatchObject({ label: 'Shadows', values: ['Off', 'On'], def: 1 });
-    expect(options.value(SHADOWS_ROW)).toBe(1);
-    options.set(SHADOWS_ROW, 0);
-    expect([options.value(SHADOWS_ROW), JSON.parse(localStorage.getItem(VIDEO_SETTINGS_KEY)!).shadows, videoSettingsKeeper().get().shadows]).toEqual([0, false, false]);
-    options.reset(SHADOWS_ROW);
-    expect(videoSettingsKeeper().get().shadows).toBe(true);
+    options.step!(RENDER_SCALE_ROW, -1);
+    const render = vi.spyOn(page!, 'render');
+    options.dispose();
+    expect(videoSettingsKeeperV2().get().renderScalePct).toBe(95);
+    expect(render).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION * 2);
+    expect(render).not.toHaveBeenCalled();
   });
-  it('Show FPS: Off / On, Off by default -- the START menu\'s SHOW FPS key, both ways', () => {
+
+  it('one redraw per change: a row\'s own write draws once (not again through the keeper\'s observer); an outside write draws once (review F3)', () => {
+    const notify = vi.fn();
+    const options = liveOptions(notify, { signedIn: () => false, pads: () => [], touch: () => false });
+    try {
+      options.set(SHADOWS_ROW, 0);
+      expect(notify).toHaveBeenCalledTimes(1);
+      videoSettingsKeeperV2().set({ frameCap: 30 });                                   // the native rows, a match, another keeper
+      expect(notify).toHaveBeenCalledTimes(2);
+    } finally { options.dispose(); }
+  });
+
+  it('the launcher-only rows (Detected, "Not right?", Restore defaults) are drawn on the launcher and left out of the overlay; Device memory is on both (review F2)', () => {
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');                                 // "Not right?" shown
+    history.replaceState(null, '', '/');
     const { options } = boot();
-    expect(rowOf(options, SHOW_FPS_ROW)).toMatchObject({ label: 'Show FPS', values: ['Off', 'On'], def: 0 });
-    expect(options.value(SHOW_FPS_ROW)).toBe(0);
+    const a = { options } as unknown as Adapters;
+    const ids = (s: ConsoleState) => optCategories(s, a).find((c) => c.id === 'display')!.rows.map((r) => r.id);
+    const launcherIds = ids({ mode: 'console' } as unknown as ConsoleState);
+    const overlayIds = ids({ mode: 'overlay', page: { roundRunning: () => false, gameHolds: () => false, gamePage: () => true } } as unknown as ConsoleState);
+    for (const id of [DEVICE_DETECTED_ROW, DEVICE_NOT_RIGHT_ROW, VIDEO_RESTORE_ROW]) {
+      expect(launcherIds, id).toContain(id);
+      expect(overlayIds, id).not.toContain(id);
+    }
+    expect(overlayIds).toContain(DEVICE_MEMORY_ROW);
+    expect(overlayIds.filter((id) => !launcherIds.includes(id))).toEqual([]);
+    expect(launcherIds.filter((id) => !overlayIds.includes(id))).toEqual([VIDEO_RESTORE_ROW, DEVICE_DETECTED_ROW, DEVICE_NOT_RIGHT_ROW]);
+  });
+
+  it('Shadows Off / Low / Medium / High; Performance overlay Off / FPS / full -- the START menu\'s SHOW FPS key; Antialias a toggle, applied at the next match', () => {
+    const { options } = boot();
+    expect(rowOf(options, SHADOWS_ROW)).toMatchObject({ label: 'Shadows', values: ['Off', 'Low', 'Medium', 'High'], def: 2 });
+    expect(rowOf(options, SHOW_FPS_ROW)).toMatchObject({ label: 'Performance overlay', values: ['Off', 'FPS', 'FPS + frame time + ping'], def: 0 });
     options.set(SHOW_FPS_ROW, 1);
-    expect([localStorage.getItem(FPS_SHOWN_KEY), videoSettingsKeeper().get().showFps]).toEqual(['1', true]);
+    expect([localStorage.getItem(FPS_SHOWN_KEY), videoSettingsKeeperV2().get().overlay, videoSettingsKeeperV2().get().preset]).toEqual(['1', 'fps', 'auto']);   // preset-free
     localStorage.setItem(FPS_SHOWN_KEY, '0');                                       // the START menu's row, in a match
     expect(options.value(SHOW_FPS_ROW)).toBe(0);
-    expect(localStorage.getItem(VIDEO_SETTINGS_KEY)).toBeNull();                    // the readout's key only
+    const aa = rowOf(options, 'video-antialias')!;
+    expect(aa).toMatchObject({ label: 'Antialias', values: ['Off', 'On'], def: 1 });
+    expect(aa.note).toContain(GRAPHICS_BACKEND_APPLY_NOTE);
+    expect(rowOf(options, SHADOWS_ROW)!.note).not.toContain(GRAPHICS_BACKEND_APPLY_NOTE);
+  });
+
+  it('Detail distance goes through the keeper: a v2 observer hears the step (VS-1 F1)', () => {
+    const { options } = boot();
+    const heard: number[] = [];
+    const stop = videoSettingsKeeperV2().observe((v) => heard.push(v.detailDistance));
+    options.step!(DETAIL_DISTANCE_ROW, 1);
+    expect([heard, localStorage.getItem(DETAIL_DISTANCE_KEY)]).toEqual([[2.1], '2.1']);
+    stop();
+  });
+
+  it('Restore defaults, one action row after the groups: Automatic, every row its values, the readout off', async () => {
+    const { options } = boot();
+    options.set(VIDEO_PRESET_ROW, 3);
+    options.set(SHOW_FPS_ROW, 2);
+    options.set('video-frame-cap', 2);
+    expect(rowOf(options, VIDEO_RESTORE_ROW)).toMatchObject({ label: 'Restore defaults', action: 'Restore' });
+    expect(await options.action(VIDEO_RESTORE_ROW)).toMatch(/Automatic/);
+    expect(videoSettingsKeeperV2().get()).toMatchObject({ preset: 'auto', overlay: 'off', frameCap: 0 });
+  });
+
+  it('This device: Device memory as an estimate (the Xbox class: the browser\'s 1 GB); Detected names the class and what Automatic chose', () => {
+    history.replaceState(null, '', '/');                                             // an address override left by an earlier test's page
+    const nav = navigator as unknown as Record<string, unknown>;
+    const perf = performance as unknown as Record<string, unknown>;
+    Object.defineProperty(nav, 'deviceMemory', { value: 8, configurable: true });
+    Object.defineProperty(perf, 'memory', { value: { usedJSHeapSize: 120 * 2 ** 20, jsHeapSizeLimit: 4096 * 2 ** 20 }, configurable: true });
+    try {
+      const { options } = boot();
+      const mem = rowOf(options, DEVICE_MEMORY_ROW)!;
+      expect(mem.info?.value).toBe('8 GB · about 120 MB of 4096 MB');
+      expect(`${mem.label} ${mem.about}`).toMatch(/estimate/i);
+      expect(rowOf(options, DEVICE_DETECTED_ROW)!.info?.value).toBe('Standard · Automatic chose: Balanced · WebGPU');                 // VS-10 F9a: and the backend Automatic chose (the spec §4); WebGPU since MEGA.R8
+      localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');                            // the "Request Game Files (XBOX)" pick: the Xbox class
+      expect(rowOf(options, DEVICE_MEMORY_ROW)!.info?.value).toBe('1 GB (the browser\'s budget)');
+      expect(rowOf(options, DEVICE_DETECTED_ROW)!.info?.value).toMatch(/^Xbox · Automatic chose: .+ · WebGL2$/);
+    } finally { delete nav['deviceMemory']; delete perf['memory']; }
+  });
+});
+
+// SS-2 (H422 answered (a), the owner, Craig, 2026-11-07; product track, a browser adaptation): the card's Teammate names is
+// the original's Off / On (DISPLAY_MP_TEAM_NAMES 0 / 1); the tags' look -- the original's or the port's adapted ones
+// (LATER 671, OT.R101) -- is this browser's `s2u.viewer.nameTags`, Display's "This browser" row Name tags.
+describe('Display: Teammate names Off / On on the card, Name tags Original / Modern in this browser (SS-2)', () => {
+  const rowOf = (options: ReturnType<typeof boot>['options'], id: string) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === id)!;
+  it('Teammate names: the original\'s two values only, Off / On', () => {
+    const { options } = boot();
+    const row = rowOf(options, 'DISPLAY_MP_TEAM_NAMES');
+    expect(row).toMatchObject({ label: 'Teammate names', values: ['Off', 'On'] });
+    expect(row.about).not.toMatch(/original drew|fading/i);
+  });
+  it('Name tags: Original / Modern, Modern by default (what On drew in v0.4.12); the row round-trips the browser key', () => {
+    const { options } = boot();
+    const row = rowOf(options, NAME_TAGS_ROW);
+    expect(row).toMatchObject({ label: 'Name tags', values: ['Original', 'Modern'], def: 1 });
+    expect(row.locked).toBeUndefined();
+    expect(row.about).toMatch(/Teammate names/);
+    expect(row.note).toMatch(/this browser/i);
+    expect(options.value(NAME_TAGS_ROW)).toBe(1);
+    options.set(NAME_TAGS_ROW, 0);
+    expect([options.value(NAME_TAGS_ROW), localStorage.getItem(NAME_TAGS_KEY)]).toEqual([0, 'original']);
+    options.reset(NAME_TAGS_ROW);
+    expect([options.value(NAME_TAGS_ROW), localStorage.getItem(NAME_TAGS_KEY)]).toEqual([1, 'modern']);
+  });
+});
+
+// HUD-ALIVE C (OT.R117; product track, a browser adaptation): Display's "This browser" row Range readout, Off / On, Off by
+// default (the owner, Craig, 2026-11-09) -- the range finder's metres in the info box's spot, in the consoles' count's place.
+describe('Display: Range readout Off / On in this browser, Off by default (HUD-ALIVE C)', () => {
+  const rowOf = (options: ReturnType<typeof boot>['options'], id: string) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === id)!;
+  it('Off / On, Off by default; the row round-trips the browser key; it sits after Name tags', () => {
+    const { options } = boot();
+    const row = rowOf(options, RANGE_READOUT_ROW);
+    expect(row).toMatchObject({ label: 'Range readout', values: ['Off', 'On'], def: 0 });
+    expect(row.locked).toBeUndefined();
+    expect(row.about).toMatch(/metres/);
+    expect(row.note).toMatch(/this browser/i);
+    const ids = options.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id);
+    expect(ids.indexOf(RANGE_READOUT_ROW)).toBe(ids.indexOf(NAME_TAGS_ROW) + 1);
+    expect(options.value(RANGE_READOUT_ROW)).toBe(0);
+    options.set(RANGE_READOUT_ROW, 1);
+    expect([options.value(RANGE_READOUT_ROW), localStorage.getItem(RANGE_READOUT_KEY)]).toEqual([1, 'on']);
+    options.reset(RANGE_READOUT_ROW);
+    expect([options.value(RANGE_READOUT_ROW), localStorage.getItem(RANGE_READOUT_KEY)]).toEqual([0, 'off']);
   });
 });
 
@@ -641,5 +838,105 @@ describe('Display: Copy performance line (CPS-5, a browser adaptation)', () => {
     const before = notify.mock.calls.length;
     vi.advanceTimersByTime(5000);
     expect(notify.mock.calls.length).toBe(before);
+  });
+});
+
+/**
+ * SS-1's D5 (a browser adaptation, product track): a tuner row's steps are heard live at once and written to the card
+ * once the row settles (`TUNER_SAVE_SETTLE_MS_ADAPTATION` after the last step) -- one card write per settle, not one per
+ * 2 % press. A reset writes at once; closing the Options writes what is staged.
+ */
+describe('SS-1 D5: a tuner row writes the card once per settle, and is heard live at every step', () => {
+  const counted = () => {
+    const m = new Map<string, string>();
+    const writes = { n: 0 };
+    const storage = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { writes.n++; m.set(k, String(v)); }, removeItem: (k: string) => { m.delete(k); } };
+    return { slots: new CardSlots(() => storage as unknown as Storage, () => undefined, { now: () => 5_000 }), writes };
+  };
+  // `step` is optional in the console's `Adapters['options']` (absent, the grammar sets the neighbouring index);
+  // `liveOptions` always gives it, so the test asserts it there once and steps through a typed handle.
+  const stepper = (options: LiveOptions): NonNullable<LiveOptions['step']> => {
+    expect(options.step).toBeDefined();
+    return (id, d) => options.step!(id, d);
+  };
+
+  it('ten presses of Music volume: ten live commits, the card written once, after the row settles', () => {
+    vi.useFakeTimers();
+    try {
+      const { slots, writes } = counted();
+      const store = cardOptionStore(slots);
+      store.setTuner('SOUND_VOLUME', 0.5);                     // the save file made
+      let n = writes.n;
+      store.setTuner('SOUND_VOLUME', 0.52);
+      const oneWrite = writes.n - n;                           // what one card write costs the storage
+      expect(oneWrite).toBeGreaterThan(0);
+      const heard: number[] = [];
+      const off = observeOptionCommits(slots, (c) => { if (c.name === 'MUSIC_VOLUME') heard.push(c.value); });
+      const options = liveOptions(() => {}, { store, launcher: launcher(false), signedIn: () => false, pads: () => [] });
+      const step = stepper(options);
+      n = writes.n;
+      for (let i = 0; i < 10; i++) step('MUSIC_VOLUME', 1);
+      expect(heard).toHaveLength(10);                          // the live publish kept, every step
+      expect(heard.at(-1)).toBe(Math.fround(0.94));
+      expect(options.value('MUSIC_VOLUME')).toBe(94);          // the row reads the staged value
+      expect(writes.n - n).toBe(0);                            // nothing on the card yet
+      vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION - 1);
+      expect(writes.n - n).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(writes.n - n).toBe(oneWrite);                     // one write for the ten
+      expect(cardOptionStore(slots).tuner('MUSIC_VOLUME')).toBe(Math.fround(0.94));
+      vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION * 5);
+      expect(writes.n - n).toBe(oneWrite);
+      off();
+      options.dispose();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a step on another row writes the first row at once; a reset writes at once; closing writes what is staged', () => {
+    vi.useFakeTimers();
+    try {
+      const { slots, writes } = counted();
+      const store = cardOptionStore(slots);
+      const options = liveOptions(() => {}, { store, launcher: launcher(false), signedIn: () => false, pads: () => [] });
+      const step = stepper(options);
+      step('MUSIC_VOLUME', 1);
+      step('SOUND_VOLUME', -1);                        // Music's settle cut short: its value on the card now
+      expect(cardOptionStore(slots).tuner('MUSIC_VOLUME')).toBe(Math.fround(0.76));
+      expect(cardOptionStore(slots).tuner('SOUND_VOLUME')).toBeUndefined();
+      options.reset('SOUND_VOLUME');                           // the staged 98 % superseded by the default, written at once
+      expect(cardOptionStore(slots).tuner('SOUND_VOLUME')).toBe(1);
+      vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION);
+      expect(cardOptionStore(slots).tuner('SOUND_VOLUME')).toBe(1);
+      step('DIALOG_VOLUME', -1);
+      const n = writes.n;
+      options.dispose();                                       // closing: the staged value written
+      expect(writes.n).toBeGreaterThan(n);
+      expect(cardOptionStore(slots).tuner('DIALOG_VOLUME')).toBe(Math.fround(0.98));
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+// REVIEW-1 F2: a page closing with a step staged loses nothing -- pagehide writes it (no dispose runs on a tab's close).
+describe('SS-1 D5, F2: pagehide writes the staged tuner', () => {
+  it('a staged step and a pagehide: one card write, the value on the card, nothing more at the settle', () => {
+    vi.useFakeTimers();
+    try {
+      const m = new Map<string, string>();
+      const writes = { n: 0 };
+      const storage = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { writes.n++; m.set(k, String(v)); }, removeItem: (k: string) => { m.delete(k); } };
+      const slots = new CardSlots(() => storage as unknown as Storage, () => undefined, { now: () => 5_000 });
+      const store = cardOptionStore(slots);
+      store.setTuner('SOUND_VOLUME', 0.5);
+      let n = writes.n;
+      store.setTuner('SOUND_VOLUME', 0.52);
+      const oneWrite = writes.n - n;
+      expect(store.stageTuner!('MUSIC_VOLUME', Math.fround(0.8))).toBe(true);
+      n = writes.n;
+      window.dispatchEvent(new Event('pagehide'));
+      expect(writes.n - n).toBe(oneWrite);
+      expect(cardOptionStore(slots).tuner('MUSIC_VOLUME')).toBe(Math.fround(0.8));
+      vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION * 2);
+      expect(writes.n - n).toBe(oneWrite);
+    } finally { vi.useRealTimers(); }
   });
 });

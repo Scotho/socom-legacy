@@ -11,7 +11,7 @@ export const UI_PERF_WINDOW_HOOK = '__uiGpuPerf';
  * What the address asks of the instrument, on a development build only (`dev`: `./frontEnd` `devBuild()` and the
  * page's `?devmode`): `?uiPerf` the ring; `?uiPerfHd` the ring and the menus' HD path forced on for the measurement
  * (`./frontEnd` `applyHdMenus`), at the pack's scale capped by `?hdMenuScale=` -- whatever the picture (HD-HOLD keeps
- * HD (GoE Soul) out of every player's choice; this does not offer it, store it or touch the world's picture).
+ * HD (GoE SouL) out of every player's choice; this does not offer it, store it or touch the world's picture).
  */
 export function uiPerfRequest(search: string, dev: boolean): { ring: boolean; hd: boolean } {
   if (!dev) return { ring: false, hd: false };

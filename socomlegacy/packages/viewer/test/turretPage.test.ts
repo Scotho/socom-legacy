@@ -14,7 +14,7 @@ import {
   TURRET_HOLD_OFFSET_READING, TURRET_RELEASE_WAIT_TICKS, type MountShape,
 } from '../src/net/emplacement';
 import { TURRET_OWN_RELOAD_TELL_ADAPTATION } from '../src/turretPage';
-import { groundGrid, packGround, STEP_PROBE_LIFT_READING, TICK, Walker } from '../src/mover';
+import { groundGrid, packGround, probeLiftOf, TICK, Walker } from '../src/mover';
 import { MoverSim } from '../src/net/moverSim';
 import type { Command } from '../src/net/protocol';
 import { WalkMode, type WalkCamera } from '../src/walk';
@@ -488,7 +488,7 @@ describe("PAR-44: the own body's predicted place in the hold (no game data)", ()
     expect(holding.length).toBe(frames - during.length);
     // The room's step on the same commands (`room.ts`: the command applied, then `holdStep` past the steer).
     const room = new MoverSim(new Walker(groundGrid(ground)), null);
-    room.walker.place(start[0], start[1] + STEP_PROBE_LIFT_READING, start[2]);
+    room.walker.place(start[0], start[1] + probeLiftOf('stand'), start[2]);
     room.walker.state.yaw = 0;
     sent.forEach((x, k) => {
       room.apply({ seq: k + 1, ...x.cmd });
@@ -913,7 +913,7 @@ describe.skipIf(!READY || fixture('RUN/MOTION_P.ZAR') === null)(`TURRET-RETICLE:
       for (const yaw of [t.facing, t.facing + (t.limits.yaw![0] * 180) / Math.PI, t.facing + (t.limits.yaw![1] * 180) / Math.PI]) {
         const aim = clampAim(t, yaw, 0);
         const w = new Walker(sim.grid);
-        w.place(t.origin[0], t.origin[1] + STEP_PROBE_LIFT_READING, t.origin[2]);
+        w.place(t.origin[0], t.origin[1] + probeLiftOf('stand'), t.origin[2]);
         w.state.yaw = aim.yaw;
         expect(holdStep(t, w), `${t.name}: a floor at the hold's place`).toBe(true);
         // The walk's camera on the body as the page draws it: the hold clip's root at the level key (`Play` -> `setPosedRoot`).
@@ -1877,6 +1877,8 @@ describe("P37: no mount offered while the walk's traversal move holds the mover 
     w.driver = t;
     w.place(0, 10, 20);
     w.state.yaw = 0;                                                 // facing -z, at the ladder
+    for (let i = 0; i < 800 && t.climbPrompt()?.kind !== 'ladder'; i++) w.tick({ forward: 1, right: 0, boost: false });   // LC-1: CLIMB offered,
+    t.action();                                                                                                        // mounted on the press
     for (let i = 0; i < 800 && t.state().kind !== 'ladder'; i++) w.tick({ forward: 1, right: 0, boost: false });
     expect(t.state().kind, 'on the rungs').toBe('ladder');
     expect(t.busy(), "the room's test: the move holds the mover").toBe(true);

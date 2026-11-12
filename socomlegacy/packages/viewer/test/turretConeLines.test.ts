@@ -15,7 +15,7 @@ import type { ServerEvent } from '../src/net/protocol';
 import type { NetPage } from '../src/netPage';
 import { loadKitSource, simKitsFromBytes } from '../src/sim';
 import { simMapFromBytes } from '../src/simMap';
-import { STEP_PROBE_LIFT_READING, WalkMode } from '../src/walk';
+import { probeLiftOf, WalkMode } from '../src/walk';
 
 /**
  * TURRET-CONE, the page's and the room's lines agree (research 215 s8.2; reading, pending review): the page rolls a
@@ -105,7 +105,7 @@ describe.skipIf(!READY)(`TURRET-CONE: the page's drawn turret round and the room
     const at: V3 = [600.394, 50, 1608];
     expect(walk.respawn(at, 0)).toBe(true);
     const body = match.room.player(client.id!)!;
-    body.sim.walker.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+    body.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
     body.sim.walker.state.yaw = 0;
     await frame(20);
     expect(acts.turrets.target()).toBe(t.id);

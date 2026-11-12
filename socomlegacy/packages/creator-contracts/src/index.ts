@@ -8,6 +8,7 @@ export * from "./layout.js";
 export * from "./actors.js";
 export * from "./readiness.js";
 export * from "./maps.js";
+export * from "./bundle.js";
 export * from "./geometry.js";
 export * from "./handlers.js";
 export * from "./rules.js";

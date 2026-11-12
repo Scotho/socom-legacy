@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { expectBase } from './forgeBase';
 
 /**
  * FUI-22 (the owner, 2026-10-27: "The Asset Viewer should dissapear, but keep the object preview and add it as a tooltip
@@ -26,7 +27,7 @@ const shot = async (page: Page, name: string, out: string): Promise<void> => {
 const open = async (page: Page, size: { width: number; height: number }): Promise<void> => {
   await page.setViewportSize(size);
   await page.goto('/forge?devmode');
-  await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
+  await expectBase(page);                                              // OT.R112: the base named (`./forgeBase`)
   // At 760 px and under the docks are closed drawers (forge.css, LATER 176; the page opens on the viewport): the Docks button
   // opens both, the left list and the right dock's tabs with them.
   if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
@@ -61,8 +62,13 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     await shot(page, `active-${size.width}`, out);
     await page.keyboard.press('Escape');
     await expect(tip).toBeHidden();
-    // The right dock: each tab its own sections.
-    for (const [tab, panels] of [['edit', ['inspector', 'outliner', 'rules', 'settings']], ['world', ['view', 'starters']], ['agent', ['agent']], ['content', ['creator-assets']]] as const) {
+    // The right dock: each tab its own sections. The Overhaul (36ddf4282) renamed Edit to Object (what is placed) and
+    // put Settings with the Light rig (`environment`) under World; View left the dock for the viewport's Draw dropdown
+    // (`../src/forge/page.ts` `viewportModes`), as the unit pin has it (`../test/forge/pagePanels.test.ts`).
+    // The strip's tabs pinned first, so a renamed tab fails here rather than being skipped below (as Edit was).
+    expect(await page.locator('.fx-right [data-forge-tab]').evaluateAll((bs) => bs.map((b) => (b as HTMLElement).dataset['forgeTab'])))
+      .toEqual(['object', 'world', 'agent', 'content']);
+    for (const [tab, panels] of [['object', ['outliner', 'inspector', 'rules']], ['world', ['environment', 'settings', 'starters']], ['agent', ['agent']], ['content', ['creator-assets']]] as const) {
       const button = page.locator(`.fx-right [data-forge-tab="${tab}"]`);
       if (!(await button.count())) continue;
       if (size.width <= 760 && !(await button.isVisible())) continue;
@@ -70,14 +76,17 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
       await expect(page.locator('.fx-right > details.fx-panel:not([hidden])')).toHaveCount(panels.length);
       for (const id of panels) await expect(page.locator(`.fx-right > details.fx-panel[data-forge-panel="${id}"]`)).toBeVisible();
       await shot(page, `right-${tab}-${size.width}`, out);
-      // Found against main 600eb91bd: PF.R60's detail distance drew as the 28x14 switch pill; it is a slider wider than one.
-      if (tab === 'world') {
-        const range = page.locator('.fx-right .fx-detail-distance input[type=range]');
-        await range.scrollIntoViewIfNeeded();
-        expect((await range.boundingBox())?.width ?? 0).toBeGreaterThan(60);
-        await page.locator('.fx-right .fx-detail-distance').screenshot({ path: join(process.env['FORGE_SHOTS_DIR'] ?? out, `fui22-detail-distance-${size.width}.png`) });
-      }
     }
+    // Found against main 600eb91bd: PF.R60's detail distance drew as the 28x14 switch pill; it is a slider wider than one.
+    // Since the Overhaul (36ddf4282) it is a row of the viewport's Draw dropdown (`viewportModes`, `buildDetailDistance`),
+    // not of a View panel in the right dock. At 760 px the docks are drawers over the viewport: closed first.
+    if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
+    const draw = page.locator('details.fx-viewport-modes:not(.fx-viewport-billboards)');
+    await draw.locator(':scope > summary').click();
+    const range = draw.locator('.fx-detail-distance input[type=range]');
+    await expect(range).toBeVisible();
+    expect((await range.boundingBox())?.width ?? 0).toBeGreaterThan(60);
+    await draw.locator('.fx-detail-distance').screenshot({ path: join(process.env['FORGE_SHOTS_DIR'] ?? out, `fui22-detail-distance-${size.width}.png`) });
   });
 }
 

@@ -1,4 +1,5 @@
 import type { MapInfo } from '@s2u/archive';
+import { MAP_TABLE } from '@s2u/archive/mapNames';
 import { rankOf, sortByPopularity } from '../mapOrder';
 
 /**
@@ -9,36 +10,17 @@ import { rankOf, sortByPopularity } from '../mapOrder';
  * tile is the design system's blank frame. A stem that is not one of these is still typed in the map field.
  */
 
-/** One disc map: `stem` is the address's `map=` value; `name` is the archive description, as the pin prints it. */
-const DISC_MAPS: readonly { readonly stem: string; readonly name: string }[] = [
-  { stem: 'MP1', name: 'BLIZZARD' },
-  { stem: 'MP2', name: 'FROSTFIRE' },
-  { stem: 'MP5', name: 'ABANDONED' },
-  { stem: 'MP6', name: 'DESERT GLORY' },
-  { stem: 'MP7', name: 'NIGHT STALKER' },
-  { stem: 'MP8', name: "RAT'S NEST" },
-  { stem: 'MP9', name: 'BITTER JUNGLE' },
-  { stem: 'MP10', name: 'BLOOD LAKE' },
-  { stem: 'MP11', name: 'DEATH TRAP' },
-  { stem: 'MP12', name: 'THE RUINS' },
-  { stem: 'MP51', name: 'VIGILANCE' },
-  { stem: 'MP52', name: 'THE MIXER' },
-  { stem: 'MP53', name: 'FOXHUNT' },
-  { stem: 'MP61', name: 'SUJO' },
-  { stem: 'MP62', name: 'ENOWAPI' },
-  { stem: 'MP64', name: 'SHADOW FALLS' },
-  { stem: 'MP71', name: 'FISH HOOK' },
-  { stem: 'MP72', name: 'CROSSROADS' },
-  { stem: 'MP73', name: 'SANDSTORM' },
-  { stem: 'MP81', name: 'CHAIN REACTION' },
-  { stem: 'MP82', name: 'GUIDANCE' },
-  { stem: 'MP83', name: 'REQUIEM' },
-];
+/**
+ * One disc map: `stem` is the address's `map=` value; `name` is the archive description, as the pin prints it. MN-1
+ * (OT.R113): the rows are `@s2u/archive`'s one name table's disc rows (`MAP_TABLE`), no longer a copy of it.
+ */
+const DISC_MAPS: readonly { readonly stem: string; readonly name: string }[] =
+  MAP_TABLE.filter((m) => m.source === 'disc').map((m) => ({ stem: m.stem, name: m.name }));
 
 export interface LaunchMap {
   /** The address's `map=` value (`MP2`). */
   readonly stem: string;
-  /** The popularity list's name when it has one (`Frostfire`, `Fox Hunt`), else the archive description. */
+  /** The popularity list's name when it has one (`Frostfire`, `Foxhunt`: the name table's title), else the archive description. */
   readonly name: string;
   /** The popularity list's game type, when the list knows the map. */
   readonly mode: string;

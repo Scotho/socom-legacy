@@ -103,8 +103,11 @@ export interface ThrowableRecord {
    */
   proximity?: number;
   /**
-   * An impact round's `ImpactDamage` (`ZAMMO`, `FUN_003d4530`), when over 0 (the rockets' 20): what a body the round strikes
-   * takes by `GetDamage`'s non-explosive branch (0x3c7600, the bullet's: x14, the range falloff; research 91 §1.1).
+   * The round's `ImpactDamage` (`ZAMMO`, `FUN_003d4530`), when over 0 (the rockets' 20, the hand grenades' 0.2): what a
+   * body an impact round strikes takes by `GetDamage`'s non-explosive branch (0x3c7600, the bullet's: x14, the range
+   * falloff; research 91 §1.1), and -- LATER 851 -- what a scene destructible a bouncing projectile touches takes, at
+   * every contact, bounce or pass (`HandleBounce` 0x3c8f50 calls the struck node's `+0x94` handler, D:L319747-319750;
+   * the room's `sceneContact`).
    */
   impactDamage?: number;
   /** The record's `Damage_Modifier` (`+0x64`, `FUN_003d2050`), when present: added to `ImpactDamage` in `GetDamage`. */
@@ -141,6 +144,7 @@ export const M67: ThrowableRecord = {
   impactRadius: 450, effectiveRange: 400, maximumRange: 100000, capacity: 3, mags: 1, soundRadius: 700,
   model: 'grenade', fireAnim: 'frag_start', hitAnim: 'grenade_hit', explosionAnim: 'frag_grenade', materialAnim: 'frag_grenade', decalSet: 'GRENADE_BLAST',
   icon: 'grenade_frag_icon.tif', impact: false, ammo: 'M67 Ammo', ammoId: 11, explosionDamage: 10, explosionRadius: 150,
+  impactDamage: 0.2,
 };
 
 /**
@@ -154,6 +158,7 @@ export const HE: ThrowableRecord = {
   impactRadius: 400, effectiveRange: 400, maximumRange: 100000, capacity: 3, mags: 1, soundRadius: 650,
   model: 'HEgrenade', fireAnim: 'HE_start', hitAnim: 'grenade_hit', explosionAnim: 'HE_grenade', materialAnim: 'HE_grenade', decalSet: 'GRENADE_BLAST',
   icon: 'grenade_he_icon.tif', impact: false, ammo: 'HE Grenade Ammo', ammoId: 26, explosionDamage: 11, explosionRadius: 100,
+  impactDamage: 0.2,
 };
 
 /**
@@ -167,7 +172,7 @@ export const AN_M8: ThrowableRecord = {
   impactRadius: 400, effectiveRange: 300, maximumRange: 100000, capacity: 3, mags: 1, soundRadius: 3,
   model: 'a_smoke_grenade', fireAnim: 'smoke_grenade_start', hitAnim: 'grenade_hit', explosionAnim: 'smoke_grenade', materialAnim: null,
   decalSet: 'BULLET_MARK_SMALL', icon: 'grenade_smoke_icon.tif', impact: false, ammo: 'AN-M8 Ammo', ammoId: 12,
-  explosionDamage: 0, explosionRadius: 0,
+  explosionDamage: 0, explosionRadius: 0, impactDamage: 0.2,
 };
 
 /**
@@ -181,7 +186,7 @@ export const MARK141: ThrowableRecord = {
   impactRadius: 400, effectiveRange: 300, maximumRange: 100000, capacity: 6, mags: 1, soundRadius: 10,
   model: 'flashbang', fireAnim: 'flashbang_start', hitAnim: 'grenade_hit', explosionAnim: 'flashcrash_grenade', materialAnim: null,
   decalSet: 'BULLET_MARK_SMALL', icon: 'grenade_flashbang_icon.tif', impact: false, ammo: 'Mark141 Ammo', ammoId: 14,
-  explosionDamage: 0, explosionRadius: 150,
+  explosionDamage: 0, explosionRadius: 150, impactDamage: 0.2,
 };
 
 /**
@@ -378,8 +383,9 @@ export function throwableRecord(script: RdrNode, name = 'M67'): ThrowableRecord 
     ...(rdrGet(round, 'Volitile') !== undefined ? { volatile: true as const } : {}),
     ...(rdrGet(round, 'ProximityDistance') !== undefined ? { proximity: n('ProximityDistance', WORLD_SCALE, round, at) } : {}),
     ...(rdrGet(record, 'Damage_Modifier') !== undefined ? { damageModifier: n('Damage_Modifier') } : {}),
-    // The impact rounds only (the launched ones, `HandleImpact`): a hand grenade's (the M67's 0.2) strikes nothing here.
-    ...(!bouncesByType(n('ID')) && rdrGet(round, 'ImpactDamage') !== undefined && n('ImpactDamage', 1, round, at) > 0 ? { impactDamage: n('ImpactDamage', 1, round, at) } : {}),
+    // Every round's over 0: the launched ones' (`HandleImpact`'s body hit) and, LATER 851, the bouncing ones' (the hand
+    // grenades' 0.2, the smoke rounds' 0.5), which every contact hands the struck node (`HandleBounce` D:L319747-319750).
+    ...(rdrGet(round, 'ImpactDamage') !== undefined && n('ImpactDamage', 1, round, at) > 0 ? { impactDamage: n('ImpactDamage', 1, round, at) } : {}),
   };
 }
 
@@ -467,12 +473,23 @@ export function materialTable(soils: readonly SurfaceMaterial[] = SOILS): Surfac
 }
 
 /**
+ * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation): the default table `surfaceMaterial` and `gridCast` read
+ * when a caller passes none -- `materialTable()` made once and frozen, the same material objects in the same order, where
+ * each call spread a new array (31 MB in 10 s of shadow's X2c profile). Nothing writes a table or its materials.
+ */
+const DEFAULT_MATERIAL_TABLE: readonly SurfaceMaterial[] = Object.freeze(materialTable());
+
+/**
  * A polygon's material byte to its material (`FUN_002dc1d0` then `DAT_0044f358[i]`, index past the end -> 0): byte 0
  * is the map's `DefaultMaterial` (its world root names it; `FUN_002ddc30` looks it up by name), `UNKNOWN` when the
  * name is not in the table.
  */
-export function surfaceMaterial(index: number, defaultMaterial = '', table: readonly SurfaceMaterial[] = materialTable()): SurfaceMaterial {
-  if (index === 0) return table.find((m) => m.name === defaultMaterial) ?? table[0]!;
+export function surfaceMaterial(index: number, defaultMaterial = '', table: readonly SurfaceMaterial[] = DEFAULT_MATERIAL_TABLE): SurfaceMaterial {
+  if (index === 0) {
+    // The first of that name, as `find` gave it, without a closure a call (PAGE-ALLOC-A).
+    for (let i = 0; i < table.length; i++) if (table[i]!.name === defaultMaterial) return table[i]!;
+    return table[0]!;
+  }
   return table[index] ?? table[0]!;
 }
 
@@ -940,8 +957,13 @@ export function proximityTripped(g: Grenade, origins: readonly (readonly number[
   return hit;
 }
 
-/** What the hull answered along a segment: the crossing, the polygon's normal (either side) and its material. */
-export interface HullHit { point: V3; normal: V3; material: SurfaceMaterial; t: number }
+/**
+ * What the hull answered along a segment: the crossing, the polygon's normal (either side) and its material; and, LATER
+ * 851, the struck polygon's collision owner (`CollisionOwner.path`), the node `HandleBounce` hands the contact to -- the
+ * intersect record's `+0x1c` (`FUN_003c8f50` D:L319747-319750; `GRENADE_CONTACT_NODE_READING`). Absent on a hit that
+ * is no hull polygon (a body, `bodyCast`; a test's own cast).
+ */
+export interface HullHit { point: V3; normal: V3; material: SurfaceMaterial; t: number; owner?: string }
 /** Every polygon the segment a->b crosses, nearest `a` first (`segment.ts`'s `segmentHits`, with the material). */
 export type HullCast = (a: V3, b: V3) => HullHit[];
 
@@ -950,15 +972,25 @@ export type HullCast = (a: V3, b: V3) => HullHit[];
  * doorway volumes the mover walks through) [reading: the projectile's own `DiIntersect` class is not traced], each
  * hit's material out of the table by its byte, byte 0 the map's `DefaultMaterial`.
  */
-export function gridCast(grid: Grid, defaultMaterial = '', table: readonly SurfaceMaterial[] = materialTable()): HullCast {
+export function gridCast(grid: Grid, defaultMaterial = '', table: readonly SurfaceMaterial[] = DEFAULT_MATERIAL_TABLE): HullCast {
   return (a, b) => segmentHits(grid, a, b, isShotSurface).map((h) => ({
-    point: h.point, normal: h.normal, t: h.t, material: surfaceMaterial(h.poly.material, defaultMaterial, table),
+    point: h.point, normal: h.normal, t: h.t, material: surfaceMaterial(h.poly.material, defaultMaterial, table), owner: h.owner.path,
   }));
 }
 
+/**
+ * GRENADE_CONTACT_NODE_READING (LATER 851): the node a projectile's contact is handed to is the struck polygon's own
+ * collision owner, on every hull hit. `HandleBounce` calls the `+0x94` handler of the intersect record's `+0x1c` when
+ * that is set (`FUN_003c8f50` D:L319747-319750), and `HandleIntersections` reads a record with `+0x1c` 0 as a hit with
+ * no node (D:L319983-319985: the owner-chain test skipped) -- so some hits carry none; which (where the projectile's
+ * query fills `+0x1c`) is not traced. Here every hull polygon names its owner; one that is no scene destructible's
+ * target takes nothing (`SceneHealth.at`), so the reading only matters for a destructible's polygon with no node.
+ */
+export const GRENADE_CONTACT_NODE_READING = 'polygon-owner' as const;
+
 export type GrenadeEvent =
-  | { kind: 'bounce'; point: V3; normal: V3; material: string; speed: number; sound: boolean }
-  | { kind: 'pass'; point: V3; material: string }
+  | { kind: 'bounce'; point: V3; normal: V3; material: string; speed: number; sound: boolean; owner?: string }
+  | { kind: 'pass'; point: V3; material: string; owner?: string }
   | { kind: 'rest'; point: V3; material: string }
   | { kind: 'explode'; point: V3 }
   | { kind: 'dud'; point: V3 }
@@ -1076,7 +1108,7 @@ function bounce(g: Grenade, hit: HullHit): GrenadeEvent[] {
   const speed = len(g.vel);
   const events: GrenadeEvent[] = [{
     kind: 'bounce', point: [...hit.point], normal: n, material: hit.material.name, speed,
-    sound: speed > BOUNCE_SOUND_SPEED && !hit.material.underwater,
+    sound: speed > BOUNCE_SOUND_SPEED && !hit.material.underwater, ...(hit.owner !== undefined ? { owner: hit.owner } : {}),
   }];
   if (speed < REST_SPEED) {
     if (hit.material.name === 'PERSON') {
@@ -1149,7 +1181,7 @@ export function stepGrenade(g: Grenade, dt: number, cast: HullCast, record: Thro
       // Through: water, glass, a railing, a tree's leaves.
       const e = hit.material.elasticity;
       g.vel = [g.vel[0] * e, g.vel[1] * e, g.vel[2] * e];
-      events.push({ kind: 'pass', point: [...hit.point], material: hit.material.name });
+      events.push({ kind: 'pass', point: [...hit.point], material: hit.material.name, ...(hit.owner !== undefined ? { owner: hit.owner } : {}) });
     }
     if (!moved) {
       // No bounce or impact ended the step: the sweep found no more hits and ran the free step `FUN_003c9530`

@@ -317,6 +317,34 @@ describe('the footprint and the grenade\'s scorch are clipped the same way (FUN_
   });
 });
 
+describe('the world\'s draws are one node, culled or not (PR #672: `./worldFrustum` turns their cull on)', () => {
+  // `./world` draws a mesh per texture across the map, each now frustum-culled by its bound; the clip still keys them
+  // all 'world' (`userData.worldDraw`), so a mark across two textures' floors keeps both, as it did while they were
+  // unculled. Keyed by name instead, it would keep only the nearer texture's triangles.
+  const left = { corners: [[-10, 0, 10], [0, 0, 10], [0, 0, -10], [-10, 0, -10]] as V3[], colours: flat4(0.3) };
+  const right = { corners: [[0, 0, 10], [10, 0, 10], [10, 0, -10], [0, 0, -10]] as V3[], colours: flat4(0.3) };
+
+  function floors(flag: (m: Mesh) => void): Group {
+    const root = new Group();
+    for (const [q, name] of [[left, 'a.tif'], [right, 'b.tif']] as const) {
+      const m = drawn([q]);
+      m.name = name;
+      flag(m);
+      root.add(m);
+    }
+    return root;
+  }
+
+  it('a mark across two culled world draws keeps both, as across two unculled ones', () => {
+    const frame = markFrame([0.5, 0, 0], [0, 1, 0], [0, -1, 0], 2);
+    const unculled = clipOnce(floors((m) => { m.frustumCulled = false; }), frame);
+    expect(area(unculled.g)).toBeCloseTo(4, 4);
+    const culled = clipOnce(floors((m) => { m.frustumCulled = true; m.userData.worldDraw = true; }), frame);
+    expect(culled.count).toBe(unculled.count);
+    expect(area(culled.g)).toBeCloseTo(4, 4);
+  });
+});
+
 describe('an effect light\'s overlay is a draw, not a visual (research 89 §10; FUN_003b3ab0 306491-306659)', () => {
   // The game's clip walks the hit node's own visuals, each once; the LIGHT's second pass (`./effectLights`, the receiver
   // re-drawn on its own geometry, `userData.effectLightPass`, a sibling in the same group) is not one of them. A mark made

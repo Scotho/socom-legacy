@@ -57,6 +57,9 @@ export class History<T> {
    * then records the state after (`recordEdit`).
    */
   retarget(state: T): void { this.now = state; }
+
+  /** AX-15: every state an undo can reach, oldest first, and the current one last (the redo branch not included). */
+  states(): readonly T[] { return [...this.past, this.now]; }
 }
 
 /**
@@ -191,4 +194,118 @@ export function undoMeta(history: History<string>): HistoryMeta | null {
 export function redoMeta(history: History<string>): HistoryMeta | null {
   const raw = history.peekRedo();
   return raw === null ? null : historyMetaOf(decodeHistoryStep(raw));
+}
+
+/**
+ * AX-15 (a browser adaptation, FG.R2): the current step taken back while `match` holds for it, one undo per step -- each
+ * undone step keeps its redo, the order of the history is never changed. `state` is the state now current (the scene to
+ * restore), null when nothing was undone; `stoppedAt` the meta of the step that stopped it (null at the history's start).
+ * While `busy` nothing moves: the pointer moves only with the scene (`History.undo`).
+ */
+export interface UndoWhileResult { undone: number; state: string | null; stoppedAt: HistoryMeta | null }
+export function undoWhile(history: History<string>, match: (meta: HistoryMeta) => boolean, busy = false): UndoWhileResult {
+  if (busy) return { undone: 0, state: null, stoppedAt: undoMeta(history) };
+  let undone = 0;
+  for (let meta = undoMeta(history); meta && match(meta); meta = undoMeta(history)) {
+    if (history.undo() === null) break;
+    undone++;
+  }
+  return { undone, state: undone ? history.current() : null, stoppedAt: undoMeta(history) };
+}
+
+/** AX-15: a step made by an agent -- the session given, or any agent's when none is. */
+export function isAgentStep(meta: HistoryMeta, sessionId?: string | null): boolean {
+  return meta.actor.kind === 'agent' && (sessionId === undefined || sessionId === null || meta.actor.sessionId === sessionId);
+}
+
+/** AX-15: how many of the history's steps (the current one included) are the agent's -- that session's, or any agent's. */
+export function agentStepCount(history: History<string>, sessionId?: string | null): number {
+  return history.states().slice(1).filter((raw) => isAgentStep(historyMetaOf(decodeHistoryStep(raw)), sessionId)).length;
+}
+
+/** AX-15: why an agent run's undo stopped: a person's step, another agent session's, the history's start, or a busy page. */
+export type AgentRunStop = 'person' | 'other-agent' | 'start' | 'busy';
+export interface AgentRunUndo { undone: number; stopped: AgentRunStop; state: string | null; message: string }
+
+const changes = (n: number): string => (n === 0 ? 'no agent changes' : `${n} agent change${n === 1 ? '' : 's'}`);
+
+/**
+ * AX-15: "Undo the agent's changes" -- the agent's steps on top of the history undone (that session's, or any agent's
+ * when none is given), stopping at the first step that is not the agent's, which is never undone. The words say how
+ * many and why it stopped ("Stopped at your own edit: 3 agent changes undone").
+ */
+export function undoAgentRun(history: History<string>, sessionId?: string | null, busy = false): AgentRunUndo {
+  if (busy) return { undone: 0, stopped: 'busy', state: null, message: 'The Forge is busy: no agent changes undone' };
+  const out = undoWhile(history, (meta) => isAgentStep(meta, sessionId));
+  const at = out.stoppedAt;
+  const stopped: AgentRunStop = at === null ? 'start' : at.actor.kind === 'human' ? 'person' : 'other-agent';
+  const message = stopped === 'start'
+    ? (out.undone ? `Nothing older to undo: ${changes(out.undone)} undone` : 'No agent changes to undo')
+    : `Stopped at ${stopped === 'person' ? 'your own edit' : 'another agent’s edit'}: ${changes(out.undone)} undone`;
+  return { undone: out.undone, stopped, state: out.state, message };
+}
+
+/**
+ * AX-15: a layout array and the prefix of its placements' identities, as the page's `placementIds` names them (the nth
+ * of its kind). FG-51's bomb markers (`bomb:<kind>:N`, under `objectives.bomb`) are not diffed here.
+ */
+const PLACEMENT_KINDS: readonly (readonly [string, string])[] = [
+  ['pieces', 'piece'], ['spawns', 'spawn'], ['respawns', 'respawn'], ['flares', 'flare'], ['npcs', 'npc'], ['hostages', 'hostage'],
+  ['extractionZones', 'xzone'], ['turrets', 'turret'], ['doors', 'door'], ['gates', 'gate'], ['barriers', 'barrier'],
+  ['tacPoints', 'point'], ['scenicViews', 'view'],
+];
+/** Each kind's rows as their identity (the row's own text), in order; an unreadable text has none. */
+const rowsOf = (text: string): Map<string, string[]> => {
+  const out = new Map<string, string[]>();
+  let l: Record<string, unknown> | null = null;
+  try { const v = JSON.parse(text) as unknown; l = v && typeof v === 'object' ? v as Record<string, unknown> : null; } catch { /* no layout */ }
+  for (const [key, kind] of PLACEMENT_KINDS) {
+    const rows = l?.[key];
+    out.set(kind, Array.isArray(rows) ? rows.map((r) => JSON.stringify(r)) : []);
+  }
+  return out;
+};
+/** The rows of `after` not in `before`, as a multiset by identity (a row placed, or a row moved: its new text). */
+const added = (before: readonly string[], after: readonly string[]): Map<string, number> => {
+  const left = new Map<string, number>();
+  for (const r of before) left.set(r, (left.get(r) ?? 0) + 1);
+  const out = new Map<string, number>();
+  for (const r of after) {
+    const n = left.get(r) ?? 0;
+    if (n > 0) left.set(r, n - 1); else out.set(r, (out.get(r) ?? 0) + 1);
+  }
+  return out;
+};
+
+/**
+ * AX-15: the placements of the current layout the agent's steps still in the history made or changed (that session's,
+ * or any agent's) -- each agent step diffed against the step before it by row identity, so a row shifted by a delete is
+ * not the agent's change; a row the person changed since, or a step undone, no longer counts. A deleted row has no ref.
+ * The editor's highlight reads it; the rendering is the page's.
+ */
+export function agentChangedRefs(history: History<string>, sessionId?: string | null): string[] {
+  const states = history.states().map((raw) => decodeHistoryStep(raw));
+  const made = new Map<string, Map<string, number>>();
+  for (let i = 1; i < states.length; i++) {
+    if (!isAgentStep(historyMetaOf(states[i]!), sessionId)) continue;
+    const before = rowsOf(states[i - 1]!.text), after = rowsOf(states[i]!.text);
+    for (const [, kind] of PLACEMENT_KINDS) {
+      const mine = made.get(kind) ?? new Map<string, number>();
+      for (const [row, n] of added(before.get(kind)!, after.get(kind)!)) mine.set(row, (mine.get(row) ?? 0) + n);
+      made.set(kind, mine);
+    }
+  }
+  const refs: string[] = [];
+  const now = rowsOf(states[states.length - 1]!.text);
+  for (const [, kind] of PLACEMENT_KINDS) {
+    const mine = made.get(kind);
+    if (!mine?.size) continue;
+    const rows = now.get(kind)!;
+    // The latest copies of a row the agent made: an identical row the person had before keeps its earlier index.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const n = mine.get(rows[i]!) ?? 0;
+      if (n > 0) { mine.set(rows[i]!, n - 1); refs.push(`${kind}:${i}`); }
+    }
+  }
+  return refs.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }

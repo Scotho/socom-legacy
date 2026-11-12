@@ -1,6 +1,9 @@
 /**
  * The document head every HTML entry carries (PWA-2). A browser adaptation. `theme-color` is already on each entry;
- * this adds the icon set, the manifest and the install meta. `base` is Vite's base (`/` or `/socomlegacy/`).
+ * this adds the icon set, the manifest and the install meta. `base` is Vite's base (`/` or `/socomlegacy/`). The icons
+ * are the SL mark since RB-29 (the owner's "S2 Launcher v2" export, `D:8-9`; `tools/icons.ts`): `favicon.svg` wraps
+ * the mark at the design's 64 px, `favicon.ico` and `apple-touch-icon.png` are rendered from it; the file names and the
+ * links are unchanged, so the deploy tables (`headers.ts`, the nginx files) still name every one.
  */
 
 export function pwaHeadTags(base: string): string {
@@ -25,4 +28,4 @@ export function withPwaHead(html: string, base = '/'): string {
 }
 
 /** The Vite inputs (`packages/viewer/vite.config.ts` `rollupOptions.input`). */
-export const HTML_ENTRIES = ['index.html', 'setup/index.html', 'news/index.html', 'roadmap/index.html', 'journey/index.html', 'archive/index.html', 'server/index.html', 'status/index.html'] as const;
+export const HTML_ENTRIES = ['index.html', 'setup/index.html', 'news/index.html', 'roadmap/index.html', 'journey/index.html', 'archive/index.html', 'server/index.html', 'status/index.html', 'leaderboard/index.html', 'leaderboard/match/index.html', 'leaderboard/player/index.html'] as const;

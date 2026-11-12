@@ -11,12 +11,13 @@ import type { Firearm } from './kit';
 import type { MotionEntry, MotionTable } from './motionTable';
 import { ACTION_CLIPS, actionRoots, type MoverActionName, type Stance, type WalkMode } from './walk';
 import type { PlaySnapshot } from './mover';
+import { ownedBoxes, refreshBoxes, type BoneBox, type HitBody } from './net/hitVolumes';
 export { actionRoots };
 import { SEAL_ANIMS, oneShotSeconds, type AnimSet } from './locomotion';
-import { reloadMoving, type ReloadItem } from './reloadClip';
+import { reloadMoving, type ReloadItem, type ReloadStance } from './reloadClip';
 import { reloadCutOf, type ReloadCutNote } from './reloadLock';
 import { WeaponPose, type WeaponPoseStats } from './weaponPose';
-import { RaiseFeed, WeaponRaise, type ItemRaise, type RaiseStats, type RaiseTimes } from './weaponRaise';
+import { RaiseFeed, WeaponRaise, type ItemRaise, type RaiseStats, type RaiseTimes, type TriggerEdge } from './weaponRaise';
 
 /**
  * The play mode (web sprint 2, W2.2b; ruling W2.R1): the walk mode with the body. Entering walk (`G`, the panel's
@@ -86,8 +87,12 @@ export function eyePoint(body: LoadedBody, palette: readonly Float32Array[]): [n
 /** The clips and the table as the worker read them (`./motionTable`, `PlayData`). */
 export interface PlayClips { clips: MotionClip[]; table: [string, MotionEntry][] | null }
 
-/** What the weapon's trigger and aim are this frame (the page's: `Fire.triggerHeld`, and `aiming` while in the scope). */
-export interface WeaponInput { trigger: boolean; aiming: boolean }
+/**
+ * What the weapon's trigger and aim are this frame (the page's: `Fire.triggerHeld`, and `aiming` while in the scope);
+ * ER-1: the marked-enemy count and the gate (`./weaponRaise` `RaiseInput`); ER-2: a copy's owner's raise state off the
+ * wire (`raised`, `BodyFlag.Raised`; absent for the page's own body and a pre-14 replay's copy).
+ */
+export interface WeaponInput { trigger: boolean; aiming: boolean; enemies?: number; gated?: boolean; raised?: boolean }
 
 /** What `weapon()` on the hook reports: the raise, the layers, whether the rifle is in hand, and the muzzle. */
 export interface WeaponStats {
@@ -447,6 +452,29 @@ export class Play {
   }
 
   /**
+   * REMOTE-RELOAD (`./netPage` REMOTE_RELOAD_MOTION_READING): another body's reload, heard from the room's take
+   * (`RemotePlayers.reload`), starts its reload clip as `weaponEvent`'s `reloadStart` does the page's own -- the
+   * `stance` the room's posture at the take (null: this play's own), `moving` the room's (`reloadMoving` at the take),
+   * `family` the room's clip family (null: the item's), `seconds` the room's clip length. The copy's stick cuts a still
+   * one in `frame` (`reloadCut` on its replicated stick) and the clip runs out on its own clock.
+   */
+  remoteReload(stance: ReloadStance | null, seconds: number, family: ReloadItem | null, moving: boolean): void {
+    this.weaponPose?.startReload(stance ?? this.stance, seconds, family, moving);
+  }
+
+  /**
+   * REMOTE-RELOAD (the review's F1): a reaction on the copy ends its reload clip as the page's own ends there. `death`:
+   * any clip -- the body is gone. `flinch`: only the still clip crouched or prone (`WeaponPose.stillHeld`), the one the
+   * page's own reload holds the mover to and its flinch ends (`./fire` `reloadEndOfBody`, family 'reload'; the room keeps
+   * the lock); a standing still clip and the moving overlay play on. (A knock's clearing of the moving overlay and the
+   * stack, `FUN_0057e770` D:L440992-440998, is not wired for another body: LATER 811.)
+   */
+  stopRemoteReload(why: 'death' | 'flinch'): void {
+    if (why === 'flinch' && this.weaponPose?.stillHeld() !== true) return;
+    this.weaponPose?.stopReload();
+  }
+
+  /**
    * WEAPON: the reload's length for the stance the SEAL is in and whether it moves -- the reload clip's `playback`
    * (`./weaponPose`) of the clip `family` (M4: the class's, `./reloadClip`), or the record's `ReloadTime` still -- or
    * null without the clips (`Fire` keeps its own estimate then).
@@ -479,6 +507,23 @@ export class Play {
     if (skeleton.indexOf(this.item) < 0 || !this.held.placed(this.item)) return null;
     const p = transformPoint(Float32Array.from(object.matrix.elements), at[0], at[1], at[2]);
     return p ? actorToWorld(last.feet, last.yaw, p) : null;
+  }
+
+  /**
+   * ENEMY-RAISE ER-2: the raise state is up -- `FUN_005e0010`'s 1 (`body+0xf74 & 0xef`, D:L494306-494309), the moving bit
+   * aside -- which the owning page sends on each command (`./walk` `setRaiseSource`, `Command.raised`) as the original's
+   * owner packs it into byte +0x7e every frame (`FUN_002bd640` D:L161978).
+   */
+  raisedUp(): boolean {
+    return this.raise.stats().state === 'up';
+  }
+
+  /**
+   * LATER 792: the controller's trigger edge `+0x118` as the raise last stepped it (`FUN_00594cf0` D:L453543-453567: 0
+   * idle, 2 pressed, 1 held, 3 released), which the kit's swap gate reads (`./matchFirearm` `SWAP_HELD_EDGE_READING`).
+   */
+  triggerEdge(): TriggerEdge {
+    return this.raise.stats().edge;
   }
 
   /** WEAPON: the hook's `weapon()`. */
@@ -724,7 +769,49 @@ export class Play {
     return eye && last ? actorToWorld(last.feet, last.yaw, eye) : null;
   }
 
+  /**
+   * HIT-POSE (research 217 s3.6): the body's hit volumes as it is drawn this frame -- its skeleton's pose as bone boxes
+   * (`./net/hitVolumes` `posedBoxes`: the animator's, its root tilt and its lean in it; BONE-BOXES, research 398 s1)
+   * placed where the body is drawn (`drawnFeet`, else `feet`) at its yaw, as the room places its own live pose's
+   * (`placedVolumes`). Null with no body, no clips or no play yet. The page's aim only: it decides nothing.
+   */
+  drawnBody(): HitBody | null {
+    const last = this.last;
+    if (!this.animator || !this.skeleton || !last) return null;
+    // PAGE-AIM-ALLOC (a browser adaptation: no value of the game's changes): `placedVolumes(feet, yaw,
+    // posedBoxes(skeleton))` kept -- one owned box set, its bounds and one body, refreshed in place on the first ask after
+    // anything that writes the skeleton's pose or the placement (`hitStale`: `bodyFrame`, `rebuild`), so every ask between
+    // two such writes answers what the per-ask build answered. Shared: valid until the next refresh, never written by a
+    // caller.
+    if (this.hitStale) {
+      const body = this.hitBody;
+      body.boxes = refreshBoxes(this.skeleton, this.hitBoxes);
+      body.feet = last.drawnFeet ?? last.feet;
+      body.yaw = last.yaw;
+      this.hitStale = false;
+    }
+    return this.hitBody;
+  }
+  /** PAGE-AIM-ALLOC: `drawnBody`'s owned boxes and body, and whether a pose or a placement was written since its refresh. */
+  private readonly hitBoxes = ownedBoxes();
+  private readonly hitBody: { feet: readonly number[]; yaw: number; boxes: readonly BoneBox[] | null; caps: null } = { feet: [0, 0, 0], yaw: 0, boxes: null, caps: null };
+  private hitStale = true;
+
+  /**
+   * SIGHT-POINTS (LATER 793; research 321 s4.1.1 point 8, s7.5; reading, pending review): the body's skeleton node
+   * `name` in the world through its pose -- the node's origin up its parent chain (the palette, model space: as
+   * `FUN_002869d0` D:L130737-130766 with a null offset) put in the world at the simulated feet and yaw (as `eyeWorld`;
+   * `FUN_00308640(body+0x28, p, 1)`, translation included). `head` is the perception sight query's start, the observer's
+   * slot +0x34 (`FUN_005a31c0` D:L460165-460171, body+0x308). Null with no body, no such node or no play yet.
+   */
+  nodeWorld(name: string): [number, number, number] | null {
+    const i = this.skeleton?.indexOf(name) ?? -1, last = this.last;
+    const m = i >= 0 ? this.skeleton!.palette()[i] : undefined;
+    return m && last ? actorToWorld(last.feet, last.yaw, [m[12]!, m[13]!, m[14]!]) : null;
+  }
+
   private bodyFrame(dt: number, snap: (MoverSnapshot & { feet: [number, number, number]; drawnFeet?: [number, number, number] }) | null): void {
+    this.hitStale = true;                              // PAGE-AIM-ALLOC: the placement and the pose may change below
     const view = this.body;
     if (!view) return;
     view.setVisible(bodyVisible(this.kind, this.flyToggle) && !this.corpseGone && !this.ghost);   // PAR-91: the own corpse past its rule; NU-11b H2: a ghost's
@@ -735,11 +822,13 @@ export class Play {
     view.place(this.last.drawnFeet ?? this.last.feet, mover.yaw);   // MISSION R8: drawn there; start points read `feet`
     if (this.animator && this.skeleton) {
       this.animator.step(dt, mover);
+      this.hitStale = true;                            // PAGE-AIM-ALLOC: an ask from inside the step (a listener) is not kept
       view.setPose(this.skeleton.local);
     }
   }
 
   private rebuild(): void {
+    this.hitStale = true;                              // PAGE-AIM-ALLOC: a new skeleton, its rest holds, a new animator
     this.unhook?.();
     this.unhook = null;
     const table = this.clips?.table ? new Map(this.clips.table) : null;

@@ -10,6 +10,7 @@ import {
   onlineLayoutRefusal,
   onlineRecordRefusal,
   parseLayout,
+  parseSettings,
   readCreatorRecord,
   recordOfLayout,
   RECORD_POSITION_DENOMINATOR,
@@ -497,5 +498,126 @@ describe("FCW-30: the mode catalogue from installed rules packs (no caller wired
       { kind: "rules", id: "acme.tag", version: "1.0.0", name: "Tag", pack: TAG_PACK },
     ]);
     expect(forgeModeChoices([]).map((c) => c.kind)).toEqual(["retail", "retail", "retail", "retail", "retail"]);
+  });
+});
+
+describe("settings.night.lens (settingsTriple4)", () => {
+  it("accepts the disc's 0..1 and round-trips the four numbers; an earlier save's 0..255 rgb is read in the disc's range (FP-1b)", () => {
+    expect(parseSettings({ night: { mission: true, lens: [0.2, 0.898, 0.2, 0.24] } }).night).toEqual({ mission: true, lens: [0.2, 0.898, 0.2, 0.24] });
+    expect(parseSettings({ night: { mission: true, lens: [10, 200, 255, 0.5] } }).night).toEqual({ mission: true, lens: [10 / 255, 200 / 255, 1, 0.5] });
+    expect(parseSettings({ night: { mission: false, lens: null } }).night).toEqual({ mission: false, lens: null });
+  });
+
+  it("refuses three numbers, five, a non-number, an rgb out of range and an alpha out of range", () => {
+    for (const lens of [[10, 200, 255], [1, 2, 3, 0.5, 9], [1, 2, "3", 0.5], [1, 2, 256, 0.5], [1, 2, 3, 1.5], [1, 2, 3, -0.1]]) {
+      expect(() => parseSettings({ night: { mission: true, lens } })).toThrow(/settings\.night\.lens/);
+    }
+  });
+});
+
+describe("record v3: the Overhaul's placeables and settings round trip (FP-1b; MISSING-TESTS B2)", () => {
+  /** Every field the Overhaul added to the record (`src/layout.ts` `Layout.respawns`, `Layout.flares`, the six settings). */
+  const overhaul = (): Layout => parseLayout(JSON.stringify({
+    ...v1,
+    base: { kind: "blank", library: "MP2" },
+    respawns: [{ team: "A", p: [1, 0, 2], yaw: Math.PI / 2 }, { team: "B", p: [-3, 0.5, 4], yaw: 0, locked: true }],
+    flares: [{ source: "MP6", name: "lamp_glow 1", at: [10, 20, 30] }, { source: "MP51", name: "sun", at: [-1, 2, -3], locked: true }],
+    settings: {
+      lightRig: { directions: [[0, 1, 0], [1, 0, 0], [0, 0, 0]], colours: [[1, 0.5, 0.25], [0.2, 0.2, 0.2], [0, 0, 0]], ambient: [0.3, 0.3, 0.3] },
+      fogColor: [10, 20, 30],
+      shadowVector: [0.5, -1, 0.25],
+      skyFrom: "MP6",
+      fog: { on: true, near: 120, height: { top: 50, bottom: 5 } },
+      night: { mission: true, lens: [0, 1, 0.5, 0.5] },
+    },
+  }));
+
+  it("write -> read -> write leaves respawns, flares and the six settings unchanged", () => {
+    const record = recordOfLayout(overhaul(), "Overhaul");
+    expect(record.respawns).toEqual([["A", 1, 0, 2, 90], ["B", -3, 0.5, 4, 0, true]]);
+    expect(record.flares).toEqual([["MP6", "lamp_glow 1", 10, 20, 30], ["MP51", "sun", -1, 2, -3, true]]);
+    const text = JSON.stringify(record);
+    const read = readCreatorRecord(text);
+    expect(read.record).toEqual(record);
+    const layout = layoutOfRecord(read.record);
+    expect(layout.respawns).toEqual([{ team: "A", p: [1, 0, 2], yaw: Math.PI / 2 }, { team: "B", p: [-3, 0.5, 4], yaw: 0, locked: true }]);
+    expect(layout.flares).toEqual(overhaul().flares);
+    expect(layout.settings).toEqual(overhaul().settings);
+    expect(JSON.stringify(recordOfLayout(layout, "Overhaul"))).toBe(text);
+    // And through the layout's own text (the autosave's form) as well.
+    expect(recordOfLayout(parseLayout(JSON.stringify(layout)), "Overhaul")).toEqual(record);
+  });
+
+  it("each of the six settings round trips alone, and null (the built-from map's) stays null", () => {
+    const all = overhaul().settings!;
+    for (const key of ["lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night"] as const) {
+      for (const value of [all[key], null]) {
+        const layout = parseLayout(JSON.stringify({ ...v1, settings: { [key]: value } }));
+        const record = recordOfLayout(layout, "One");
+        const back = layoutOfRecord(readCreatorRecord(JSON.stringify(record)).record);
+        expect(back.settings, `${key} ${JSON.stringify(value)}`).toEqual({ [key]: value });
+        expect(recordOfLayout(back, "One")).toEqual(record);
+      }
+    }
+  });
+
+  it("forward compatibility: a record written before the Overhaul (none of them) still reads, with the code's defaults", () => {
+    // The golden: a v3 record as v0.4.12 wrote it -- no respawns, no flares, settings without the six.
+    const golden = {
+      schema: RECORD_SCHEMA, version: RECORD_VERSION, name: "Before", base: "MP2", assets: ["MP2:crate"],
+      pieces: [[0, 1, 2, 3, 0]], spawns: [["A", 1, 0, 2, 0], ["B", 3, 0, 4, 0]],
+      ids: { pieces: ["p0"], spawns: ["s0", "s1"] },
+      settings: { timeOfDay: 0.5, fogFar: 3000, players: 8 },
+    };
+    const read = readCreatorRecord(JSON.stringify(golden));
+    expect(read.record).toMatchObject({ name: "Before" });
+    const layout = layoutOfRecord(read.record);
+    expect(layout.respawns).toBeUndefined();
+    expect(layout.flares).toBeUndefined();
+    expect(layout.settings).toEqual({ timeOfDay: 0.5, fogFar: 3000, players: 8 });
+    for (const key of ["lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night"]) expect(layout.settings, key).not.toHaveProperty(key);
+    // Written back, it is the same record: the Overhaul adds nothing to a layout that uses none of it.
+    expect(recordOfLayout(layout, "Before")).toEqual(read.record);
+  });
+});
+
+describe("settings.night.lens in the disc's range, 0..1 (FP-1b; REVIEW-A 12, research 84 s14)", () => {
+  // The disc's LensFX_NVG is four floats 0..1 -- (0.2, 0.898, 0.2, 0.24) on every map (research 84 s14) -- and
+  // `LoadedMap.night.lens` carries it so; the Overhaul's first saves stored the rgb as bytes 0..255.
+  const DISC_LENS = [0.2, 0.898, 0.2, 0.24];
+  const withLens = (lens: number[]): string => JSON.stringify({ ...v1, settings: { night: { mission: true, lens } } });
+
+  it("a lens in the disc's range is read and written back as it is", () => {
+    expect(parseLayout(withLens(DISC_LENS)).settings?.night?.lens).toEqual(DISC_LENS);
+    const record = recordOfLayout(parseLayout(withLens(DISC_LENS)), "Night");
+    expect(layoutOfRecord(readCreatorRecord(JSON.stringify(record)).record).settings?.night?.lens).toEqual(DISC_LENS);
+  });
+
+  it("an earlier save's 0..255 rgb is read once as such: divided to the disc's range, its alpha kept (the migration)", () => {
+    const old = [51, 229, 51, 0.24];
+    const read = parseLayout(withLens(old)).settings!.night!.lens!;
+    expect(read.map((n) => Math.round(n * 1000) / 1000)).toEqual([0.2, 0.898, 0.2, 0.24]);
+    // Through the record reader too (`readCreatorRecord` -> `layoutOfRecord`), the form the saves keep.
+    const record = { ...recordOfLayout(parseLayout(JSON.stringify(v1)), "Night"), settings: { night: { mission: true, lens: old } } };
+    const opened = layoutOfRecord(readCreatorRecord(JSON.stringify(record)).record).settings!.night!.lens!;
+    expect(opened).toEqual(read);
+    // Written back, it is in the disc's range: read again, unchanged.
+    const again = layoutOfRecord(readCreatorRecord(JSON.stringify(recordOfLayout(parseLayout(withLens(old)), "Night"))).record);
+    expect(again.settings!.night!.lens).toEqual(read);
+  });
+
+  it("the admitted edge: an earlier save's [0, 1, 0, a] reads as floats -- pure green at alpha a, not migrated", () => {
+    // FP-1b (the review's F4): every rgb lane is <= 1, so `nightLensOf` cannot tell it from the disc's range and keeps it.
+    // That is what such a save played: the old editor rounded its colour field to #000100, stored as bytes [0, 1, 0], and
+    // Play handed those numbers to the night vision as they were -- floats, full green. Reading them as floats keeps what
+    // that save played; dividing by 255 would turn its lens near black.
+    expect(parseLayout(withLens([0, 1, 0, 0.3])).settings?.night?.lens).toEqual([0, 1, 0, 0.3]);
+    const record = { ...recordOfLayout(parseLayout(JSON.stringify(v1)), "Night"), settings: { night: { mission: true, lens: [0, 1, 0, 0.3] } } };
+    expect(layoutOfRecord(readCreatorRecord(JSON.stringify(record)).record).settings?.night?.lens).toEqual([0, 1, 0, 0.3]);
+  });
+
+  it("refuses an rgb past 255 or an alpha past 1, as before", () => {
+    expect(() => parseLayout(withLens([256, 0, 0, 0.5]))).toThrow(/settings\.night\.lens/);
+    expect(() => parseLayout(withLens([0.2, 0.2, 0.2, 2]))).toThrow(/settings\.night\.lens/);
   });
 });

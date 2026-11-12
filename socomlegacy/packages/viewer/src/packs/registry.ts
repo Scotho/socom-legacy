@@ -5,7 +5,7 @@
  */
 import { checkRecord, readSaved, type LayoutRecord } from '../forge/record';
 import { isAuthoringEnvelope } from '../forge/rulesAuthoring';
-import { checkReport, createSha256, diagnostic, ENGINE_CONTRACT_VERSION, PACK_TARGET_US, satisfiesRange, sha256Hex, validatePack, type AvailablePack, type BufferedPackFile, type CheckReport, type PackContext, type PackFile, type PackKind, type PackManifest, type PackRef } from '@s2u/creator-contracts';
+import { checkReport, createSha256, diagnostic, ENGINE_CONTRACT_VERSION, FORGE_BUNDLE_FILE, PACK_TARGET_US, satisfiesRange, sha256Hex, validateForgeBundle, validatePack, type AvailablePack, type BufferedPackFile, type CheckReport, type PackContext, type PackFile, type PackKind, type PackManifest, type PackRef } from '@s2u/creator-contracts';
 import { idbPackDatabase, PackDependencyChanged, PackStorageError, sharesPackDatabase, type PackDatabase, type PackFence } from './storage';
 import type { NativeIdentityWriter, NativePackIdentity, NativePackObservation } from './identity';
 import { validateLegacyPack } from './adapters';
@@ -19,13 +19,26 @@ import type { LoadedModelPack, ModelPackSlot } from '../modelPackRuntime';
 import { packMap, sha256, validateManifest, type PackProvenance } from '../texturePack';
 import { buildUploadPart, plainProvenance, readUpload, type BuiltUpload, type PlainLoad } from '../texturePackUpload';
 import { idbUploadBackend, UploadedPacks, UploadStoreUnavailable } from '../texturePackStore';
-import { bytesSource } from '../zipReader';
+import { blobSource, bytesSource, openZip, safeMemberName } from '../zipReader';
+import { HdNotServed, importHdZip, installHdFromSource, pageHdStore, type HdPackSource, type HdStore, type HdStoredMeta } from '../hdTexturePackStore';
+import { HdRefusal } from '../hdTexturePack';
+import { EMPTY_MOD_CHOICES } from '../mods/choices';
+import { classifyDrop, STORE_MANIFEST_READ_BYTES, type ClassifyOptions, type ReadSmall } from './classify';
+import { CUSTOM_MAP_ALREADY_HERE, CUSTOM_MAP_PACKS_KEPT, CUSTOM_MAP_PREFIX, customMapId, customMapMissing, customMapRequires, emptyCustomMaps,
+  type CustomMapData, type CustomMapRecord } from './customMaps';
+import { browserChannel, isTextureChoice, modsStateStore, type ChannelFactory, type ModChoices, type ModelSwitches, type ModsState, type PackFlags } from './modsState';
 import { checkLocalRead, inspectLocalZip, LOCAL_FILE_LIMITS, LocalFileError, legacyExtensions, localPath, localWait, readLocalPath, readPickedFiles, unpackLocalZip,
   type LocalDirectoryHandle, type LocalEntry, type LocalFile, type LocalPackErrorCode, type LocalReadOptions } from '../agent/localFiles';
 
 export type { LocalDirectoryHandle, LocalFile, LocalPackErrorCode } from '../agent/localFiles';
-/** `pack` (FCW-33): a v2 pack, its `s2u-pack.json` at the root; imported through `install`, stored, never applied live. */
-export type LocalPackKind = 'map' | 'mod' | 'model' | 'texture' | 'pack';
+/**
+ * `pack` (FCW-33): a v2 pack, its `s2u-pack.json` at the root; imported through `install`, stored, never applied live.
+ * `hd` (B206 ML-1, ML.R7): the HD pack, kept in its own database (`../hdTexturePackStore`), one at a time; installed by
+ * `hd.install` or `importDrop`, never through `stage` (its zip is far above `LOCAL_FILE_LIMITS`).
+ * `custom-map` (FP-5, FP.R12): a forge-map bundle kept read-only (`./customMaps`), reached by `importDrop` only; its packs
+ * are v2 packs beside it, kept when it is removed.
+ */
+export type LocalPackKind = 'map' | 'mod' | 'model' | 'texture' | 'pack' | 'hd' | 'custom-map';
 export interface LocalPackDiagnostic { code: string; count: number }
 export interface LocalPackSummary {
   id: string; kind: LocalPackKind | 'unknown'; name: string; files: number; bytes: number; digest?: string;
@@ -33,6 +46,8 @@ export interface LocalPackSummary {
   diagnostics: LocalPackDiagnostic[]; report?: CheckReport;
   /** Framework identity is separate from legacy facade ids such as mod:demo and model:current. */
   ref?: PackRef | null; validation?: 'pending-validation' | 'validated'; packKinds?: readonly PackKind[]; slot?: 'ordered-mod' | 'primary' | 'second' | 'per-map' | 'independent';
+  /** FP-5 (a custom map): the packs its layout stands on, and those this device does not hold now (recomputed at each list). */
+  requires?: PackRef[]; missing?: PackRef[];
 }
 export interface LocalPackResult extends LocalPackSummary { removed?: true }
 export class LocalPackError extends LocalFileError {
@@ -79,13 +94,61 @@ export interface LocalPackApi {
 export interface PackRegistryOptions extends LocalPackOptions {
   /** Build constants by default; an extension host may supply its published dependency and handler context. */
   context?: PackContext; database?: PackDatabase;
+  /**
+   * B206 ML-1: the HD library (`../hdTexturePackStore`). Absent: the page's (`pageHdStore`) when the mods are the
+   * page's too, else none -- a test that hands its own libraries has no HD pack unless it hands one. Null: none.
+   */
+  hd?: HdStore | null;
+  /** B206 ML-1: the hint's store (`./modsState` `PACKS_ENABLED_KEY`); absent, the page's settings. */
+  flags?: PackFlags;
+  /** B206 ML-1: the change notice's channel; absent, the browser's `BroadcastChannel`. */
+  channel?: ChannelFactory;
+  /** B206 ML-1: the drop classifier's options (the ML-5 seam: `unwrap`). */
+  classify?: ClassifyOptions;
   /** Transitional compatibility facade only: delegate the SAME existing saves writer until FCW07a publishes it. */
   legacyMapWrites?: boolean;
+}
+/** B206 ML-1: a dropped or picked file -- a `File` (a zip is read a range at a time, never whole). */
+export type DropFile = LocalFile & Pick<Blob, 'slice'>;
+/** B206 ML-1 (ML.R7): the HD store as the registry's fourth library. */
+export interface HdLibrary {
+  /** The kept HD pack's summary, or null (a store that cannot open reads as none). */
+  list(): Promise<LocalPackSummary | null>;
+  /** `importHdZip` into the store: one HD pack at a time, a new one replaces the kept one whole. */
+  install(file: Pick<Blob, 'size' | 'slice'>, options?: { signal?: AbortSignal }): Promise<LocalPackResult>;
+  /**
+   * B206 ML-12 (ML.R16; `TEST_HD_PACK_BUTTON_ADAPTATION`, removed by ML-13): the HD pack read from a fetched source (the
+   * served pack, `../hdTexturePackServed` `servedHdSource`) into the same store, checked as `install` checks a zip; a
+   * source that serves no pack is NOT_FOUND. `fetched` false: the same pack was kept already and nothing was fetched.
+   * `onProgress`: the bytes kept of the pack's total.
+   */
+  /** `onProgress` (ML-9's F3): the files fetched of the files to fetch, the bytes downloaded, and (LATER 742) `ofBytes` when the manifest names `packedBytes`. */
+  installFrom(source: HdPackSource, options?: { signal?: AbortSignal; onProgress?: (p: { files: number; ofFiles: number; bytes: number; ofBytes?: number }) => void }): Promise<LocalPackResult & { fetched: boolean }>;
+  remove(options?: { signal?: AbortSignal }): Promise<LocalPackResult>;
+}
+/** B206 ML-1 (ML.R7, ML.R8): the MODS state through the registry -- every page reads it here. */
+export interface ModsStateApi {
+  read(): Promise<ModsState>;
+  /** Original (null) or one installed texture pack's id (`texture:<map>:<id>` or `hd:<id>`). */
+  setTexture(id: string | null): Promise<ModsState>;
+  setModel(slot: keyof ModelSwitches, on: boolean): Promise<ModsState>;
+  /** The data mods' order and switches, as the test room's panel keeps them (`ModChoices`, unchanged). */
+  setMods(choices: ModChoices): Promise<ModsState>;
+  /** Another page (or this registry) changed the packs or the state. */
+  subscribe(listener: () => void): () => void;
 }
 export interface PackRegistry extends LocalPackApi {
   install(ref: PackRef, files: readonly BufferedPackFile[], options?: { signal?: AbortSignal; check?: () => void }): Promise<LocalPackResult>;
   validate(id: string, options?: { signal?: AbortSignal; check?: () => void }): Promise<LocalPackResult>;
   remove(ref: string | PackRef, options?: { signal?: AbortSignal; check?: () => void }): Promise<LocalPackResult>;
+  hd: HdLibrary;
+  modsState: ModsStateApi;
+  /**
+   * B206 ML-1 (ML.R3): one drop -- a zip, a folder's files or loose files -- classified (`./classify`) and installed
+   * into its library: the HD pack, an `s2u-mod`, a model pack, a built GX texture pack, a v2 pack (stored, not
+   * applied); bare or wrapped in Thunderstore's package format. A refusal says its reason. Nothing is applied here.
+   */
+  importDrop(files: readonly DropFile[], options?: { signal?: AbortSignal }): Promise<LocalPackResult>;
 }
 const CATALOGUE_LIMIT = 256;
 const MAP_JSON_BYTES = 2 * 1024 * 1024; // Browser adaptation: bounded saved recipes, not disc map archives.
@@ -197,6 +260,8 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
   };
   const textures = options.textures ?? new UploadedPacks(idbUploadBackend(pageIndexedDb));
   const database = options.database ?? idbPackDatabase(pageIndexedDb);
+  const hd: HdStore | null = options.hd !== undefined ? options.hd : options.mods ? null : pageHdStore();
+  const state = modsStateStore(database, options.flags ?? pageSettings, options.channel ?? browserChannel);
   const staged = new Map<string, { summary: LocalPackSummary; entries: LocalEntry[] }>();
   const active = new Map<string, LocalPackSummary>();
   const activeModGenerations = new Map<string, number>();
@@ -252,6 +317,18 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
     try { const result = await work(bound); checkLocalRead(ctx); return result; }
     catch (error) { checkLocalRead(ctx); throw error; }
   };
+  /** B206 ML-1: the kept HD pack; a store that cannot open (no IndexedDB, another tab's upgrade) reads as none. */
+  const hdKept = async (): Promise<HdStoredMeta | null> => { if (!hd) return null; try { return await hd.current(); } catch { return null; } };
+  const hdSummary = (meta: HdStoredMeta): LocalPackSummary => baseSummary(`hd:${meta.id}`, 'hd', meta.name, meta.textures, meta.bytes);
+  /** FP-5: the kept custom maps (`./customMaps`); a store that cannot open reads as none, as `framework` does. */
+  const customMaps = async (): Promise<CustomMapRecord[]> => {
+    try { const scope = await database.peek('custom-maps'); return scope ? (scope.data as CustomMapData).records : []; }
+    catch (e) { if (e instanceof PackStorageError && e.code === 'UNAVAILABLE') return []; throw e; }
+  };
+  const customMapSummary = (record: CustomMapRecord, held: readonly PackRef[]): LocalPackSummary => ({
+    ...baseSummary(customMapId(record.digest), 'custom-map', record.name, 1, new TextEncoder().encode(JSON.stringify(record.layout)).length),
+    digest: record.digest, ref: null, requires: customMapRequires(record.layout), missing: customMapMissing(record, held),
+  });
   const framework = async (): Promise<FrameworkRecord[]> => {
     try { const scope = await database.peek('packs'); return scope ? (scope.data as FrameworkData).records : []; }
     catch (e) { if (e instanceof PackStorageError && e.code === 'UNAVAILABLE') return []; throw e; }
@@ -321,7 +398,15 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
       slot: 'per-map', ref: identity?.ref ?? null, validation: identity ? 'validated' : 'pending-validation',
       report: identity?.report ?? report, packKinds: identity?.manifest.kinds });
     checkLocalRead(read);
-    list.push(...(await framework()).map(record => record.summary));
+    const kept = await hdKept();
+    if (kept) list.push(hdSummary(kept));
+    checkLocalRead(read);
+    const frameworkRecords = await framework();
+    list.push(...frameworkRecords.map(record => record.summary));
+    checkLocalRead(read);
+    // FP-5 item 6: a custom map's readiness against the v2 packs held now, not as at its import.
+    const held = frameworkRecords.map(record => record.ref);
+    for (const record of await customMaps()) list.push(customMapSummary(record, held));
     for (const item of list) {
       checkLocalRead(read);
       const previous = active.get(item.id), binding = activeNativeContent.get(item.id);
@@ -601,7 +686,7 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
         if (options.allowedSurface && !options.allowedSurface(input.kind)) fail('UNSUPPORTED_SURFACE', 'This surface does not currently permit local imports.');
         if ((input.path === undefined) === (input.stagedId === undefined)) fail('INVALID_PATH', 'Choose exactly one relative path or staged import ID.');
         if (input.path !== undefined) localPath(input.path);
-        const driver = { map: options.applyMap, mod: options.applyMod, model: options.applyModel, texture: options.applyTexture }[input.kind as Exclude<LocalPackKind, 'pack'>];
+        const driver = { map: options.applyMap, mod: options.applyMod, model: options.applyModel, texture: options.applyTexture }[input.kind as Exclude<LocalPackKind, 'pack' | 'hd' | 'custom-map'>];
         if (input.apply && (!options.allowedSurface?.(input.kind) || !driver)) fail('UNSUPPORTED_SURFACE', 'This surface has no approved live driver for this pack kind.');
         emit({ operation: 'import', phase: 'reading', files: 0, bytes: 0 });
         const stage = input.stagedId === undefined ? undefined : staged.get(input.stagedId);
@@ -752,6 +837,7 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
       }, request.check);
     },
     remove(inputId, request = {}) {
+      if (typeof inputId === 'string' && inputId.startsWith(CUSTOM_MAP_PREFIX)) return removeCustomMap(inputId, request);
       const expectedRef = typeof inputId !== 'string' ? inputId : undefined;
       const nativeRef = expectedRef && /^(mod\.|model\.|texture\.)/.test(expectedRef.id);
       if (!nativeRef && (typeof inputId !== 'string' || inputId.startsWith('pack:'))) {
@@ -874,7 +960,325 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
         return { ...entry, stored: false, enabled: false, applied: false, removed: true };
       }, () => { if (!effectStarted) request.check?.(); });
     },
-    dispose() { if (lifetime.signal.aborted) return; lifetime.abort(); directoryLifetime.abort(); root = null; revision++; staged.clear(); listeners.clear(); active.clear(); activeModGenerations.clear(); activeNativeContent.clear(); },
+    dispose() { if (lifetime.signal.aborted) return; lifetime.abort(); directoryLifetime.abort(); root = null; revision++; staged.clear(); listeners.clear(); active.clear(); activeModGenerations.clear(); activeNativeContent.clear(); state.dispose(); },
+    // Filled below (B206 ML-1): they use `api.import` and `api.remove`.
+    hd: undefined as unknown as HdLibrary, modsState: undefined as unknown as ModsStateApi, importDrop: undefined as unknown as PackRegistry['importDrop'],
   };
+
+  // ---- B206 ML-1: the HD library, the MODS state and the drop (ML.R3, R7, R8). A browser adaptation (OT.R110). ----
+
+  /** A removed or replaced pack the state chose reads Original (ML.R8: the selector never names a pack not kept); a removed
+   *  model pack's slot is switched off with it (the ML-10 merge review's nit 5: a later pack in that slot starts off). */
+  const forget = async (id: string): Promise<void> => {
+    const slot: keyof ModelSwitches | null = id === 'model:current' ? 'primary' : id === 'model:second' ? 'second' : null;
+    try {
+      const saved = await state.read();
+      if (saved.texture === id) await state.write(current => ({ ...current, texture: current.texture === id ? null : current.texture }));
+      else if (slot && saved.models[slot]) await state.write(current => ({ ...current, models: { ...current.models, [slot]: false } }));
+    } catch { /* the next read refuses a stale id */ }
+  };
+  const hdLibrary: HdLibrary = {
+    async list() { alive(); const meta = await hdKept(); return meta ? copy(hdSummary(meta)) : null; },
+    install(file, request = {}) {
+      return run('import', request.signal, false, async ctx => {
+        if (!hd) fail('UNSUPPORTED_SURFACE', 'This page keeps no HD pack.');
+        const before = await hdKept();
+        emit({ operation: 'import', phase: 'reading', files: 0, bytes: 0 });
+        let imported: Awaited<ReturnType<typeof importHdZip>>;
+        try {
+          imported = await localWait(importHdZip(file, hd, (files, bytes) => emit({ operation: 'import', phase: 'storing', files, bytes })), ctx);
+        } catch (e) {
+          if (e instanceof LocalFileError) throw e;
+          if (e instanceof HdRefusal) fail('INVALID_PACKAGE', `The HD pack was refused: ${e.reason}.`);
+          if (e instanceof Error && e.name === 'ZipError') fail('INVALID_PACKAGE', `The zip could not be read: ${e.message}.`);
+          fail('STORAGE_FAILED', 'The browser could not keep the HD pack (its space, or another tab holding the store).');
+        }
+        if (!imported) fail('INVALID_PACKAGE', 'Not an HD pack: the zip holds no experimental-packs/hd/current.json.');
+        const meta = await hdKept();
+        if (!meta) fail('STORAGE_FAILED', 'The HD pack was written but could not be read back.');
+        // One HD pack at a time: a replaced pack the state chose is followed by its replacement.
+        if (before && before.id !== meta.id) {
+          try { if ((await state.read()).texture === `hd:${before.id}`) await state.write(current => ({ ...current, texture: `hd:${meta.id}` })); } catch { /* Original */ }
+        }
+        const summary = hdSummary(meta);
+        emit({ operation: 'import', phase: 'complete', files: summary.files, bytes: summary.bytes });
+        state.notify();
+        return copy(summary);
+      });
+    },
+    // TEST_HD_PACK_BUTTON_ADAPTATION (ML-12): the served pack into the same store; removed by ML-13.
+    installFrom(source, request = {}) {
+      return run('import', request.signal, false, async ctx => {
+        if (!hd) fail('UNSUPPORTED_SURFACE', 'This page keeps no HD pack.');
+        const before = await hdKept();
+        emit({ operation: 'import', phase: 'reading', files: 0, bytes: 0 });
+        let fetched: boolean;
+        try {
+          fetched = (await localWait(installHdFromSource(source, hd, (files, bytes, _decoded, ofFiles, ofBytes) => {
+            emit({ operation: 'import', phase: 'storing', files, bytes }); request.onProgress?.({ files, ofFiles, bytes, ...(ofBytes !== null && { ofBytes }) });
+          }), ctx)).fetched;
+        } catch (e) {
+          if (e instanceof LocalFileError) throw e;
+          if (e instanceof HdNotServed) fail('NOT_FOUND', 'The HD pack is not served here.');
+          if (e instanceof HdRefusal) fail('INVALID_PACKAGE', `The HD pack was refused: ${e.reason}.`);
+          fail('STORAGE_FAILED', 'The browser could not keep the HD pack (its space, or another tab holding the store).');
+        }
+        const meta = await hdKept();
+        if (!meta) fail('STORAGE_FAILED', 'The HD pack was written but could not be read back.');
+        if (before && before.id !== meta.id) {
+          try { if ((await state.read()).texture === `hd:${before.id}`) await state.write(current => ({ ...current, texture: `hd:${meta.id}` })); } catch { /* Original */ }
+        }
+        const summary = hdSummary(meta);
+        emit({ operation: 'import', phase: 'complete', files: summary.files, bytes: summary.bytes });
+        state.notify();
+        return { ...copy(summary), fetched };
+      });
+    },
+    remove(request = {}) {
+      return run('remove', request.signal, false, async () => {
+        const store = hd;
+        if (!store?.remove) fail('UNSUPPORTED_SURFACE', 'This page cannot remove the HD pack.');
+        const meta = await hdKept();
+        if (!meta) fail('NOT_FOUND', 'No HD pack is kept in this browser.');
+        const summary = hdSummary(meta);
+        emit({ operation: 'remove', phase: 'storing', files: summary.files, bytes: summary.bytes });
+        await stored(() => store.remove!());
+        await forget(summary.id);
+        emit({ operation: 'remove', phase: 'complete', files: summary.files, bytes: summary.bytes });
+        state.notify();
+        return { ...summary, stored: false, enabled: false, applied: false, removed: true };
+      });
+    },
+  };
+  const removeStored = api.remove;
+  api.remove = (inputId, request = {}) => {
+    if (typeof inputId === 'string' && inputId.startsWith('hd:')) {
+      return hdKept().then(meta => {
+        if (!meta || `hd:${meta.id}` !== inputId) throw new LocalPackError('NOT_FOUND', 'The local pack ID was not found.');
+        return hdLibrary.remove(request);
+      });
+    }
+    return removeStored(inputId, request).then(async result => { await forget(result.id); state.notify(); return result; });
+  };
+
+  const readMods = async (): Promise<ModChoices> => {
+    // The lazy contract: a native library is not opened while the mods' own flag says none is kept.
+    if (nativeMods && !hintAvailable()) return EMPTY_MOD_CHOICES;
+    try { return (mods.list ? await mods.list() : await mods.read()).choices; } catch { return EMPTY_MOD_CHOICES; }
+  };
+  const readState = async (): Promise<ModsState> => {
+    const saved = await state.read();
+    return { texture: saved.texture, models: { ...saved.models }, mods: await readMods() };
+  };
+  const modsStateApi: ModsStateApi = {
+    read: () => { alive(); return readState(); },
+    async setTexture(id) {
+      alive();
+      if (id !== null) {
+        if (!isTextureChoice(id)) fail('INVALID_PATH', 'Choose Original or an installed texture pack.');
+        const kept = id.startsWith('hd:') ? (await hdKept())?.id === id.slice(3)
+          : (await textures.catalogue()).some(({ record }) => `texture:${record.map}:${record.id}` === id);
+        if (!kept) fail('NOT_FOUND', 'That texture pack is not installed.');
+      }
+      await stored(() => state.write(current => ({ ...current, texture: id })));
+      return readState();
+    },
+    async setModel(slot, on) {
+      alive();
+      await stored(() => state.write(current => ({ ...current, models: { ...current.models, [slot]: on } })));
+      return readState();
+    },
+    async setMods(choices) {
+      alive();
+      await stored(() => mods.writeChoices(choices));
+      state.notify();
+      return readState();
+    },
+    subscribe(listener) { alive(); return state.subscribe(listener); },
+  };
+
+  /** The drop's members: a zip read a range at a time (names first, a member when asked), or the files themselves. */
+  const dropSource = async (files: readonly DropFile[], ctx: LocalReadOptions): Promise<{ zip: DropFile | null; names: string[]; small: ReadSmall;
+    read(names: readonly string[]): Promise<LocalEntry[]> }> => {
+    const only = files.length === 1 ? files[0]! : null;
+    if (only && /\.zip$/i.test(only.name)) {
+      let zip: Awaited<ReturnType<typeof openZip>>;
+      try { zip = await localWait(openZip(blobSource(only as unknown as Blob)), ctx); }
+      catch (e) { if (e instanceof LocalFileError) throw e; fail('INVALID_PACKAGE', 'The dropped zip could not be read.'); }
+      const members = zip.members.filter(member => !member.name.endsWith('/'));
+      if (members.some(member => !safeMemberName(member.name))) fail('INVALID_PATH', 'The zip names a file outside itself.');
+      const byName = new Map(members.map(member => [member.name, member]));
+      return { zip: only, names: [...byName.keys()],
+        small: async name => { const member = byName.get(name); return member && member.size <= STORE_MANIFEST_READ_BYTES ? zip.read(member) : null; },
+        async read(names) {
+          const wanted = names.map(name => byName.get(name)!);
+          const total = wanted.reduce((n, member) => n + member.size, 0);
+          if (wanted.length > LOCAL_FILE_LIMITS.files || total > LOCAL_FILE_LIMITS.bytes) fail('LIMIT_EXCEEDED', 'The pack is over this browser\'s local import limit.');
+          const entries: LocalEntry[] = []; let bytes = 0;
+          for (const member of wanted) {
+            checkLocalRead(ctx);
+            const data = await localWait(zip.read(member), ctx);
+            bytes += data.length; entries.push({ path: member.name, bytes: data });
+            emit({ operation: 'import', phase: 'reading', files: entries.length, bytes });
+          }
+          return entries;
+        } };
+    }
+    const byPath = new Map<string, DropFile>();
+    for (const file of files) {
+      const path = localPath(file.webkitRelativePath || file.name);
+      if (byPath.has(path)) fail('DUPLICATE_PATH', 'Two dropped files share one path.');
+      byPath.set(path, file);
+    }
+    return { zip: null, names: [...byPath.keys()],
+      small: async name => { const file = byPath.get(name); return file && file.size <= STORE_MANIFEST_READ_BYTES ? new Uint8Array(await file.arrayBuffer()) : null; },
+      read: names => readPickedFiles(names.map(name => byPath.get(name)!), { ...ctx, onRead: (files, bytes) => emit({ operation: 'import', phase: 'reading', files, bytes }) }) };
+  };
+  /**
+   * A built GX pack (a served pack's `manifest.json` and its payloads) into the texture library, as the test room's
+   * upload keeps one: the manifest checked (`validateManifest`), every payload present at its entry's size, then the
+   * framework's validation recorded beside it -- kept unvalidated when it cannot pass (a page with no disc gives no
+   * archive hashes, so the archive dependency is a skipped check), as `import`'s texture branch keeps an upload.
+   */
+  const installBuiltTexture = (files: readonly LocalEntry[], name: string, signal?: AbortSignal): Promise<LocalPackResult> =>
+    run('import', signal, false, async ctx => {
+      const manifestFile = files.find(file => file.path === 'manifest.json');
+      if (!manifestFile) fail('INVALID_PACKAGE', 'A built texture pack holds manifest.json at its root.');
+      let manifest: ReturnType<typeof validateManifest>;
+      try { manifest = validateManifest(JSON.parse(new TextDecoder().decode(manifestFile.bytes))); }
+      catch { fail('INVALID_PACKAGE', 'The texture pack\'s manifest.json does not check out.'); }
+      const map = manifest.mapArchive.slice(4, -4);
+      if (!packMap(map)) fail('INVALID_PACKAGE', 'The texture manifest names an unsupported map.');
+      const byPath = new Map(files.map(file => [file.path, file.bytes]));
+      for (const entry of manifest.entries) {
+        if (byPath.get(entry.file)?.length !== entry.bytes) fail('INVALID_PACKAGE', `${entry.file} is missing or not its entry's size.`);
+      }
+      const members = new Map<string, Uint8Array>([['manifest.json', manifestFile.bytes], ...manifest.entries.map(entry => [entry.file, byPath.get(entry.file)!] as [string, Uint8Array])]);
+      const id = await sha256(manifestFile.bytes);
+      emit({ operation: 'import', phase: 'validating', files: members.size, bytes: sizeOf([...members].map(([path, bytes]) => ({ path, bytes }))) });
+      const checked = await validation(buildContext, ctx, bound => validateLegacyPack('texture', [...members].map(([path, bytes]) => ({ path, bytes })), bound));
+      const summary: LocalPackSummary = { ...baseSummary(`texture:${map}:${id}`, 'texture', name, members.size, sizeOf([...members].map(([path, bytes]) => ({ path, bytes })))),
+        ref: checked.ok ? checked.ref : null, validation: checked.ok ? 'validated' : 'pending-validation', report: checked.report, slot: 'per-map' };
+      if (checked.ok) summary.packKinds = checked.manifest.kinds;
+      checkLocalRead(ctx); emit({ operation: 'import', phase: 'storing', files: summary.files, bytes: summary.bytes }); checkLocalRead(ctx);
+      await stored(() => textures.add(map, 'pack', { id, name: summary.name, kind: 'textures', method: manifest.method, scale: manifest.scale,
+        roles: manifest.roles ?? 'world', generatedAt: new Date().toISOString(), textures: manifest.entries.length, bytes: manifest.totalBytes, notes: '' },
+      members, { signal: ctx.signal, identity: checked.ok ? checked : undefined, validationReport: checked.ok ? undefined : checked.report }));
+      emit({ operation: 'import', phase: 'complete', files: summary.files, bytes: summary.bytes });
+      return copy(summary);
+    });
+  /**
+   * FP-5 item 2 (FP.R12): a forge-map bundle's entries, rooted at the drop's root, imported whole inside one run: the same
+   * bundle (by digest) already kept is a note and nothing else; otherwise FP-4's `validateForgeBundle` checks it against
+   * this build and the v2 packs this device holds (a carried pack's `{id, range}` dependency resolves against them, the
+   * FP-4 review's note); each carried pack not held already (by `PackRef`) goes through `installFiles`, the one v2 install
+   * path (a different hash under a held id and version is its REVISION_CONFLICT), a carried dependency first; then the
+   * custom map's record. A refusal stores no record; a pack installed before a later pack's refusal stays, a valid pack.
+   */
+  const importBundle = (entries: readonly LocalEntry[], signal?: AbortSignal): Promise<LocalPackResult> =>
+    run('import', signal, false, async ctx => {
+      if (options.allowedSurface && !options.allowedSurface('custom-map')) fail('UNSUPPORTED_SURFACE', 'This surface does not currently permit local imports.');
+      emit({ operation: 'import', phase: 'validating', files: entries.length, bytes: sizeOf(entries) });
+      const key = await digest(entries, ctx);
+      const held = async (): Promise<PackRef[]> => (await stored(framework)).map(record => record.ref);
+      const kept = (await stored(customMaps)).find(record => record.digest === key);
+      if (kept) {
+        const summary = customMapSummary(kept, await held());
+        summary.diagnostics.push({ code: CUSTOM_MAP_ALREADY_HERE, count: 1 });
+        emit({ operation: 'import', phase: 'complete', files: 0, bytes: 0 });
+        return copy(summary);
+      }
+      const snapshot = await dependencySnapshot(ctx);
+      const checked = await validation(buildContext, ctx, bound => validateForgeBundle(entries, {
+        target: bound.target, contract: bound.contract, packs: [...(bound.packs ?? []), ...snapshot],
+        ...(bound.archives ? { archives: bound.archives } : {}), ...(bound.handlers ? { handlers: bound.handlers } : {}),
+        ...(bound.sha256 ? { sha256: bound.sha256 } : {}),
+      }));
+      if (!checked.ok) {
+        const first = checked.diagnostics.find(d => d.severity === 'error') ?? checked.diagnostics[0];
+        throw new LocalPackError('INVALID_PACKAGE', first?.text ?? 'The Forge map bundle did not pass validation.', undefined,
+          checkReport(checked.diagnostics, { evidence: 'validation' }));
+      }
+      const { bundle } = checked;
+      // The envelope the validator read: the root one first (FP-4's fold prefers it), else the one in the one top folder.
+      const envelope = entries.find(e => e.path === FORGE_BUNDLE_FILE) ?? entries.find(e => e.path.endsWith(`/${FORGE_BUNDLE_FILE}`) && e.path.split('/').length === 2)!;
+      const prefix = envelope.path.slice(0, envelope.path.length - FORGE_BUNDLE_FILE.length);
+      const already = await held();
+      let pending = bundle.packs.filter(pack => !already.some(ref => equalRef(ref, pack.ref)));
+      while (pending.length) {
+        // A carried pack waits for a carried pack it depends on (its install validates against the store).
+        const ready = pending.filter(pack => !pack.manifest.dependencies.some(dep => 'id' in dep && pending.some(other => other !== pack && other.ref.id === dep.id)));
+        const next = ready.length ? ready : [pending[0]!];
+        for (const pack of next) {
+          const at = prefix + pack.root;
+          await installFiles(pack.ref, entries.filter(e => e.path.startsWith(at)).map(e => ({ path: e.path.slice(at.length), bytes: e.bytes })), ctx);
+        }
+        pending = pending.filter(pack => !next.includes(pack));
+      }
+      const record: CustomMapRecord = { digest: key, name: bundle.layout.name, layout: bundle.layout,
+        packs: bundle.packs.map(pack => ({ id: pack.ref.id, version: pack.ref.version, hash: pack.ref.hash })), missing: bundle.missing, importedAt: Date.now() };
+      const summary = customMapSummary(record, await held());
+      checkLocalRead(ctx); emit({ operation: 'import', phase: 'storing', files: summary.files, bytes: summary.bytes }); checkLocalRead(ctx);
+      await stored(() => database.patch<CustomMapData>('custom-maps', emptyCustomMaps,
+        data => ({ records: [...data.records.filter(r => r.digest !== key), record as unknown as (typeof data.records)[number]] }), { signal: ctx.signal }));
+      emit({ operation: 'import', phase: 'complete', files: summary.files, bytes: summary.bytes });
+      return copy(summary);
+    });
+  /** FP-5 item 2: a custom map removed -- its record only; its packs are kept (they may serve other layouts), and the result says so. */
+  const removeCustomMap = (id: string, request: { signal?: AbortSignal; check?: () => void }): Promise<LocalPackResult> =>
+    run('remove', request.signal, false, async ctx => {
+      const scope = await stored(() => database.peek('custom-maps'));
+      const selected = ((scope?.data as CustomMapData | undefined)?.records ?? []).find(record => customMapId(record.digest) === id);
+      if (!scope || !selected) fail('NOT_FOUND', 'The custom map was not found.');
+      const summary = customMapSummary(selected, (await stored(framework)).map(record => record.ref));
+      checkLocalRead(ctx); emit({ operation: 'remove', phase: 'storing', files: summary.files, bytes: summary.bytes }); checkLocalRead(ctx);
+      await stored(() => database.patch<CustomMapData>('custom-maps', emptyCustomMaps,
+        data => ({ records: data.records.filter(record => record.digest !== selected.digest) }), { expectedGeneration: scope.generation, signal: ctx.signal }));
+      emit({ operation: 'remove', phase: 'complete', files: summary.files, bytes: summary.bytes });
+      return { ...copy(summary), stored: false, enabled: false, applied: false, removed: true,
+        diagnostics: [...summary.diagnostics, { code: CUSTOM_MAP_PACKS_KEPT, count: selected.packs.length }] };
+    }, request.check);
+  const importDrop: PackRegistry['importDrop'] = async (files, request = {}) => {
+    alive();
+    if (!files.length) fail('INVALID_PATH', 'Nothing was dropped.');
+    const ctx: LocalReadOptions = { signal: request.signal ?? lifetime.signal, check: alive };
+    const source = await dropSource(files, ctx);
+    const found = await classifyDrop(source.names, source.small, options.classify);
+    if (found.kind === 'refused') fail('UNSUPPORTED_FORMAT', found.reason);
+    if (found.kind === 'hd') {
+      if (!source.zip) fail('UNSUPPORTED_FORMAT', 'Drop the HD pack as its zip (or its Thunderstore zip), not as loose files.');
+      return hdLibrary.install(source.zip, request);
+    }
+    // A GX source pack (export.json folders or plain PNGs) is built against its map's own textures: only a page with a
+    // map loaded (the test room, `loadedTextures`) can build it; MODS on Home adds built packs (a manifest.json's).
+    if (found.kind === 'texture' && found.texture === 'source' && (!options.loadedTextures || !source.zip))
+      fail('UNSUPPORTED_SURFACE', 'A texture pack of PNGs or export.json folders is built against its map: open the map in the test room to build it; MODS adds built packs.');
+    if (found.kind === 'bundle') {
+      // FP-5 item 2: the payload rooted at the bundle's root (its one folder stripped); FP-4's validator reads the rest.
+      const read = await source.read(found.payload);
+      const result = await importBundle(read.map(entry => ({ path: entry.path.slice(found.root.length), bytes: entry.bytes })), request.signal);
+      state.notify();
+      return result;
+    }
+    const rootAtTop = found.kind === 'pack' && source.names.includes('s2u-pack.json');
+    const entries = await source.read(rootAtTop ? source.names : found.payload);
+    const rooted = rootAtTop ? entries : entries.map(entry => ({ path: entry.path.slice(found.root.length), bytes: entry.bytes }));
+    let result: LocalPackResult;
+    if (found.kind === 'texture' && found.texture === 'built') {
+      result = await installBuiltTexture(rooted, found.wrapping?.name ?? files[0]!.name.replace(/\.zip$/i, ''), request.signal);
+    } else {
+      const kind = found.kind as 'mod' | 'model' | 'texture' | 'pack';
+      const group = kind === 'texture' ? [{ path: source.zip!.name, bytes: new Uint8Array(await source.zip!.arrayBuffer()) }] : rooted;
+      const id = `staged:${globalThis.crypto.randomUUID()}`;
+      const summary = baseSummary(id, kind, found.wrapping?.name ?? files[0]!.name.replace(/\.zip$/i, ''), group.length, sizeOf(group));
+      summary.staged = true; summary.imported = false; summary.stored = false;
+      staged.set(id, { summary, entries: group });
+      try { result = await api.import(kind === 'pack' ? { kind, stagedId: id } : { kind, stagedId: id, name: summary.name }, request); }
+      finally { staged.delete(id); }
+    }
+    state.notify();
+    return result;
+  };
+  api.hd = hdLibrary; api.modsState = modsStateApi; api.importDrop = importDrop;
   return api;
 }

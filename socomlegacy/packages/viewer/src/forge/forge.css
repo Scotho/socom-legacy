@@ -718,6 +718,10 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   cursor: pointer;
 }
 .fx-field-reset[hidden] { visibility: hidden; }
+/* FC-1 (`./transformStubs`, a browser adaptation): a hidden stub's row is gone; a hidden field keeps its cell, so Yaw
+   stays under the Y column. */
+.fx-inspector .fx-field-row[hidden] { display: none; }
+.fx-field[hidden] { visibility: hidden; }
 .fx-field-reset:hover, .fx-field-reset:focus-visible { color: var(--fx-gold); background: var(--fx-hover); }
 .fx-field-reset .fx-ico { width: 14px; height: 14px; stroke-width: 2.8; }   /* heavier: it read as a hairline at 14px */
 /* The scrub (`./scrub`): a number field not being typed in drags left or right; while one drags, the whole page says so. */
@@ -857,6 +861,11 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-toggle input[type=checkbox]:indeterminate::after { transform: translateX(7px); }
 .fx-detail-distance .fx-range { flex: 1 1 auto; min-width: 0; }
 .fx-detail-distance__value { flex: none; min-width: 3.5ch; text-align: right; }
+/* FP-2 (FP.R5, a browser adaptation): Draw > Picture's render scale row, the detail distance's shape. */
+.fx-render-scale .fx-range { flex: 1 1 auto; min-width: 0; }
+/* Our class, not one of Crispy's rules (FG.R2): the value span fits the longest word ("Performance", 11 characters), so the
+   slider keeps its width between stops; the detail distance's 3.5ch fits its fixed-width numbers only. */
+.fx-render-scale__value { flex: none; min-width: 11ch; text-align: right; }
 /* FG-45 (an adaptation, no original): the create card's visibility toggle, under the lobby's name. */
 .fx-card .fx-lobby-visibility { margin-top: 10px; color: var(--fx-text); }
 
@@ -1055,6 +1064,8 @@ body.is-playing .fx-input { display: none; }
 /* Textured, Lit and Untextured highlight with Geometry off (`syncGeometryDependents`): greyed, kept as set. */
 .fx-viewport-mode.is-disabled { opacity: var(--fx-disabled); cursor: default; }
 .fx-viewport-mode.fx-detail-distance > span:first-child { flex: none; }
+.fx-viewport-mode.fx-render-scale { gap: var(--s2u-space-2); }
+.fx-viewport-mode.fx-render-scale > span:first-child { flex: none; }
 .fx-viewport-mode.fx-detail-distance .fx-range { min-width: 0; }
 body.is-playing .fx-viewport-modes { display: none; }
 .fx-camera-hud {
@@ -1082,6 +1093,8 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-gizmo-tools .fx-tool + .fx-tool { margin-left: -1px; }
 .fx-gizmo-tools .fx-tool:first-child { border-radius: var(--fx-radius) 0 0 var(--fx-radius); }
 .fx-gizmo-tools .fx-tool:last-child { border-radius: 0 var(--fx-radius) var(--fx-radius) 0; }
+/* FC-1: the last shown tool ends the group while the Scale stub is hidden. */
+.fx-gizmo-tools .fx-tool:has(+ .fx-tool[hidden]:last-child) { border-radius: 0 var(--fx-radius) var(--fx-radius) 0; }
 .fx-gizmo-tools .fx-tool:hover:not(:disabled), .fx-gizmo-tools .fx-tool.is-on { position: relative; z-index: var(--fx-z-raised); }
 .fx-gizmo-tools .fx-tool.is-on { background: var(--fx-selected); border-color: var(--fx-gold); }
 .fx-gizmo-tools .fx-tool .fx-ico { width: 16px; height: 16px; }

@@ -27,7 +27,7 @@ export function mountTestroomAgent(doc: Document): { dispose(): void } {
     dock.hidden = !solo();
     unsubscribeMode = api.subscribe(() => { dock.hidden = !solo(); });
     const packs = createLocalPackApi({ ...api.localPacks, allowedSurface: kind => kind !== 'map' && api.read().mode === 'testroom-solo' && api.read().buildAllowed });
-    const target = createTestroomPageTarget(api, packs, () => captureGameCanvas(doc, '#view'));
+    const target = createTestroomPageTarget(api, packs, (o) => captureGameCanvas(doc, '#view', o));
     page = mountPageAgent(doc, target, packs, listener => api.subscribe(listener), dock, () => api.refreshExternalState());
   });
   return { dispose() { keepLast?.disconnect(); unsubscribe(); unsubscribeMode?.(); page?.dispose(); dock.remove(); } };

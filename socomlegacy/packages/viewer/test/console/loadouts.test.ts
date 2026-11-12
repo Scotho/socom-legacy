@@ -92,7 +92,7 @@ describe('the Armory\'s rows push each side\'s mission list (no "Coming")', () =
       await openList(b, side);
       expect([b.ctl.S.screen, b.ctl.S.lo.side]).toEqual(['loadouts', side]);
       expect(text('#stage .cx-title')).toBe(side === 'seal' ? 'SEAL loadouts' : 'Terrorist loadouts');
-      expect(listRows().map(([t]) => t)).toEqual(['VIGILANCE', 'CROSSROADS', 'FROSTFIRE', 'NIGHT STALKER']);
+      expect(listRows().map(([t]) => t)).toEqual(['Vigilance', 'Fish Hook', 'Crossroads', 'Frostfire', 'Desert Glory', 'Night Stalker']);   // DF-14: the rig's table
       expect(cross(b)).toBe('Open');
       b.ctl.press('circle');
       expect([b.ctl.S.screen, b.ctl.S.cat, b.ctl.S.item[PROFILE]]).toEqual(['loadoutSides', PROFILE, loadoutAt(b, side)]);
@@ -111,11 +111,14 @@ describe('the Armory\'s rows push each side\'s mission list (no "Coming")', () =
     const kept = { charSet: 2, items: [1, 75, 36, 37, 35], valid: true };
     const b = boot({ srv: server({ records: [{ mission: 'MP2', seal: kept, terrorist: null }, { mission: 'MP53', seal: kept, terrorist: null }] }) });
     await openList(b);
-    expect(listRows()).toEqual([['VIGILANCE', 'DEFAULT'], ['CROSSROADS', 'DEFAULT'], ['FROSTFIRE', 'SAVED'], ['NIGHT STALKER', 'DEFAULT'], ['FOXHUNT', 'NOT OFFERED']]);
-    const foxhunt = document.querySelectorAll<HTMLElement>('#stage [data-act="lorow"]')[4]!;
+    expect(listRows()).toEqual([
+      ['Vigilance', 'DEFAULT'], ['Fish Hook', 'DEFAULT'], ['Crossroads', 'DEFAULT'], ['Frostfire', 'SAVED'], ['Desert Glory', 'DEFAULT'],
+      ['Night Stalker', 'DEFAULT'], ['Foxhunt', 'NOT OFFERED'],
+    ]);
+    const foxhunt = document.querySelectorAll<HTMLElement>('#stage [data-act="lorow"]')[6]!;
     expect(foxhunt.classList.contains('is-muted')).toBe(true);
     expect(foxhunt.textContent).toContain('Not offered by this server');
-    b.ctl.S.lo.row = 4;
+    b.ctl.S.lo.row = 6;
     b.ctl.render();
     expect(cross(b)).toBeUndefined();
     b.ctl.press('cross');
@@ -132,7 +135,7 @@ describe('the Armory\'s rows push each side\'s mission list (no "Coming")', () =
     answer(new Response(JSON.stringify({ loadouts: [] })));
     await flush();
     b.ctl.render();
-    expect(listRows()).toHaveLength(4);
+    expect(listRows()).toHaveLength(6);
   });
 
   it('the records\' read refused: said, Cross is Try again', async () => {
@@ -144,7 +147,7 @@ describe('the Armory\'s rows push each side\'s mission list (no "Coming")', () =
     b.ctl.press('cross');
     await flush();
     b.ctl.render();
-    expect(listRows()).toHaveLength(4);
+    expect(listRows()).toHaveLength(6);
   });
 });
 
@@ -154,7 +157,7 @@ describe('the editor: the console\'s rollers over the ARMORY\'s rules', () => {
     await openList(b);
     await openEditor(b, 'MP2');
     expect(b.ctl.S.screen).toBe('loadout');
-    expect(text('#stage .cx-title')).toBe('FROSTFIRE');
+    expect(text('#stage .cx-title')).toBe('Frostfire');
     expect(editRows().map((r) => r.querySelector('.cx-r__label')!.textContent)).toEqual(['Character type', 'Primary', 'Secondary', 'Equipment 1', 'Equipment 2', 'Equipment 3', 'Save loadout']);
     expect(value(0)).toBe('Type 1');
     expect(value(1)).toBe('M4A1');
@@ -226,7 +229,7 @@ describe('the editor: the console\'s rollers over the ARMORY\'s rules', () => {
     b.ctl.press('square');
     await flush();
     expect(puts(b)).toHaveLength(1);
-    expect(b.ctl.S.toast).toBe('Saved: MP2 · SEALs');
+    expect(b.ctl.S.toast).toBe('Saved: Frostfire · SEALs');
     b.ctl.render();
     expect(text('#stage [data-lo-held]')).toMatch(/stored on the server: type 1/i);
     b.ctl.S.lo.edit = LOADOUT_SAVE_ROW;
@@ -236,7 +239,7 @@ describe('the editor: the console\'s rollers over the ARMORY\'s rules', () => {
     b.ctl.press('circle');
     expect(b.ctl.S.screen).toBe('loadouts');                         // saved: nothing to ask
     b.ctl.render();
-    expect(listRows()[2]).toEqual(['FROSTFIRE', 'SAVED']);
+    expect(listRows()[3]).toEqual(['Frostfire', 'SAVED']);          // DF-14: Fish Hook the second row
   });
 
   it('a save out: the Save row says so and a second press sends nothing; a refusal is said on the warn line, never a toast', async () => {
@@ -286,7 +289,7 @@ describe('the editor: the console\'s rollers over the ARMORY\'s rules', () => {
     b.ctl.render();
     expect(value(1)).toBe('M4A1');
     expect(puts(b)).toEqual([{ mission: 'MP2', side: 'seal', profile: { ...stored, valid: false } }]);
-    expect(b.ctl.S.toast).toBe('Defaults: the stored loadout for MP2 · SEALs is cleared');
+    expect(b.ctl.S.toast).toBe('Defaults: the stored loadout for Frostfire · SEALs is cleared');
   });
 
   it('Circle with unsaved changes asks first: No stays with the change; Yes leaves, the change dropped', async () => {
@@ -331,11 +334,11 @@ describe('the editor: the console\'s rollers over the ARMORY\'s rules', () => {
   it('the pointer (CX.R6): a row\'s click opens it; a roller\'s step mark steps it; the Save row\'s click saves', async () => {
     const b = boot();
     await openList(b);
-    document.querySelectorAll<HTMLElement>('#stage [data-act="lorow"]')[2]!.click();
+    document.querySelectorAll<HTMLElement>('#stage [data-act="lorow"]')[3]!.click();   // Frostfire, the fourth row since DF-14
     await flush();
     b.ctl.render();
     expect(b.ctl.S.screen).toBe('loadout');
-    expect(text('#stage .cx-title')).toBe('FROSTFIRE');
+    expect(text('#stage .cx-title')).toBe('Frostfire');
     editRows()[0]!.querySelector<HTMLElement>('[data-act="lostep"][data-d="1"]')!.click();
     expect(value(0)).toBe('Type 2');
     editRows()[LOADOUT_SAVE_ROW]!.click();
@@ -405,7 +408,7 @@ describe('overlay mode (OT.R60): the screens work over a game page, and lock in 
     b.ctl.render();
     await flush();
     b.ctl.render();
-    expect(listRows()).toHaveLength(4);                              // the round's end reads them
+    expect(listRows()).toHaveLength(6);                              // the round's end reads them
     b.l.set('empty');
     await flush();
     b.ctl.render();

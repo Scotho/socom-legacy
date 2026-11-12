@@ -1,6 +1,10 @@
 import { LocalFileError } from './localFiles';
-import { ChunkAssembler, decodeBase64, encodeBase64, LIMITS, OPERATIONS, bytes,
-  type AgentRequest, type AgentResult } from '@s2u/forge-agent-protocol';
+import { ChunkAssembler, CaptureRefusal, admitRevision, decodeBase64, encodeBase64, FORGE_INPUT_OPERATIONS, LIMITS, OPERATIONS, bytes, parseCaptureArgs, teach,
+  type AdmittedRequest, type AgentRequest, type AgentResult, type CaptureArgs } from '@s2u/forge-agent-protocol';
+import type { Pose } from '../camera';
+import { boundsOfPoints, threeQuarterPose, topViewPose } from '../forge/camera/framing';
+import { canvasOptionsOf, captureFramed, savedPose } from './capturePreset';
+import type { CaptureCanvasOptions } from './install';
 import { FORGE_AGENT_OPERATIONS, RULES_INLINE_BYTES, type ForgeAgentApi, type ForgeAgentSnapshot } from '../forge/agent/api';
 import { FORGE_AUTHORING_SCHEMA, FORGE_AUTHORING_VERSION } from '../forge/rulesAuthoring';
 import type { PageAgentTarget } from './connection';
@@ -8,7 +12,7 @@ import type { LocalPackApi, LocalPackImport } from './localPacks';
 import { page, PagingRefusal as Refusal } from './paging';
 import { createReceiptStore } from './receipts';
 
-export interface ForgePageTargetOptions { api: ForgeAgentApi; build: string; packs?: LocalPackApi; capture?: () => Promise<Blob> }
+export interface ForgePageTargetOptions { api: ForgeAgentApi; build: string; packs?: LocalPackApi; capture?: (options?: CaptureCanvasOptions) => Promise<Blob> }
 function argsOf(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Refusal('INVALID_ARGUMENT');
   return value as Record<string, unknown>;
@@ -25,16 +29,18 @@ export function createForgePageTarget(options: ForgePageTargetOptions): PageAgen
     const status = api.status();
     return { surface: status.mode, revision: status.revision, build: options.build, name: status.name, map: status.map };
   };
-  const wrap = (request: AgentRequest, result: { ok: boolean; revision: number; code?: string; message?: string; data?: unknown }): AgentResult => ({
+  const wrap = (request: AdmittedRequest, result: { ok: boolean; revision: number; code?: string; message?: string; data?: unknown }): AgentResult => ({
     requestId: request.requestId, revision: result.revision, outcome: result.ok ? 'ok' : 'refused',
     ...(result.code ? { code: result.code } : {}), ...(result.data !== undefined ? { data: result.data } : result.message ? { data: { message: result.message } } : {}),
   });
-  async function perform(request: AgentRequest, signal: AbortSignal): Promise<AgentResult> {
-    const fail = (code: string): AgentResult => ({ requestId: request.requestId, revision: api.status().revision, outcome: 'refused', code });
+  async function perform(incoming: AgentRequest, signal: AbortSignal): Promise<AgentResult> {
+    const fail = (code: string): AgentResult => ({ requestId: incoming.requestId, revision: api.status().revision, outcome: 'refused', code });
     try {
       if (signal.aborted) return fail('CANCELLED');
       // The full snapshot (a clone of the layout, catalogue and refs) is read only by the operations that use it.
-      const status = api.status(), definition = OPERATIONS[request.operation];
+      const status = api.status(), definition = OPERATIONS[incoming.operation];
+      // AX-3 (C2): expectedRevision "current" is the revision just read, admitted in this synchronous step with its check.
+      const request = admitRevision(incoming, status.revision);
       let full: ForgeAgentSnapshot | undefined;
       const snapshot = (): ForgeAgentSnapshot => (full ??= api.read());
       if (status.mode === 'blocked' || !definition?.surfaces.includes(status.mode)) return fail('SURFACE_DENIED');
@@ -48,6 +54,12 @@ export function createForgePageTarget(options: ForgePageTargetOptions): PageAgen
       };
       switch (request.operation) {
         case 'target.status': { const s = snapshot(); return success({ ...read(), ready: s.ready, viewRevision: status.viewRevision, canUndo: s.canUndo, canRedo: s.canRedo, selection: s.selection, ...(s.play ? { play: s.play } : {}) }); }
+        // AX-13 (a browser adaptation): the player's focus -- their last clicked world point, the selection, the camera.
+        case 'forge.focus': {
+          if (!api.focus) return fail('UNSUPPORTED_OPERATION');
+          const focus = api.focus();
+          return focus ? success(focus) : fail('NOT_READY');
+        }
         case 'forge.read': {
           const section = typeof args['section'] === 'string' ? args['section'] : 'pieces';
           if (section === 'view') return success(snapshot().view);
@@ -91,15 +103,21 @@ export function createForgePageTarget(options: ForgePageTargetOptions): PageAgen
           if (request.expectedRevision !== undefined && request.expectedRevision !== status.revision) return fail('STALE_REVISION');
           return execute(request.operation === 'forge.assets' ? 'assets.query' : 'placement.check', args);
         }
+        // AX-17: the read-only spatial probe (diagnose), at the revision when the call names one.
+        case 'forge.probe': {
+          if (request.expectedRevision !== undefined && request.expectedRevision !== status.revision) return fail('STALE_REVISION');
+          return execute('world.probe', args);
+        }
         case 'forge.edit': {
           const operation = text(args['operation']);
           const nested = FORGE_AGENT_OPERATIONS.find(def => def.name === operation);
-          if (!nested || nested.permission !== 'edit') return fail('PERMISSION_DENIED');
+          // REVIEW-1 9: an inner operation forge.edit does not admit is unsupported (with the list), never a grant to re-pair for.
+          if (!nested || nested.permission !== 'edit') return { ...fail('UNSUPPORTED_OPERATION'), data: { admitted: FORGE_AGENT_OPERATIONS.filter(def => def.permission === 'edit').map(def => def.name) } };
           return execute(operation, args['arguments'] ?? {});
         }
         case 'forge.input': {
           const operation = text(args['operation']);
-          if (!['input.set', 'input.release', 'action.press', 'action.hold', 'action.release', 'action.cancel', 'equipment.equip', 'armory.key'].includes(operation)) return fail('PERMISSION_DENIED');
+          if (!(FORGE_INPUT_OPERATIONS as readonly string[]).includes(operation)) return { ...fail('UNSUPPORTED_OPERATION'), data: { admitted: [...FORGE_INPUT_OPERATIONS] } };   // AX-1: the manual's list; REVIEW-1 9
           return execute(operation, args['arguments'] ?? {});
         }
         case 'scenario.start': case 'scenario.status': case 'scenario.cancel': return execute(request.operation, args);
@@ -212,7 +230,66 @@ export function createForgePageTarget(options: ForgePageTargetOptions): PageAgen
     }, signal);
     return 'refused' in answer ? fail(answer.refused) : answer;
   }
-  return { read, dispatch, ...(options.capture ? { capture: options.capture } : {}), revoke() {
+  /**
+   * AX-8 (AX.R4; a browser adaptation): the tab is hidden and the pairing kept. The running shot ends `stopped` (the
+   * facade's stopShot, as the chip's Stop); in Play, the play operations' `scenario.cancel` cancels a running scenario and
+   * releases the agent's held inputs (`../forge/agent/play.ts` `cancel`), at the current revision as the target sends it.
+   * No receipt and no session reset: the agent's next requests, its receipts and its transfers are untouched.
+   */
+  function pause(): void {
+    api.stopShot?.('stopped');
+    const status = api.status();
+    if (status.mode === 'forge-play') void api.execute('scenario.cancel', {}, status.revision).catch(() => undefined);
+  }
+  /**
+   * AX-16 (plan item 16; a browser adaptation): the pose a preset frames, read from this revision's snapshot. `top`: the
+   * box of every placed piece and marker (each ref's `at`), else the base map's box; `refs`: the box of the given refs,
+   * each held by this revision; `named`: a placed spectator view's own pose (its record row: x, y, z, yaw, pitch in
+   * degrees), by `view:N` (the refs' order, `../forge/agent/commands.ts`) or by its name.
+   */
+  function presetPose(args: CaptureArgs, snapshot: ForgeAgentSnapshot, revision: number): Pose {
+    const refs = snapshot.refs as readonly { ref: string; at: [number, number, number] }[];
+    if (args.view === 'top') {
+      const bounds = boundsOfPoints(refs.map((r) => r.at)) ?? api.mapBounds?.() ?? null;
+      if (!bounds) throw new CaptureRefusal('NOT_READY', 'Nothing is placed and the page has no base map box to frame: place something first, or take view "current".');
+      return topViewPose(bounds);
+    }
+    if (args.view === 'refs') {
+      const points = (args.refs ?? []).map((name) => {
+        const found = refs.find((r) => r.ref === name);
+        if (!found) throw new CaptureRefusal('STALE_REVISION', `Ref ${name} is not on the page's current revision ${revision}: refs live for one revision -- read forge.read {section: "refs"} again and capture with its refs.`);
+        return found.at;
+      });
+      return threeQuarterPose(boundsOfPoints(points)!);
+    }
+    const rows = ((snapshot.layout as { scenicViews?: unknown } | null)?.scenicViews ?? []) as readonly [string, number, number, number, number, number][];
+    const name = (args.name ?? '').trim(), index = /^view:(\d+)$/.exec(name);
+    const row = index ? rows[Number(index[1])] : rows.find((r) => r[0].trim().toLowerCase() === name.toLowerCase());
+    if (!row) throw new CaptureRefusal('INVALID_REFERENCE', `No placed spectator view "${name}": the layout's views are ${rows.length ? rows.map((r, i) => `view:${i} "${r[0]}"`).join(', ') : 'none'}. Place one with forge.edit view.place, or take another view.`);
+    return { x: row[1], y: row[2], z: row[3], yaw: row[4], pitch: row[5] };
+  }
+  /**
+   * AX-16: one `target.capture`. `current` (or no request) takes the canvas as it is, as before AX-16; a preset frames the
+   * Build camera through the facade's `camera.pose` (which ends a running shot `stopped` first) at the current layout
+   * revision -- a view command, so the layout's revision never moves -- and restores the pose read before, on error too.
+   */
+  async function capture(request?: AgentRequest): Promise<Blob> {
+    const take = options.capture!, args = parseCaptureArgs(request?.args ?? {}), canvas = canvasOptionsOf(args);
+    if (args.view === 'current') return take(canvas);
+    const status = api.status();
+    if (status.mode === 'forge-play') throw new CaptureRefusal('PLAYING', 'The capture presets frame the Build camera: in Play take view "current", or call play.stop first.');
+    if (status.mode !== 'forge-editor') throw new CaptureRefusal('SURFACE_DENIED');
+    // AX-3 (C2): "current" is this revision; a number another one is the refs' revision gone by.
+    const expected = request ? admitRevision(request, status.revision).expectedRevision : undefined;
+    if (expected !== undefined && expected !== status.revision)
+      throw new CaptureRefusal('STALE_REVISION', `The page is at revision ${status.revision}, not ${expected}: read forge.read {section: "refs"} again and capture with its refs.`);
+    const snapshot = api.read();
+    const saved = savedPose((snapshot.view as { camera?: unknown }).camera), pose = presetPose(args, snapshot, status.revision);
+    const set = (to: Pose) => api.execute('camera.pose', to, api.status().revision, undefined, request ? { sessionId: request.sessionId } : undefined);
+    return captureFramed(set, pose, saved, () => take(canvas));
+  }
+  // AX-3 (C3): every refusal this target returns carries its hint (REFUSAL_HINTS) and, for a revision, the current one.
+  return { read, dispatch: async (request, signal) => teach(await dispatch(request, signal)), pause, ...(options.capture ? { capture } : {}), revoke() {
     // R6 (the round 5b review): the revoked pairing's shot ends `revoked` first; the reset's `disconnected` then finds none.
     receipts.clear(); api.stopShot?.('revoked'); api.resetSession(); imports.cancel(); imported = undefined; exported = undefined;
   } };

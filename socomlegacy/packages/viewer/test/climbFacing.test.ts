@@ -309,6 +309,8 @@ describe("the turn to the ledge is the short one, whatever the yaw's winding (FU
       w.driver = t;
       w.place(0, 60, -20);
       w.state.yaw = yaw;
+      for (let i = 0; i < 400 && t.climbPrompt()?.kind !== 'ladder'; i++) w.tick(input(-1));   // LC-1: the head's CLIMB,
+      t.action();                                                                                // mounted on the press
       for (let i = 0; i < 400 && t.state().kind === 'none'; i++) w.tick(input(-1));
       expect(t.state().kind, `yaw ${yaw}`).toBe('ladderMountTop');
     }

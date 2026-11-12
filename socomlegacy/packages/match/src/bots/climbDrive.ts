@@ -69,7 +69,7 @@ export class BotClimbDrive {
    }
   }
   const prompt=moves.climbPrompt();
-  if(aligned&&prompt?.visible&&!this.pressed){
+  if(aligned&&prompt?.visible&&prompt.kind!=='ladder'&&!this.pressed){   // LC-1 (review F5): a ladder's CLIMB is no crate climb
    this.pressed=!prompt.automatic;
    return {command:command(1,0,prompt.automatic?0:Button.Action,turn),done:false,failed:false};
   }

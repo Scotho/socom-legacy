@@ -23,6 +23,8 @@
  * research note goes through `derive-from-desktop` first.
  */
 
+import { RAISE_ADDRESSES, RAISE_RECORDS_MAX, readRaise, type PcsxRaise, type RaiseColumn } from './raise';
+
 /** The builds the table has a column for: the disc as shipped (r0001) and the online update (r0004). */
 export type Revision = 'r0001' | 'r0004';
 export const REVISIONS: readonly Revision[] = ['r0001', 'r0004'];
@@ -527,6 +529,126 @@ export interface PcsxPadProbe {
   readonly triPeak: number | null;
 }
 
+/**
+ * The floor probe's origin (the origin option; the jump-air trace, 2026-11-08): the vertical probe record FUN_005b0840
+ * queues each actor tick (socom_pc research 23 s1.1-1.3, all r0001; D:L467199-467290). It starts from
+ * (A+0xf54, max(A+0xf58, DAT_0066aab8 = A+0x20), A+0xf5c) (D:L467215-467220; FUN_005506a0 sets the global just before
+ * the call), adds the bone translation `*(A->vtbl[0x88]() + 0xc) + 0x30` turned by `*(A+0x28)` (D:L467221-467251; in
+ * posture 3 only its y, D:L467252-467257), takes record `DAT_0044d598` of the array of record pointers `DAT_0044d588`
+ * (length `DAT_0044d590`, grown by one when full, D:L467258-467274), writes the origin at its +4..+0xc
+ * (D:L467278-467280), the slot at A+0x2cc (D:L467275) and the actor's self object at its +0x3c (FUN_0029ed20,
+ * D:L467289-467290). FUN_005b0420 sets A+0x2cc back to -1 after the take (-999 when the queue returned early), so a
+ * row never sees the slot: it finds the player's record by its origin's x/z within ORIGIN_MATCH_XZ of the feet, then
+ * keeps it by its self object (the record's index can change, the owner cannot).
+ *
+ * r0004: FUN_005b0840 has no twin in match.json; placed at 0x5b6620 (217 of 217 r0001 instructions aligned in order
+ * under the mask, a 20-word insert after the lift; its only caller is FUN_005506a0's twin at 0x555848), every actor
+ * displacement unchanged; the globals by data_via_twin (R0004_OFFSET_EVIDENCE/probe_origin_place.out). Instrument
+ * addresses, not game values: what the column measures reaches a research note through `derive-from-desktop` first.
+ */
+export interface OriginColumn {
+  /** The global holding the array of probe record pointers (DAT_0044d588). */
+  readonly recordArray: number;
+  /** The global holding that array's length (DAT_0044d590; the records allocated, not this frame's count). */
+  readonly recordCount: number;
+  /** In a record: the origin x, y, z. */
+  readonly recOrigin: number;
+  /** In a record: the excluded self object. */
+  readonly recSelf: number;
+  /** In the actor: the probe base x, y, z (+0xf54..+0xf5c; y is max'd with the actor's y). */
+  readonly probeBase: number;
+  /** In the actor: the record slot (an int; -1 after the take, -999 when the queue returned early). */
+  readonly probeSlot: number;
+  /** In the actor: the flag byte the queue tests (bit 3 skips the probe; bit 1 the jump's own airborne flag). */
+  readonly flags1061: number;
+  /** The global DAT_0066aab8: the y FUN_005506a0 hands the queue (the last actor's to probe). */
+  readonly probeY: number;
+}
+
+export const ORIGIN_ADDRESSES: Readonly<Record<Revision, OriginColumn>> = {
+  r0001: { recordArray: 0x0044d588, recordCount: 0x0044d590, recOrigin: 4, recSelf: 0x3c, probeBase: 0xf54, probeSlot: 0x2cc, flags1061: 0x1061, probeY: 0x0066aab8 },
+  r0004: { recordArray: 0x00450920, recordCount: 0x00450928, recOrigin: 4, recSelf: 0x3c, probeBase: 0xf54, probeSlot: 0x2cc, flags1061: 0x1061, probeY: 0x0066a438 },
+};
+
+const ORIGIN_PLACE = `${R0004_OFFSET_EVIDENCE}/probe_origin_place.out`;
+
+/** Each origin address's evidence, per build: what probe.json cites. */
+export const ORIGIN_EVIDENCE: Readonly<Record<Revision, Readonly<Record<keyof OriginColumn, string>>>> = {
+  r0001: {
+    recordArray: 'decompilation: FUN_005b0840 D:L467258-467276; socom_pc research 23 s1.1',
+    recordCount: 'decompilation: FUN_005b0840 D:L467258, D:L467272',
+    recOrigin: 'decompilation: FUN_005b0840 D:L467278-467280; research 23 s1.3',
+    recSelf: 'decompilation: FUN_005b0840 D:L467289-467290 (FUN_0029ed20)',
+    probeBase: 'decompilation: FUN_005b0840 D:L467215-467220 (piVar8[0x3d5..0x3d7])',
+    probeSlot: 'decompilation: FUN_005b0840 D:L467199, D:L467275 (piVar8[0xb3]); research 23 s1.1 (FUN_005b0420 sets -1)',
+    flags1061: 'decompilation: FUN_005b0840 D:L467200 (bit 3 returns early)',
+    probeY: 'decompilation: FUN_005b0840 D:L467218-467219; research 23 s1.1 (FUN_005506a0 sets it = A+0x20)',
+  },
+  r0004: {
+    recordArray: `data_via_twin 0x44d588 -> 0x450920, 4 of 9 sites evidence-twinned in 2 functions, unanimous; the placed queue reads it at 0x5b68ac/0x5b6914 (${ORIGIN_PLACE})`,
+    recordCount: `data_via_twin 0x44d590 -> 0x450928, 3 of 8 sites evidence-twinned, unanimous; the placed queue reads it at 0x5b6854 (${ORIGIN_PLACE})`,
+    recOrigin: `the placed queue (r0004 0x5b6620): its stores +4/+8/+0xc at 0x5b6938-0x5b694c unchanged (${ORIGIN_PLACE})`,
+    recSelf: `the placed queue: its store +0x3c at 0x5b69b8 unchanged (${ORIGIN_PLACE})`,
+    probeBase: `the placed queue: its loads +0xf54/+0xf58/+0xf5c at 0x5b66e8-0x5b6700 unchanged (${ORIGIN_PLACE})`,
+    probeSlot: `the placed queue: +0x2cc at 0x5b6634/0x5b6904 unchanged; FUN_005b0420 by masked body at 0x5b6200, both +0x2cc sites unchanged (${ORIGIN_PLACE})`,
+    flags1061: `the placed queue: +0x1061 at 0x5b6638 unchanged; FUN_005b0420's twin, every +0x1061 site unchanged (${ORIGIN_PLACE})`,
+    probeY: `data_via_twin 0x66aab8 -> 0x66a438 (1 site, in FUN_005506a0's twin); the placed queue reads it at 0x5b6704 (${ORIGIN_PLACE})`,
+  },
+};
+
+/** The origin addresses taken by layout, a vote or a single referrer rather than their own function's twin, per build
+ *  (the EXTRA_INFERRED convention; what probe.json cites beside ORIGIN_EVIDENCE). None: r0001's are the decompilation's,
+ *  r0004's the placed queue's own sites, 0x66a438 its twin site plus the placed queue's read at 0x5b6704. */
+export const ORIGIN_INFERRED: Readonly<Record<Revision, readonly (keyof OriginColumn)[]>> = {
+  r0001: [],
+  r0004: [],
+};
+
+/** The slot FUN_005b0840 leaves at A+0x2cc when it returns early (D:L467199, before the bit 3 test at D:L467200);
+ *  FUN_005b0420 resets only a slot >= 0 to -1, so it survives to the row. The queue's records are never cleared, so a
+ *  record kept by its self object then holds an earlier frame's origin: the row blanks the origin columns and sets
+ *  probeOriginStale. */
+export const ORIGIN_SLOT_SKIPPED = -999;
+
+/** World units of x/z within which a record is taken as the player's before its self object is known (an adaptation:
+ *  the origin's x/z is the probe base's plus the turned bone's, a unit or two off the feet; the M51 state's teammates
+ *  stand 32-56 u away). */
+export const ORIGIN_MATCH_XZ = 8;
+/** The most records a row scans (an adaptation, the instrument's bound against a bad length). A frame whose length
+ *  passes it with no record matched within it is counted in the Sampler's originBeyondCap (probe.json). */
+export const ORIGIN_RECORDS_MAX = 64;
+
+export const PCSX_ORIGIN_COLUMNS = ['probeRecs', 'probeIdx', 'probeSelf', 'probeOx', 'probeOy', 'probeOz', 'probeLift', 'probeDxz',
+  'probeBaseX', 'probeBaseY', 'probeBaseZ', 'probeYGlobal', 'probeSlot', 'flags1061', 'originTorn', 'probeOriginStale'] as const;
+
+export interface PcsxOrigin {
+  /** The record array's length (DAT_0044d590). */
+  readonly probeRecs: number | null;
+  /** The player's record's index; null when none was found. */
+  readonly probeIdx: number | null;
+  /** The record's self object, hex. */
+  readonly probeSelf: string | null;
+  readonly probeOx: number | null;
+  readonly probeOy: number | null;
+  readonly probeOz: number | null;
+  /** probeOy less the row's feet y (the actor's +0x20, read at the row's start). */
+  readonly probeLift: number | null;
+  /** The record's x/z distance from the feet. probeOx..probeDxz are null in a stale row (probeOriginStale 1). */
+  readonly probeDxz: number | null;
+  readonly probeBaseX: number | null;
+  readonly probeBaseY: number | null;
+  readonly probeBaseZ: number | null;
+  readonly probeYGlobal: number | null;
+  readonly probeSlot: number | null;
+  readonly flags1061: number | null;
+  /** 1 when the guest clock moved during the origin reads, 0 when not, null when unread. */
+  readonly originTorn: number | null;
+  /** 1 when probeSlot reads ORIGIN_SLOT_SKIPPED in an un-torn row (the queue returned early this frame: the kept record
+   *  is an earlier frame's, its origin columns blanked), 0 when not, null when the slot or the clock is unread or the
+   *  row is torn. A record left stale by a drop of the player's queue index is not detected by it. */
+  readonly probeOriginStale: number | null;
+}
+
 /** The Sampler's options: the extra words, off by default. */
 export interface SamplerOptions {
   /** The press probe's pad columns (PAD_PROBE_ADDRESSES), off by default. */
@@ -536,6 +658,12 @@ export interface SamplerOptions {
   readonly nearRadius?: number;
   /** Rows between walks of the actor list (default 30); between them only the kept actors' positions are read. */
   readonly nearRefreshRows?: number;
+  /** The floor probe's origin columns (ORIGIN_ADDRESSES), off by default. */
+  readonly origin?: boolean;
+  /** The enemy-raise columns (./raise RAISE_ADDRESSES), off by default. */
+  readonly raise?: boolean;
+  /** The records the raise columns walk, 1..RAISE_RECORDS_MAX (default RAISE_RECORDS_MAX; probe.ts --raise-records). */
+  readonly raiseRecords?: number;
 }
 
 /** The longest list walk: a guard against a broken list, never reached by the game's own (adaptation). */
@@ -555,7 +683,7 @@ export interface PineReads {
 }
 
 /** A row: the probe's fields, then the tilt (EPH-TILT; optional in the type so a row built before it still fits). */
-export interface PcsxSample extends Partial<PcsxTilt>, Partial<PcsxStick>, Partial<PcsxExtra>, Partial<PcsxPadProbe> {
+export interface PcsxSample extends Partial<PcsxTilt>, Partial<PcsxStick>, Partial<PcsxExtra>, Partial<PcsxPadProbe>, Partial<PcsxOrigin>, Partial<PcsxRaise> {
   /** Review F2: 1 when the guest clock moved during the extra reads, 0 when not, null when unread; absent without --extra. */
   readonly extraTorn?: number | null;
   /**
@@ -640,6 +768,107 @@ export class Sampler {
     return { ...extra, extraTorn, ...(await this.padProbeOf()) };
   }
   private readonly extraCol: ExtraColumn | null;
+  private readonly originCol: OriginColumn | null;
+  /** The player's probe record as last found: its index and its self object (kept across rows). */
+  private originKept: { idx: number; self: number } | null = null;
+  /** Origin reads refused or failed (each one null). */
+  originErrors = 0;
+  /** Rows whose record length passed ORIGIN_RECORDS_MAX with no record matched within it (probe.json). */
+  originBeyondCap = 0;
+
+  /**
+   * The origin columns, last in the row, with their own clock read (`originTorn`). The kept record is read first; when
+   * its self object no longer matches, the array is scanned for that self object; with none kept, for the record whose
+   * origin x/z lies nearest the feet within ORIGIN_MATCH_XZ.
+   */
+  private async originOf(actor: number, feet: readonly [number, number, number], c0: number): Promise<Partial<PcsxOrigin>> {
+    if (!this.originCol) return {};
+    const o = this.originCol;
+    const g = new SafeReads(this.pine);
+    const arr = await g.word(o.recordArray);
+    const count = await g.word(o.recordCount);
+    const n = arr !== null && guestPointer(arr) && count !== null ? Math.min(count >>> 0, ORIGIN_RECORDS_MAX) : 0;
+    const rec = async (i: number): Promise<{ i: number; self: number | null; at: (number | null)[] } | null> => {
+      const r = await g.word(arr! + 4 * i);
+      if (r === null || !guestPointer(r)) return null;
+      return { i, self: await g.word(r + o.recSelf), at: await g.floats(r + o.recOrigin, 3) };
+    };
+    const dxz = (at: (number | null)[]): number => {
+      const ax = at[0], az = at[2];
+      return ax == null || az == null ? Infinity : Math.hypot(ax - feet[0], az - feet[2]);
+    };
+    let found: { i: number; self: number | null; at: (number | null)[] } | null = null;
+    const kept = this.originKept;
+    if (kept && kept.idx < n) {
+      const r = await rec(kept.idx);
+      if (r && r.self === kept.self) found = r;
+    }
+    if (!found && n > 0) {
+      let best: { i: number; self: number | null; at: (number | null)[] } | null = null;
+      for (let i = 0; i < n; i++) {
+        const r = await rec(i);
+        if (!r) continue;
+        if (kept && r.self === kept.self) { best = r; break; }
+        if (!kept && dxz(r.at) <= ORIGIN_MATCH_XZ && (!best || dxz(r.at) < dxz(best.at))) best = r;
+      }
+      found = best;
+    }
+    if (!found && count !== null && (count >>> 0) > ORIGIN_RECORDS_MAX) this.originBeyondCap++;
+    if (found && found.self !== null) this.originKept = { idx: found.i, self: found.self };
+    const [probeBaseX, probeBaseY, probeBaseZ] = await g.floats(actor + o.probeBase, 3);
+    const probeYGlobal = await g.float(o.probeY);
+    const slot = await g.word(actor + o.probeSlot);
+    const flags1061 = await g.byte(actor + o.flags1061);
+    const c4 = await g.word(this.col.guestClock);
+    this.originErrors += g.errors;
+    const torn = c4 === null ? null : c4 === c0 ? 0 : 1;
+    const stale = slot === null || torn !== 0 ? null : (slot | 0) === ORIGIN_SLOT_SKIPPED ? 1 : 0;
+    const live = found && stale !== 1 ? found : null;
+    const oy = live ? live.at[1] ?? null : null;
+    return {
+      probeRecs: count === null ? null : count >>> 0,
+      probeIdx: found ? found.i : null,
+      probeSelf: found && found.self !== null ? `0x${(found.self >>> 0).toString(16)}` : null,
+      probeOx: live ? live.at[0] ?? null : null,
+      probeOy: oy,
+      probeOz: live ? live.at[2] ?? null : null,
+      probeLift: oy === null ? null : oy - feet[1],
+      probeDxz: live ? dxz(live.at) : null,
+      probeBaseX: probeBaseX ?? null, probeBaseY: probeBaseY ?? null, probeBaseZ: probeBaseZ ?? null,
+      probeYGlobal,
+      probeSlot: slot === null ? null : slot | 0,
+      flags1061,
+      originTorn: torn,
+      probeOriginStale: stale,
+    };
+  }
+  private readonly raiseCol: RaiseColumn | null;
+  private readonly raiseRecords: number;
+  /** Raise reads refused or failed, and target pointers not followed (each one null). */
+  raiseErrors = 0;
+  /** Rows whose raise reads straddled a guest frame (`raiseTorn`). */
+  raiseTorn = 0;
+  /** Rows whose perception record count passed the walk cap (raiseRecords; records past it unread; probe.json). */
+  raiseBeyondCap = 0;
+  /** ctrl+0x22c and +0x230 (the idle countdown's base and spread), read once from the first controller (probe.json). */
+  raiseIdleConfig: { ctrl: string; idleBase: number; idleSpread: number } | null = null;
+
+  /** The raise columns, after the origin's, with their own clock read (`raiseTorn`); ./raise readRaise. */
+  private async raiseOf(c0: number): Promise<Partial<PcsxRaise>> {
+    if (!this.raiseCol) return {};
+    const o = this.raiseCol;
+    const g = new SafeReads(this.pine);
+    const r = await readRaise(g, o, this.col.guestClock, c0, this.raiseRecords);
+    if (r.beyondCap) this.raiseBeyondCap++;
+    if (r.row.raiseTorn === 1) this.raiseTorn++;
+    if (this.raiseIdleConfig === null && r.ctrl !== null) {
+      const idleBase = await g.float(r.ctrl + o.ctrlIdleBase);
+      const idleSpread = await g.float(r.ctrl + o.ctrlIdleSpread);
+      if (idleBase !== null && idleSpread !== null) this.raiseIdleConfig = { ctrl: `0x${(r.ctrl >>> 0).toString(16)}`, idleBase, idleSpread };
+    }
+    this.raiseErrors += g.errors;
+    return r.row;
+  }
   private near: { obj: number; type: number }[] = [];
   private rowsSinceWalk = Infinity;
 
@@ -648,6 +877,12 @@ export class Sampler {
     this.tiltCol = TILT_ADDRESSES[revision];
     this.stickCol = STICK_ADDRESSES[revision];
     this.extraCol = opts.extra ? EXTRA_ADDRESSES[revision] : null;
+    this.originCol = opts.origin ? ORIGIN_ADDRESSES[revision] : null;
+    this.raiseCol = opts.raise ? RAISE_ADDRESSES[revision] : null;
+    this.raiseRecords = opts.raiseRecords ?? RAISE_RECORDS_MAX;
+    if (!Number.isInteger(this.raiseRecords) || this.raiseRecords < 1 || this.raiseRecords > RAISE_RECORDS_MAX) {
+      throw new RangeError(`EPH sampler: raiseRecords takes 1..${RAISE_RECORDS_MAX}, not ${this.raiseRecords}`);
+    }
   }
 
   /** The extra words for the row (one read at a time, SafeReads: a failure is null, never the row). */
@@ -716,7 +951,7 @@ export class Sampler {
     // EPH-TILT: after the base row's own clock check, through SafeReads, so no tilt or stick read can cost the row; a
     // third clock read says whether they straddled a frame (`tiltTorn`).
     if (!this.tiltCol && !this.stickCol) {
-      return { ...(await this.extraOf(actor, [x, y, z], c0)), clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...noTilt(), stickTurn: null, stickForward: null, stickLateral: null,
+      return { ...(await this.extraOf(actor, [x, y, z], c0)), ...(await this.originOf(actor, [x, y, z], c0)), ...(await this.raiseOf(c0)), clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...noTilt(), stickTurn: null, stickForward: null, stickLateral: null,
         padRaw0: null, padRaw1: null, padRaw2: null, padRaw3: null, padMoveA: null, padMoveB: null, padFlag0: null, ctlForward: null, ctlLateral: null, ctlTurn: null, tiltTorn: null };
     }
     const g = new SafeReads(this.pine);
@@ -742,8 +977,10 @@ export class Sampler {
     if (tiltTorn === 1) this.tiltTorn++;
     this.tiltErrors += g.errors;
     const extra = await this.extraOf(actor, [x, y, z], c0);
+    const origin = await this.originOf(actor, [x, y, z], c0);
+    const raise = await this.raiseOf(c0);
     return {
-      ...extra, clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...tilt, stickTurn, stickForward, stickLateral,
+      ...extra, ...origin, ...raise, clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...tilt, stickTurn, stickForward, stickLateral,
       padRaw0: b(0), padRaw1: b(1), padRaw2: b(2), padRaw3: b(3), padMoveA, padMoveB,
       padFlag0: flagW === null ? null : flagW & 0xff, ctlForward, ctlLateral, ctlTurn, tiltTorn,
     };

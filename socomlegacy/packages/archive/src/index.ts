@@ -6,6 +6,7 @@ export * from './frontEndFiles';
 export * from './httpAssetSource';
 export * from './isoAssetSource';
 export * from './mapIndex';
+export * from './mapNames';
 export * from './memberOverride';
 export * from './rdr';
 export * from './readSet';

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parseZdb, zdbMember } from '@s2u/archive';
-import { ITEM, parseAiMaps, readKitTable, zoneContains, zonesOfKind } from '@s2u/scene';
+import { ITEM, parseAiMaps, readKitTable, zoneContains, zonesOfKind, type AiLoc } from '@s2u/scene';
 import { fixture } from '../../archive/test/fixtures';
 import { simClipsFromBytes, simMapFromBytes } from '../../viewer/src/simMap';
 import { DoorSet } from '../../viewer/src/doors';
@@ -31,7 +31,11 @@ const gap = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0]! - b
 // Test-only route planning: sample real Walker moves around an AI waypoint that a player cannot
 // occupy. Probe walkers are disposable; the actual leader replays every returned segment through
 // normal movement, and the follower is never moved by this search. Limits are fixture budgets.
-function detour(map: ReturnType<typeof simMapFromBytes>, from: number[], targets: readonly (readonly number[])[]) {
+// A waypoint is reached on its own storey only: its cell's sub-map against the walked point's located one (the
+// planner's stacked-map selection, FUN_0052dc70 D:L397225-397428). An XZ-only match took MP11's upper-floor route point
+// (1416,-100,554) from the floor 40 below and resumed the route there, off the authored cells (DF-3, 2026-11-08).
+function detour(map: ReturnType<typeof simMapFromBytes>, planner: HostagePathPlanner, from: number[],
+  targets: readonly (readonly number[])[], targetCells: readonly AiLoc[]) {
   type Node = { at: number[]; parent: Node | null; cost: number; score: number };
   const heuristic = (at: number[]) => Math.min(...targets.map(t => gap(at, t)));
   const open: Node[] = [{ at: from, parent: null, cost: 0, score: heuristic(from) }], visited = new Map<string, number>();
@@ -41,7 +45,8 @@ function detour(map: ReturnType<typeof simMapFromBytes>, from: number[], targets
     open.sort((a, b) => b.score - a.score);
     const node = open.pop()!;
     if (node.cost > visited.get(key(node.at))!) continue;
-    const reached = targets.findIndex(t => gap(node.at, t) < 4);
+    const storey = planner.locate(node.at as [number, number, number])?.map;
+    const reached = targets.findIndex((t, k) => gap(node.at, t) < 4 && storey === targetCells[k]!.map);
     if (reached >= 0) {
       const path: number[][] = [];
       for (let n: Node | null = node; n?.parent; n = n.parent) path.push(n.at);
@@ -140,6 +145,7 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
           runway = candidate;
         }
         const points = [start.at, ...route!.points.map(p => planner.point(p)), planner.point(runway)];
+        const pointCells: AiLoc[] = [start.loc, ...route!.points, runway];
         const actorViews = (): HostageActor[] => [
           { id: leader.id, alive: true, cell: obstacles.actorCell(leader.id), velocity: [leaderWalker.state.vx, leaderWalker.state.vy, leaderWalker.state.vz],
             position: leader.feet, rawCell: planner.locate(leader.feet), ai: false, stance: leader.stance, excluded: false, yieldTo: null, probeRefused: false },
@@ -158,7 +164,7 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
         const leader: FollowLeader = { id: 1, feet: [...start.at], yaw: 0, velocity: [0, 0, 0], topSpeed: 65, stance: 0 };
         let segment = 1, stalled = 0, anchor = follower.feet, reached = false;
         let leaderStalled = 0, leaderAnchor = [...start.at];
-        let bypass: number[][] = [], bypassResume = 0, detours = 0;
+        let bypass: number[][] = [], bypassResume = 0, detours = 0, bypassGoal: readonly number[] = [], bypassGoalMap = -1;
         for (let tick = 0; tick < MAX_TICKS; tick++) {
           const moving = segment < points.length && gap(leader.feet, follower.feet) < MAX_LEAD;
           const body = leaderWalker.state;
@@ -177,14 +183,28 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
           // cell centre beside a jamb. This only advances the aim; it never bypasses collision.
           if (bypass.length) {
             if (gap(leader.feet, bypass[0]!) < 1) bypass.shift();
+            // The detour's own waypoint within the same five units, on its storey, ends the detour as the plain advance
+            // would: a probe's last step can sit against a jamb the scripted body stands off (MP11's g339_1, DF-3).
+            if (bypass.length && gap(leader.feet, bypassGoal) < 5 && planner.locate(leader.feet)?.map === bypassGoalMap) bypass = [];
             if (!bypass.length) segment = bypassResume;
           } else if (segment < points.length && gap(leader.feet, points[segment]!) < 5) segment++;
           if (!moving || gap(leaderAnchor, leader.feet) >= 1) { leaderAnchor = [...leader.feet]; leaderStalled = 0; }
           else leaderStalled++;
           if (leaderStalled === 60 && !bypass.length && detours < 8) {
-            const alternate = detour(map, [...leader.feet], points.slice(segment, segment + 8));
+            // Besides the next eight waypoints, authored cells along the current leg every 20 units inside the search's
+            // reach: a leg longer than the reach (MP11's 230-unit climb at (1280,79,1462)) otherwise offers no target.
+            const next = points[segment]!, leg = gap(leader.feet, next), along: number[][] = [], alongCells: AiLoc[] = [];
+            for (let d = 20; d < leg && d <= 180; d += 20) {
+              const t = d / leg, p = [0, 1, 2].map(i => leader.feet[i]! + (next[i]! - leader.feet[i]!) * t);
+              const c = planner.locate(p as [number, number, number]);
+              if (c && planner.traversable(c)) { along.push(p); alongCells.push(c); }
+            }
+            const goals = [...along, ...points.slice(segment, segment + 8)], goalCells = [...alongCells, ...pointCells.slice(segment, segment + 8)];
+            const alternate = detour(map, planner, [...leader.feet], goals, goalCells);
             if (alternate?.path.length) {
-              bypass = alternate.path; bypassResume = segment + alternate.reached + 1; detours++;
+              bypass = alternate.path; detours++;
+              bypassResume = alternate.reached < along.length ? segment : segment + alternate.reached - along.length + 1;
+              bypassGoal = goals[alternate.reached]!; bypassGoalMap = goalCells[alternate.reached]!.map;
               leaderStalled = 0; leaderAnchor = [...leader.feet];
             }
           }

@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Group, Mesh, type Object3D, type Scene } from 'three';
 import { arsenalOf, CLAYMORE, CLAYMORE_RULES, DEFAULT_GRID_PARAMS, HELD_RIFLE, HELD_SIDEARM, type Loadout } from '@s2u/scene';
 import type { RdrNode } from '@s2u/archive';
@@ -55,8 +55,14 @@ import { TraversalPage } from '../src/traversalPage';
 import { PICKUP_PROMPT_COOLDOWN_READING } from '../src/net/pickupRules';
 import { STANCE_HOLD_S_PLACEHOLDER } from '../src/stanceButton';
 import { TurretPage } from '../src/turretPage';
-import { PIXEL_RATIO_FLOOR_ADAPTATION } from '../src/matchViewport';
-import { renderCapFor, VIDEO_SETTINGS_DEFAULTS, videoSettingsKeeper } from '../src/videoSettings';
+import { ADAPTIVE_V2_ADAPTATION, AdaptiveRatio, PIXEL_RATIO_FLOOR_ADAPTATION } from '../src/matchViewport';
+import { AUTO_FLOOR_SHARE_ADAPTATION, FirstMatchProbe, VIDEO_AUTO_KEY } from '../src/autoQuality';
+import { pageRendererProbe } from '../src/deviceClass';
+import { beaconPerfPending, resetPageClientErrorBeaconForTest, type PerfReport } from '../src/clientErrorBeacon';
+import { resetPageFrameSamplerForTest } from '../src/frameSampler';
+import { GRAPHICS_BACKEND_KEY } from '../src/graphicsBackend';
+import { renderCapFor, VIDEO_SETTINGS_DEFAULTS, videoSettingsKeeper, videoSettingsKeeperV2, type FrameCap } from '../src/videoSettings';
+import { worldAnisotropyOn } from '../src/experimentalWorldSampling';
 import { CharacterShadow } from '../src/charShadow';
 import { wantsTouchControls } from '../src/touch';
 import { ROUND_SCREEN_BITMAPS } from '../src/roundScreens';
@@ -66,6 +72,7 @@ import { drawnTurretParts, placementView } from '../src/turretHook';
 import { TURRET_HOLD_CLIP, TURRET_MOUNT_CLIPS } from '../src/net/emplacement';
 import type { TraversalPose } from '../src/animator';
 import type { TurretPlacement } from '@s2u/scene';
+import { NAME_TAGS_KEY } from '../src/nameTags';
 
 /**
  * ONL-18c (web research 166 §8): the match's world in the front end's page. `mountMatch` builds the match from
@@ -377,6 +384,7 @@ describe('mountMatch: the match built from parameters, with no /testroom markup 
     const x = handOff();
     const listeners = windowListeners();
     const lost: string[] = [];
+    pageRendererProbe();                                                                // VS-7 review F4: the page's probe (its throwaway context) made before the mock, whatever the order
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) => (kind === 'webgl2'
       ? { getExtension: (n: string) => (n === 'WEBGL_lose_context' ? { loseContext: () => { lost.push(kind); } } : null) } : null)) as never);
     const hudGone = vi.spyOn(Hud.prototype, 'dispose');
@@ -471,6 +479,24 @@ describe('mountMatch: the match built from parameters, with no /testroom markup 
     expect([hook.team(), hook.side(), hook.kit()]).toEqual(['terrorist', 'terrorist', [1, 2, 3, 4, 5]]);
     m.close();
   });
+
+  // PRE-SPAWN-SIDE (PRE_SPAWN_STAND_SIDE_READING, research 222 s12): before the room's spawn the walk and the camera stand at
+  // the seat's own start -- B for a Terrorist (research 75 s0) -- not at the SEALs' A. Frostfire's measured rows
+  // (`spawns.ts`): A [796, 100, 614], B [536, 143, 1254]; the synthetic map has no hull, so the feet are the row's own y.
+  for (const team of ['terrorist', 'seal'] as const) {
+    it(`PRE-SPAWN-SIDE: a ${team === 'terrorist' ? 'Terrorist' : 'SEAL'} seat's walk and camera stand at its own start (${team === 'terrorist' ? 'B' : 'A'}) before the spawn`, async () => {
+      const x = handOff(team);
+      const ground = vi.spyOn(WalkMode.prototype, 'setGround');
+      const look = vi.spyOn(FlyCamera.prototype, 'lookFrom');
+      const t = options(x, { events: [{ ...welcome, team } as unknown as ServerEvent], assets: Promise.resolve({ map: { ...synthetic(), name: 'Frostfire' } as LoadedMap, clips: null }) });
+      const m = mountMatch(document.body, t.o);
+      await flush();
+      const [own, other] = team === 'terrorist' ? [[536, 143, 1254], [796, 100, 614]] : [[796, 100, 614], [536, 143, 1254]];
+      expect(ground.mock.calls.at(-1)?.[1]).toEqual(own);
+      expect(look.mock.calls.at(-1)).toEqual([[own[0], own[1]! + 20, own[2]], other]);
+      m.close();
+    });
+  }
 
   it('held (LobbyMatch.blocked): the camera takes no input and the pad is flushed each frame; released, the stick is live at once', async () => {
     const x = handOff();
@@ -825,7 +851,7 @@ describe('ACT-5: the hostages part on both pages (HX-4a, HX-5; ruling HX.R8 clos
       /aim: \(\) => walk\.fireAim\(\),/,
       /bodies: \(eye, dir, reach\) => remote\.aimBodies\(eye, dir, reach\),/,
       /surfaces: \(eye, far\) => \{ const g = walk\.grid\(\); return g \? pickSurfaces\(g, eye, far, map\?\.grenade\?\.defaultMaterial \?\? ''\) : \[\]; \},/,
-      /cellOf: \(feet\) => \{ const sub = map\?\.ai\?\.maps\[0\]; return sub \? aiCellOf\(sub, feet\[0\]!, feet\[2\]!\) : null; \},/,
+      /cellOf: \(feet\) => orderCellOf\(map\?\.ai, feet\),/,                // DF-7: the located cell (ORDER_CELL_FIELD_READING)
       /order: \(id, cmd\) => net\?\.hostageOrder\(id, cmd\) \?\? false,/,
     ];
     for (const d of deps) expect(mm.slice(built), String(d)).toMatch(d);
@@ -838,8 +864,9 @@ describe('ACT-5: the hostages part on both pages (HX-4a, HX-5; ruling HX.R8 clos
     expect(mm).toMatch(/roundClear: \(\) => \{[^\n]*hostages\.reset\(\);[^\n]*\},/);
     expect(mm).toMatch(/\.\.\.sound\.netDeps\(\),[^\n]*\n\s+hostageState: \(ev\) => hostages\.state\(ev\),/);
     // A Forge layout's escort zones' marks beside them (`./forge/playObjectives` `FORGE_ESCORT_ZONE_MARK_ADAPTATION`):
-    // only a Forge map carries `forgeZoneMarks`; any other passes undefined, `main.ts`'s line exactly.
-    expect(mm).toMatch(/hud\.setHostageMarks\(net\?\.hostageMarks\(map\?\.ai(, map\?\.forgeZoneMarks)?\) \?\? \[\]\);[^\n]*\n\s+hud\.render\(/);
+    // only a Forge map carries `forgeZoneMarks`; any other passes undefined, `main.ts`'s line exactly. FP-1b (REVIEW-C 21):
+    // the forge marks' argument is required, not an optional group that passes either form.
+    expect(mm).toMatch(/hud\.setHostageMarks\(net\?\.hostageMarks\(map\?\.ai, map\?\.forgeZoneMarks\) \?\? \[\]\);[^\n]*\n\s+(?:if \(drawFrame\) )?hud\.render\(/);   // VS-4: the render behind the frame cap's gate
   });
   it("the lobby's client in an EXTRACTION welcome: the hostages' states reach the page's HostagePage (state hook), and an escortee under the crosshair alive and in range is offered FOLLOW! (the escortee context; the fire sends hostageOrder)", async () => {
     const frame = vi.spyOn(HostagePage.prototype, 'frame'), state = vi.spyOn(HostagePage.prototype, 'state');
@@ -853,8 +880,10 @@ describe('ACT-5: the hostages part on both pages (HX-4a, HX-5; ruling HX.R8 clos
     });
     const hostage = { id: 240, alive: true, ai: 0x17, leader: null, rescuer: null, opacity: 1, unit: 0x11, name: 'Hostage', character: 'mp_fem1', at: [0, 0, -50], yaw: 0 };
     const extraction = { ...welcome, hostages: [hostage] } as unknown as ServerEvent;
-    // Sub-map 0 over the floor, 10 u cells: the seat and the hostage 5 cells apart (under ORDER_RANGE_CELLS_READING's 20).
-    const ai = { version: 2, maps: [{ index: 0, name: 'sub0', id: 0, flags: 0, min: [-200, 0, -200], max: [200, 0, 200], cellsX: 40, cellsZ: 40, cellSize: [10, 10], zones: [] }], links: { words: 0, records: 0 }, spawns: [] };
+    // Sub-map 0 over the floor, 10 u cells, every cell stored walkable (the order's cell is the located one, DF-7's
+    // `orderCellOf`): the seat and the hostage 5 cells apart (under ORDER_RANGE_CELLS_READING's 20).
+    const ai = { version: 2, maps: [{ index: 0, name: 'sub0', id: 0, flags: 0, min: [-200, 0, -200], max: [200, 0, 200], cellsX: 40, cellsZ: 40, cellSize: [10, 10], zones: [],
+      rows: Array.from({ length: 40 }, (_, z) => ({ x0: 0, x1: 40, first: z * 40 })), cells: new Uint32Array(40 * 40).fill(0x80000001) }], links: { words: 0, records: 0 }, spawns: [] };
     const a = await armed({}, { events: [extraction], assets: Promise.resolve({ map: { ...grounded(), ai } as unknown as LoadedMap, clips: null }) });
     a.t.w.step(2);
     const page = frame.mock.contexts.at(-1) as HostagePage;
@@ -873,11 +902,55 @@ describe('ACT-5: the hostages part on both pages (HX-4a, HX-5; ruling HX.R8 clos
     a.m.release();
     expect(reset.mock.contexts).toContain(page);
   });
+  it("LATER 853 (the owner's mega playtest, 2026-11-10): FOLLOW!, then HOLD POSITION, then FOLLOW! again -- after a HOLD the room puts the hostage back in unit 0x11 (OnCommand case 5, FUN_0058fbe0 D:L450536-450539) and the prompt's caption is the FOLLOW! record's (0xe, \"FOLLOW!\" 0x3e4f00: FUN_00593d00 D:L452489-452494, FUN_0021ded0 D:L73783-73791), each press sending the order its caption names", async () => {
+    const nearby = vi.spyOn(Hud.prototype, 'setNearbyAction');
+    const feet = RemotePlayers.prototype.feet, aimBodies = RemotePlayers.prototype.aimBodies;
+    vi.spyOn(RemotePlayers.prototype, 'feet').mockImplementation(function (this: RemotePlayers, id: number) { return id === 240 ? [0, 0, -50] : feet.call(this, id); });
+    vi.spyOn(RemotePlayers.prototype, 'aimBodies').mockImplementation(function (this: RemotePlayers, eye, dir, reach) {
+      return [{ id: 240, distance: 50 }, ...aimBodies.call(this, eye, dir, reach)];
+    });
+    const hostage = { id: 240, alive: true, ai: 0x17, leader: null, rescuer: null, opacity: 1, unit: 0x11, name: 'Hostage', character: 'mp_fem1', at: [0, 0, -50], yaw: 0 };
+    const extraction = { ...welcome, hostages: [hostage] } as unknown as ServerEvent;
+    const ai = { version: 2, maps: [{ index: 0, name: 'sub0', id: 0, flags: 0, min: [-200, 0, -200], max: [200, 0, 200], cellsX: 40, cellsZ: 40, cellSize: [10, 10], zones: [],
+      rows: Array.from({ length: 40 }, (_, z) => ({ x0: 0, x1: 40, first: z * 40 })), cells: new Uint32Array(40 * 40).fill(0x80000001) }], links: { words: 0, records: 0 }, spawns: [] };
+    const a = await armed({}, { events: [extraction], assets: Promise.resolve({ map: { ...grounded(), ai } as unknown as LoadedMap, clips: null }) });
+    a.t.w.step(2);
+    /** The caption fed to the HUD this frame for the hostage's entry (`ActionEntry.caption`), or null. */
+    const caption = (): string | null => {
+      const feed = nearby.mock.calls.at(-1)?.[0];
+      return Array.isArray(feed) ? (feed as readonly { prompt: string; caption?: string }[]).find((e) => e.prompt === 'escortee')?.caption ?? null : null;
+    };
+    const orders = (): number[] => a.x.socks[0]!.sent.filter((d) => typeof d === 'string' && d.startsWith('{'))
+      .map((d) => JSON.parse(d) as { type: string; cmd?: number }).filter((e) => e.type === 'hostageOrder').map((e) => e.cmd!);
+    const tap = (): void => { a.press(0, true); a.t.w.step(2); a.press(0, false); a.t.w.step(2); };
+    const told = (unit: number, ai: number, leader: number | null): void => {
+      a.x.say({ type: 'hostageState', id: 240, alive: true, ai, leader, rescuer: null, opacity: 1, unit } as unknown as ServerEvent);
+      a.t.w.step(3);
+    };
+    const seat = a.m.net()!.client.id;
+    expect(caption()).toBe('FOLLOW!');
+    tap();
+    expect(orders()).toEqual([4]);
+    told(seat + 0x20, 9, seat);                                                          // FOLLOW taken: in the seat's unit, state 9
+    expect(caption()).toBe('HOLD POSITION');
+    tap();
+    expect(orders()).toEqual([4, 5]);
+    told(0x11, 0x17, null);                                                              // HOLD taken: back in unit 0x11, 0x17
+    expect(a.m.net()!.hostages().get(240)).toMatchObject({ unit: 0x11, ai: 0x17 });
+    expect(caption()).toBe('FOLLOW!');                                                   // once the room has taken the HOLD
+    tap();
+    expect(orders()).toEqual([4, 5, 4]);
+    // ...each at the page's playout clock (`NetClient.viewTick`), where it drew the hostage (ORDER_REWIND_ADAPTATION).
+    const views = a.x.socks[0]!.sent.filter((d) => typeof d === 'string' && d.startsWith('{'))
+      .map((d) => JSON.parse(d) as { type: string; viewTick?: unknown }).filter((e) => e.type === 'hostageOrder').map((e) => e.viewTick);
+    expect(views.every((v) => typeof v === 'number' && Number.isFinite(v)), JSON.stringify(views)).toBe(true);
+    a.m.release();
+  });
   it("main.ts: the HostagePage built after the others' bodies, handed to the actions, offered each frame, reset with the drops; its state hook and the marks fed before the render", () => {
     const main = src('main.ts');
     const built = main.indexOf('const hostages = new HostagePage({');
     expect(built).toBeGreaterThan(main.indexOf('const remote = new RemotePlayers('));
-    expect(main).toMatch(/cellOf: \(feet\) => \{ const sub = loaded\?\.ai\?\.maps\[0\]; return sub \? aiCellOf\(sub, feet\[0\]!, feet\[2\]!\) : null; \},/);
+    expect(main).toMatch(/cellOf: \(feet\) => orderCellOf\(loaded\?\.ai, feet\),/);   // DF-7: the located cell (ORDER_CELL_FIELD_READING)
     expect(main).toMatch(/order: \(id, cmd\) => net\?\.hostageOrder\(id, cmd\) \?\? false,/);
     expect(main).toMatch(/^\s+hostages,\s+\/\/ HX-4a/m);
     expect(main).toMatch(/acts\.bomb\.hudFrame\(\);[^\n]*\n\s+hostages\.frame\(\);/);
@@ -905,10 +978,11 @@ describe('sprint 29 wave 4: the front end match mirrors main.ts\'s view and spec
       expect(src('matchMount.ts')).toMatch(inCopy);
     });
   }
-  it("LATER 671 (the v0.4.11 review's F3): the test room's tags take TEAMMATE NAMES' original setting as matchMount.ts does", () => {
+  it("LATER 671 (the v0.4.11 review's F3; SS-2): the test room's tags take the browser's name-tag look as matchMount.ts does", () => {
     for (const f of ['main.ts', 'matchMount.ts']) {
       expect(src(f), f).toMatch(/hud\.setTeamTags\(page \? teamTags\(\{ \.\.\.teamTagInput\([^\n]*\), original: hud\.teammateNamesOriginal\(\) \}\) : null\);/);
-      expect(src(f), f).toMatch(/hud\.setTeammateNames\(teamNames !== 0, teamNames === TEAMMATE_NAMES_ORIGINAL_VALUE\);/);
+      expect(src(f), f).toMatch(/hud\.setTeammateNames\(teamNames !== 0, readNameTags\(\) === 'original'\);/);   // SS-2: the card 0 / 1 on or off, the browser key the look
+      expect(src(f), f).not.toMatch(/TEAMMATE_NAMES_ORIGINAL_VALUE/);
     }
   });
   it('PF-31: the map\'s scenic views reach the page (NetPageDeps.scenicViews): once, in matchNet.ts', () => {
@@ -1968,7 +2042,8 @@ describe('ACT-1: one action part, both pages (ONE-WIRE)', () => {
       /traversal\.input\(\);/, /walk\.frame\(dt\);/, /net\?\.frame\(dt, fly\.camera, fire\.triggerHeld\(\) \|\| acts\.triggerHeld\(\), frameTime\.real\(\)\);/, /acts\.followNet\(\);/,
       /doors\.frame\(dt\);/, /acts\.turrets\.frame\(\);/, /pageWorld\?\.step\(dt\);/, /firearm\.fireFrame\(dt, walking\);/, /acts\.turretFrame\(frameTime\.real\(\), walk\.isDead\(\)\);/,
     ]);
-    order(frameOf(src('matchMount.ts'), /const frame = \(now: number\): void => \{/), [
+    // FRAME-LOOP-GUARD: the match's frame body is `step` (the guard's `frame` wrapper asks for the next one).
+    order(frameOf(src('matchMount.ts'), /const step = \(now: number\): boolean => \{/), [
       /traversal\.input\(\);/, /walk\.frame\(dt\);/, /net\?\.frame\(dt, fly\.camera, firearm\.fire\.triggerHeld\(\) \|\| acts\.triggerHeld\(\), frameTime\.real\(\)\);/, /acts\.followNet\(\);/,
       /doors\.frame\(dt\);/, /acts\.turrets\.frame\(\);/, /world\?\.world\.step\(dt\);/, /firearm\.fireFrame\(dt, walking\);/, /acts\.turretFrame\(frameTime\.real\(\), walk\.isDead\(\)\);/,
     ]);
@@ -2149,7 +2224,7 @@ describe("ACT-4: the HUD lines are main.ts's (ACT.R4)", () => {
   it("the HUD lines' order is main.ts's: traversal.hudFrame(hud), acts.bomb.hudFrame(), hostages.frame(), traversal.effectsFrame(), firearm.feedHud(...), after hud.setVisible", () => {
     // PAR-94 B2/B3: both pages' HUD line gated on the seat's spawn (was: `/hud\.setVisible\(walking\);/`).
     const lines = [/hud\.setVisible\(walking && spawned\);/, /traversal\.hudFrame\(hud\);/, /acts\.bomb\.hudFrame\(\);/, /hostages\.frame\(\);/, /traversal\.effectsFrame\(\);/, /firearm\.feedHud\(walking, \{/];
-    const pages: [string, RegExp][] = [['main.ts', /const frame = \(\): void => \{/], ['matchMount.ts', /const frame = \(now: number\): void => \{/]];
+    const pages: [string, RegExp][] = [['main.ts', /const frame = \(\): void => \{/], ['matchMount.ts', /const step = \(now: number\): boolean => \{/]];
     for (const [f, start] of pages) {
       const whole = src(f), text = whole.slice(whole.search(start));
       const at = lines.map((l) => text.search(l));
@@ -2887,7 +2962,7 @@ describe("PAR-12 and PAR-3 through the mount (research 255 s6: the integrator's 
     expect(resized).toBe(before + 1);
     t.w.step(60, 50);                                                                    // 3 s of 50 ms frames: past the 2 s gap, slow
     expect(ratios.length).toBeGreaterThan(1);
-    expect(ratios[1]).toBe(Math.max(PIXEL_RATIO_FLOOR_ADAPTATION, cap - 0.25));
+    expect(ratios[1]).toBeCloseTo(cap * 0.9, 9);                                         // VS-3: the panic, two steps of 5 % of the cap
     m.close();
     expect(visual.get('resize')?.size).toBe(0);
     expect(t.w.live.has('resize') || t.w.live.has('orientationchange')).toBe(false);
@@ -3127,6 +3202,23 @@ describe('NU-9: the names and the over-head tags through the front end\'s match 
     m.close();
   });
 
+  it('SS-2 (H422 answered (a)): the look is this browser\'s s2u.viewer.nameTags, read at the mount -- Modern by default, Original when set; the valve on', async () => {
+    localStorage.removeItem(NAME_TAGS_KEY);
+    const a = await mounted({ gameVars: { uiVar: () => null, valve: (n) => (n === 'DISPLAY_MP_TEAM_NAMES' ? 1 : null) } });
+    expect([a.hook.hud().model.teammateNames, a.hook.hud().model.teammateNamesOriginal]).toEqual([true, false]);
+    a.m.close();
+    localStorage.setItem(NAME_TAGS_KEY, 'original');
+    try {
+      const b = await mounted({ gameVars: { uiVar: () => null, valve: (n) => (n === 'DISPLAY_MP_TEAM_NAMES' ? 1 : null) } });
+      expect([b.hook.hud().model.teammateNames, b.hook.hud().model.teammateNamesOriginal]).toEqual([true, true]);
+      expect(b.hook.hud().model.teamTags?.scale).toBe(0.9);              // the original's tags (`./hudTags` `teamTags`)
+      b.m.close();
+      const c = await mounted({ gameVars: { uiVar: () => null, valve: (n) => (n === 'DISPLAY_MP_TEAM_NAMES' ? 0 : null) } });
+      expect([c.hook.hud().model.teammateNames, c.hook.hud().model.teammateNamesOriginal]).toEqual([false, false]);   // off is the card's
+      c.m.close();
+    } finally { localStorage.removeItem(NAME_TAGS_KEY); }
+  });
+
   it('T4: the valve changed mid-match keeps the mount\'s value (read once, D:L77558-77559)', async () => {
     let names = 1;
     const { t, m, hook } = await mounted({ gameVars: { uiVar: () => null, valve: (n) => (n === 'DISPLAY_MP_TEAM_NAMES' ? names : null) } });
@@ -3289,6 +3381,183 @@ describe('PAR-48c: the spectator HUD\'s view is the frame\'s, not the draw\'s', 
 // arrival -- the spectator's pad (`NetPage.spectatorPad`), the hostage order offered afresh (`HostagePage.frame`), the
 // slide's loop (`TraversalPage.soundFrame`); with a renderer, in `./main`'s order (the render, the pad, the view, the
 // hostages, the sound, the HUD's render).
+// VS-4 (VS.R2; product track, a browser adaptation with no original): the frame cap skips draws only. The simulation, the
+// net's frame and the timed rules run every animation frame on its real seconds, so a capped run steps what an uncapped
+// one does; only the world's render, the HUD's and the shadow's frame wait for the gate (`../src/frameCap`).
+describe('VS-4: the frame cap in the front end\'s match skips draws, never steps', () => {
+  /** 10 s of 60 Hz frames under `cap`: the walk's and the net's frames, the seconds the net was handed, the draws. */
+  async function run(cap: FrameCap, change?: { at: number; cap: FrameCap }, overlay: 'off' | 'fps' = 'off') {
+    localStorage.clear();
+    const keeper = videoSettingsKeeperV2();
+    keeper.set({ frameCap: cap, overlay });
+    const walks = vi.spyOn(WalkMode.prototype, 'frame');
+    const nets = vi.spyOn(NetPage.prototype, 'frame');
+    const huds = vi.spyOn(Hud.prototype, 'render');
+    const shadows = vi.spyOn(CharacterShadow.prototype, 'clear');
+    const x = handOff();
+    const t = options(x);
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    walks.mockClear(); nets.mockClear(); huds.mockClear(); shadows.mockClear();
+    const before = t.r.drawn.length;
+    for (let i = 0; i < 600; i++) {
+      if (change && i === change.at) keeper.set({ frameCap: change.cap });
+      t.w.step(1, 1000 / 60);
+    }
+    const out = {
+      walks: walks.mock.calls.length, nets: nets.mock.calls.length,
+      walkSeconds: walks.mock.calls.reduce((sum, c) => sum + c[0], 0),
+      readout: document.querySelector<HTMLElement>('[data-match-fps]')?.textContent ?? null,
+      netSeconds: nets.mock.calls.reduce((sum, c) => sum + (c[3] ?? c[0]), 0),
+      draws: t.r.drawn.length - before, huds: huds.mock.calls.length, shadows: shadows.mock.calls.length,
+    };
+    m.close();
+    walks.mockRestore(); nets.mockRestore(); huds.mockRestore(); shadows.mockRestore();
+    localStorage.clear();
+    return out;
+  }
+
+  it('cap 30 over 10 s of 60 Hz frames: the walk\'s and the net\'s frames and their real seconds equal the cap-Off run\'s; the draws are half', async () => {
+    const off = await run(0), capped = await run(30);
+    expect(off.walks).toBe(600);
+    expect(off.draws).toBe(600);
+    expect(capped.walks).toBe(off.walks);                                              // the simulation's step: every frame
+    expect(capped.nets).toBe(off.nets);                                                // the net's frame: every frame
+    expect(off.nets).toBeGreaterThan(0);
+    expect(capped.netSeconds).toBeCloseTo(off.netSeconds, 9);                          // the timed rules: the same real time
+    expect(capped.walkSeconds).toBeCloseTo(off.walkSeconds, 9);                        // the walk's step: the same seconds (review F3)
+    expect(Math.abs(capped.draws - 300)).toBeLessThanOrEqual(1);                       // the world's render: half
+    expect(Math.abs(capped.huds - off.huds / 2)).toBeLessThanOrEqual(1);              // the HUD's render: half
+    expect(Math.abs(capped.shadows - off.shadows / 2)).toBeLessThanOrEqual(1);        // the shadow's frame: half
+  });
+
+  it('cap 60 and 120 on a 60 Hz display draw every frame (Review focus 2); a cap set mid-match is heard at once', async () => {
+    expect((await run(60)).draws).toBe(600);
+    expect((await run(120)).draws).toBe(600);
+    const mid = await run(0, { at: 300, cap: 30 });
+    expect(mid.walks).toBe(600);
+    expect(Math.abs(mid.draws - 450)).toBeLessThanOrEqual(1);                          // 300 Off, then 150 at 30
+  });
+
+  it('review F1: under a cap the readout shows the drawn rate -- cap 30 at 60 Hz reads 30 fps; Off reads the display\'s 60', async () => {
+    expect((await run(30, undefined, 'fps')).readout).toMatch(/^30 fps · 33\.3 ms$/);
+    expect((await run(0, undefined, 'fps')).readout).toMatch(/^60 fps · 16\.7 ms$/);
+    expect((await run(120, undefined, 'fps')).readout).toMatch(/^60 fps · 16\.7 ms$/);  // a cap above the display: the display's rate
+  });
+
+  it('review F2: the adaptive ratio is handed a frame-time target only for a cap below 60 (0: its default target), at the mount and at a change', async () => {
+    const proto = AdaptiveRatio.prototype as unknown as { setTarget?: (ms: number) => void };
+    const targets: number[] = [];
+    proto.setTarget = (ms: number): void => { targets.push(ms); };
+    try {
+      for (const cap of [0, 30, 60, 120] as const) {
+        targets.length = 0;
+        await run(cap);
+        expect(targets[0], `cap ${cap}`).toBe(cap === 30 ? 1000 / 30 : 0);
+      }
+      targets.length = 0;
+      await run(30, { at: 10, cap: 120 });
+      expect(targets).toEqual([1000 / 30, 0]);                                           // the change to 120: the default again
+      targets.length = 0;
+      await run(120, { at: 10, cap: 30 });
+      expect(targets).toEqual([0, 1000 / 30]);
+    } finally {
+      delete proto.setTarget;
+    }
+  });
+});
+
+// VS-7 (VS.R7; product track, a browser adaptation with no original): Automatic's first-match probe is fed the match's
+// drawn frames only, once the first frame is drawn (the warm-ups settled, `firstDrawn`); the dynamic scale's floor is
+// the device class's under Automatic (`../src/autoQuality` `AUTO_FLOOR_SHARE_ADAPTATION`), VS-3's under a preset.
+describe('VS-7: Automatic in the front end\'s match -- the first-match probe and the class\'s floor', () => {
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
+  /** A mount under `set` (nothing: Automatic), `frames` 60 Hz frames: the drawn count at each probe frame and at firstFrame. */
+  async function run(frames: number, set?: Parameters<ReturnType<typeof videoSettingsKeeperV2>['set']>[0]) {
+    localStorage.clear();
+    if (set) videoSettingsKeeperV2().set(set);
+    const fed: { drawn: number; ms: number }[] = [];
+    const first: number[] = [];
+    const floors: unknown[] = [];
+    const probeFrame = FirstMatchProbe.prototype.frame;
+    const x = handOff();
+    let assetsIn!: (a: MatchAssets | null) => void;
+    const t = options(x, { assets: new Promise((res) => { assetsIn = res; }), firstFrame: () => { first.push(t.r.drawn.length); } } as Partial<MatchMountOptions>);
+    vi.spyOn(FirstMatchProbe.prototype, 'frame').mockImplementation(function (this: FirstMatchProbe, ms: number, full: boolean) {
+      fed.push({ drawn: t.r.drawn.length, ms });
+      return probeFrame.call(this, ms, full);
+    });
+    const ratioFrame = AdaptiveRatio.prototype.frame;
+    vi.spyOn(AdaptiveRatio.prototype, 'frame').mockImplementation(function (this: AdaptiveRatio, ...a: Parameters<AdaptiveRatio['frame']>) {
+      floors.push((this as unknown as { opts: unknown }).opts);
+      return ratioFrame.apply(this, a);
+    });
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    t.w.step(3, 1000 / 60);                                                             // drawn, no world in yet
+    assetsIn({ map: synthetic(), clips: null }); await flush();
+    t.w.step(frames, 1000 / 60);
+    m.close();
+    return { fed, first, floors, saved: localStorage.getItem(VIDEO_AUTO_KEY) };
+  }
+
+  it('fed only the frames drawn after the first world frame; 3 s of them save Automatic\'s result once', async () => {
+    const r = await run(220);
+    expect(r.first).toHaveLength(1);
+    expect(r.fed.length).toBeGreaterThan(180);
+    expect(r.fed.every((f) => f.drawn > r.first[0]!)).toBe(true);                       // never a frame before the loading hold let go
+    expect(r.fed.every((f) => Math.abs(f.ms - 1000 / 60) < 1e-6)).toBe(true);            // the frame's real ms
+    expect(JSON.parse(r.saved!)).toMatchObject({ deviceClass: 'standard', preset: 'balanced' });
+  });
+
+  it('a match that ends before 3 s saves nothing (Review focus 4)', async () => {
+    const r = await run(120);
+    expect(r.fed.length).toBeGreaterThan(0);
+    expect(r.saved).toBeNull();
+  });
+
+  it('under a preset (or Custom) no probe runs and nothing is saved', async () => {
+    for (const set of [{ preset: 'balanced' as const }, { frameCap: 30 as const }]) {
+      const r = await run(220, set);
+      expect(r.fed, JSON.stringify(set)).toEqual([]);
+      expect(r.saved, JSON.stringify(set)).toBeNull();
+    }
+  });
+
+  it('review F2: the match draws the v2 percent and ceiling -- the Xbox start at 1920x1080 ratio 1 caps 0.6667 (1280x720); Balanced 1; Custom 85 %', async () => {
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(1920);
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(1080);
+    const capOf = async (setUp: () => void, mid?: () => void): Promise<number[]> => {
+      localStorage.clear();
+      setUp();
+      const x = handOff();
+      const t = options(x);
+      const ratios: number[] = [];
+      let ratio = 2;
+      const renderer: MatchRenderer = { ...t.r.r, setPixelRatio: (v) => { ratios.push(v); ratio = v; }, pixelRatio: () => ratio };
+      const m = mountMatch(document.body, { ...t.o, renderer: () => Promise.resolve(renderer) });
+      await flush();
+      if (mid) { mid(); t.w.step(13); }
+      m.close();
+      return ratios;
+    };
+    expect((await capOf(() => { localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox'); }))[0]).toBeCloseTo(720 / 1080, 9);
+    expect((await capOf(() => undefined))[0]).toBe(1);                                  // Balanced: today's cap
+    expect((await capOf(() => { videoSettingsKeeperV2().set({ renderScalePct: 85 }); }))[0]).toBeCloseTo(0.85, 9);
+    expect((await capOf(() => undefined, () => { videoSettingsKeeperV2().set({ renderScalePct: 85 }); })).at(-1)).toBeCloseTo(0.85, 9);   // heard mid-match
+    localStorage.clear();
+  });
+
+  it('the dynamic scale\'s options: the class\'s floor share under Automatic, VS-3\'s own under a preset', async () => {
+    const auto = await run(3);
+    expect(auto.floors.length).toBeGreaterThan(0);
+    expect(auto.floors[0]).not.toBe(ADAPTIVE_V2_ADAPTATION);
+    expect(auto.floors[0]).toEqual({ ...ADAPTIVE_V2_ADAPTATION, floorShare: AUTO_FLOOR_SHARE_ADAPTATION.standard });
+    const preset = await run(3, { preset: 'balanced' });
+    expect(preset.floors[0]).toBe(ADAPTIVE_V2_ADAPTATION);
+  });
+});
+
 describe('LATER 129: the menu match\'s game state runs each frame, the renderer or not', () => {
   const watcher = { ...welcome, role: 'spectator', team: null, queue: 0, phase: 'play' } as unknown as ServerEvent;
 
@@ -3343,7 +3612,7 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
       },
     };
   };
-  const source = (start: 'modern' | 'ps2' | 'experimental') => {
+  const source = (start: 'modern' | 'ps2') => {
     let p = start;
     const heard = new Set<(v: typeof p) => void>();
     return {
@@ -3353,7 +3622,7 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
       heard: () => heard.size,
     };
   };
-  const mounted = async (start: 'modern' | 'ps2' | 'experimental' | null, renderer?: () => Promise<MatchRenderer>) => {
+  const mounted = async (start: 'modern' | 'ps2' | null, renderer?: () => Promise<MatchRenderer>) => {
     const x = handOff();
     const fake = fakeRenderer(), r = recording(fake.r), pic = start === null ? null : source(start);
     const t = options(x, { renderer: renderer ?? (() => Promise.resolve(r.r)), ...(pic ? { picture: pic } : {}) });
@@ -3364,6 +3633,68 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
     return { m, rec: r.rec, pic, body, hud, x };
   };
   afterEach(() => { vi.restoreAllMocks(); });
+
+  // VS-6 (the spec's §4.2 Texture filtering; a browser adaptation): the keeper's `filtering` applied live under the
+  // Modern picture (`./experimentalWorldSampling` `setWorldAnisotropy`), never under PS2; the match's close lets it go.
+  it("VS-6: Texture filtering follows the keeper live -- Anisotropic on under Modern, never under PS2, off at the close", async () => {
+    localStorage.clear();
+    const keeper = videoSettingsKeeperV2();
+    const { m, pic } = await mounted('modern');
+    expect(worldAnisotropyOn()).toBe(false);                               // Original: the default
+    keeper.set({ filtering: 'anisotropic' });
+    expect(worldAnisotropyOn()).toBe(true);                                // live, no new match
+    pic!.set('ps2');
+    expect(worldAnisotropyOn()).toBe(false);                               // the PS2 picture: the console's sampling
+    pic!.set('modern');
+    expect(worldAnisotropyOn()).toBe(true);
+    keeper.set({ filtering: 'original' });
+    expect(worldAnisotropyOn()).toBe(false);
+    keeper.set({ filtering: 'anisotropic' });
+    m.close();
+    expect(worldAnisotropyOn()).toBe(false);                               // the page's sampling is the match's no more
+    keeper.set({ filtering: 'anisotropic' });
+    expect(worldAnisotropyOn()).toBe(false);                               // heard no more
+    localStorage.clear();
+  });
+
+  // B206 ML-6 removed the HD (experimental) picture from `VideoPicture`; a value stored before it is still never Modern here.
+  it("VS-6 review F3: Anisotropic only under the Modern picture -- a stored HD (experimental) picture never turns it on", async () => {
+    localStorage.clear();
+    videoSettingsKeeperV2().set({ filtering: 'anisotropic' });
+    const a = await mounted('experimental' as unknown as 'modern');
+    expect(worldAnisotropyOn()).toBe(false);
+    a.pic!.set('modern');
+    expect(worldAnisotropyOn()).toBe(true);
+    a.pic!.set('experimental' as unknown as 'modern');
+    expect(worldAnisotropyOn()).toBe(false);
+    a.m.close();
+    localStorage.clear();
+  });
+
+  it("VS-6 review F2: a mount's teardown clears the page's anisotropy only when it is the mount holding it", async () => {
+    localStorage.clear();
+    videoSettingsKeeperV2().set({ filtering: 'anisotropic' });
+    const a = await mounted('modern');
+    const b = await mounted('modern');                                     // the page's current holder
+    expect(worldAnisotropyOn()).toBe(true);
+    a.m.close();
+    expect(worldAnisotropyOn()).toBe(true);                                // b still holds it
+    b.m.close();
+    expect(worldAnisotropyOn()).toBe(false);
+    localStorage.clear();
+  });
+
+  it('VS-6: a saved Anisotropic is applied when the renderer comes; a mount under PS2 never turns it on', async () => {
+    localStorage.clear();
+    videoSettingsKeeperV2().set({ filtering: 'anisotropic' });
+    const a = await mounted('modern');
+    expect(worldAnisotropyOn()).toBe(true);
+    a.m.close();
+    const b = await mounted('ps2');
+    expect(worldAnisotropyOn()).toBe(false);
+    b.m.close();
+    localStorage.clear();
+  });
 
   it('no picture named: MODERN -- native, no experimental, the canvas\'s own size, no PS2 box', async () => {
     const { m, rec, hud } = await mounted(null);
@@ -3382,12 +3713,12 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
     expect(rec.resized.at(-1)).toEqual([640, 448]);
     expect(hud.mock.calls.at(-1)?.[0]).toBe('ps2');
     expect(m.canvas.classList.contains('s2u-picture-ps2')).toBe(true);
-    pic!.set('experimental');
-    expect(rec.presentation.at(-1)).toBe('native');
-    expect(rec.experimental.at(-1)).toBe(true);
-    expect(m.canvas.classList.contains('s2u-picture-ps2')).toBe(false);
-    pic!.set('modern');
     expect(rec.experimental.at(-1)).toBe(false);
+    pic!.set('modern');                                                                   // B206 ML-6: no HD picture to turn it on
+    expect(rec.presentation.at(-1)).toBe('native');
+    expect(rec.experimental.at(-1)).toBe(false);
+    expect(rec.experimental.every((on) => !on)).toBe(true);
+    expect(m.canvas.classList.contains('s2u-picture-ps2')).toBe(false);
     m.close();
   });
 
@@ -3427,6 +3758,32 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
     expect(second.rec.presentation.at(-1)).toBe('ps2');
     first.m.close(); second.m.close();
     expect(document.body.className).toBe(first.body);
+  });
+});
+
+// B206 ML-3 (ML.R5, R9, R11; product track, ML.R2): the match takes the texture pack chosen in MODS from the page's
+// MODS state -- at its mount and at the change notice -- under MODERN and PS2 alike, never from the picture.
+describe("B206 ML-3: the front end's match applies the MODS texture pack", () => {
+  const keeper = (id: string | null) => {
+    let v = id;
+    const heard = new Set<(x: string | null) => void>();
+    return { get: () => v, ready: Promise.resolve(), observe: (f: (x: string | null) => void) => { heard.add(f); return () => { heard.delete(f); }; },
+      refresh: async () => {}, dispose: () => {}, set(x: string | null) { v = x; for (const f of [...heard]) f(x); } };
+  };
+  for (const picture of ['modern', 'ps2'] as const) it(`the HD pack chosen in MODS turns the match's HD runtime on under ${picture.toUpperCase()}, off at the close`, async () => {
+    const x = handOff(), fake = fakeRenderer(), calls: boolean[] = [];
+    const choice = keeper(`hd:${'a'.repeat(64)}`);
+    const pic = { get: () => picture, observe: () => () => {} };
+    const t = options(x, { renderer: () => Promise.resolve(fake.r), picture: pic, texturePacks: { choice, hd: () => ({ setEnabled: async (on: boolean) => { calls.push(on); } }) } });
+    const m = mountMatch(document.body, t.o);
+    await flush(); await flush();
+    expect(calls).toEqual([true]);
+    choice.set(null); await flush();                                       // the notice: Original chosen on Home
+    expect(calls).toEqual([true, false]);
+    choice.set(`hd:${'a'.repeat(64)}`); await flush();
+    expect(calls).toEqual([true, false, true]);
+    m.close(); await flush();
+    expect(calls.at(-1)).toBe(false);
   });
 });
 
@@ -3635,5 +3992,97 @@ describe('CPS H9: the match hook\'s renderStats (a development build\'s, under ?
       expect((b.t.o.win as unknown as Record<string, unknown>)[MATCH_WINDOW_HOOK]).toBeUndefined();
       b.m.close();
     } finally { vi.unstubAllEnvs(); }
+  });
+});
+
+describe('VS-8: the front end\'s match sends the perf report at its teardown, with its seats and its map', () => {
+  // the page's one beacon and sampler fresh on both sides: an earlier test's send would hold this one inside the beacon's 30 s
+  beforeEach(() => { resetPageClientErrorBeaconForTest(); resetPageFrameSamplerForTest(); });
+  afterEach(() => { vi.unstubAllGlobals(); resetPageClientErrorBeaconForTest(); resetPageFrameSamplerForTest(); });
+
+  it('a match of a minute: one perf report at close, the room\'s seats and the map\'s code; a match of 10 s: none', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', (_url: unknown, init?: RequestInit) => { calls.push(String(init?.body)); return Promise.resolve(new Response(null, { status: 204 })); });
+    let clock = 1000;
+    vi.spyOn(globalThis.performance, 'now').mockImplementation(() => clock);
+    const x = handOff();
+    const t = options(x, { assets: Promise.resolve({ map: synthetic(), clips: null }) } as Partial<MatchMountOptions>);
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    x.say({ type: 'score', rows: [
+      { id: 2, name: 'socomc', team: 'seal', kills: 0, deaths: 0, score: 0, alive: true, ping: 0 },
+      { id: 3, name: 'kilo', team: 'terrorist', kills: 0, deaths: 0, score: 0, alive: true, ping: 0 },
+      { id: 4, name: 'lima', team: 'terrorist', kills: 0, deaths: 0, score: 0, alive: true, ping: 0 },
+    ], timeLeft: null, spectators: [], wins: { seal: 0, terrorist: 0 } } as unknown as ServerEvent);
+    t.w.step(5);
+    const seats = m.net()?.rows.length ?? null;
+    expect(seats).toBe(3);                                               // the room's rows
+    clock += 60_000;
+    m.close();
+    expect(await beaconPerfPending()).toBe(true);
+    const perf = calls.map((b) => JSON.parse(b) as PerfReport).filter((r) => r.kind === 'perf');
+    expect(perf).toHaveLength(1);
+    expect(perf[0]).toMatchObject({ kind: 'perf', v: 1, seats: 3, map: 'MP2', durationMs: 60_000, scaleAtEnd: null });   // the map's code (its archive stem); the fake renderer has no pixel ratio
+    expect(JSON.stringify(perf[0])).not.toMatch(/socomc|kilo|lima/);       // no name of the room's rows
+
+    resetPageClientErrorBeaconForTest();                                // a fresh page's rate
+    calls.length = 0;
+    const y = handOff();
+    const u = options(y, { assets: Promise.resolve({ map: synthetic(), clips: null }) } as Partial<MatchMountOptions>);
+    const n = mountMatch(document.body, u.o);
+    await flush();
+    u.w.step(5);
+    clock += 10_000;
+    n.close();
+    expect(await beaconPerfPending()).toBe(false);
+    expect(calls.filter((b) => (JSON.parse(b) as { kind?: string }).kind === 'perf')).toHaveLength(0);
+  });
+});
+
+/**
+ * FP-1a's FP.R13 spec (a test instrument, no original; a development build's hook only, `MATCH_WINDOW_HOOK`): the match
+ * hook reads the lever gates as the page draws them -- `gates()`, the same shape the test room's hook gives
+ * (`../src/main.ts` `gates: () => gates.stats()`, `GatePage.stats`).
+ */
+describe('FP.R13: the match hook reads the gates', () => {
+  it('gates(): the GatePage\'s stats, none on a map without gates', async () => {
+    const x = handOff();
+    const t = options(x);
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    const hook = (t.o.win as unknown as Record<string, MatchWindowHook>)[MATCH_WINDOW_HOOK]!;
+    expect(hook.gates()).toEqual([]);
+    m.close();
+  });
+  it('the match\'s gates read is the page\'s GatePage, as the test room\'s hook reads its own', () => {
+    const mount = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/matchMount.ts'), 'utf8');
+    expect(mount).toMatch(/\n\s+gates: \(\) => gates\.stats\(\),/);
+  });
+});
+
+/**
+ * FP-1a's FP.R13 spec (a test instrument, no original): the match hook's `escortees()` -- each hostage as the room told the
+ * page (`NetPage.hostages`: the welcome's `hostages`, each `hostageState`, `../src/netPage.ts` HX-1), where the page draws
+ * its body (`RemotePlayers.feet`) else where told, and rescued when the room's AI top state is 0x11
+ * (`HostageStateWire.ai`), the rule `NetPage.hostageMarks` reads the room's state by; the AI's top state and its leader as
+ * told, so the spec reads the follow order (9) by the room's word, not by time (attempt 9).
+ */
+describe('FP.R13: the match hook reads the hostages', () => {
+  const hostage = { id: 240, name: 'forge_hostage_1', character: 'mp_fem1', at: [10, 0, 20], yaw: 0, alive: true, ai: 0x17, leader: null, rescuer: null, opacity: 1, unit: 17 };
+  const welcomed = { ...(welcome as unknown as Record<string, unknown>), hostages: [hostage] } as unknown as ServerEvent;
+  it('escortees(): each told hostage, its place, its name, its state and leader; rescued once the room says 0x11', async () => {
+    const x = handOff('seal', undefined, welcomed);
+    const t = options(x, { events: [welcomed] });
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    const hook = (t.o.win as unknown as Record<string, MatchWindowHook>)[MATCH_WINDOW_HOOK]!;
+    expect(hook.escortees()).toEqual([{ id: 240, name: 'forge_hostage_1', at: [10, 0, 20], alive: true, ai: 0x17, leader: null, rescued: false }]);
+    x.say({ type: 'hostageState', id: 240, alive: true, ai: 9, leader: 1, rescuer: null, opacity: 1, unit: 0x21 } as unknown as ServerEvent);
+    t.w.step(1);
+    expect(hook.escortees().map((e) => [e.ai, e.leader, e.rescued])).toEqual([[9, 1, false]]);
+    x.say({ type: 'hostageState', id: 240, alive: true, ai: 0x11, leader: null, rescuer: 2, opacity: 1, unit: 17 } as unknown as ServerEvent);
+    t.w.step(1);
+    expect(hook.escortees().map((e) => e.rescued)).toEqual([true]);
+    m.close();
   });
 });

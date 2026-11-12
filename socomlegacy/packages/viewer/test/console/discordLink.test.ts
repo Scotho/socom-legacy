@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { DISCORD_INVITE, DISCORD_LABEL } from '../../src/console/discord';
+import { NEW_TAB_POINTER_WORDS } from '../../src/console/grammar';
 import { KEYMAP } from '../../src/console/input';
 import { prompts } from '../../src/console/render/legend';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
@@ -67,7 +68,10 @@ describe('LATER 291: the Discord link', () => {
     expect(Object.keys(KEYMAP)).toEqual(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Escape', 'Backspace', 'w', 's', 'a', 'd', 'f', 't', 'q', 'e', 'z', 'c', 'o']);
   });
 
-  it('the pad walks onto it from Server status (LR-13); Cross opens the invite once, and the legend says Open', () => {
+  // RB-45 (c), wave 1's review: a pad press is no user activation, so a browser's popup blocker eats its new tab. The
+  // pad's Cross says how (`NEW_TAB_POINTER_WORDS`, as Experiments' rows since RB-5) and opens nothing; a key's press
+  // (Enter, `keyGesture`) opens the invite once.
+  it('the pad walks onto it from Server status (LR-13); a pad Cross says how, a key opens the invite once', () => {
     const p = boot();
     p.ctl.S.input = 'pad';
     const open = vi.fn();
@@ -79,6 +83,10 @@ describe('LATER 291: the Discord link', () => {
     expect(document.activeElement).toBe(icon());
     expect(said()).toContainEqual(['cross', 'Select']);
     p.ctl.press('cross');
+    expect(open).not.toHaveBeenCalled();
+    expect(p.ctl.S.legendError).toBe(NEW_TAB_POINTER_WORDS);
+    p.ctl.keyGesture = true;
+    try { p.ctl.press('cross'); } finally { p.ctl.keyGesture = false; }
     expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith(DISCORD_INVITE, '_blank', 'noopener,noreferrer');
     p.ctl.press('down');
@@ -101,7 +109,11 @@ describe('LATER 291: the Discord link', () => {
     vi.stubGlobal('open', open);
     row().dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(open).not.toHaveBeenCalled();
-    p.ctl.press('cross');
+    p.ctl.press('cross');                                                   // RB-45 (c): the pad's says how
+    expect(open).not.toHaveBeenCalled();
+    expect(p.ctl.S.legendError).toBe(NEW_TAB_POINTER_WORDS);
+    p.ctl.keyGesture = true;
+    try { p.ctl.press('cross'); } finally { p.ctl.keyGesture = false; }
     expect(open).toHaveBeenCalledTimes(1);
   });
 

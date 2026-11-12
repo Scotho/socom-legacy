@@ -1,6 +1,7 @@
 /**
  * The web app manifest (PWA-2, PWA.R3). A browser adaptation. `display` is fullscreen, falling back to standalone.
- * Screenshots are the launcher chrome from `tools/icons.ts`, never disc media.
+ * Screenshots are the launcher chrome from `tools/icons.ts`, never disc media. The icons are the SL mark
+ * (`shared/brand/sl-icon.png`, RB-29: the owner's "S2 Launcher v2" export, `D:8-9`), rendered by `tools/icons.ts`.
  * The icons are PNGs with fixed sizes only: Chrome on Android falls back from installing to a home-screen bookmark when
  * the manifest names an SVG with `sizes: "any"` (Chromium issue 40925759), so the SVG favicon stays in the page's
  * `<link rel="icon">` (`head.ts`) and out of the manifest.

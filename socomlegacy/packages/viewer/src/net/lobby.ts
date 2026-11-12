@@ -109,6 +109,9 @@ export class Lobby {
     this.teamSize = opts.teamSize ?? TEAM_SIZE;
   }
 
+  /** The players this lobby holds (`maxPlayers`, the room's own limit, else `MAX_PLAYERS`). */
+  playerLimit(): number { return this.maxPlayers; }
+
   /**
    * Adds a client; null when full (players and queue) or when `id` is already in the room. Players first while
    * there is room, else the FIFO queue.

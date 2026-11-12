@@ -100,10 +100,10 @@ type GroundCorrection = (feet: readonly [number, number, number]) => readonly [n
  *   and on the ground it slides (`./steepSlide`, research 201 §3); one down to
  *   `ground_touch_distance` 8 under the feet is stepped down to (`READERC.ZAR/dynamics.rdr`,
  *   reCOM `zCharacter/char_dyn.cpp:17-20`; research 17 section 8's `+0x14..+0x1c`). No floor, and the step is refused.
- *   On the ground the origin is y + 5.5 (`STEP_PROBE_LIFT_READING`, the console's spawn measurement), so the window
- *   reaches `step_height` and a kerb between 6 and 6.5 with a lower floor also under the line is stepped onto
- *   (research 101 A7; a reading since 2026-10-02, research 86 section 6.5). The origin is one per tick (`FUN_005b0840`
- *   computes it, `FUN_005b5d40` selects with it), so the spawn and the airborne probes take the same y + 5.5.
+ *   The origin is y + the probe's lift (`Walker.probeLift`, PROBE-ORIGIN, LATER 785): r0004's floored root,
+ *   max(the skeleton root's height, 11.48 standing / 5.0 crouched / 0 prone) -- 11.48 standing, 5.504 crouched, so a
+ *   standing body's window reaches the feet + 12.48 (the r0004 origin trace; research 80 s7). The origin is one per
+ *   tick (`FUN_005b0840` computes it, `FUN_005b5d40` selects with it), so the spawn and the airborne probes take it too.
  * - **The fall.** Further than 8 down, the mover is airborne. `FUN_0059b440` integrates it: the fall speed
  *   `actor+0x133c += g x dt`, then the height `actor+0x2e4 -= speed x dt` (as here: `vy -= g x dt`, `y += vy x dt`),
  *   with `g` the table's `0x44c250 +0x00` -- the static default `0x42c43333` = 98.1 (1 g in units), overwritten
@@ -347,6 +347,16 @@ export const WALL_END_CONTACT_READING: 'face-normal' | 'radial' = 'face-normal';
  * and calls no `airWalls` (research 217 s2.10, the merge note).
  */
 export const AIR_WALL_HEIGHTS_READING = 'start-and-end' as 'start-and-end' | 'start';
+
+/**
+ * READING, provisional (Craig's loose jump batch, 2026-11-08; pending a capture of the change): the airborne records'
+ * direction carries the body's vertical speed on every 60 Hz tick (`'velocity'`), not the 30 Hz frames' height step,
+ * which is 0 on half the ticks (`'frame-step'`, the port before). The original's tick is the game frame, whose
+ * displacement always holds the fall (`FUN_0054d9a0` D:L416501-416530; the records' direction `FUN_0054aa30`
+ * D:L415134-415166, three axes). Evidence: the r0004 jump-near-wall capture's 17.43 case clears M51 g19733 in one arc
+ * (apex +15.77, over the flat jump's 11.49: the feet ride onto the top) where the port met the face on a level tick.
+ */
+export const AIR_SEGMENT_DIRECTION_READING = 'velocity' as 'velocity' | 'frame-step';
 /**
  * HOTFIX BRIDGE-WEDGE (HF2-slim), an adaptation with no line of the original behind it (research 217 s2.10; LATER 283,
  * LATER 620): a body already inside the walls -- its disc within the radius of a face at a probe line -- whose every push
@@ -483,6 +493,42 @@ export const JUMP_CONTACT_PROVEN = 'none' as 'none' | 'stored-contact';
  * into it); owed a capture of a SEAL falling past a steep face]
  */
 export const AIR_HEIGHT_READING = 'altitude' as 'altitude' | 'displacement';
+/**
+ * AIR-PROBE (research 399): when and where an airborne body's floor is probed on the segment path, and what a probe
+ * with no candidate does. `'frame-end'` (built): one probe a game frame, at the end of the frame's whole displacement --
+ * `FUN_005506a0` runs the solve `FUN_005483d0` once and then queues one probe with `FUN_005b0840` (D:L417822-417826);
+ * the solve takes the new position in one add, `+0xf54` = the translation + the frame's displacement `+0xf44`
+ * (D:L413918), written once from the velocity (`FUN_0054d9a0` D:L416501-416530); `FUN_005b0840` takes `+0xf54` as the
+ * probe's origin (D:L467198-467290) and `FUN_00550570` reads the one result in `FUN_005b0420` (D:L417768-417771). No
+ * sub-steps, and no airborne exception (the skip bit 0x8 of `+0x1061`, tested at D:L467052, is set only by `FUN_0056de10`
+ * D:L432313; airborne is bit 0x20, D:L410535). A probe with no candidate, `DAT_003df1c8` being 1 (r0001 0x3df1c8; r0004
+ * byte 0x40a390), takes `FUN_005b0420`'s else branch (D:L467091-467103): the node's translation, y included, back at the
+ * last hit `+0x400..+0x408` (`FUN_003157d0`; r0004 0x332d70), the slide speeds `+0x1340` and `+0x111c` zeroed. The
+ * height carries on only because the next solve writes the body's y from the altitude `+0x2e4` (`FUN_0059afd0`,
+ * D:L413943-413954, D:L456356-456364; research 230), which the branch does not write -- and that write is taken only when
+ * the state word is not 10 or `DAT_003dee80`'s test answers (D:L413944-413946). So here x/z go back to the last hit and
+ * the frames' fall goes on (what reads the node's y between the miss and the next solve is not read: research 399 s6).
+ * The probe is itself gated (D:L467203-467213: bit 0 of `+0xe1`, set by `FUN_0054aa30` D:L415240, or the controller's
+ * vtable `+0x2c`), so "once a frame" is an upper bound (research 399 s6). The port's tick is 60 Hz against the game's
+ * 30 Hz frame: a frame's move is taken over its ticks, unprobed on the in-between tick and probed on the tick that ends
+ * the frame (`airClock`). The in-between tick's x/z is simulation state -- the next tick's walls, the landing pick, a
+ * knock, the traversal offers and the room's snapshots read it -- so it is a port deviation of the 60 Hz tick, not a
+ * drawing's interpolation (MISSION R8's, as `drawCurY` is). `'sub-step'`: the base's rule
+ * (research 86 s6.3, OWNER-5): each tick's move in sub-steps of at most `MAX_SUBSTEP`, each refused when its column has
+ * no floor -- which held a running jump at a floorless strip wider than 0.54 at a parapet's foot (MP51, MP62, MP52).
+ * [reading, pending review; owed the capture research 399 s7 names]
+ */
+export const AIR_FLOOR_PROBE_READING = 'frame-end' as 'frame-end' | 'sub-step';
+/**
+ * AIR-PROBE (research 399): the airborne probe's origin. `'feet'` (built): the column at the body's own x/z at the
+ * frame's end, the origin's y the feet as the tick found them + `probeLift` (the sub-step's pick, `airStep`, had the
+ * same gap). The original's origin is `+0xf54..+0xf5c` after the frame's step -- its y `+0xf58`, raised to at least
+ * `DAT_0066aab8` (D:L467218-467220) -- plus the root node's offset turned by the body's matrix (`FUN_005b0840`
+ * D:L467215-467256); the offset's size in a jump and the y the pick is made from are not measured, so the port probes
+ * at the feet, as every other pick of the mover does. [placeholder: settled by the research 399 s7 capture's
+ * `+0xf54..+0xf5c` beside the probe's origin]
+ */
+export const AIR_PROBE_COLUMN_PLACEHOLDER = 'feet' as 'feet';
 
 /** One of the body's segments: its two ends and the line it stands for (0 the low ones, 1 the head line; PB-3b). */
 interface BodySegment { a: [number, number, number]; b: [number, number, number]; line: 0 | 1 | 2 }
@@ -606,18 +652,78 @@ const FORWARD_DEAD = 0.03;
 /** `max_slope` as the game keeps it, a cosine: 0.642788 for 50 degrees (research 17 section 8 `+0x18`). */
 const MAX_SLOPE_COS = Math.cos((SEAL_TUNING.maxSlopeDeg * Math.PI) / 180);
 /**
- * The grounded step's probe origin over the feet, 5.5 [reading]. `FUN_005b5d40` keeps the highest floor at or under
- * the origin + 1 (`SELECT_ABOVE`), and the origin is the actor's y plus a skeleton bone's translation -- pose-dependent:
- * +5.5 in the PCSX2 spawn image, +4.7 in the recomp's, +11.2 at the skeleton root (socom_pc research 23 section 1.2).
- * The console's +5.5 is the one taken: its window, the feet + 6.5, is `step_height` (`dynamics.rdr` +0x1c,
- * `DAT_0044c26c`), the height of the move solver's segment query over the feet (`FUN_005483d0` D:L413724-413725), so a
- * kerb up to 6.5 with a lower floor still under the line is stepped onto (web research 86 section 6.5; research 101
- * A7). The origin is one per tick (`FUN_005b0840` computes it once, `FUN_005b5d40` selects with it; socom_pc research
- * 23 sections 1.1-1.2), so the spawn (`place`, PL-2), the fall and the airborne sub-step take it too. Ported from
- * Chris's browser-beta-v5 (`step()`'s `stepLift`, which he kept to the step). W2.2c measures it: a SEAL walked at a
- * 6.25 kerb over a lower floor, and one spawned and one landing at such a column, on the console.
+ * PROBE-ORIGIN (LATER 785; research 80 s7): r0004's floor under the floor probe's lift, by the stance word (`actor+0x174`,
+ * the port's `stance` -- OBF-23's label; a crouch run keeps it at 1, D:L444175-444187): 11.48 (`0x4137ae14`) for word 0,
+ * 5.0 for word 1, else 0. r0004's twin of `FUN_005b0840`
+ * (0x5b6620) adds 20 instructions after the bone lift, 0x5b67f8-0x5b6844 (disassembly in
+ * `agent-mail/evidence/eph-hunt-2026-11-01/r0004-offsets/probe_origin_place.out` section 2): `if !(C <= lift) origin +=
+ * C - lift`, so the lift is max(the skeleton root's posed height, C). r0001 has no floor (D:L467252-467257); r0004 is the
+ * spec (OT.R97). PROVEN for posture 0 and 1 by a memory trace of r0004 compared value for value
+ * (`agent-mail/evidence/jump-air/ORIGIN-TRACE.md`, PCSX2 slot 5, 3 trials): 11.480 standing still, walking, running and
+ * in the running jump's launch (the root under the floor), 5.504 crouched (the crouch root over 5.0), and every one of
+ * 2034 frames fits max(the root of the previous frame, C) to 0.0001 -- held by `test/probeOrigin.test.ts` and
+ * `test/jumpAir.test.ts`. Retires the port's former step lift 5.5 (the PCSX2 spawn image's: the crouched player's root)
+ * and JUMP-AIR's launch-only switch (research 80 s7, research 86's table).
  */
-export const STEP_PROBE_LIFT_READING = 5.5;
+export const PROBE_LIFT_FLOOR_R0004: Readonly<Record<Stance, number>> = Object.freeze({ stand: 11.48, crouch: 5.0, prone: 0 });
+/**
+ * The prone body's root term under the probe's lift, the prone stance's root `PRONE_ROOT` 2.168 over r0004's prone floor 0
+ * [reading: untraced -- the origin trace has no prone row; settled by a prone case of the same r0004 trace
+ * (`agent-mail/evidence/jump-air/ORIGIN-TRACE.md`'s harness, `probe.ts --origin`), research 80 s7].
+ */
+export const PROBE_LIFT_PRONE_READING = PRONE_ROOT;
+/**
+ * The standing jump's root term (`'floor'`) [reading]: the trace reads `seal_jump`'s root rising over the floor to 15.059
+ * (one frame lagged; ORIGIN-TRACE.md case (d)), but the mover carries no clip's root height (`actionRoots` keeps x and z;
+ * the room has no posed skeleton), so the standing jump lifts by the standing floor, 11.48. Settled by the clip's
+ * `skel_root` y per frame carried to the mover, one tick lagged under max() (research 80 s7).
+ */
+export const STANDING_JUMP_PROBE_ROOT_READING = 'floor' as 'floor';
+/**
+ * The airborne root term outside the running jump's launch (`'stance-root'`) [reading]: a fall, a dive, the jump after
+ * its launch keep the stance's ground root under max() -- standing under the floor (11.48), crouched 5.504, prone 2.168 --
+ * though the air clips' own roots are not carried; only the launch was traced airborne (ORIGIN-TRACE.md case (a)).
+ * Settled by a trace of a walk-off fall and a dive (research 80 s7).
+ */
+export const AIR_PROBE_ROOT_READING = 'stance-root' as 'stance-root';
+/**
+ * The crouch run's root term (the stance word 1 on the standing run's body, `posture` stand) [reading]: 10.02, the
+ * lowest run root the r0004 origin trace reads (ORIGIN-TRACE.md case (a), action 2 frames: 10.02-10.79), so the lift is
+ * max(10.02, 5.0) = 10.02 where posture 0's floor would give 11.48 (review 1 F2). The run's root moves through its
+ * frames; settled by the run clip's `skel_root` y per frame carried to the mover, one tick lagged (research 80 s7).
+ */
+export const CROUCH_RUN_PROBE_ROOT_READING = 10.02;
+/**
+ * A stance transition's probe lift (`'target'`) [reading]: the target posture's value from the transition's first tick
+ * (the stance the mover took, `stance_`), where the trace reads the root's own curve, 5.508 to 10.863 in stand -> crouch
+ * (ORIGIN-TRACE.md case (e)). Settled by that curve carried per frame (research 80 s7).
+ */
+export const PROBE_LIFT_TRANSITION_READING = 'target' as 'target';
+/** `seal_runningjump_launch`'s root over the feet, constant over its keys (research 80 s2.2; the disc pin `test/jumpAir.test.ts`). */
+export const RUNNING_JUMP_ROOT = 10.57;
+/** The root term by posture on the ground: standing under the floor (the trace's 11.480), crouched and prone their roots. */
+const PROBE_ROOT: Readonly<Record<Stance, number | null>> = Object.freeze({
+  stand: null, crouch: STANCE.crouch.rootY, prone: PROBE_LIFT_PRONE_READING,
+});
+/**
+ * The floor probe's lift over the feet for a body in `posture` (PROBE-ORIGIN, `PROBE_LIFT_FLOOR_R0004`): max(`root`, the
+ * posture's floor) -- the root by default the posture's on the ground (`null`: under the floor). 11.48 standing, 5.504
+ * crouched, 2.168 prone. The mover's own pick is `Walker.probeLift`; a spawn and the page's and the room's picks for a
+ * standing body take `probeLiftOf('stand')`.
+ */
+export function probeLiftOf(posture: Stance, root: number | null = PROBE_ROOT[posture]): number {
+  const floor = PROBE_LIFT_FLOOR_R0004[posture];
+  return root === null ? floor : Math.max(root, floor);
+}
+/**
+ * The lift for a body by its stance word (`actor+0x174`, `word`) and the body drawn (`drawn`, the posture): a crouch run
+ * (word crouch on the standing run's body) takes `CROUCH_RUN_PROBE_ROOT_READING` under the crouched floor; every other,
+ * `probeLiftOf(word)`. The local mover's (`Walker.probeLift`); a remote body has no stance word (`./remotePlayers`
+ * `REMOTE_PROBE_STANCE_READING`).
+ */
+export function probeLiftFor(word: Stance, drawn: Stance): number {
+  return word === 'crouch' && drawn === 'stand' ? probeLiftOf('crouch', CROUCH_RUN_PROBE_ROOT_READING) : probeLiftOf(word);
+}
 
 /**
  * r0004's near-vertical floor push [reading] (OT.R97; research 217 section 2.8). r0004's twin of `FUN_0054f330` (r4
@@ -2303,6 +2409,14 @@ export class Walker {
   /** The velocity carried through the air and a landing clip (`actor+0x1350` / `+0x1358`), world x and z. */
   private carried: [number, number] = [0, 0];
   /**
+   * AIR-PROBE (`AIR_FLOOR_PROBE_READING` 'frame-end'; research 399): the last floor probe's hit in x/z (`actor+0x400` /
+   * `+0x408`), where a frame-end probe with no candidate puts the body back (`FUN_005b0420` D:L467091-467103). Set at the
+   * take-off (`takeOff`; `knock` only when it lifts the body off the floor): on the floor the body's x/z moves to a column
+   * only when its pick hits there (`groundEndpoint`), so the take-off point is the last ground probe's hit; then by each
+   * frame-end probe that hits.
+   */
+  private airHit: [number, number] = [0, 0];
+  /**
    * LATER 676 (`RUNNING_JUMP_SPEED`): the last ground tick's velocity before the walls cut it -- the port's stand-in for
    * the clip's `+0x2c` / `+0x34`, which the jump's speed test reads (`FUN_0057e1b0` D:L440812-440814). Written at the
    * start of `slideOrMove` (the slide's per `JUMP_SPEED_SLIDE_READING`); null on a tick that never reached it (the air,
@@ -3288,6 +3402,40 @@ export class Walker {
   random: (() => number) | null = null;
 
   /**
+   * FALL-DEATH-LAND: whether the fall's damage at this contact speed kills the body, asked by `land` before its pick --
+   * `FUN_005af590` runs `FUN_005ac1f0` first (D:L466656) and lands a body it killed in class 3, `Land forward`, no coin
+   * (D:L466658-466664). The console that applies the damage answers it: the room (`Room.fallDamage`'s own reading of
+   * the same health); null (the page, the free walk) picks as for the living, the death heard later (`diedOfFall`).
+   */
+  fallKills: ((speed: number) => boolean) | null = null;
+
+  /**
+   * FALL-DEATH-LAND, the page's own body: dead of its fall, told (the net client's `kill`, how 'fall') a round trip after
+   * the landing it predicted alive -- the page has no `fallKills`, its health being the room's word. The room's mover
+   * landed `Land forward` on that tick (D:L466656-466664); the light or heavy landing still on this mover (both started
+   * on the same command) becomes it at the phase it has reached, and holds its last key from there (`dead`). The review's
+   * F1: a kill heard once that clip is off -- run out (`Jump land hard` 0.9025 s, the hits 2.8-3.5 s) or cut by the stick
+   * past its NoInterrupt (`Jump land hard` from 0.3325 s) -- finds the ground state; while the hard landing is still
+   * the mover's latest (on the floor since, no landing after it) the body lies in `Land forward` at its last key
+   * (`holdDeathLanding`), the room's having run out by then (0.33 s). Any other play is left as `dead` leaves it.
+   */
+  diedOfFall(): void {
+    const a = this.action_;
+    this.dead = true;
+    if (this.action_ !== a) return;                              // the setter laid it down itself (a get-up)
+    const hard = (name: string | null | undefined): boolean => name === 'landHard' || name === 'hit' || name === 'hitStomach';
+    if (a && hard(a.name)) {
+      const seconds = ACTION_SECONDS.landDeath;
+      this.endBody('death');
+      this.action_ = { name: 'landDeath', serial: ++this.serial, t: Math.min(a.t, seconds), seconds, reversed: false };
+      return;
+    }
+    const l = this.landing_;
+    if (this.inAir || !l || l.knocked || !hard(l.clip) || a?.name === 'landDeath' || a?.name === 'landBackwards') return;
+    this.holdDeathLanding('landDeath', 'death');
+  }
+
+  /**
    * Whether the action on the mover would give way now (`FUN_00587c20`, decomp 445514-445576: its phase past its
    * `NoInterrupt`), or there is none. The launch, the fall, the knock's falls and the death landings never do: they end
    * on the floor or hold the body. `FUN_005b4340(seal, 1)` (469337-469346) takes the peek only from such a SEAL
@@ -3598,15 +3746,15 @@ export class Walker {
 
   /**
    * Stands the mover on the floor under (x, fromY, z): the probe's highest floor at or under `fromY` + 1, else
-   * the lowest within 20 over `fromY` - 5.5 -- the selection with the origin at `fromY`. A spawn passes its feet +
-   * `STEP_PROBE_LIFT_READING`, so the pick is the tick's own (`FUN_005b5d40` 470230-470240 from the tick's one origin,
+   * the lowest within 20 over `fromY` - `probeLift` -- the selection with the origin at `fromY`. A spawn passes its feet +
+   * `probeLiftOf('stand')`, so the pick is the tick's own (`FUN_005b5d40` 470230-470240 from the tick's one origin,
    * `FUN_005b0840`'s; research 86 s6.3 and s6.5; the
    * record lifted a unit first, `FUN_002b8100` 158793, research 91 s4.2): the server's spawn and the page's respawn
    * alike. Only the page dropping from the camera passes the camera's eye. False, and nothing moves, when there is no
    * floor there.
    */
   place(x: number, fromY: number, z: number): boolean {
-    const floor = selectFloor(probeGround(this.grid, x, z), fromY, fromY - STEP_PROBE_LIFT_READING);
+    const floor = selectFloor(probeGround(this.grid, x, z), fromY, fromY - this.probeLift());
     if (!floor) return false;
     Object.assign(this.state, { x, y: floor.y, z, vx: 0, vz: 0, vy: 0, stickForward: 0, stickRight: 0 });
     this.prev = { x, y: floor.y, z };
@@ -3679,6 +3827,9 @@ export class Walker {
     }
     this.jumpDelay = 0;
     this.jumping = false;
+    // AIR-PROBE: the last hit is where the knock left the floor -- only when it did. The original's knock writes no
+    // `+0x400` (`FUN_0057e770` D:L440990-441080), so a knock in the air keeps the flight's last hit (review F2).
+    if (!this.inAir) this.airHit = [s.x, s.z];
     this.inAir = true;
     this.airTime = 0;
     this.airClock.reset();                                       // the flight's game frames start here
@@ -3750,6 +3901,7 @@ export class Walker {
     this.landing_ = null;
     this.airTime = 0;
     this.airClock.reset();                                       // the flight's game frames start here
+    this.airHit = [this.state.x, this.state.z];                  // AIR-PROBE: the last ground probe's hit (`airHit`)
     this.state.vy = 0;
     this.carried = [this.state.vx, this.state.vz];
   }
@@ -3870,7 +4022,7 @@ export class Walker {
 
   /**
    * PRONE-TILT: the floor hit's normal under the feet after the move (`FUN_005b0420`'s pick: the port's `selectFloor` from
-   * the feet + `STEP_PROBE_LIFT_READING`), kept as it was when the pick misses (D:L467049-467070). Asked by the rule only
+   * the feet + `probeLift`), kept as it was when the pick misses (D:L467049-467070). Asked by the rule only
    * when it writes. The original copies the normal only when `FUN_0059acd0(hit+0x1c)` is 0 (D:L467123-467134) -- no owner, or
    * one that is not a `CSealEx` with its `+4` set (its dynamic cast, type descriptors ELF 0x65c238 `CSealEx` from 0x65c220 `zdb::CNodeEx`,
    * `FUN_0059acd0` D:L456241-456258), else the normal is kept (D:L467136-467140). The port's floors are the map's collision
@@ -3878,7 +4030,7 @@ export class Walker {
    */
   private tiltFloorNormal(): [number, number, number] {
     const s = this.state;
-    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + STEP_PROBE_LIFT_READING, s.y);
+    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + this.probeLift(), s.y);
     if (floor) this.tiltNormal_ = [floor.normal[0], floor.normal[1], floor.normal[2]];
     return this.tiltNormal_;
   }
@@ -4164,7 +4316,7 @@ export class Walker {
   private slideOrMove(forward: number, right: number, dt: number): void {
     const s = this.state;
     this.bodyVelocity_ = [s.vx, s.vz];                          // LATER 676: the clip's velocity, before the walls
-    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + STEP_PROBE_LIFT_READING, s.y);
+    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + this.probeLift(), s.y);
     const span = floor ? slideSpanOf(floor.poly.points, s.x, s.z) : null;
     const startSpeed = this.slideSpeed_;
     const frame = floor ? steepGroundFrame({
@@ -4178,6 +4330,7 @@ export class Walker {
       this.slideSpeed_ = frame.speed;
       this.slideClip_ = frame.clip && !this.swapping();
       let dx = frame.dx, dz = frame.dz;
+      let pushed = false;
       // r0004 (`STEEP_FLOOR_CONTACT_READING`): a body facing into a near-vertical floor whose slide has not started is
       // pushed off it along its horizontal normal, over the slide's own step.
       const n = floor.normal, h2 = n[0] * n[0] + n[2] * n[2];
@@ -4190,14 +4343,22 @@ export class Walker {
         // port writes no `+0xf48`). `t` < 1: within `distance` in front of the face's plane, or behind it.
         const t = (n[0] * dx + n[1] * (s.y - floor.y) + n[2] * dz) / (distance * h2);
         if (t < 1) {
+          pushed = true;                                         // only a push taken (LATER 841 keeps the rest)
           const k = distance * (1 - t) * gain, px = n[0] * k, pz = n[2] * k;
           dx = px >= 0 ? Math.max(dx, px) : Math.min(dx, px);
           dz = pz >= 0 ? Math.max(dz, pz) : Math.min(dz, pz);
         }
       }
-      s.vx = dt > 0 ? dx / dt : 0;
-      s.vz = dt > 0 ? dz / dt : 0;
-      if (JUMP_SPEED_SLIDE_READING === 'slide') this.bodyVelocity_ = [s.vx, s.vz];
+      // LATER 833 (research 217 s2.8, "The push is a displacement, never a velocity"): the push raises the frame's
+      // displacement only (`FUN_0054a6d0` stores `+0xf44` / `+0xf4c`, D:L414448-414462). The velocity `+0x64` was fixed
+      // from the clip's before it (D:L416515-416520), and the move's tail copies `+0x38 = +0x64` (D:L413963-413965), which
+      // a walk-off or a jump carries (D:L466972-466974; r0004 r4 0x552b00-0x552b50, 0x54e644-0x54e65c, 0x5b5a28-0x5b5a40).
+      // So a pushed tick keeps the clip's velocity: as `dx / dt` the 4.2-u push was 252 u/s and threw a walk-off 282 u.
+      if (!pushed) {
+        s.vx = dt > 0 ? dx / dt : 0;
+        s.vz = dt > 0 ? dz / dt : 0;
+        if (JUMP_SPEED_SLIDE_READING === 'slide') this.bodyVelocity_ = [s.vx, s.vz];
+      }
       this.slideFloorPoly_ = floor.poly;
       try { this.move(dx, dz); }
       finally { this.slideFloorPoly_ = null; }
@@ -4704,7 +4865,7 @@ export class Walker {
         if (this.crosses(this.tickFromX, this.tickFromZ, x, z, s.y, true) || this.crosses(x0, z0, x, z, s.y, true)) continue;
         // On its own floor's level: never a push off an edge into a fall (MP51's window frame, the review of 1c594ffa4: a
         // push 4.8 off the floor at 62.83 dropped the body 106 to -43).
-        const floor = selectFloor(probeGround(this.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y);
+        const floor = selectFloor(probeGround(this.grid, x, z), s.y + this.probeLift(), s.y);
         if (!floor || floor.y < s.y - SEAL_TUNING.groundTouchDistance) continue;
         if (this.groundEndpoint(x, z)) return true;
       }
@@ -4803,7 +4964,8 @@ export class Walker {
     this.fell = true;
     this.airFrom += s.y - this.airTo;
     this.airTo = s.y;
-    for (let frames = this.airClock.advance(dt); frames > 0; frames--) {
+    const frameEnds = this.airClock.advance(dt);                 // AIR-PROBE: this tick ends a game frame when > 0
+    for (let frames = frameEnds; frames > 0; frames--) {
       this.airFrom = s.y;
       // FUN_005af930 (D:L466797-466803) counts actor+0x1360 down by the frame's dt, then FUN_0059b440 (D:L456496-456498)
       // adds g dt to the fall speed and moves the height by it -- the wind-up's frames included: from 0.1 the delay
@@ -4822,12 +4984,32 @@ export class Walker {
     if (segments) {
       // SEGMENT-BODY: the tick's whole displacement -- the carried move across and the frames' fall -- is the segments'
       // (`FUN_0054d9a0` D:L416501-416530; `FUN_0054aa30` D:L415157-415166), resolved from where the tick began
-      // (`resolveSegments`); the move across then takes the probe-miss rule (`airStep`), the height what is left.
+      // (`resolveSegments`); the move across then takes the probe-miss rule (`AIR_FLOOR_PROBE_READING`), the height what
+      // is left.
       const dy = s.y - from;
       s.y = from;
-      const [rx, ry, rz] = this.resolveSegments([s.vx * dt, dy, s.vz * dt]);
-      const distance = Math.hypot(rx, rz), parts = Math.ceil(distance / MAX_SUBSTEP);
-      for (let i = 0; i < parts; i++) this.airStep(rx / parts, rz / parts);
+      // AIR_SEGMENT_DIRECTION_READING (Craig's loose jump batch, 2026-11-08): the records lie along the tick's move with
+      // the body's vertical speed in it on every tick, as the original's one tick a game frame always has (its frame's
+      // displacement `+0xf44` carries the fall, `FUN_0054d9a0` D:L416501-416530, normalised in three axes for the
+      // records, `FUN_0054aa30` D:L415134-415166). The height steps at 30 Hz, so half the 60 Hz ticks had a level `dy`
+      // and laid the records flat and low: a running jump met a face its records clear in the original.
+      const geomDy = AIR_SEGMENT_DIRECTION_READING === 'velocity' ? s.vy * dt : dy;
+      const [rx, ry, rz] = this.resolveSegments([s.vx * dt, geomDy, s.vz * dt]);
+      if (AIR_FLOOR_PROBE_READING === 'frame-end') {
+        // AIR-PROBE (research 399): the resolved move whole; the floor probed once a game frame, on the tick that ends
+        // it, at the move's end (`FUN_005506a0` D:L417822-417826, `FUN_005b0840` at `+0xf54`), from the feet as the tick
+        // found them + `probeLift` -- the sub-step's pick, at the column `AIR_PROBE_COLUMN_PLACEHOLDER` names. A hit is the
+        // last hit; a miss (`DAT_003df1c8` 1) puts x/z back at it and zeroes the slide speed `+0x1340` (`FUN_005b0420`
+        // D:L467091-467103; `+0x111c` has no counterpart here). The height is left to the frames' step below.
+        s.x += rx; s.z += rz;
+        if (frameEnds > 0) {
+          if (selectFloor(probeGround(this.grid, s.x, s.z), s.y + this.probeLift(), s.y)) this.airHit = [s.x, s.z];
+          else { [s.x, s.z] = this.airHit; this.stopSlide(); }
+        }
+      } else {
+        const distance = Math.hypot(rx, rz), parts = Math.ceil(distance / MAX_SUBSTEP);
+        for (let i = 0; i < parts; i++) this.airStep(rx / parts, rz / parts);
+      }
       // `AIR_HEIGHT_READING`: the height is the frames' own step (`FUN_0059b440` on the altitude `+0x2e4`), not the
       // resolved displacement's y -- the jam zeroes `+0xf44..+0xf4c`, not the fall.
       s.y = from + (AIR_HEIGHT_READING === 'altitude' ? dy : ry);
@@ -4836,12 +5018,12 @@ export class Walker {
     } else picked = this.airWalls(startX, startZ, from);
     if (this.jumpDelay > 0) return;                              // the wind-up: the landing is off
     // The floor is FUN_005b5d40's pick, as on the ground: the highest at or under the probe's origin + 1 (the feet as
-    // they were + STEP_PROBE_LIFT_READING + 1, the tick's one origin), else the lowest while within 20 over the feet -- so a slope that rose over the feet is still
+    // they were + `probeLift` + 1, the tick's one origin), else the lowest while within 20 over the feet -- so a slope that rose over the feet is still
     // theirs. FUN_0059ad30 (456313-456322) puts the feet on it whenever they are under it, rising or not, and
     // FUN_0059b440's walk-off branch (456502-456512) zeroes the fall speed only when it is a fall: rising into the
     // ground the feet ride it and the rise goes on; falling, it is the landing (web research 86 section 6.3).
     // HF2-slim: the air pass's own pick at the same point, the same origin and feet, when it left the body there.
-    const floor = picked !== undefined ? picked : selectFloor(probeGround(this.grid, s.x, s.z), from + STEP_PROBE_LIFT_READING, s.y);
+    const floor = picked !== undefined ? picked : selectFloor(probeGround(this.grid, s.x, s.z), from + this.probeLift(), s.y);
     if (floor && s.y <= floor.y) {
       s.y = floor.y;
       this.setFloorNormal(floor.normal);
@@ -4878,9 +5060,11 @@ export class Walker {
       // FUN_005af590 by FUN_005ac1f0's class: death `Land forward`, heavy one of the two hits, else `Jump land hard`.
       const cls = landingClass(speed);
       // A corpse's class is 3 whatever its speed (D:L466658-466660: the alive bit clear): `Land forward`, no coin (PF-21).
-      // The living's heavy coin (L466667-466669) from the command (LANDING_HIT_DRAW_READING), or a test's `random`.
-      const draw = cls === 2 && !this.dead_ ? (this.random ? this.random() : landingHitDraw(this.commandSeq)) : 1;
-      clip = this.dead_ || cls === 3 ? 'landDeath' : cls === 2 ? (draw <= 0.5 ? 'hitStomach' : 'hit') : 'landHard';
+      // FALL-DEATH-LAND: the fall's damage runs before the pick (`FUN_005ac1f0` D:L466656), so a body this landing kills
+      // (`fallKills`) is one too. The living's heavy coin (L466667-466669) from the command (LANDING_HIT_DRAW_READING), or a test's `random`.
+      const corpse = this.dead_ || this.fallKills?.(speed) === true;
+      const draw = cls === 2 && !corpse ? (this.random ? this.random() : landingHitDraw(this.commandSeq)) : 1;
+      clip = corpse || cls === 3 ? 'landDeath' : cls === 2 ? (draw <= 0.5 ? 'hitStomach' : 'hit') : 'landHard';
     } else if (still) clip = 'land';
     this.landing_ = { kind: landingKind(speed, JUMP_TABLE), speed, airTime: this.airTime, clip, cls: landingClass(speed), knocked: this.knockLanding_ };
     s.vy = 0;
@@ -4911,20 +5095,48 @@ export class Walker {
    * An airborne sub-step: the walls push, then the column is the ground's own pick, as every tick's probe takes it
    * (`FUN_005b0420` 467037-467110 through `FUN_005b5d40` 470163-470290: the highest floor at or under the origin + 1,
    * else the lowest, refused only when more than 20 over the feet) -- `selectFloor` from the feet +
-   * `STEP_PROBE_LIFT_READING`, the tick's one origin (`FUN_005b0840`, socom_pc research 23 s1.1-1.2). A
+   * `probeLift`, the tick's one origin (`FUN_005b0840`, socom_pc research 23 s1.1-1.2). A
    * floor found up to 20 over the feet is entered, and the tick's floor then puts the feet on it (`fall`; `FUN_0059ad30`
    * 456313-456322, `FUN_0059b440` 456502-456512). No floor -- the map's edge, a hole, a top more than 20 over the feet
    * -- is the probe's miss, which with `DAT_003df1c8` set (1 in the ELF) puts the actor back at its last hit
    * (`FUN_003157d0` on `+0x400..+0x408`): the sub-step is not taken (research 86 s6.3; OWNER-5 2026-09-29 retired the
-   * viewer's former `step_height` allowance here).
+   * viewer's former `step_height` allowance here). AIR-PROBE (research 399): on the segment path's airborne tick this
+   * per-sub-step refusal is the `'sub-step'` arm of `AIR_FLOOR_PROBE_READING` only -- the built rule probes once a game
+   * frame at the move's end and puts x/z back at the last hit on a miss; the disc arm and a ground tick's sub-steps
+   * after its take-off (`move`) still come here.
    */
   private airStep(dx: number, dz: number): void {
     const s = this.state;
     const segments = WALL_BODY_READING === 'segments';            // SEGMENT-BODY: the walls already met (`fall`, `move`)
     const [x, z] = segments ? [s.x + dx, s.z + dz] : this.slide(s.x + dx, s.z + dz, s.x, s.z);
     if (!segments && this.crosses(s.x, s.z, x, z)) return;
-    if (!selectFloor(probeGround(this.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y)) return;
+    if (!selectFloor(probeGround(this.grid, x, z), s.y + this.probeLift(), s.y)) return;
     s.x = x; s.z = z;
+  }
+
+  /**
+   * PROBE-ORIGIN (LATER 785; research 80 s7): the floor probe's origin over the feet this tick, for every pick the mover
+   * makes -- the ground step, the spawn, the slide, the tilt, the push-out, the fall and the airborne sub-step. r0004's
+   * rule (`PROBE_LIFT_FLOOR_R0004`, 0x5b67f8-0x5b6844; the r0004 origin trace): max(the skeleton root's posed height on
+   * the previous frame, the floor of the stance word `actor+0x174` -- the port's `stance_`, review 1 F2). The mover runs
+   * on the room too, with no posed skeleton, so the root term is the mover's own: standing on the ground, under the floor
+   * (the trace's 11.480 standing, walking, running), so 11.48; crouched 5.504 (`STANCE`, the trace's); prone
+   * `PROBE_LIFT_PRONE_READING`; a crouch run (word 1 on the standing run's body) `CROUCH_RUN_PROBE_ROOT_READING` 10.02;
+   * the running jump's launch `RUNNING_JUMP_ROOT` 10.57 under the floor, so 11.48; the standing jump the floor
+   * (`STANDING_JUMP_PROBE_ROOT_READING`); the other airborne states the stance's root under max()
+   * (`AIR_PROBE_ROOT_READING`); a stance transition the target stance's value at once (`stance_` is written at the
+   * press; `PROBE_LIFT_TRANSITION_READING`). The root's one frame of lag matters only where the root term changes, which
+   * with these terms is only at a transition and a crouch run's start, so the port carries no lag of its own.
+   */
+  private probeLift(): number {
+    const a = this.action_?.name;
+    if (a === 'launch') return probeLiftOf('stand', RUNNING_JUMP_ROOT);                    // word 0: max(10.57, 11.48)
+    const transition = a === 'standToCrouch' || a === 'crouchToProne' || a === 'standToProne';
+    const word = this.stance_;                                    // `actor+0x174`; a transition's target (PROBE_LIFT_TRANSITION_READING)
+    if (transition && PROBE_LIFT_TRANSITION_READING === 'target') return probeLiftOf(word);
+    if (a === 'jump' && STANDING_JUMP_PROBE_ROOT_READING === 'floor') return PROBE_LIFT_FLOOR_R0004[word];
+    // In the air as on the ground (AIR_PROBE_ROOT_READING 'stance-root'): the stance's root under max().
+    return probeLiftFor(word, this.posture_);
   }
 
   /**
@@ -4932,7 +5144,7 @@ export class Walker {
    * lines over the feet the tick leaves, every airborne tick, moving or still -- the original's displacement carries the
    * fall and its segments are resolved every tick in the air (`FUN_0054d9a0` D:L416501-416530, `FUN_0054aa30`
    * D:L415157-415166, `FUN_005506a0` D:L417822-417826). The feet are the game frames' or, when the tick's pick (`fall`'s,
-   * from `from` + `STEP_PROBE_LIFT_READING`) puts them on a floor over them, that floor's: a body carried over a rim it
+   * from `from` + `probeLift`) puts them on a floor over them, that floor's: a body carried over a rim it
    * lands on meets the rim's face no more than the landing does. Only faces met from in front of their own normal, from
    * where the tick began (research 281 s4.3, the hull's one-sided hit): a falling body never meets a face from behind
    * here, as the airborne sub-step's two-sided lines at the tick's start still do. The tick's move from (`startX`,
@@ -4955,7 +5167,7 @@ export class Walker {
     const s = this.state;
     // The tick's floor pick, made once: `fall` takes it back when the body stays where it is (HF2-slim's cost, f9's MP2
     // cells: the pass had doubled the airborne tick's probe).
-    const floor = selectFloor(probeGround(this.grid, s.x, s.z), from + STEP_PROBE_LIFT_READING, s.y);
+    const floor = selectFloor(probeGround(this.grid, s.x, s.z), from + this.probeLift(), s.y);
     if (startX === s.x && startZ === s.z) return floor;          // no move: nothing to cross
     const feet = floor && s.y <= floor.y ? floor.y : s.y;
     if (this.crosses(startX, startZ, s.x, s.z, feet, true)) { s.x = startX; s.z = startZ; return undefined; }
@@ -4964,7 +5176,7 @@ export class Walker {
 
   /**
    * One sub-step on the ground: move, slide off the walls, then stand on the floor there -- `selectFloor` from the
-   * origin y + `STEP_PROBE_LIFT_READING` (5.5) with the feet at y: the highest floor at or under the origin + 1, else the
+   * origin y + `probeLift` (11.48 standing, 5.504 crouched) with the feet at y: the highest floor at or under the origin + 1, else the
    * lowest, refused only when more than 20 over the feet (`FUN_005b5d40` D:L470232-470274), as the airborne sub-step's.
    * No rise is compared with `step_height` (issue #111, research 217 s2.6): the original compares none in the walk --
    * `step_height` is the height of the wall probes (`FUN_0054aa30` D:L415167, research 217 s2.1) and lifts the contact
@@ -5002,7 +5214,7 @@ export class Walker {
   }
 
   private groundEndpoint(x: number, z: number): boolean {
-    const s = this.state, floor = selectFloor(probeGround(this.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y);
+    const s = this.state, floor = selectFloor(probeGround(this.grid, x, z), s.y + this.probeLift(), s.y);
     if (!floor) return false;
     const rise = floor.y - s.y;
     s.x = x; s.z = z;

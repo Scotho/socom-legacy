@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlayerCamera, WATCHED_EASE_RATE_READING, watchedEaseFactor } from '../src/playerCamera';
 import { SpectatorView, type SpectatorBody } from '../src/spectatorView';
+import { newDeathCamera, takeDeathControl } from '../src/deathCamera';
 
 /**
  * INV-SPECTATE fix C (simulation track; reading, pending review; research 314 §5.7): the dead player's teammate view is
@@ -93,5 +94,29 @@ describe('only the dead player\'s teammate view eases; the spectator\'s follow s
     const { calls } = view('spectator');
     expect(calls.length).toBeGreaterThan(0);
     for (const c of calls) expect(c.ease).toBeFalsy();
+  });
+});
+
+/**
+ * DEATHCAM-MANUAL (OT.R116; reading, pending review): the own body's death camera eased once the stick takes over --
+ * `FUN_00297410` D:L141028-141032 sets the blend flag online whenever the camera is at 7, the own body's as a
+ * teammate's; the first tick at 7 spends the latch +0x44 (set by the bind, `FUN_002956e0` D:L139736) and writes the
+ * stored pair straight (D:L141034-141041). Before the takeover (3 or 6) the own body's camera is rigid.
+ */
+describe('DEATHCAM-MANUAL: the own body\'s death camera eased from the stick\'s takeover (D:L141028-141041)', () => {
+  it('rigid before the takeover; the takeover\'s first tick written straight; eased after it', () => {
+    const own = new PlayerCamera(null), rigid = new PlayerCamera(null);
+    own.death = newDeathCamera(); rigid.death = newDeathCamera();
+    const step = (x: number) => { own.tick([x, 0, 0], 0, 0, 10, 1 / 60); rigid.tick([x, 0, 0], 0, 0, 10, 1 / 60); };
+    step(0); step(30);
+    expect(own.view(1).eye).toEqual(rigid.view(1).eye);           // automatic: rigid
+    takeDeathControl(own.death);
+    step(0);
+    expect(own.death.manual).toBe(true);
+    expect(own.view(1).eye).toEqual(rigid.view(1).eye);           // the latch: the first tick at 7 written straight
+    const before = own.view(1).eye;
+    step(30);
+    const goal = rigid.view(1).eye;
+    own.view(1).eye.forEach((x, i) => expect(x).toBeCloseTo(before[i]! + (goal[i]! - before[i]!) * 0.1, 9));
   });
 });

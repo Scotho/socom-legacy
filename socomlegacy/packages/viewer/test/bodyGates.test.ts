@@ -49,7 +49,13 @@ function onPage(row: GateRow): string {
   m.walkFor(GATE_SETTLE * TICK, { forward: 0, right: 0, boost: false });
   expect(m.stance()).toBe(row.body.stance);
   const stick = { forward: row.motion?.forward ?? 0, right: row.motion?.right ?? 0, boost: false };
-  if (row.motion) m.walkFor(row.motion.ticks * TICK, stick);
+  if (row.motion?.climb) {                             // LC-1: the press on the first tick the ladder offers CLIMB
+    let pressed = false;
+    for (let i = 0; i < row.motion.ticks; i++) {
+      if (!pressed && (m.traversal() as { climbPrompt?: () => { kind: string } | null } | null)?.climbPrompt?.()?.kind === 'ladder') { m.action(); pressed = true; }
+      m.walkFor(TICK, stick);
+    }
+  } else if (row.motion) m.walkFor(row.motion.ticks * TICK, stick);
   switch (row.input.kind) {
     case 'stance': m.setStance(row.input.to); break;
     case 'fire': {

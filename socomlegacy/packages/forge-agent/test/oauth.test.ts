@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { GuestOAuth } from "../src/oauth.js";
+import { CONSENT_STYLE_HASH, GuestOAuth } from "../src/oauth.js";
 import { createHash } from "node:crypto";
 import type { Response } from "express";
 describe("guest bootstrap", () => {
@@ -33,7 +33,7 @@ describe("guest bootstrap", () => {
           response,
         );
         expect(headers.get("Content-Security-Policy")).toBe(
-          `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`,
+          `default-src 'none'; style-src 'sha256-${CONSENT_STYLE_HASH}'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`,
         );
       }
       const headers = new Map<string, string>();
