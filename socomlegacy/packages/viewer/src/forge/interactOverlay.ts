@@ -247,9 +247,19 @@ export function viewShapes(at: readonly number[], yawDeg: number, pitchDeg: numb
   };
 }
 
-/** The gizmos' colours for a placed or the map's gate and C4 barrier: their billboards' own (G; a context action's !). */
+/** The gizmos' colours for a placed or the map's gate and C4 barrier: their billboards' own (G; a damage trigger's X). */
 export const GATE_GUIDE_COLOUR = 0x78c8a8;
-export const BARRIER_GUIDE_COLOUR = 0xe0e0e0;
+export const BARRIER_GUIDE_COLOUR = 0xff9f43;
+/**
+ * The lines from a context action and a damage trigger to what their programs reach (`./actionSummary`): each its
+ * billboard's colour (! and X). An editor guide (FG.R2), never drawn in a match.
+ */
+export const ACTION_LINK_COLOUR = 0xe0e0e0;
+export const DAMAGE_LINK_COLOUR = 0xff9f43;
+/** How high over each end's origin (its floor) a placed switch's line to its gate is drawn: clear of the floor. An editor value. */
+export const SWITCH_LINK_LIFT = 5;
+/** How near along the ground a reached place may stand to its own mark and still need no line: its own parts. An editor value. */
+export const LINK_NEAR = 12;
 
 /** A ring of radius `r` round `at` on its floor (`at`'s height, lifted 1): line pairs. */
 export function ringSegments(at: readonly number[], r: number, steps = 32): number[] {
@@ -258,6 +268,31 @@ export function ringSegments(at: readonly number[], r: number, steps = 32): numb
   for (let k = 0; k < steps; k++) {
     const a = (k / steps) * Math.PI * 2, b = ((k + 1) / steps) * Math.PI * 2;
     out.push(at[0]! + Math.cos(a) * r, y, at[2]! + Math.sin(a) * r, at[0]! + Math.cos(b) * r, y, at[2]! + Math.sin(b) * r);
+  }
+  return out;
+}
+
+/**
+ * A wire sphere of radius `r` round `at` (an editor guide: a script explosion's reach, the owner, 2026-11-10: "draw the
+ * radius sphere"): `rings` latitude circles and `meridians` half-circles pole to pole, `steps` segments a whole circle.
+ */
+export function sphereSegments(at: readonly number[], r: number, rings = 5, meridians = 8, steps = 32): number[] {
+  const out: number[] = [];
+  if (!(r > 0)) return out;
+  const [cx, cy, cz] = [at[0]!, at[1]!, at[2]!];
+  for (let i = 1; i <= rings; i++) {
+    const lat = -Math.PI / 2 + (i / (rings + 1)) * Math.PI, y = cy + Math.sin(lat) * r, rr = Math.cos(lat) * r;
+    for (let k = 0; k < steps; k++) {
+      const a = (k / steps) * Math.PI * 2, b = ((k + 1) / steps) * Math.PI * 2;
+      out.push(cx + Math.cos(a) * rr, y, cz + Math.sin(a) * rr, cx + Math.cos(b) * rr, y, cz + Math.sin(b) * rr);
+    }
+  }
+  for (let m = 0; m < meridians; m++) {
+    const lon = (m / meridians) * Math.PI * 2, ux = Math.cos(lon), uz = Math.sin(lon);
+    for (let k = 0; k < steps / 2; k++) {
+      const a = -Math.PI / 2 + (k / (steps / 2)) * Math.PI, b = -Math.PI / 2 + ((k + 1) / (steps / 2)) * Math.PI;
+      out.push(cx + ux * Math.cos(a) * r, cy + Math.sin(a) * r, cz + uz * Math.cos(a) * r, cx + ux * Math.cos(b) * r, cy + Math.sin(b) * r, cz + uz * Math.cos(b) * r);
+    }
   }
   return out;
 }
@@ -272,6 +307,12 @@ export function accessShapes(centre: readonly number[], prompt: readonly number[
 
 /** A bomb plant site's gizmo colour: the bomb's billboard red (`./mapDataBillboards` `bombStart`, B). An editor's value. */
 export const BOMB_SITE_GUIDE_COLOUR = 0xff4d4d;
+/**
+ * A placed switch's reach (the owner, 2026-11-10: "draw the range of the switches reach and height reach"; an editor
+ * guide, a browser adaptation): its record's `range` and `elevation` as `bombSiteShapes` draws a site's -- the same two
+ * `actions.rdr` fields, the same test (`../mapActions` `actionAtPick`) -- round its prompt's place.
+ */
+export const SWITCH_REACH_COLOUR = 0x7fd1ff;
 
 /**
  * A bomb plant site's gizmo (a browser adaptation, FG.R2): the reach a planter must stand inside -- an MPBOMB context

@@ -56,6 +56,14 @@ export interface ViewerRenderer {
   renderer: WebGPURenderer;
   backend: Backend;
   render(scene: Scene, camera: Camera): void;
+  /**
+   * The Forge's split views (`./forge/splitViews`; a browser adaptation with no original): `scene` drawn once a view, each
+   * into its own share of the picture (`rect`, fractions of it from its top-left corner), `before(i)` run ahead of view
+   * `i`'s draw so its camera-facing work and its marks are its own. The picture is cleared once, then each view drawn over
+   * its rectangle only. The flashbang's glow and the experiment's passes are a single picture's and are not drawn under a
+   * split; the `visual.post` pass is drawn once over the whole.
+   */
+  renderViews(scene: Scene, views: readonly SplitViewDraw[], before?: (index: number) => void): void;
   /** The canvas's CSS size; what the backing store becomes depends on the presentation and the pixel ratio. */
   resize(width: number, height: number): void;
   /** The device pixels per CSS pixel the native presentation draws at; clamped to the device's own. */
@@ -106,6 +114,9 @@ export interface ViewerRenderer {
   // The `visual.post` seam (`./visualPostSeam`, FCW-07b; a browser adaptation) is not a property: it is reached only
   // through `visualPostSeams(renderer)`, handed once to the extension host (FCW-07b-2, B2-4).
 }
+
+/** One split view's draw (`ViewerRenderer.renderViews`): its camera, and its rectangle as fractions of the picture. */
+export interface SplitViewDraw { camera: Camera; rect: { x: number; y: number; w: number; h: number } }
 
 /**
  * A guess at which draws share a program, for `prepare`'s order only: the object's kind, its material's class, name
@@ -617,6 +628,38 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     render: (scene, camera) => {
       applyClear();
       drawFrame(scene, camera);
+      const pass = postSlot.current();
+      if (pass) drawPost(pass);
+    },
+    renderViews: (scene, views, before) => {
+      applyClear();
+      const target = mode === 'ps2' ? frame : null;          // the PS2 picture's own target, else the canvas
+      const previous = renderer.getRenderTarget();
+      const autoClear = renderer.autoClear;
+      renderer.getSize(drawingSize);
+      const width = target ? target.width : drawingSize.x, height = target ? target.height : drawingSize.y;
+      const place = (x: number, y: number, w: number, h: number): void => {
+        if (target) { target.viewport.set(x, y, w, h); target.scissor.set(x, y, w, h); }
+        else { renderer.setViewport(x, y, w, h); renderer.setScissor(x, y, w, h); }
+      };
+      renderer.setRenderTarget(target);
+      try {
+        renderer.clear();                                      // once, whole: a view's draw loads what is there
+        renderer.autoClear = false;
+        renderer.setScissorTest(true);
+        views.forEach((v, i) => {
+          const x = Math.round(v.rect.x * width), y = Math.round(v.rect.y * height);
+          place(x, y, Math.max(1, Math.round((v.rect.x + v.rect.w) * width) - x), Math.max(1, Math.round((v.rect.y + v.rect.h) * height) - y));
+          before?.(i);
+          renderer.render(scene, v.camera);
+        });
+      } finally {
+        renderer.setScissorTest(false);
+        place(0, 0, width, height);
+        renderer.autoClear = autoClear;
+        renderer.setRenderTarget(previous);
+      }
+      if (target) renderer.render(blitScene, blitCamera);
       const pass = postSlot.current();
       if (pass) drawPost(pass);
     },

@@ -104,6 +104,11 @@ export class CranePage {
    * command `seq` (from `ActionPage.action`): true when it is one of the hooks' -- its swap predicted here
    * (`CraneSet.predict`) while the page follows a match's hooks -- false when it is none.
    */
+  /** Whether `valve` is one of the hooks' controls (`./actionPage`'s `isCrane`: a crane is never marked used). */
+  owns(valve: string): boolean {
+    return (this.set?.indexByValve(valve) ?? -1) >= 0;
+  }
+
   press(valve: string, seq: number): boolean {
     const set = this.set;
     const i = set ? set.indexByValve(valve) : -1;

@@ -86,8 +86,40 @@ function programTextures(p: EffectProgram): string[] {
   return out;
 }
 
-/** Reads a map's effect data off `source`. */
-export async function effectsFromDisc(source: AssetSource, mapPath: string, archive: string): Promise<EffectData> {
+/**
+ * A map's effect programs, decoded off its two sets (`EFFECT_ARCHIVES`: the common `CZANIM.ZAR`, the mission's
+ * `MZANIM.ZAR`), each name once, the common set's first as the map's own read takes them. A set that will not read is
+ * named in `missing` and left out.
+ */
+export async function effectProgramsFromDisc(source: AssetSource, mapPath: string, missing: string[] = []): Promise<{ all: EffectProgram[]; mission: EffectProgram[] }> {
+  const all: EffectProgram[] = [], mission: EffectProgram[] = [];
+  const seen = new Set<string>();
+  for (const archiveName of EFFECT_ARCHIVES) {
+    try {
+      const zar = Zar.parse(await readZdbMember(source, mapPath, archiveName));
+      for (const set of parseAnimSets(zar).sets) for (const a of set.anims) {
+        const p = decodeEffectProgram(a);
+        if (archiveName === 'MZANIM.ZAR') mission.push(p);
+        if (seen.has(a.name.toLowerCase())) continue;
+        seen.add(a.name.toLowerCase());
+        all.push(p);
+      }
+    } catch (e) { missing.push(`${mapPath} ${archiveName}: ${why(e)}`); }
+  }
+  return { all, mission };
+}
+
+/** Effect programs a donor map lends (`effectsFromDisc` `borrow`): its archive's path and the names wanted from it. */
+export interface EffectBorrow { path: string; names: readonly string[] }
+
+/**
+ * Reads a map's effect data off `source`. `borrow` (the owner, 2026-11-06; a browser adaptation, FG.R2 -- the forge's
+ * game type over a map of another, as `./soundData` `cuesFrom`): effect programs the map's own sets lack, by name, read
+ * off another map's mission set -- the detonation's `base_explosion1` (`FUN_002c1c30` D:L163920) lives in a Demolition
+ * or Breach map's own `MZANIM.ZAR`, not the common set; its bitmaps are the common libraries' (EFFE, ALPH).
+ * Several donors may lend (the owner, 2026-11-10: a switch's effect from any map, `./forge/scriptAssets`), each in turn.
+ */
+export async function effectsFromDisc(source: AssetSource, mapPath: string, archive: string, borrow?: EffectBorrow | readonly EffectBorrow[]): Promise<EffectData> {
   const missing: string[] = [];
   const member = async (suffix: string): Promise<Uint8Array | null> => {
     try { return await readZdbMember(source, mapPath, suffix); } catch (e) { missing.push(`${mapPath} ${suffix}: ${why(e)}`); return null; }
@@ -118,6 +150,29 @@ export async function effectsFromDisc(source: AssetSource, mapPath: string, arch
         }
       }
     } catch (e) { missing.push(`${archiveName}: ${why(e)}`); }
+  }
+  // The programs each donor lends: only the names asked for that this map's own sets (and an earlier donor) lack, with
+  // the donor's programs they call (a switch's lent effect, `./forge/scriptAssets`: its calls are its own map's too).
+  const lends: readonly EffectBorrow[] = borrow === undefined ? [] : 'path' in borrow ? [borrow as EffectBorrow] : (borrow as readonly EffectBorrow[]);
+  for (const lend of lends) {
+    const wanted = lend.names.filter((n) => !seen.has(n.toLowerCase()));
+    if (!wanted.length) continue;
+    try {
+      // Its common set and its mission set, as the map's own are read (`EFFECT_ARCHIVES`): a common effect another map's
+      // set holds and this one's lacks is lent too.
+      const donor = new Map<string, EffectProgram>();
+      for (const p of (await effectProgramsFromDisc(source, lend.path, missing)).all) if (!donor.has(p.name.toLowerCase())) donor.set(p.name.toLowerCase(), p);
+      const queue = wanted.map((n) => n.toLowerCase());
+      while (queue.length) {
+        const key = queue.shift()!;
+        const p = donor.get(key);
+        if (seen.has(key) || !p) continue;
+        seen.add(key);
+        programs.push(p);
+        for (const sq of p.sequences) for (const o of sq.ops) if (o.op === 'call') queue.push(o.anim.toLowerCase());
+      }
+      for (const n of wanted) if (!seen.has(n.toLowerCase())) missing.push(`${lend.path}: no effect ${n} to borrow`);
+    } catch (e) { missing.push(`${lend.path} (borrowed effects): ${why(e)}`); }
   }
 
   const models: EffectModelData[] = [];

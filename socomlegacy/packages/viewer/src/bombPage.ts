@@ -404,7 +404,7 @@ export function bombSound(
 /** The gear the carrier wears (`./bodyView` `HIDDEN_AT_SPAWN`; the string at 0x65f0f8). */
 const SATCHEL = 'Satchel';
 /** The effect the detonation plays at the bomb (`FUN_002c1c30` D:L163920). */
-const BLAST_EFFECT = 'base_explosion1';
+export const BLAST_EFFECT = 'base_explosion1';
 
 /** Where the room's events come from (`NetClient.on`). */
 export interface BombEvents { on(listener: (ev: ServerEvent) => void): () => void }

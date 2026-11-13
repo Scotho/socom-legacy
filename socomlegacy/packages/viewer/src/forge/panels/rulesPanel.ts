@@ -176,7 +176,7 @@ export function rulesPanel(hooks: RulesPanelHooks): RulesForgePanel {
     return rows;
   };
   return {
-    id: 'rules', title: 'Rules', dock: 'right', order: 25, defaultOpen: false, tab: 'Object',
+    id: 'rules', title: 'Rules', dock: 'right', order: 36, defaultOpen: false, tab: 'Map',
     padLegend: [{ button: 'dpad', label: 'Move' }, { button: 'cross', label: 'Press' }, { button: 'circle', label: 'Back' }],
     menuRows,
     menuSection: () => {

@@ -62,6 +62,6 @@ export function drawEnvironment(dom: EnvironmentDom, sections: readonly Environm
 
 export function environmentPanel(dom: EnvironmentDom): ForgePanel {
   // Titled Light rig (the owner, 2026-11-06); its id kept, so a saved dock layout and the tests still find it.
-  return builtPanel({ id: 'environment', title: 'Light rig', dock: 'right', order: 35, defaultOpen: true, tab: 'World',
+  return builtPanel({ id: 'environment', title: 'Light rig', dock: 'right', order: 35, defaultOpen: true, tab: 'Map',
     padLegend: [{ button: 'dpad', label: 'Change' }] }, dom.body);
 }

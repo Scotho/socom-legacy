@@ -1,11 +1,19 @@
 /* Forge browser adaptation: the existing design system's isolated prototype preview and placement affordances.
    FUI-22 (D1): the preview is the asset list's one tooltip (`./assetTooltip`), beside the tile it describes, over the
    viewport and under the menus; it takes no pointer (a tooltip is not an input). */
-.fx-asset-tip { position: fixed; z-index: var(--fx-z-menu); width: 220px; box-sizing: border-box; padding: var(--s2u-space-2); background: var(--fx-panel-2); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift); pointer-events: none; }
+.fx-asset-tip { position: fixed; z-index: var(--fx-z-menu); width: 280px; box-sizing: border-box; padding: var(--s2u-space-2); background: var(--fx-panel-2); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift); pointer-events: none; }
 .fx-asset-tip[hidden] { display: none; }
 .fx-asset-preview { min-width: 0; }
-.fx-asset-preview canvas { display: block; width: 100%; height: 150px; border: 1px solid var(--fx-edge); background-color: #b8b8b8; background-image: conic-gradient(#909090 25%, #b8b8b8 0 50%, #909090 0 75%, #b8b8b8 0); background-size: 16px 16px; border-radius: 6px; }
+/* Its ground before the first frame: the preview's own (`groundTexture`), a mid-grey lightest behind the prop. */
+.fx-asset-preview canvas { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; border: 1px solid var(--fx-edge); background: radial-gradient(ellipse at 50% 45%, #a8a8a8 0%, #808080 60%, #5c5c5c 100%); border-radius: 6px; }
 .fx-asset-preview [hidden] { display: none !important; }
+/* The picture, its badges over its lower left (the tile's: particles, sound), gone with the picture. */
+.fx-preview-stage { position: relative; }
+.fx-preview-badges { position: absolute; left: 6px; bottom: 6px; display: flex; gap: 4px; pointer-events: none; }
+.fx-preview-badges:empty, .fx-preview-stage:has(> canvas[hidden]) > .fx-preview-badges { display: none; }
+/* The sound's timeline under the picture (`progress`): a thin track, its played part gold; never pressed. */
+.fx-preview-timeline { position: relative; height: 4px; margin-top: 6px; overflow: hidden; background: var(--fx-divider); border-radius: var(--fx-radius-pill); pointer-events: none; }
+.fx-preview-timeline > span { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--fx-gold); border-radius: var(--fx-radius-pill); }
 .fx-asset-thumbnail-host { position: fixed; z-index: -1; top: 0; left: -10000px; width: 160px; height: 120px; overflow: hidden; opacity: 0; pointer-events: none; }
 .fx-asset-thumbnail-host .fx-asset-preview { width: 100%; height: 100%; }
 .fx-asset-thumbnail-host .fx-asset-preview canvas { width: 160px; height: 120px; }
@@ -19,7 +27,8 @@
 .fx-asset-drop-hint[hidden] { display: none; }
 .fx-viewport[data-asset-drop="valid"] { outline: 3px solid #69c7a5; outline-offset: -3px; }
 .fx-viewport[data-asset-drop="blocked"] { outline: 3px dashed #ed9b8d; outline-offset: -3px; }
-@media (max-height: 700px) { .fx-asset-preview canvas { height: 110px; } }
+/* A short window: the picture held to a share of its height (its 4:3 kept by narrowing nothing: the popup scrolls never). */
+@media (max-height: 700px) { .fx-asset-tip .fx-asset-preview canvas { max-height: 40vh; } }
 .agent-file-dropzone { padding: 10px; border: 1px dashed var(--fx-edge-hi, #71868b); border-radius: 4px; }
 .agent-file-dropzone[data-state="hover"] { border-style: solid; outline: 2px solid var(--fx-gold, #d8a640); }
 .agent-file-dropzone[data-state="blocked"] { opacity: .65; }

@@ -141,6 +141,33 @@ export interface Layout {
    */
   hidden?: string[];
   /**
+   * The base map's own objectives taken out of this layout (the owner, 2026-11-06; a browser adaptation, FG.R2: a custom
+   * version of an official map), each by its key: `hostage:<name>` (an escortee), `bomb:start` (StartBomb),
+   * `site:<node>` (an MPBOMB plant site), `zone:<name>` (an extraction zone). The disc's map is untouched; this
+   * layout's editor and match leave them out (`viewer/src/forge/mapDataHide`). Absent: none. Online refused.
+   */
+  hiddenData?: string[];
+  /**
+   * The placements' tree (the owner, 2026-11-10: "implement the tree layout"): each `[child, parent]` pair a placement's
+   * parent, both by their place in the layout (`TREE_REF`: `piece:3`, `door:0`, `bomb:seal:0`) -- the engine's own
+   * model (a node's matrix local to its parent's, `@s2u/scene` `flattenScene`). Every placement keeps its own world place
+   * as ever, so the tree is the editor's alone: a layout plays the same with it or without (an online lobby is sent
+   * none, `withoutTree`). Absent: every placement at the top.
+   */
+  tree?: [child: string, parent: string][];
+  /**
+   * The Outliner's folders (the owner, 2026-11-11: "nulls/folders to group objects nicely ... purely for organizing objects
+   * in the outliner ... when we export the map, we can flatten it"): each a name, referenced in `tree` and `order` as
+   * `folder:<i>`. No object of the engine's nor of the game's: the editor's own, sent to no lobby (`withoutTree`).
+   */
+  folders?: { name: string }[];
+  /**
+   * The Outliner's order (the owner, 2026-11-11: "nice ux around object inserting and reordering"): every placement and
+   * folder by its reference (`TREE_REF`), siblings drawn in this order. The editor's own (`withoutTree`). Absent: the
+   * layout's own order.
+   */
+  order?: string[];
+  /**
    * FG-21: the layout's NPCs -- each a seat of the offline match on `side`, as that side's character `type` of the map
    * (`LoadedMap.types`, protocol 9's), standing at `p` facing `yaw`. Hostile when on the side the player is not on.
    * Absent: none.
@@ -202,6 +229,12 @@ export interface Layout {
    */
   gates?: DoorMarker[];
   barriers?: DoorMarker[];
+  /** The placed gates' switches (`SwitchMarker`): a gate opens only by one. Absent: none. Online refused. */
+  switches?: SwitchMarker[];
+  /** The layout's own props made damage triggers (`PieceTrigger`), each prop once. Absent: none. Online refused. */
+  triggers?: PieceTrigger[];
+  /** The layout's Forge objects (`ForgeObject`): ambient effects, cranes. Absent: none. A crane refused online. */
+  objects?: ForgeObject[];
   /**
    * FG-24 (FG.R18; the owner, 2026-10-14: "a map settings that includes day/night slider, fog distance slider, max
    * players (up to 32 max)"; an adaptation, no original): the layout's settings, each optional -- absent, the disc's
@@ -258,6 +291,11 @@ export interface LayoutObjectiveIds {
  *   word of 2026-10-25 that the forge's NPCs and the lobby's bots be the same, so a layout that names none patrols),
  *   which needs the map's prebuilt navigation graph and falls back to `sentry` without one; or `sentry`, the stationary
  *   turret of FG-21. Not the room's option: a lobby-hosted forge match seats no NPC.
+ * - `arsenal` (`ArsenalSetting`; the owner, 2026-11-10): the map's `mission.rdr` valves with the layout's over them, and
+ *   each side's kit picks -- what a side may pick and spawns with, by the game's own rules.
+ * - `eqLimit` 0..4: CREATE GAME's equipment restriction (`EQlimit`, GameStats byte 5, `FUN_002f7c40` D:L196733-196734;
+ *   research 362) -- 0 none, 1 pistols, 2 shotguns, 3 snipers, 4 no bombs -- the room's own option (`RoomOptions.eqLimit`).
+ * - `respawn`: CREATE GAME's RESPAWN row (`mp_allow_respawn`; research 348), the room's `rules` 'respawn' when on.
  */
 export const NPC_BEHAVIOURS = ["sentry", "patrol"] as const;
 export type NpcBehaviour = (typeof NPC_BEHAVIOURS)[number];
@@ -277,7 +315,69 @@ export interface LightRigSetting {
 /** A rig colour lane's bound: 0 off, 2 twice the disc's full brightness (an editor's bound). */
 export const LIGHT_RIG_COLOUR_MAX = 2;
 
+/** One step of the in-game menu: the item put in a slot (`@s2u/scene` `Pick`; slot 0 primary, 1 secondary, 2-4 equipment). */
+export interface ArsenalPick { slot: number; id: number }
+
+/**
+ * The layout's arsenal (the owner, 2026-11-10: "Give default weapons, c4, rocket launchers. Allows us to have breaching
+ * on maps that don't have it"). Nothing is invented: it is written in the two things the disc's maps already carry.
+ * - `valves`: `Enable_<item>` values over the map's own `mission.rdr` `Valves` (`@s2u/scene` `missionValves`), the same
+ *   masks -- 1 the SEALs may pick it, 8 the Terrorists (`FUN_0023c390` D:L87468-87478), 16 / 32 C4 locked in a SEAL's /
+ *   a Terrorist's kit (`FUN_0023e910` D:L88527-88545). An integer 0..63; a name the viewer knows no item of is refused there.
+ * - `kits`: per side, menu picks replayed on every one of that side's types' kits (`character.rdr` `default_weapons`)
+ *   through the menu's rules (`@s2u/scene` `applyPicks`, `FUN_0023fef0` D:L89138-89323) under those valves, so a
+ *   cost-2 item's round, a launcher's slots and the single items follow; a type the menu would refuse keeps its own kit.
+ */
+export interface ArsenalSetting {
+  valves: Record<string, number>;
+  kits: { seal: ArsenalPick[]; terrorist: ArsenalPick[] };
+}
+
+/** An arsenal's bounds (an adaptation: a file's size, no game value): picks per side, valves per layout. */
+export const ARSENAL_PICKS_MAX = 16;
+export const ARSENAL_VALVES_MAX = 128;
+
+/** One ARMORY column of a layout's roster: the `index`-th type (0..3) of a side on disc map `map`'s `chartype.rdr`. */
+export interface RosterPick { map: string; index: number }
+
+/**
+ * The layout's character roster (the owner, 2026-11-10: "allow which characters the map can pick. Some maps use
+ * different player models"; a browser adaptation, FG.R2 -- the original fixes each map's roster): each side's ARMORY
+ * columns, in order, as types of any disc MP map's `READERM.ZAR/chartype.rdr` on the same side (`navyseals`,
+ * `terrorists`; research 95 §6), each with that map's body and its `READERC.ZAR/character.rdr` kit. At most four a side
+ * (`@s2u/scene` `ARMORY_TYPES_PER_SIDE`); an empty side is the map's own.
+ */
+export interface CharacterRoster { seal: RosterPick[]; terrorist: RosterPick[] }
+export const ROSTER_COLUMNS_MAX = 4;
+
+/**
+ * The map's own world values a layout may write over (the owner, 2026-11-10: "I want to be able to define every single
+ * map setting"); each absent or null is the map's own:
+ * - `defaultMaterial`: `world_params.DefaultMaterial`, the SOILS entry a hull polygon's byte 0 stands for (`FUN_002dc1d0`,
+ *   `FUN_002ddc30`); a name the viewer's SOILS table lacks is refused there.
+ * - `reverb`: `mission.rdr` `IndoorReverb` / `OutdoorReverb`, each zone's [depth 0..1, ramp seconds] (research 81 §9).
+ * - `fov`: the camera record's `m_hfov` / `m_vfov` half-angles, radians (Frostfire 0.6109 / 0.4276).
+ * - `loading`: the loading screen (research 125) -- the disc map whose `LoadingScreenAssets` and `UiVars` it shows (null:
+ *   the base's), and its `mission_title` / `mission_description` (null: that map's).
+ */
+export interface LoadingSetting { from: string | null; title: string | null; description: string | null }
+export interface ReverbSetting { indoor: [number, number][]; outdoor: [number, number][] }
+/** The bounds (an editor's, no game value): zones a list, ramp seconds, the half-angles, the words' lengths. */
+export const REVERB_ZONES_MAX = 8, REVERB_SECONDS_MAX = 30, FOV_HALF_MIN = 0.1, FOV_HALF_MAX = 1.4, LOADING_TITLE_MAX = 64, LOADING_DESCRIPTION_MAX = 256;
+
 export interface LayoutSettings {
+  defaultMaterial?: string | null;
+  reverb?: ReverbSetting | null;
+  fov?: { h: number; v: number } | null;
+  loading?: LoadingSetting | null;
+  /** The ARMORY's character types over the map's (`CharacterRoster`); absent or null, the map's own. */
+  characters?: CharacterRoster | null;
+  /** The match's arsenal over the map's (`ArsenalSetting`); absent or null, the map's own. */
+  arsenal?: ArsenalSetting | null;
+  /** CREATE GAME's EQlimit, 0..4 (0 none). */
+  eqLimit: number;
+  /** CREATE GAME's RESPAWN (`mp_allow_respawn`): the room's respawn rules. */
+  respawn: boolean;
   /** Forge adaptation: null retains authored/legacy lighting; 0..1 is shared Night -> Day. */
   timeOfDay: number | null;
   /** A new empty map's own light rig (`LightRigSetting`); absent or null, the rig of the map it is built from. */
@@ -320,7 +420,7 @@ export interface LayoutSettings {
 }
 
 /** The disc's values: no dimming, the map's own fog, 16 players, the room's default rounds and round time, no FF. */
-export const DEFAULT_SETTINGS: Readonly<LayoutSettings> = Object.freeze({ timeOfDay: null, light: 1, fogFar: null, players: 16, rounds: 11, roundSeconds: 360, friendlyFire: false, npcBehaviour: "patrol" });
+export const DEFAULT_SETTINGS: Readonly<LayoutSettings> = Object.freeze({ timeOfDay: null, light: 1, fogFar: null, players: 16, rounds: 11, roundSeconds: 360, friendlyFire: false, npcBehaviour: "patrol", eqLimit: 0, respawn: false });
 
 /** The numeric fields' bounds (inclusive) and the step a slider or the pad moves them by. */
 export const SETTINGS_BOUNDS = Object.freeze({
@@ -330,9 +430,10 @@ export const SETTINGS_BOUNDS = Object.freeze({
   players: { min: 2, max: 32, step: 2 },
   rounds: { min: 1, max: 11, step: 1 },
   roundSeconds: { min: 30, max: 3600, step: 30 },
+  eqLimit: { min: 0, max: 4, step: 1 },
 } as const);
 
-const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night"]);
+const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night", "arsenal", "eqLimit", "respawn", "characters", "defaultMaterial", "reverb", "fov", "loading"]);
 
 /**
  * A night lens (`settings.night.lens`): four floats 0..1, the disc's `LensFX_NVG` range (research 84 s14). The migration
@@ -377,6 +478,62 @@ function parseLightRig(v: unknown): LightRigSetting | null {
   const dir = (n: number): boolean => n >= -1 && n <= 1;
   const lane = (n: number): boolean => n >= 0 && n <= LIGHT_RIG_COLOUR_MAX;
   return { directions: three(v["directions"], "directions", dir), colours: three(v["colours"], "colours", lane), ambient: vec(v["ambient"], "ambient", lane) };
+}
+
+/** `settings.arsenal` read: `Enable` valves 0..63, and each side's picks (slot 0..4, an item id 0..253). */
+function parseArsenal(v: unknown): ArsenalSetting | null {
+  if (v === null) return null;
+  const no = (why: string): never => { throw new Error(`settings.arsenal ${why}`); };
+  if (!isObj(v)) no("is not an object");
+  const a = v as Record<string, unknown>;
+  for (const k of Object.keys(a)) if (k !== "valves" && k !== "kits") no(`names no field ${k}`);
+  const valves = a["valves"], kits = a["kits"];
+  if (!isObj(valves)) no("valves is not an object");
+  const names = Object.keys(valves as object);
+  if (names.length > ARSENAL_VALVES_MAX) no(`names more than ${ARSENAL_VALVES_MAX} valves`);
+  const outValves: Record<string, number> = {};
+  for (const name of names) {
+    const n = (valves as Record<string, unknown>)[name];
+    if (!/^Enable[A-Za-z0-9_-]{1,40}$/.test(name)) no(`valve ${name} is not an Enable_ valve`);
+    if (!isNum(n) || !Number.isInteger(n) || n < 0 || n > 63) no(`valve ${name} is not an integer 0..63`);
+    outValves[name] = n as number;
+  }
+  if (!isObj(kits)) no("kits is not an object");
+  const k = kits as Record<string, unknown>;
+  for (const key of Object.keys(k)) if (key !== "seal" && key !== "terrorist") no(`kits names no side ${key}`);
+  const side = (name: "seal" | "terrorist"): ArsenalPick[] => {
+    const list = k[name];
+    if (!Array.isArray(list) || list.length > ARSENAL_PICKS_MAX) no(`kits.${name} is not a list of at most ${ARSENAL_PICKS_MAX} picks`);
+    return (list as unknown[]).map((p, i) => {
+      if (!isObj(p) || Object.keys(p).some((x) => x !== "slot" && x !== "id")) no(`kits.${name} pick ${i} is not a slot and an id`);
+      const { slot, id } = p as Record<string, unknown>;
+      if (!isNum(slot) || !Number.isInteger(slot) || slot < 0 || slot > 4) no(`kits.${name} pick ${i} slot is not 0..4`);
+      if (!isNum(id) || !Number.isInteger(id) || id < 0 || id > 253) no(`kits.${name} pick ${i} id is not an item 0..253`);
+      return { slot: slot as number, id: id as number };
+    });
+  };
+  return { valves: outValves, kits: { seal: side("seal"), terrorist: side("terrorist") } };
+}
+
+/** `settings.characters` read: each side at most four columns, each a disc MP map's stem and a type 0..3. */
+function parseRoster(v: unknown): CharacterRoster | null {
+  if (v === null) return null;
+  const no = (why: string): never => { throw new Error(`settings.characters ${why}`); };
+  if (!isObj(v)) no("is not an object");
+  const r = v as Record<string, unknown>;
+  for (const k of Object.keys(r)) if (k !== "seal" && k !== "terrorist") no(`names no side ${k}`);
+  const side = (name: "seal" | "terrorist"): RosterPick[] => {
+    const list = r[name];
+    if (!Array.isArray(list) || list.length > ROSTER_COLUMNS_MAX) no(`.${name} is not a list of at most ${ROSTER_COLUMNS_MAX} columns`);
+    return (list as unknown[]).map((c, i) => {
+      if (!isObj(c) || Object.keys(c).some((x) => x !== "map" && x !== "index")) no(`.${name} column ${i} is not a map and an index`);
+      const { map, index } = c as Record<string, unknown>;
+      if (typeof map !== "string" || !/^MP\d{1,3}$/.test(map)) no(`.${name} column ${i} map is not a disc MP map`);
+      if (!isNum(index) || !Number.isInteger(index) || index < 0 || index >= ROSTER_COLUMNS_MAX) no(`.${name} column ${i} index is not 0..3`);
+      return { map: map as string, index: index as number };
+    });
+  };
+  return { seal: side("seal"), terrorist: side("terrorist") };
 }
 
 export function parseSettings(raw: unknown): Partial<LayoutSettings> {
@@ -437,6 +594,59 @@ export function parseSettings(raw: unknown): Partial<LayoutSettings> {
     const v = raw["npcBehaviour"];
     if (typeof v !== "string" || !(NPC_BEHAVIOURS as readonly string[]).includes(v)) throw new Error(`settings.npcBehaviour is not one of ${NPC_BEHAVIOURS.join(", ")}`);
     out.npcBehaviour = v as NpcBehaviour;
+  }
+  if (raw["arsenal"] !== undefined) out.arsenal = parseArsenal(raw["arsenal"]);
+  if (raw["characters"] !== undefined) out.characters = parseRoster(raw["characters"]);
+  if (raw["defaultMaterial"] !== undefined) {
+    const v = raw["defaultMaterial"];
+    if (v !== null && (typeof v !== "string" || !/^[A-Z][A-Z0-9_ ]{0,31}$/.test(v))) throw new Error("settings.defaultMaterial is not a SOILS name");
+    out.defaultMaterial = v as string | null;
+  }
+  if (raw["reverb"] !== undefined) {
+    const v = raw["reverb"];
+    if (v === null) out.reverb = null;
+    else {
+      const zones = (list: unknown, what: string): [number, number][] => {
+        if (!Array.isArray(list) || list.length > REVERB_ZONES_MAX) throw new Error(`settings.reverb.${what} is not a list of at most ${REVERB_ZONES_MAX} zones`);
+        return list.map((z, i) => {
+          if (!Array.isArray(z) || z.length !== 2 || !isNum(z[0]) || !isNum(z[1]) || z[0] < 0 || z[0] > 1 || z[1] < 0 || z[1] > REVERB_SECONDS_MAX) {
+            throw new Error(`settings.reverb.${what} zone ${i} is not a depth 0..1 and seconds 0..${REVERB_SECONDS_MAX}`);
+          }
+          return [z[0], z[1]] as [number, number];
+        });
+      };
+      if (!isObj(v) || Object.keys(v).some((k) => k !== "indoor" && k !== "outdoor")) throw new Error("settings.reverb is not an indoor and an outdoor list");
+      out.reverb = { indoor: zones(v["indoor"], "indoor"), outdoor: zones(v["outdoor"], "outdoor") };
+    }
+  }
+  if (raw["fov"] !== undefined) {
+    const v = raw["fov"];
+    const half = (n: unknown): n is number => isNum(n) && n >= FOV_HALF_MIN && n <= FOV_HALF_MAX;
+    if (v !== null && (!isObj(v) || Object.keys(v).some((k) => k !== "h" && k !== "v") || !half(v["h"]) || !half(v["v"]))) {
+      throw new Error(`settings.fov is not two half-angles ${FOV_HALF_MIN}..${FOV_HALF_MAX}`);
+    }
+    out.fov = v === null ? null : { h: (v as Record<string, number>)["h"]!, v: (v as Record<string, number>)["v"]! };
+  }
+  if (raw["loading"] !== undefined) {
+    const v = raw["loading"];
+    if (v === null) out.loading = null;
+    else {
+      const no = (why: string): never => { throw new Error(`settings.loading ${why}`); };
+      if (!isObj(v) || Object.keys(v).some((k) => k !== "from" && k !== "title" && k !== "description")) no("is not a map, a title and a description");
+      const l = v as Record<string, unknown>;
+      if (l["from"] !== null && (typeof l["from"] !== "string" || !/^MP\d{1,3}$/.test(l["from"]))) no("from is not a disc MP map");
+      const words = (k: string, max: number): string | null => {
+        const w = l[k];
+        if (w !== null && (typeof w !== "string" || w.length > max)) no(`${k} is not text of at most ${max} characters`);
+        return w as string | null;
+      };
+      out.loading = { from: l["from"] as string | null, title: words("title", LOADING_TITLE_MAX), description: words("description", LOADING_DESCRIPTION_MAX) };
+    }
+  }
+  if (raw["eqLimit"] !== undefined) out.eqLimit = bounded("eqLimit", raw["eqLimit"], true);
+  if (raw["respawn"] !== undefined) {
+    if (typeof raw["respawn"] !== "boolean") throw new Error("settings.respawn is not a boolean");
+    out.respawn = raw["respawn"];
   }
   return out;
 }
@@ -506,6 +716,286 @@ export interface DoorMarker {
   yaw: number;
   locked?: boolean;
 }
+
+/**
+ * A placed gate's switch (`Layout.switches`; the owner, 2026-11-08; a browser adaptation, FG.R2): the disc's lever gates
+ * are opened only by a separate lever panel -- `epanel_diN`'s one collision polygon and `lever_N`'s `gateswitch` prop,
+ * a SWITCH record of their own (research 174 s5; measured on MP11 and MP62) -- never by the gate itself. A copy of a
+ * gate's own disc lever, at `at`, turned `yaw` radians. It runs one of: `gate`, its gate's place in `Layout.gates`; or
+ * `action` (the owner, 2026-11-08), a base map's own action by its valve (`actions.rdr`'s `valve`, Crossroads'
+ * `seal_strike1`), executed as the original's `EXECUTE_ACTION` executes one (research 174 s3). Neither, it runs nothing.
+ */
+export interface SwitchMarker {
+  gate?: number;
+  action?: string;
+  /**
+   * Its look (the owner, 2026-11-08): absent, a gate's lever panel (Death Trap's `gateswitch`); `radio`, Sujo's airstrike
+   * radio (`radio_portable`); `plate`, the lever's pick plate alone (nothing drawn: set it on a prop of the layout's).
+   */
+  look?: SwitchLook;
+  /**
+   * Its record's own fields, each absent for its action's (a map action's own record's; a gate's lever's): the prompt's
+   * icon (`actions.rdr`'s `bitmap`), its reach and height reach (`range`, `elevation`, -1 none) and its `points`.
+   */
+  prompt?: string;
+  range?: number;
+  elevation?: number;
+  points?: number;
+  /**
+   * A prop it is used on (the owner, 2026-11-10: "do the same thing for switch, have a custom prop as an option"):
+   * `piece`, one of the layout's props by its place in `Layout.pieces`, or `node`, one of the base map's own objects by
+   * its placed path -- that prop left as it is, the use prompt's ray striking its collision; the switch, then, copies no
+   * look of its own. At most one; absent, its look is struck.
+   */
+  piece?: number;
+  node?: string;
+  /** Its script (`SwitchScript`): what a pull runs. One of `gate`, `action` and `script`, or none. */
+  script?: SwitchScript;
+  at: [number, number, number];
+  yaw: number;
+  locked?: boolean;
+}
+
+/**
+ * A custom damage trigger (the owner, 2026-11-10: "make our own custom damage triggers ... patch a satchel on any prop";
+ * "the damage trigger [should] stay a damage trigger ... and just link to the prop"; a browser adaptation, FG.R2): an
+ * object of its own at `at`, linked to `piece` (its place in `Layout.pieces`) or `node` (one of the base map's own
+ * objects by its placed path, `worldmodel/...`) -- that prop left as it is, its collision a scene destructible's
+ * (`SceneDestructible`, research 174 s3) with the record's `health`, `armor` and `shield`: a health above 0 takes a
+ * satchel whose damage reaches the shield (`FUN_002739b0`, C4's), 0 dies on any hit that reaches it (`FUN_00273a50`, a
+ * plank's). Its death hides the prop, then runs `script`'s steps (`SwitchScript`'s, once: no `second`, no `repeat`).
+ * Linked to neither, it does nothing yet.
+ */
+export interface PieceTrigger { piece?: number; node?: string; health: number; armor: number; shield: number; script?: SwitchScript; at?: [number, number, number] }
+/**
+ * A Forge object (the owner, 2026-11-10: "find every type of object we can place ... I want to be able to place every
+ * type of object in game"; placing one is a browser adaptation, FG.R2), each a copy of a disc map's own, at `at` turned
+ * `yaw` radians:
+ * - `ambient`: one of a disc map's ambient programs (`source` its map, `name` the program: `flame_in_barrel`,
+ *   `waterfall1_sprays`, `rain_falling`) -- the effects a map's mission set starts with the round (`EffectData.ambient`:
+ *   its particles, its sound, its light) -- played here from the round's start, rooted at this place;
+ * - `crane`: a copy of a disc map's crane (`source`, `name` its node: Chain Reaction's).
+ *
+ * `audio` (an ambient's; the owner, 2026-11-10: "keep ambient, but make it fully scriptable ... I don't want to have any
+ * custom behaviour"): its program's sounds written as a script of the game's own commands (`AudioStep`), standing in for
+ * the program's own (its particles and light as ever).
+ */
+export type ForgeObjectKind = "ambient" | "crane";
+export interface ForgeObject { kind: ForgeObjectKind; source: string; name: string; at: [number, number, number]; yaw: number; locked?: boolean; audio?: AudioStep[] }
+export const FORGE_OBJECT_KINDS: readonly ForgeObjectKind[] = ["ambient", "crane"];
+/**
+ * An ambient's audio script step: each one of the game's own program commands as its ambient programs use them (the
+ * disc's: Sujo's `lightning_flashes`, the Fish Hook crickets, Desert Glory's `mp6_battlesounds`), run as the game runs them:
+ * - `play`: `SOUND` at the object (`FUN_002659c0`): `sound` from the disc map `from` (absent, the base map's), at the
+ *   command's `volume` (flag 0x10; absent 1), heard by the sound's own RANGE. A `~` sound is one of the game's loops: as
+ *   every `~` sound of an ambient program, it loops at the object from the round's start (`zanimEmitters`);
+ * - `wait`: `WAIT` `seconds`, plus up to `random` more (its random range, flag 0x20);
+ * - `loop`: `LOOP` -- the script again from its first step, `times` in all (flag 1's count), for `seconds` (flag 2's), or for
+ *   ever with neither (the disc's `LOOP -1`);
+ * - `while` ... `endWhile`: `WHILE` (for ever) and `END_WHILE`;
+ * - `if` / `elseif` (`chance`) ... `else` ... `endif`: `IF` / `ELSEIF` on `RANDOM_WEIGHT` (`FUN_0025dcf0`: taken when
+ *   `rand() <= chance`, 0 to 1), `ELSE`, `ENDIF`.
+ */
+export type AudioStep =
+  | { do: "play"; sound: string; from?: string; volume?: number }
+  | { do: "wait"; seconds: number; random?: number }
+  | { do: "loop"; times?: number; seconds?: number }
+  | { do: "while" } | { do: "endWhile" }
+  | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "endif" };
+/** The checks on a file's audio script (not game values): its steps, a wait's or a loop's seconds, a volume, a count. */
+export const AUDIO_STEPS_MAX = 64;
+export const AUDIO_WAIT_MAX = 600;
+export const AUDIO_VOLUME_MAX = 4;
+export const AUDIO_LOOP_MAX = 1000;
+const AUDIO_SOUND = /^[A-Za-z0-9_.~!^ -]{1,48}$/;
+/** Whether `v` is an audio script (`AudioStep[]`): known steps, in bounds, each `while` and `if` closed in order. */
+export function audioScriptOk(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length > AUDIO_STEPS_MAX) return false;
+  const num = (x: unknown, lo: number, hi: number): boolean => typeof x === "number" && Number.isFinite(x) && x >= lo && x <= hi;
+  // The open blocks: a while, or an if (its else seen or not).
+  const open: ("while" | "if" | "else")[] = [];
+  for (const st of v) {
+    if (st === null || typeof st !== "object" || Array.isArray(st)) return false;
+    const s = st as Record<string, unknown>;
+    const keys = (...k: string[]): boolean => Object.keys(s).every((x) => x === "do" || k.includes(x));
+    switch (s["do"]) {
+      case "play":
+        if (!keys("sound", "from", "volume") || typeof s["sound"] !== "string" || !AUDIO_SOUND.test(s["sound"])) return false;
+        if (s["from"] !== undefined && (typeof s["from"] !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(s["from"]))) return false;
+        if (s["volume"] !== undefined && !num(s["volume"], 0, AUDIO_VOLUME_MAX)) return false;
+        break;
+      case "wait":
+        if (!keys("seconds", "random") || !num(s["seconds"], 0, AUDIO_WAIT_MAX) || (s["random"] !== undefined && !num(s["random"], 0, AUDIO_WAIT_MAX))) return false;
+        break;
+      case "loop":
+        if (!keys("times", "seconds") || (s["times"] !== undefined && s["seconds"] !== undefined)) return false;
+        if (s["times"] !== undefined && !(Number.isInteger(s["times"]) && num(s["times"], 1, AUDIO_LOOP_MAX))) return false;
+        if (s["seconds"] !== undefined && !num(s["seconds"], 0, AUDIO_WAIT_MAX * 6)) return false;
+        break;
+      case "while": if (!keys()) return false; open.push("while"); break;
+      case "endWhile": if (!keys() || open.pop() !== "while") return false; break;
+      case "if": if (!keys("chance") || !num(s["chance"], 0, 1)) return false; open.push("if"); break;
+      case "elseif": if (!keys("chance") || !num(s["chance"], 0, 1) || open[open.length - 1] !== "if") return false; break;
+      case "else": if (!keys() || open[open.length - 1] !== "if") return false; open[open.length - 1] = "else"; break;
+      case "endif": { if (!keys()) return false; const top = open.pop(); if (top !== "if" && top !== "else") return false; break; }
+      default: return false;
+    }
+  }
+  return open.length === 0;
+}
+const OBJECT_NAME = /^[A-Za-z0-9_ .=-]{1,48}$/;
+const OBJECT_SOURCE = /^[A-Z]{1,3}\d{1,3}$/;
+/** Whether `v` is a `ForgeObject` as a file holds one (its map, its name there, its place; an ambient's audio script). */
+export function forgeObjectOk(v: unknown): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => ["kind", "source", "name", "at", "yaw", "locked", "audio"].includes(k))) return false;
+  if (typeof v["kind"] !== "string" || !(FORGE_OBJECT_KINDS as readonly string[]).includes(v["kind"])) return false;
+  if (typeof v["name"] !== "string" || !OBJECT_NAME.test(v["name"])) return false;
+  if (!(typeof v["source"] === "string" && OBJECT_SOURCE.test(v["source"]))) return false;
+  if (!Array.isArray(v["at"]) || v["at"].length !== 3 || !v["at"].every(isNum) || !isNum(v["yaw"])) return false;
+  if (v["audio"] !== undefined && (v["kind"] !== "ambient" || !audioScriptOk(v["audio"]))) return false;
+  return v["locked"] === undefined || v["locked"] === true;
+}
+/** A trigger's health, armour and shield: a check on the file's, not a game value. */
+export const TRIGGER_STAT_MAX = 100_000;
+
+/** Whether `v` is a `PieceTrigger` of a layout of `c`'s lists (its prop one of `c.pieces`, its script theirs). */
+export function pieceTriggerOk(v: unknown, c: SwitchCounts): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => ["piece", "node", "health", "armor", "shield", "script", "at"].includes(k))) return false;
+  if (v["at"] !== undefined && !(Array.isArray(v["at"]) && v["at"].length === 3 && v["at"].every(isNum))) return false;
+  const stat = (x: unknown): boolean => isNum(x) && x >= 0 && x <= TRIGGER_STAT_MAX;
+  // At most one of a prop of the layout's and a map node.
+  const piece = v["piece"] !== undefined, node = v["node"] !== undefined;
+  if ((piece && node) || (piece && !isIndex(v["piece"], c.pieces)) || (node && (typeof v["node"] !== "string" || !SWITCH_MAP_PATH.test(v["node"])))) return false;
+  if (!stat(v["health"]) || !stat(v["armor"]) || !stat(v["shield"])) return false;
+  const sc = v["script"];
+  return sc === undefined || switchScriptOk(sc, c);
+}
+
+/**
+ * What a script step acts on (the owner, 2026-11-08): a node of the base map by its placed path (`worldmodel/...`), or
+ * one of the layout's own -- a piece, a damage trigger (`barriers`), a gate -- by its place in its list.
+ */
+export type SwitchTarget = { map: string } | { piece: number } | { barrier: number } | { gate: number } | { object: number };
+/**
+ * A script step (the owner, 2026-11-08; a browser adaptation, FG.R2): each one of the original's own program commands
+ * (`@s2u/scene` `EffectOp`; research 209): `run` an action -- a base map's by its valve, or a damage trigger's death
+ * (`EXECUTE_ACTION`); `show`/`hide` a node (`OBJECT_ACTIVE_STATE`); `wait` (`WAIT`); a `message` (`MESSAGE`); a `sound`
+ * (`SOUND`) or an `effect` (a common effect, `CALL_ANIMATION`) at a target -- `from` the disc map whose sound or effect
+ * it is (the owner, 2026-11-10: "all sounds/effects from all maps"; lent into the match where the base map lacks it),
+ * absent for the base map's own; `set` a flag (`VALVE`) and test it (`if`
+ * ... `else` ... `end`, `IF`/`ELSE`/`ENDIF`); a `blast` at a target: `FIRE_WEAPON` of MPBOMB / MPBOMB Ammo, as
+ * Crossroads' bridges fire it at their `damage_point`s and Demolition's `base_explosion1` at the bomb (research 171 s4,
+ * 332 s0-s2) -- the record's own Explosion_Damage 50 and Explosion_Radius 300 u, its fuse 0.001 and second timer 0.01,
+ * nothing of the Forge's (the owner, 2026-11-10: "no custom stuff ... if we can support damage without custom, do it").
+ */
+export type SwitchStep =
+  | { do: "run"; action: string } | { do: "run"; barrier: number }
+  | { do: "show" | "hide"; target: SwitchTarget }
+  | { do: "wait"; seconds: number }
+  | { do: "message"; text: string }
+  | { do: "sound" | "effect"; name: string; at?: SwitchTarget; from?: string }
+  | { do: "set"; flag: string; value: number }
+  | { do: "if"; flag: string; equals: number } | { do: "else" } | { do: "end" }
+  | { do: "blast"; at?: SwitchTarget };
+/**
+ * A switch's script: the `steps` a pull runs -- once a round, as the disc's switches are (the room's `used`, cleared at the
+ * round by `FUN_002b5510`; the owner, 2026-11-10: "no custom stuff").
+ */
+export interface SwitchScript { steps: SwitchStep[] }
+/** A script's bounds: steps a list, the wait, the message and the names -- a check on the file's, not a game value. */
+export const SWITCH_SCRIPT_STEPS_MAX = 64;
+export const SWITCH_WAIT_MAX = 600;
+const SWITCH_MESSAGE = /^[^\u0000-\u001f]{1,80}$/;
+const SWITCH_SOUND = /^[A-Za-z0-9_. -]{1,48}$/;
+/** A step's `from`: a disc map's archive stem (`MP72`, `M51`). */
+const SWITCH_FROM = /^[A-Z]{1,3}\d{1,3}$/;
+const SWITCH_FLAG = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
+const SWITCH_MAP_PATH = /^worldmodel(\/[A-Za-z0-9_ .-]+(=[A-Za-z0-9_ .-]+)?)+$/;
+/** The layout's own lists a script's targets index. */
+export interface SwitchCounts { pieces: number; barriers: number; gates: number; objects?: number }
+const isIndex = (v: unknown, n: number): boolean => Number.isInteger(v) && (v as number) >= 0 && (v as number) < n;
+function switchTargetOk(t: unknown, c: SwitchCounts): boolean {
+  if (!isObj(t)) return false;
+  const keys = Object.keys(t);
+  if (keys.length !== 1) return false;
+  if ("map" in t) return typeof t["map"] === "string" && t["map"].length <= 240 && SWITCH_MAP_PATH.test(t["map"]);
+  if ("piece" in t) return isIndex(t["piece"], c.pieces);
+  if ("barrier" in t) return isIndex(t["barrier"], c.barriers);
+  if ("gate" in t) return isIndex(t["gate"], c.gates);
+  if ("object" in t) return isIndex(t["object"], c.objects ?? 0);   // a Forge object (`Layout.objects`): an ambient's place
+  return false;
+}
+function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
+  if (!Array.isArray(list) || list.length > SWITCH_SCRIPT_STEPS_MAX) return false;
+  const open: boolean[] = [];   // each open `if`: whether its `else` was seen
+  for (const st of list) {
+    if (!isObj(st) || typeof st["do"] !== "string") return false;
+    const has = (...k: string[]) => Object.keys(st).every((x) => x === "do" || k.includes(x));
+    switch (st["do"]) {
+      case "run":
+        if (!(has("action") && typeof st["action"] === "string" && SWITCH_ACTION.test(st["action"]))
+          && !(has("barrier") && isIndex(st["barrier"], c.barriers))) return false;
+        break;
+      case "show": case "hide": if (!has("target") || !switchTargetOk(st["target"], c)) return false; break;
+      case "wait": if (!has("seconds") || !isNum(st["seconds"]) || st["seconds"] < 0 || st["seconds"] > SWITCH_WAIT_MAX) return false; break;
+      case "message":
+        if (!has("text") || typeof st["text"] !== "string" || !SWITCH_MESSAGE.test(st["text"])) return false;
+        break;
+      case "sound": case "effect":
+        if (!has("name", "at", "from") || typeof st["name"] !== "string" || !SWITCH_SOUND.test(st["name"]) || (st["at"] !== undefined && !switchTargetOk(st["at"], c))
+          || (st["from"] !== undefined && (typeof st["from"] !== "string" || !SWITCH_FROM.test(st["from"])))) return false;
+        break;
+      case "blast":
+        if (!has("at") || (st["at"] !== undefined && !switchTargetOk(st["at"], c))) return false;
+        break;
+      case "set": if (!has("flag", "value") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["value"])) return false; break;
+      case "if":
+        if (!has("flag", "equals") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["equals"])) return false;
+        open.push(false);
+        break;
+      case "else": if (!has() || open.length === 0 || open[open.length - 1]) return false; open[open.length - 1] = true; break;
+      case "end": if (!has() || open.length === 0) return false; open.pop(); break;
+      default: return false;
+    }
+  }
+  return open.length === 0;
+}
+const isPoints10k = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 9999;
+/** Null when `v` is a good `SwitchScript` for a layout of `c`; else why. */
+export function switchScriptOk(v: unknown, c: SwitchCounts): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => k === "steps")) return false;
+  return switchStepsOk(v["steps"], c);
+}
+
+/** A switch's map action: a valve's name as `actions.rdr` writes one. */
+const SWITCH_ACTION = /^[A-Za-z0-9_.-]{1,64}$/;
+/** A switch's looks beside the lever panel (`SwitchMarker.look`). */
+export type SwitchLook = "radio" | "plate";
+export const SWITCH_LOOKS: readonly SwitchLook[] = ["radio", "plate"];
+/** A prompt's icon as `actions.rdr` names one (`action_pull_lever.tif`). */
+const SWITCH_PROMPT = /^action_[a-z0-9_]{1,40}\.tif$/;
+/** The bounds of a switch's own reach, height reach and points: a check on the file's, not a game value. */
+export const SWITCH_REACH_MAX = 500;
+export const SWITCH_POINTS_MAX = 100;
+const isReach = (v: unknown): boolean => isNum(v) && (v as number) > 0 && (v as number) <= SWITCH_REACH_MAX;
+const isElevation = (v: unknown): boolean => v === -1 || isReach(v);
+const isPoints = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= SWITCH_POINTS_MAX;
+/** A switch's optional fields as the file and the record carry them: each absent (`undefined`) or good. */
+function switchFieldsOk(f: { look?: unknown; prompt?: unknown; range?: unknown; elevation?: unknown; points?: unknown }): boolean {
+  return (f.look === undefined || SWITCH_LOOKS.includes(f.look as SwitchLook)) && (f.prompt === undefined || (typeof f.prompt === "string" && SWITCH_PROMPT.test(f.prompt)))
+    && (f.range === undefined || isReach(f.range)) && (f.elevation === undefined || isElevation(f.elevation)) && (f.points === undefined || isPoints(f.points));
+}
+/** A switch's prop link (`SwitchMarker.piece` / `node`): at most one, a prop of the layout's or a map node's path. */
+function switchLinkOk(piece: unknown, node: unknown, pieces: number): boolean {
+  if (piece !== undefined && node !== undefined) return false;
+  return (piece === undefined || isIndex(piece, pieces)) && (node === undefined || (typeof node === "string" && SWITCH_MAP_PATH.test(node)));
+}
+/** A switch's optional fields kept, each only when present. */
+const switchFields = (f: { look?: unknown; prompt?: unknown; range?: unknown; elevation?: unknown; points?: unknown }): Pick<SwitchMarker, "look" | "prompt" | "range" | "elevation" | "points"> => ({
+  ...(f.look !== undefined ? { look: f.look as SwitchLook } : {}), ...(f.prompt !== undefined ? { prompt: f.prompt as string } : {}),
+  ...(f.range !== undefined ? { range: f.range as number } : {}), ...(f.elevation !== undefined ? { elevation: f.elevation as number } : {}),
+  ...(f.points !== undefined ? { points: f.points as number } : {}),
+});
 
 /** A placed turret's source archive (a disc map's stem) and its turret's node name. */
 const TURRET_SOURCE = /^[A-Z]{1,3}\d{1,3}$/;
@@ -890,6 +1380,53 @@ export function parseLayout(text: string): Layout {
         return { source: t["source"], name: t["name"], at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"], ...(locked ? { locked: true as const } : {}) };
       }),
     }), {} as Pick<Layout, "gates" | "barriers">),
+    ...(raw["switches"] === undefined ? {} : {
+      switches: (Array.isArray(raw["switches"]) ? raw["switches"] as unknown[] : [null]).map((t, i): SwitchMarker => {
+        const gates = Array.isArray(raw["gates"]) ? (raw["gates"] as unknown[]).length : 0;
+        const gate = isObj(t) ? t["gate"] : undefined;
+        const action = isObj(t) ? t["action"] : undefined;
+        const script = isObj(t) ? t["script"] : undefined;
+        const counts: SwitchCounts = { pieces: Array.isArray(raw["pieces"]) ? (raw["pieces"] as unknown[]).length : 0,
+          barriers: Array.isArray(raw["barriers"]) ? (raw["barriers"] as unknown[]).length : 0, gates, objects: Array.isArray(raw["objects"]) ? (raw["objects"] as unknown[]).length : 0 };
+        if (!isObj(t) || !isNum(t["yaw"]) || !Array.isArray(t["at"]) || t["at"].length !== 3 || !t["at"].every(isNum)
+          || (gate !== undefined && !(Number.isInteger(gate) && (gate as number) >= 0 && (gate as number) < gates))
+          || (action !== undefined && (typeof action !== "string" || !SWITCH_ACTION.test(action) || gate !== undefined))
+          || !switchFieldsOk(t) || !switchLinkOk(t["piece"], t["node"], counts.pieces)
+          || (script !== undefined && (!switchScriptOk(script, counts) || gate !== undefined || action !== undefined))) {
+          throw new Error(`switch ${i} is not a place, a yaw and a gate of the layout or a map action`);
+        }
+        const [x, y, z] = t["at"] as number[];
+        const locked = lockedFlag(t["locked"], `switch ${i} lock`);
+        return { ...(gate !== undefined ? { gate: gate as number } : {}), ...(action !== undefined ? { action: action as string } : {}), ...switchFields(t),
+          ...(t["piece"] !== undefined ? { piece: t["piece"] as number } : {}), ...(t["node"] !== undefined ? { node: t["node"] as string } : {}),
+          ...(script !== undefined ? { script: JSON.parse(JSON.stringify(script)) as SwitchScript } : {}), at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"] as number, ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["triggers"] === undefined ? {} : {
+      triggers: (Array.isArray(raw["triggers"]) ? raw["triggers"] as unknown[] : [null]).map((t, i, all): PieceTrigger => {
+        const counts: SwitchCounts = { pieces: Array.isArray(raw["pieces"]) ? (raw["pieces"] as unknown[]).length : 0,
+          barriers: Array.isArray(raw["barriers"]) ? (raw["barriers"] as unknown[]).length : 0, gates: Array.isArray(raw["gates"]) ? (raw["gates"] as unknown[]).length : 0, objects: Array.isArray(raw["objects"]) ? (raw["objects"] as unknown[]).length : 0 };
+        const same = (o: unknown): boolean => isObj(o) && isObj(t) && (t["piece"] !== undefined ? o["piece"] === t["piece"] : t["node"] !== undefined ? o["node"] === t["node"] : o === t);
+        if (!pieceTriggerOk(t, counts) || all.findIndex(same) !== i) {
+          throw new Error(`trigger ${i} is not a prop of the layout's or a map node (once), a health, an armour, a shield and a script`);
+        }
+        const o = t as Record<string, unknown>;
+        const at = o["at"] as number[] | undefined;
+        return { ...(o["piece"] !== undefined ? { piece: o["piece"] as number } : o["node"] !== undefined ? { node: o["node"] as string } : {}),
+          ...(at ? { at: [at[0]!, at[1]!, at[2]!] as [number, number, number] } : {}), health: o["health"] as number, armor: o["armor"] as number, shield: o["shield"] as number,
+          ...(o["script"] !== undefined ? { script: JSON.parse(JSON.stringify(o["script"])) as SwitchScript } : {}) };
+      }),
+    }),
+    ...(raw["objects"] === undefined ? {} : {
+      objects: (Array.isArray(raw["objects"]) ? raw["objects"] as unknown[] : [null]).map((o, i): ForgeObject => {
+        if (!forgeObjectOk(o)) throw new Error(`object ${i} is not an ambient effect or a crane: a kind, a map, a name, a place and a turn, an audio script on an ambient`);
+        const v = o as Record<string, unknown>;
+        const at = v["at"] as number[];
+        return { kind: v["kind"] as ForgeObjectKind, source: v["source"] as string, name: v["name"] as string,
+          at: [at[0]!, at[1]!, at[2]!], yaw: v["yaw"] as number, ...(v["locked"] === true ? { locked: true } : {}),
+          ...(v["audio"] !== undefined ? { audio: JSON.parse(JSON.stringify(v["audio"])) as AudioStep[] } : {}) };
+      }),
+    }),
     ...(raw["turrets"] === undefined ? {} : {
       turrets: (Array.isArray(raw["turrets"]) ? raw["turrets"] : [null]).map((t, i): TurretMarker => {
         if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
@@ -946,6 +1483,27 @@ export function parseLayout(text: string): Layout {
     ...(raw["hidden"] === undefined ? {} : {
       hidden: (Array.isArray(raw["hidden"]) ? raw["hidden"] : [null]).map((h, i) => {
         if (typeof h !== "string" || !PLACEMENT_KEY.test(h)) throw new Error(`hidden ${i} is not a model and a place`);
+        return h;
+      }),
+    }),
+    ...(raw["folders"] === undefined ? {} : (() => {
+      const why = foldersWhy(raw["folders"]);
+      if (why) throw new Error(why);
+      return { folders: (raw["folders"] as { name: string }[]).map((f) => ({ name: f.name })) };
+    })()),
+    ...(raw["order"] === undefined ? {} : (() => {
+      const why = orderWhy(raw["order"]);
+      if (why) throw new Error(why);
+      return { order: [...(raw["order"] as string[])] };
+    })()),
+    ...(raw["tree"] === undefined ? {} : (() => {
+      const why = treeWhy(raw["tree"]);
+      if (why) throw new Error(why);
+      return { tree: (raw["tree"] as [string, string][]).map(([c, p]) => [c, p] as [string, string]) };
+    })()),
+    ...(raw["hiddenData"] === undefined ? {} : {
+      hiddenData: (Array.isArray(raw["hiddenData"]) ? raw["hiddenData"] : [null]).map((h, i) => {
+        if (typeof h !== "string" || !HIDDEN_DATA_KEY.test(h)) throw new Error(`hiddenData ${i} is not a map objective's key`);
         return h;
       }),
     }),
@@ -1212,6 +1770,21 @@ const HOSTAGE_CHARACTER = /^[A-Za-z0-9_]{1,32}$/;
 /** A placed turret's record row (`Layout.turrets`): its source and name, place, and yaw in whole degrees. */
 export type TurretRow = [source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: true];
 export type TacPointRow = [name: string, x: number, y: number, z: number, kind: number, locked?: true];
+/**
+ * A placed switch's record row (`Layout.switches`): its gate's index in `gates` (-1 none), its place, its yaw in degrees,
+ * its map action's valve ('' none), its look ('' the lever panel), and its prompt, reach, height reach and points (null:
+ * its action's own).
+ */
+export type SwitchRow = [gate: number, x: number, y: number, z: number, yaw: number, action: string, look: "" | SwitchLook,
+  prompt: string | null, range: number | null, elevation: number | null, points: number | null, script: SwitchScript | null, locked?: true | null,
+  team?: null, piece?: number, node?: string];
+/**
+ * A damage trigger's record row (`Layout.triggers`): its prop's index in `pieces` (-1 none), health, armour, shield,
+ * script, the map node's path ('' none), and its place (null, at its prop).
+ */
+export type TriggerRow = [piece: number, health: number, armor: number, shield: number, script: SwitchScript | null, node: string, x: number | null, y: number | null, z: number | null];
+/** A Forge object's record row (`Layout.objects`): its kind, its map ('' an empty's), its name, its place and turn (degrees). */
+export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, audio?: AudioStep[]];
 /** A placed flare's record row (`Layout.flares`): its source and node name, its place. */
 export type FlareRow = [source: string, name: string, x: number, y: number, z: number, locked?: true];
 /** A placed spectator view's record row (`Layout.scenicViews`): yaw and pitch in degrees, on the lattice. */
@@ -1229,6 +1802,8 @@ export interface LayoutRecordV2 {
   pieces: PieceRow[];
   spawns: SpawnRow[];
   hidden?: string[];
+  /** The base map's own objectives the layout takes out (`Layout.hiddenData`), present only when it has some. */
+  hiddenData?: string[];
   npcs?: NpcRow[];
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
@@ -1291,6 +1866,13 @@ export interface CreatorLayoutRecord {
   /** The rows' stable authored ids. */
   ids: RecordIds;
   hidden?: string[];
+  /** The base map's own objectives the layout takes out (`Layout.hiddenData`), present only when it has some. */
+  hiddenData?: string[];
+  /** The placements' tree (`Layout.tree`), present only when some placement has a parent. */
+  tree?: [string, string][];
+  /** The Outliner's folders (`Layout.folders`) and its order (`Layout.order`), present only when the layout has some. */
+  folders?: { name: string }[];
+  order?: string[];
   npcs?: NpcRow[];
   /** The placed hostages (`Layout.hostages`), present only when the layout has some: additive inside v3, as `zones`. */
   hostages?: HostageRow[];
@@ -1310,6 +1892,12 @@ export interface CreatorLayoutRecord {
   /** The placed gates and C4 barriers (`Layout.gates`, `Layout.barriers`), as the doors' rows. */
   gates?: TurretRow[];
   barriers?: TurretRow[];
+  /** The placed switches (`Layout.switches`), present only when the layout has some. */
+  switches?: SwitchRow[];
+  /** The props made damage triggers (`Layout.triggers`), present only when the layout has some. */
+  triggers?: TriggerRow[];
+  /** The Forge objects (`Layout.objects`), present only when the layout has some. */
+  objects?: ObjectRow[];
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
   missing?: number[];
@@ -1346,9 +1934,62 @@ const STEM = /^[A-Z]{1,3}\d{1,3}$/;
 /** The page's blank floor when no archive is the palette (`matchMap` `BLANK_LIBRARY`). */
 const BLANK_FLOOR = "floor";
 const ASSET = /^[A-Z]{1,3}\d{1,3}:[A-Za-z0-9_.\-]{1,64}$/;
+/** A placement's reference in the tree (`Layout.tree`): its kind and its place in its list (a bomb marker's by its kind). */
+export const TREE_REF = /^(?:(?:piece|trigger|spawn|respawn|flare|npc|hostage|zone|turret|door|gate|barrier|switch|point|object|view|folder):\d{1,5}|bomb:(?:start|seal|terrorist):\d{1,2})$/;
+/** A folder's name (`Layout.folders`): a check on the file's. */
+const FOLDER_NAME = /^[^\u0000-\u001f]{1,48}$/;
+/** Null when `v` is a good list of folders (`Layout.folders`); else why. */
+export function foldersWhy(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length === 0 || v.length > RECORD_LIMITS.pieces) return "folders is not a list of folders";
+  for (const [i, f] of v.entries()) {
+    if (!isObj(f) || !Object.keys(f).every((k) => k === "name") || typeof f["name"] !== "string" || !FOLDER_NAME.test(f["name"])) return `folder ${i} is not a name`;
+  }
+  return null;
+}
+/** Null when `v` is a good order (`Layout.order`): references, each once; else why. */
+export function orderWhy(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length === 0 || v.length > RECORD_LIMITS.pieces * 2) return "order is not a list of placements";
+  const seen = new Set<string>();
+  for (const [i, e] of v.entries()) {
+    if (typeof e !== "string" || !TREE_REF.test(e)) return `order ${i} is not a placement`;
+    if (seen.has(e)) return `order ${i}: ${e} twice`;
+    seen.add(e);
+  }
+  return null;
+}
+/** Null when `v` is a good tree (`Layout.tree`): pairs of references, each child once, none its own ancestor; else why. */
+export function treeWhy(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length === 0 || v.length > RECORD_LIMITS.pieces) return "tree is not a list of [child, parent] pairs";
+  const parent = new Map<string, string>();
+  for (const [i, e] of v.entries()) {
+    if (!Array.isArray(e) || e.length !== 2 || typeof e[0] !== "string" || typeof e[1] !== "string" || !TREE_REF.test(e[0]) || !TREE_REF.test(e[1]) || e[0] === e[1]) {
+      return `tree ${i} is not a [child, parent] pair of placements`;
+    }
+    if (parent.has(e[0])) return `tree ${i}: ${e[0]} has two parents`;
+    parent.set(e[0], e[1]);
+  }
+  for (const start of parent.keys()) {
+    const seen = new Set<string>([start]);
+    for (let at = parent.get(start); at !== undefined; at = parent.get(at)) {
+      if (seen.has(at)) return `tree: ${start} is its own ancestor`;
+      seen.add(at);
+    }
+  }
+  return null;
+}
+/** The layout as an online lobby is sent it (`Layout.tree` left out): every placement at its own world place, the same game. */
+export function withoutTree<L extends { tree?: unknown; folders?: unknown; order?: unknown }>(l: L): L {
+  if (l.tree === undefined && l.folders === undefined && l.order === undefined) return l;
+  const { tree: _t, folders: _f, order: _o, ...rest } = l;
+  return rest as L;
+}
+
+/** A taken-out map objective's key (`Layout.hiddenData`): its kind and its name (a node, a hostage, a zone). */
+const HIDDEN_DATA_KEY = /^(hostage|site|zone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:start$|^(slot|respawn):[AB]\d{1,3}$/;
+
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers",
+  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
   "poses"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
@@ -1512,6 +2153,10 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     assets, pieces, ...(poses.length ? { poses } : {}), spawns, ids,
   };
   if (l.hidden?.length) record.hidden = [...l.hidden];
+  if (l.hiddenData?.length) record.hiddenData = [...l.hiddenData];
+  if (l.tree?.length) record.tree = l.tree.map(([c, p]) => [c, p] as [string, string]);
+  if (l.folders?.length) record.folders = l.folders.map((f) => ({ name: f.name }));
+  if (l.order?.length) record.order = [...l.order];
   if (l.npcs?.length) record.npcs = l.npcs.map((n): NpcRow => {
     const row: NpcRow = [n.side, n.type, tenth(n.p[0]), tenth(n.p[1]), tenth(n.p[2]), wholeDeg(n.yaw)];
     if (n.locked === true) row[6] = true;
@@ -1536,6 +2181,26 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
       return row;
     });
   }
+  if (l.switches?.length) record.switches = l.switches.map((t): SwitchRow => {
+    const row: SwitchRow = [t.gate ?? -1, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw), t.action ?? "", t.look ?? "",
+      t.prompt ?? null, t.range ?? null, t.elevation ?? null, t.points ?? null, t.script ? JSON.parse(JSON.stringify(t.script)) as SwitchScript : null];
+    if (t.locked === true) row[12] = true;
+    // Its prop link (`SwitchMarker.piece` / `node`): the two columns after the team's (null: a switch has no team), -1 and '' for none.
+    if (t.piece !== undefined || t.node !== undefined) {
+      row[12] = t.locked === true ? true : null; row[13] = null; row[14] = t.piece ?? -1; row[15] = t.node ?? "";
+    }
+    return row;
+  });
+  if (l.triggers?.length) record.triggers = l.triggers.map((t): TriggerRow => {
+    return [t.piece ?? -1, t.health, t.armor, t.shield, t.script ? JSON.parse(JSON.stringify(t.script)) as SwitchScript : null, t.node ?? "",
+      t.at ? tenth(t.at[0]) : null, t.at ? tenth(t.at[1]) : null, t.at ? tenth(t.at[2]) : null];
+  });
+  if (l.objects?.length) record.objects = l.objects.map((o): ObjectRow => {
+    const row: ObjectRow = [o.kind, o.source, o.name, tenth(o.at[0]), tenth(o.at[1]), tenth(o.at[2]), wholeDeg(o.yaw)];
+    if (o.locked === true) row[7] = true;
+    if (o.audio) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.audio)) as AudioStep[]; }
+    return row;
+  });
   if (l.turrets?.length) record.turrets = l.turrets.map((t): TurretRow => {
     const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
     if (t.locked === true) row[6] = true;
@@ -1617,6 +2282,10 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
     })),
   };
   if (r.hidden?.length) layout.hidden = [...r.hidden];
+  if (!isV2(r) && r.hiddenData?.length) layout.hiddenData = [...r.hiddenData];
+  if (!isV2(r) && r.tree?.length) layout.tree = r.tree.map(([c, p]) => [c, p] as [string, string]);
+  if (!isV2(r) && r.folders?.length) layout.folders = r.folders.map((f) => ({ name: f.name }));
+  if (!isV2(r) && r.order?.length) layout.order = [...r.order];
   if (r.npcs?.length) layout.npcs = r.npcs.map(([side, type, x, y, z, yaw, locked], i): NpcMarker => ({
     side, type, p: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}), ...ownId(ids?.npcs?.[i], ID_PREFIX.npc, i),
   }));
@@ -1633,6 +2302,18 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
       source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
     }));
   }
+  if (!isV2(r) && r.switches?.length) layout.switches = r.switches.map(([gate, x, y, z, yaw, action, look, prompt, range, elevation, points, script, locked, , piece, node]): SwitchMarker => ({
+    ...(piece !== undefined && piece >= 0 ? { piece } : {}), ...(node ? { node } : {}),
+    ...(gate >= 0 ? { gate } : {}), ...(action ? { action } : {}), ...(script ? { script: JSON.parse(JSON.stringify(script)) as SwitchScript } : {}),
+    ...switchFields({ look: look || undefined, prompt: prompt ?? undefined, range: range ?? undefined, elevation: elevation ?? undefined, points: points ?? undefined }), at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.triggers?.length) layout.triggers = r.triggers.map(([piece, health, armor, shield, script, node, x, y, z]): PieceTrigger => ({
+    ...(node ? { node } : piece >= 0 ? { piece } : {}), ...(x !== null && y !== null && z !== null ? { at: [x, y, z] as [number, number, number] } : {}), health, armor, shield, ...(script ? { script: JSON.parse(JSON.stringify(script)) as SwitchScript } : {}),
+  }));
+  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, audio]): ForgeObject => ({
+    kind, source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+    ...(audio ? { audio: JSON.parse(JSON.stringify(audio)) as AudioStep[] } : {}),
+  }));
   if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
     source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
   }));
@@ -1776,6 +2457,14 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
     if (!Array.isArray(hidden) || hidden.length === 0 || hidden.length > RECORD_LIMITS.pieces) return "hidden is not a list of placements";
     for (const [i, h] of hidden.entries()) if (typeof h !== "string" || !PLACEMENT_KEY.test(h)) return `hidden ${i} is not a model and a place`;
   }
+  if (r["tree"] !== undefined) { const why = treeWhy(r["tree"]); if (why) return why; }
+  if (r["folders"] !== undefined) { const why = foldersWhy(r["folders"]); if (why) return why; }
+  if (r["order"] !== undefined) { const why = orderWhy(r["order"]); if (why) return why; }
+  if (r["hiddenData"] !== undefined) {
+    const keys = r["hiddenData"];
+    if (!Array.isArray(keys) || keys.length === 0 || keys.length > RECORD_LIMITS.pieces) return "hiddenData is not a list of map objectives";
+    for (const [i, h] of keys.entries()) if (typeof h !== "string" || !HIDDEN_DATA_KEY.test(h)) return `hiddenData ${i} is not a map objective's key`;
+  }
   if (r["npcs"] !== undefined) {
     const npcs = r["npcs"];
     if (!Array.isArray(npcs) || npcs.length === 0 || npcs.length > RECORD_LIMITS.spawns) return "npcs is not a list";
@@ -1821,6 +2510,55 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
       if (!Array.isArray(t) || (t.length !== 6 && t.length !== 7) || typeof t[0] !== "string" || !TURRET_SOURCE.test(t[0]) || typeof t[1] !== "string"
         || !TURRET_NAME.test(t[1]) || !inBound(t[2]) || !inBound(t[3]) || !inBound(t[4]) || !isDeg(t[5])) return `${what} ${i} is not [source, name, x, y, z, yaw]`;
       if (t.length === 7 && t[6] !== true) return `${what} ${i} lock is not true`;
+    }
+  }
+  if (r["triggers"] !== undefined) {
+    const rows = r["triggers"];
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > RECORD_LIMITS.pieces) return "triggers is not a list";
+    const counts: SwitchCounts = { pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0,
+      barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0, gates: Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0, objects: Array.isArray(r["objects"]) ? (r["objects"] as unknown[]).length : 0 };
+    for (const [i, t] of rows.entries()) {
+      if (!Array.isArray(t) || t.length !== 9 || !Number.isInteger(t[0]) || typeof t[5] !== "string" || (t[5] !== "" && t[0] !== -1)
+        || ![t[6], t[7], t[8]].every((v) => v === null || inBound(v)) || !([t[6], t[7], t[8]].every((v) => v === null) || [t[6], t[7], t[8]].every((v) => v !== null))
+        || !pieceTriggerOk({ ...(t[5] ? { node: t[5] } : t[0] >= 0 ? { piece: t[0] } : {}), health: t[1], armor: t[2], shield: t[3], ...(t[4] !== null ? { script: t[4] } : {}) }, counts)
+        || (t[5] !== "" && rows.findIndex((o) => Array.isArray(o) && o[5] === t[5]) !== i) || (t[0] >= 0 && rows.findIndex((o) => Array.isArray(o) && o[0] === t[0]) !== i)) {
+        return `trigger ${i} is not [piece, health, armor, shield, script, node, x, y, z] of a prop of the layout's or a map node, once`;
+      }
+    }
+  }
+  if (r["objects"] !== undefined) {
+    const rows = r["objects"];
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > RECORD_LIMITS.pieces) return "objects is not a list";
+    for (const [i, t] of rows.entries()) {
+      if (!Array.isArray(t) || t.length < 7 || t.length > 9 || (t.length === 8 && t[7] !== true) || (t.length === 9 && typeof t[7] !== "boolean")
+        || ![t[3], t[4], t[5]].every(inBound) || !isDeg(t[6])
+        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0, ...(t.length === 9 ? { audio: t[8] } : {}) })) {
+        return `object ${i} is not [kind, source, name, x, y, z, yaw, locked?, audio?] of an ambient effect or a crane`;
+      }
+    }
+  }
+  if (r["switches"] !== undefined) {
+    const rows = r["switches"];
+    const gates = Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0;
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > RECORD_LIMITS.spawns) return "switches is not a list";
+    for (const [i, t] of rows.entries()) {
+      const counts: SwitchCounts = { pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0,
+        barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0, gates, objects: Array.isArray(r["objects"]) ? (r["objects"] as unknown[]).length : 0 };
+      if (!Array.isArray(t) || t.length < 12 || t.length > 16 || !Number.isInteger(t[0]) || t[0] < -1 || t[0] >= gates
+        || (t[11] !== null && (!switchScriptOk(t[11], counts) || t[0] !== -1 || t[5] !== ""))
+        || !inBound(t[1]) || !inBound(t[2]) || !inBound(t[3]) || !isDeg(t[4])
+        || typeof t[5] !== "string" || (t[5] !== "" && (!SWITCH_ACTION.test(t[5]) || t[0] !== -1)) || typeof t[6] !== "string"
+        || !switchFieldsOk({ look: t[6] || undefined, prompt: t[7] ?? undefined, range: t[8] ?? undefined, elevation: t[9] ?? undefined, points: t[10] ?? undefined })) {
+        return `switch ${i} is not [gate, x, y, z, yaw, action, look, prompt, range, elevation, points] of a gate of the layout or a map action`;
+      }
+      if (t.length === 13 && t[12] !== true) return `switch ${i} lock is not true`;
+      if (t.length === 14) return `switch ${i} has a team column: a switch has no team`;
+      if (t.length === 15) return `switch ${i} has a prop column without its node`;
+      if (t.length === 16 && ((t[12] !== true && t[12] !== null) || t[13] !== null
+        || !Number.isInteger(t[14]) || typeof t[15] !== "string" || (t[14] >= 0 && t[15] !== "") || (t[14] < 0 && t[15] === "")
+        || !switchLinkOk(t[14] >= 0 ? t[14] : undefined, t[15] || undefined, Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0))) {
+        return `switch ${i} lock or prop link is not valid`;
+      }
     }
   }
   if (r["turrets"] !== undefined) {
@@ -2147,6 +2885,7 @@ export const RECORD_CODES = {
   onlineRespawns: "record.ONLINE_RESPAWNS",
   /** FP-1a: no longer raised -- a placed flare is a light the page draws, nothing the room holds; kept likewise. */
   onlineFlares: "record.ONLINE_FLARES",
+  onlineHiddenData: "record.ONLINE_HIDDEN_DATA",
   /** FP-1a: no longer raised -- the room holds no scenic view; the lobby's page composes them. Kept likewise. */
   onlineSpectatorViews: "record.ONLINE_SPECTATOR_VIEWS",
   /** FP-1a: no longer raised -- the room places them (`withPlacedObjects`); kept likewise. */
@@ -2157,6 +2896,9 @@ export const RECORD_CODES = {
   onlineGates: "record.ONLINE_GATES",
   /** FP-1a: no longer raised -- the room places them (`withPlacedObjects`); kept likewise. */
   onlineBarriers: "record.ONLINE_BARRIERS",
+  onlineSwitches: "record.ONLINE_SWITCHES",
+  onlineTriggers: "record.ONLINE_TRIGGERS",
+  onlineObjects: "record.ONLINE_OBJECTS",
   /** FCW-10, H273/H274: an online lobby plays the disc's own maps (`maps.ts` `CONTENT_MAP_CODES.onlineContentMap`). */
   onlineContentMap: "record.ONLINE_CONTENT_MAP",
 } as const;
@@ -2226,7 +2968,21 @@ export function readCreatorRecord(text: string, options: ReadRecordOptions = {})
  * (H275). Empty: admitted. A share code and an account row carry the references only, never a pack's bytes (H276).
  */
 export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
-  return onlineRefusal(r.requires ?? [], r.mode, r.contentBase);
+  // FP-1a (main): every placed kind the online room composes is admitted. The kinds the room does not compose -- a map
+  // objective taken out, a switch, a damage trigger on a prop, a crane (the Forge branch's own) -- still play locally only.
+  return [...onlineRefusal(r.requires ?? [], r.mode, r.contentBase),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", r.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
+    ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", r.switches?.length ?? 0, "switches"),
+    ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", r.triggers?.length ?? 0, "damage triggers on props"),
+    ...placedRefusal(RECORD_CODES.onlineObjects, "objects", r.objects?.filter((o) => o[0] !== "ambient").length ?? 0, "cranes")];
+}
+
+/** A placed kind the online room does not compose (a browser adaptation) plays locally only. */
+function placedRefusal(code: string, field: string, count: number, words: string): Diagnostic[] {
+  return count ? [diagnostic({
+    source: "check", severity: "error", code, field, actual: String(count),
+    text: `An online lobby plays the disc's own ${words}: this layout places its own. Play it locally.`,
+  })] : [];
 }
 
 /**
@@ -2239,7 +2995,14 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
 export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnostic[] {
   const map = isContentLayoutBase(l.base) ? l.base : null;
   const packs = sortPackRefs([...(l.requires ?? []), ...(map ? [map.ref] : []), ...l.pieces.flatMap((p) => (p.content ? [p.content.pack] : []))]);
-  return onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined);
+  // FP-1a (main): the placed kinds the room composes admitted; the branch's own kinds it does not, refused (as the record's).
+  return [...onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", l.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
+    ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", l.switches?.length ?? 0, "switches"),
+    ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", l.triggers?.length ?? 0, "damage triggers on props"),
+    // An ambient effect plays online (the owner, 2026-11-10: "make it ... such that they will load in online games"): the
+    // disc's own program and sounds, each page drawing and sounding it from its own disc, nothing of the room's; a crane not.
+    ...placedRefusal(RECORD_CODES.onlineObjects, "objects", l.objects?.filter((o) => o.kind !== "ambient").length ?? 0, "cranes")];
 }
 
 /** FCW-07a's name for the layout's online policy: `onlineCreatorLayoutRefusal`, the one body (a content base refused too). */

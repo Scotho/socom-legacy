@@ -249,6 +249,25 @@ describe('XR-04: the program effects the world hands on and the ones it ignores'
     }
   });
 
+  it("a Forge script's FIRE_WEAPON (`forge`) is handed on -- drawn on a page's run, its damage the room's run's; a disc one still is not", () => {
+    const forge: EffectOp = { op: 'fireWeapon', weapon: 'MPBOMB', ammo: 'MPBOMB Ammo', node: 1, f1: 0.001, f2: 0.01, forge: true };
+    const disc: EffectOp = { op: 'fireWeapon', weapon: 'MPBOMB', ammo: 'MPBOMB Ammo', node: 1, f1: 0.001, f2: 0.01 };
+    const run = (presentation: boolean, silent: boolean): Heard[] => {
+      const heard: Heard[] = [];
+      const ground = hull();
+      const world = new WorldState(metaWith([disc, forge]), ground, groundGrid(ground), {
+        scriptRound: (op, p) => heard.push(['round', op.forge, p]), blast: (op, p) => heard.push(['blast', op.forge, p]),
+      });
+      world.applyInitial();
+      world.skipEffects = silent;
+      expect(world.executeAction('v_site', false, presentation)).toBe(true);
+      return heard;
+    };
+    expect(run(true, false)).toEqual([['round', true, SITE]]);    // a page's presentation: the look only
+    // The room's run (no presentation): the damage too -- the room lends no drawing hook, so it draws nothing.
+    expect(run(false, true)).toEqual([['round', true, SITE], ['blast', true, SITE]]);
+  });
+
   it("CALL_ANIMATION's caller node (flag 4, +9) is the callee's NODE_CALLER; without it the caller's own is passed on (research 386 §3.3)", () => {
     // `FUN_0025d5c0` D:L107605-107613: a type-3 context entry of the node at +9; `FUN_0026f4e0` answers -6 from it
     // (D:L118164-118168; research 149 R149.2). Blizzard's `outhouse1` -> `toilet_flypart1` on part1..15 is the shape.

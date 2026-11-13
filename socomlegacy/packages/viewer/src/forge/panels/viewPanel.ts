@@ -127,7 +127,7 @@ export function buildRenderScale(doc: Document, hooks: RenderScaleHooks, set: (v
 }
 
 export function viewPanel<Id extends string>(dom: ViewDom<Id>, hooks: ViewMenuHooks<Id>, rows: readonly (readonly [Id, string])[], detail?: DetailDistanceHooks): ForgePanel {
-  return builtPanel({ id: 'view', title: 'View', dock: 'right', order: 30, defaultOpen: true, tab: 'World',
+  return builtPanel({ id: 'view', title: 'View', dock: 'right', order: 30, defaultOpen: true, tab: 'Map',
     padLegend: [{ button: 'cross', label: 'Switch' }],
     menuSection: () => [...viewMenuSection(rows, hooks), ...(detail ? [detailDistanceMenuItem(detail)] : [])] }, dom.body);
 }

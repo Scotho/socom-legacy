@@ -1,6 +1,7 @@
 import type { SpawnSlot } from '@s2u/scene';
 import type { MenuItem } from '../padMenu';
 import { builtPanel, forgeEl, revealRow, type ForgePanel } from '../shell/panel';
+import { MAP_DATA_KIND_TOGGLES } from '../mapDataBillboards';
 
 /** A disc spawn slot as the Outliner's Spawn Slots branch lists it. */
 export interface SpawnSlotRow {
@@ -39,11 +40,20 @@ export interface OutlinerDom {
   body: HTMLDivElement;
   list: HTMLUListElement;
   search: HTMLInputElement;
-  filter: HTMLSelectElement;
+  /** The Filter dropdown (`filterList` its switches, the page's to fill: `OUTLINER_KINDS`). */
+  filter: HTMLDetailsElement;
+  filterSummary: HTMLElement;
+  filterList: HTMLDivElement;
 }
 
-/** FCW-32 step 4 (FUI.R23 D4): `rules`, the layout's zones, markers and spawners, each a row by its authored id. */
-export const OUTLINER_FILTERS = [['all', 'All'], ['map', 'Map props'], ['pieces', 'Pieces'], ['spawns', 'Spawns'], ['npcs', 'NPCs'], ['objectives', 'Bomb Start'], ['rules', 'Rules'], ['missing', 'Missing'], ['hidden', 'Hidden']] as const;
+/**
+ * The Outliner's kinds (the owner, 2026-11-10: "a filter for all the object types ... toggle each one independently and
+ * solo", as the View dropdown's): every kind as the View names it (`MAP_DATA_KIND_TOGGLES`: the map's own and the layout's
+ * alike), then the layout's rules entities (FCW-32 step 4) and its missing pieces.
+ */
+export const OUTLINER_KINDS: readonly (readonly [string, string])[] = [
+  ...MAP_DATA_KIND_TOGGLES.map((t) => [t.id, t.label] as const), ['rules', 'Rules'], ['missing', 'Missing pieces'],
+];
 
 export function buildOutliner(doc: Document): OutlinerDom {
   const list = forgeEl(doc, 'ul', 'fx-outliner');
@@ -52,17 +62,16 @@ export function buildOutliner(doc: Document): OutlinerDom {
   search.type = 'search';
   search.placeholder = 'Search placed…';
   search.setAttribute('aria-label', 'Search the outliner');
-  const filter = forgeEl(doc, 'select', 'fx-select');
-  filter.setAttribute('aria-label', 'Filter the outliner by type');
-  for (const [value, label] of OUTLINER_FILTERS) {
-    const o = forgeEl(doc, 'option', '', label);
-    o.value = value;
-    filter.append(o);
-  }
+  // The Filter: a dropdown as the View's -- your objects, the map's, then a switch and a Solo each kind (`OUTLINER_KINDS`).
+  const filter = forgeEl(doc, 'details', 'fx-viewport-modes fx-outliner-filter');
+  const filterSummary = forgeEl(doc, 'summary', 'fx-viewport-modes-summary', 'Filter');
+  filterSummary.title = 'Which objects the Outliner lists: yours, the map\u2019s, and each kind on or off (Solo: that kind alone)';
+  const filterList = forgeEl(doc, 'div', 'fx-viewport-modes-list fx-outliner-filter-list');
+  filter.append(filterSummary, filterList);
   tools.append(search, filter);
   const body = forgeEl(doc, 'div', 'fx-section');                    // FUI-22 (D2): the dock's one section style
   body.append(tools, list);
-  return { body, list, search, filter };
+  return { body, list, search, filter, filterSummary, filterList };
 }
 
 /** Its pad path: a START row that shows it, with how many rows it lists. */

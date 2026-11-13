@@ -85,6 +85,12 @@ export interface WorldView {
   setWireframe(on: boolean): void;
   /** Shows or hides texture samples without changing the wireframe overlay. */
   setTextured(on: boolean): void;
+  /**
+   * Shows or hides the solid draws (a browser adaptation, the Forge's Draw menu's Geometry; the owner, 2026-11-11): off,
+   * the world's meshes, lines, detail and environment passes are not drawn, and the wireframe overlay still is -- the
+   * topology alone. On by default; the game never turns it off.
+   */
+  setGeometry(on: boolean): void;
   /** Shows vertex and texture colour without applying the map's dynamic light rig. */
   setUnlit(on: boolean): void;
   /**
@@ -487,6 +493,7 @@ export function buildWorld(map: LoadedMap): WorldView {
   let highlight = false;
   let lineStripsOn = true;
   let wireframeOn = false;
+  let geometryOn = true;                 // `setGeometry`: the solid draws; the wireframe overlay follows `shownOf`, not this
   let texturedOn = true;
   let unlitOn = false;
   let shadowsOn = true;
@@ -554,9 +561,15 @@ export function buildWorld(map: LoadedMap): WorldView {
   let orderCell = -1;
   /** Where `frame` last saw the camera, in the group's frame, so switching the order on can order at once. */
   const lastCamera = { x: 0, y: 0, z: 0, seen: false };
+  /** Whether a draw draws under the switches, Geometry aside (`setGeometry` hides it, never its wireframe overlay). */
+  const shownOf = (d: Drawn): boolean => (!d.off || alternateOn) && !d.cut && (!d.shadow || shadowsOn)
+    && (!d.line || (lineStripsOn && !wireframeOn)) && (d.lod === null || d.lod.visible);
   const syncWireframeOverlays = (): void => {
     for (const { source, overlay, instanced } of wireframeOverlays) {
-      overlay.visible = wireframeOn && source.visible && source.parent !== null;   // a source not yet revealed: none
+      // Whether its source would draw, Geometry aside (`shownOf`): Geometry off hides the source, never its overlay.
+      const d = drawnByObject.get(source);
+      const sourceShown = d ? shownOf(d) : source.visible;
+      overlay.visible = wireframeOn && sourceShown && source.parent !== null;   // a source not yet revealed: none
       if (instanced || source.matrixAutoUpdate) {
         if (source.matrixAutoUpdate) source.updateMatrix();
         overlay.matrix.copy(source.matrix);
@@ -566,10 +579,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     }
   };
   const refreshVisibility = (): void => {
-    for (const d of drawn) {
-      d.object.visible = (!d.off || alternateOn) && !d.cut && (!d.shadow || shadowsOn) && (!d.line || (lineStripsOn && !wireframeOn))
-        && (d.lod === null || d.lod.visible);
-    }
+    for (const d of drawn) d.object.visible = geometryOn && shownOf(d);
     syncWireframeOverlays();
     for (const put of instancePuts) put();
   };
@@ -958,8 +968,8 @@ export function buildWorld(map: LoadedMap): WorldView {
     return material;
   };
   const refreshDetail = (): void => {
-    for (const d of details) d.mesh.visible = detailOn && !wireframeOn;
-    for (const e of envPasses) e.mesh.visible = envOn && !wireframeOn;
+    for (const d of details) d.mesh.visible = detailOn && !wireframeOn && geometryOn;
+    for (const e of envPasses) e.mesh.visible = envOn && !wireframeOn && geometryOn;
   };
 
   /**
@@ -1037,7 +1047,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     mesh.name = `${base.name} (env)`;
     mesh.frustumCulled = base.frustumCulled;
     mesh.renderOrder = envOrderOf(base);                // the walk's: after the detail pass; the alpha pass's: right after its base (LATER 593)
-    mesh.visible = envOn && !wireframeOn;
+    mesh.visible = envOn && !wireframeOn && geometryOn;
     base.add(mesh);
     envPasses.push({ mesh, base });
   };
@@ -1082,7 +1092,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     mesh.name = `${base.name} (detail)`;
     mesh.frustumCulled = base.frustumCulled;
     mesh.renderOrder = detailRenderOrder(base.renderOrder, true);      // half a step behind the base, whatever list numbered it
-    mesh.visible = detailOn && !wireframeOn;
+    mesh.visible = detailOn && !wireframeOn && geometryOn;
     base.add(mesh);
     details.push({ mesh, base });
   };
@@ -1148,8 +1158,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     drawn.push(d);
     drawnByObject.set(object, d);
     object.renderOrder = restOrder(d);
-    object.visible = (!alternate || alternateOn) && (!shadow || shadowsOn) && (!line || (lineStripsOn && !wireframeOn))
-      && (lod === null || lod.visible);
+    object.visible = geometryOn && shownOf(d);
     // CPS H13 (`./sceneMatrix`): flagged as it joins the frozen group -- `prepare` may have computed it parked off it.
     if (object instanceof Mesh && !(object instanceof LineSegments)) wireframeSources.push(object);   // its overlay made on demand
     queue.push(() => { group.add(object); object.matrixWorldNeedsUpdate = true; });
@@ -1665,8 +1674,15 @@ export function buildWorld(map: LoadedMap): WorldView {
     alternateDraws: drawn.filter((d) => d.alternate).length,
     detailDraws: details.length,
     setWireframe: (on) => {
+      if (on === wireframeOn) return;                    // a split view's draw sets it again every view (Forge)
       if (on) makeWireframeOverlays();
       wireframeOn = on;
+      refreshVisibility();
+      refreshDetail();
+    },
+    setGeometry: (on) => {
+      if (on === geometryOn) return;
+      geometryOn = on;
       refreshVisibility();
       refreshDetail();
     },
@@ -1810,8 +1826,8 @@ export function buildWorld(map: LoadedMap): WorldView {
       }
     },
     setLineStrips: (on) => { lineStripsOn = on; refreshVisibility(); },
-    setShadows: (on) => { shadowsOn = on; refreshVisibility(); },
-    setAlternate: (on) => { alternateOn = on; refreshVisibility(); },
+    setShadows: (on) => { if (on === shadowsOn) return; shadowsOn = on; refreshVisibility(); },
+    setAlternate: (on) => { if (on === alternateOn) return; alternateOn = on; refreshVisibility(); },
     holdOnNode: (path, gone) => {
       const hold = { path, gone };
       markHolds.push(hold);
@@ -1881,7 +1897,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       }
       return reached;
     },
-    setDetail: (on) => { detailOn = on; refreshDetail(); },
+    setDetail: (on) => { if (on === detailOn) return; detailOn = on; refreshDetail(); },
     setDetailDistance: (factor) => {
       detailDistance = Number.isFinite(factor) && factor > 0 ? factor : 1;
       detailDistanceSq = detailDistance * detailDistance;

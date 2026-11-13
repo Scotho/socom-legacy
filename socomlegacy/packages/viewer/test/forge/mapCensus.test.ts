@@ -9,27 +9,31 @@ import { showInspectorData } from '../../src/forge/panels/inspectorPanel';
  * copied door, turret or hostage lists only the maps that have one to copy.
  */
 describe('the map census', () => {
-  // OT.R112: the contributor's census counts placed flares' copies too (`flare`: a map's facade props, `../../src/forge/placedFlares`).
-  it("counts a map's doors, turrets, hostage characters and flares", () => {
+  it("counts a map's doors, turrets and hostage characters", () => {
     const map = { doors: [{}, {}], turrets: [{}], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }, null] } };
-    expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0 });
-    expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0 });
+    expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
+    expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
   });
 
   it("a map's copies: its hostage characters each once, by name; none of a kind, an empty list; their counts the census", () => {
     // A loaded map always carries its props (`LoadedMap.props`); the flares' copies are read off them.
     const map = { doors: [], turrets: [], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }] } };
     const copies = copiesOf(map as never);
-    expect(copies).toEqual({ door: [], turret: [], hostage: [['a', 'a'], ['b', 'b']], ladder: [], gate: [], barrier: [], flare: [] });
-    expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0 });
+    expect(copies).toEqual({ door: [], turret: [], hostage: [['a', 'a'], ['b', 'b']], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [] });
+    expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
   });
 
-  it('lists only the maps with one of the kind to copy; one with none, or not yet counted, left out; the current choice always', () => {
-    const maps = [['MP2', 'MP2 · FROSTFIRE'], ['MP6', 'MP6 · DESERT GLORY'], ['MP72', 'MP72 · CROSSROADS']] as const;
-    const known = new Map([['MP2', { door: 3, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0 }], ['MP72', { door: 0, turret: 3, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0 }]]);
-    expect(censusOptions(maps, (s) => known.get(s) ?? null, 'door', 'MP2')).toEqual([['MP2', 'MP2 · FROSTFIRE']]);
-    expect(censusOptions(maps, (s) => known.get(s) ?? null, 'turret', 'MP2')).toEqual([['MP2', 'MP2 · FROSTFIRE'], ['MP72', 'MP72 · CROSSROADS']]);
-    expect(censusOptions(maps, (s) => known.get(s) ?? null, 'hostage', 'MP72')).toEqual([['MP72', 'MP72 · CROSSROADS']]);
+  it('lists every map at all times, each with what it has: a count, "counting..." until read, greyed "none"; the current never greyed', () => {
+    const maps = [['MP2', 'MP2 · FROSTFIRE'], ['MP6', 'MP6 · DESERT GLORY'], ['MP72', 'MP72 · CROSSROADS'], ['M51', 'M51 · TIGER BAY (campaign)']] as const;
+    const count = (o: Partial<Record<string, number>>) => ({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0, ambient: 0, ...o });
+    const known = new Map([['MP2', count({ door: 3 })], ['MP72', count({ turret: 3, barrier: 1 })]]);
+    const at = (s: string) => known.get(s) ?? null;
+    expect(censusOptions(maps, at, 'door', 'MP2')).toEqual([
+      ['MP2', 'MP2 · FROSTFIRE · 3 doors', false], ['MP6', 'MP6 · DESERT GLORY · counting…', false],
+      ['MP72', 'MP72 · CROSSROADS · none', true], ['M51', 'M51 · TIGER BAY (campaign) · counting…', false],
+    ]);
+    expect(censusOptions(maps, at, 'barrier', 'MP72')[2]).toEqual(['MP72', 'MP72 · CROSSROADS · 1 damage trigger', false]);
+    expect(censusOptions(maps, at, 'hostage', 'MP2')[0]).toEqual(['MP2', 'MP2 · FROSTFIRE · none', false]);   // the current: never greyed
   });
 
   it('the Inspector draws a greyed option disabled', () => {

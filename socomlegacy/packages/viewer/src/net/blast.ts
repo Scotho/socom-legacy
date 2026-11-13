@@ -1,6 +1,7 @@
 import { flashLevel, segmentHits, surfaceMaterial, type Grid, type SurfaceMaterial } from '@s2u/scene';
 import type { Stance, Walker } from '../mover';
 import { roundAdmits } from '../round';
+import { under } from '../mapMeta';
 import { applyHit, fragmentCount, fragmentDamage, fragmentPart, PART, type Health } from './damage';
 
 /**
@@ -180,9 +181,12 @@ export function blastKnock(victim: BlastVictim, point: readonly number[], record
  * `FUN_00316e30` D:L215827-215828) in crossing mode `DAT_003df270` 0x20 (D:L175276-175281), which meets a face only from
  * its front (research 281 §4.3, micro 288-333): `segmentHits`' `frontOnly`, the line from the blast to the head. Was
  * two-sided: Crossroads' terrorist base's round, 0.5 u under the floor, reached no body.
+ * `ignore` (FORGE_SCRIPT_BLAST_ADAPTATION): a Forge script explosion's own object, whose middle it goes off at -- its
+ * faces passed, so the object it is set at does not shield what is round it (the bomb's sits on the floor, in nothing).
  */
-export function blastSeen(grid: Grid, from: readonly number[], to: readonly number[]): boolean {
-  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], roundAdmits, undefined, true).length === 0;
+export function blastSeen(grid: Grid, from: readonly number[], to: readonly number[], ignore?: string): boolean {
+  const accept = ignore ? (p: Parameters<typeof roundAdmits>[0] & { path: string }) => roundAdmits(p) && !under(p.path, ignore) : roundAdmits;
+  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], accept, undefined, true).length === 0;
 }
 
 /**
@@ -206,10 +210,11 @@ export function blastSeesThrough(m: SurfaceMaterial): boolean {
  * whose material the exposure test sees through (`blastSeesThrough`; a polygon's byte 0 the map's `defaultMaterial`,
  * `FUN_002dc1d0` D:L180305-180319) passed -- the walk going on to the next hit, so any cover beyond still shelters.
  * The room's players and hostages take it; a resting charge's line (`blastSeen`, PF-36) does not: its consumer is the
- * explosion's own walk (`FUN_003c80e0`), unchanged in r0004.
+ * explosion's own walk (`FUN_003c80e0`), unchanged in r0004. `ignore`: as `blastSeen`'s (FORGE_SCRIPT_BLAST_ADAPTATION).
  */
-export function blastExposed(grid: Grid, from: readonly number[], to: readonly number[], defaultMaterial: string): boolean {
-  const admits = (p: Parameters<typeof roundAdmits>[0]): boolean => roundAdmits(p) && !blastSeesThrough(surfaceMaterial(p.material, defaultMaterial));
+export function blastExposed(grid: Grid, from: readonly number[], to: readonly number[], defaultMaterial: string, ignore?: string): boolean {
+  const admits = (p: Parameters<typeof roundAdmits>[0] & { path: string }): boolean => roundAdmits(p) && !blastSeesThrough(surfaceMaterial(p.material, defaultMaterial))
+    && !(ignore && under(p.path, ignore));
   return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], admits, undefined, true).length === 0;
 }
 

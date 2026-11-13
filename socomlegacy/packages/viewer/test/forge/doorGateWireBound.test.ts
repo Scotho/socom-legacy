@@ -42,7 +42,7 @@ const door = { source: 'MP2', name: 'bdoor_4', lib: base(0, 0), pieces: [], owne
 const access = (kind: 'gate' | 'barrier'): AccessTemplate => ({
   kind, source: 'MP11', name: 'access1', root: 'worldmodel/access1', lib: base(0, 0), anchor: [0, 0, 0],
   instances: [], initial: [], owners: [], pieces: [], destructibles: [], actions: [],
-  gate: kind === 'gate' ? { spec: { ...gateSpec(0), path: 'worldmodel/access1/leaf' }, levers: [] } : null,
+  gate: kind === 'gate' ? { spec: { ...gateSpec(0), path: 'worldmodel/access1/leaf' }, levers: [], switches: [] } : null,
 });
 const doors = (n: number): DoorMarker[] => Array.from({ length: n }, (_, i) => ({ source: 'MP2', name: 'bdoor_4', at: [i, 0, 0], yaw: 0 }));
 const markers = (kind: 'gate' | 'barrier', n: number): (AccessMarker & { at: [number, number, number] })[] =>

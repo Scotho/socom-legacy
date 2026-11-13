@@ -573,7 +573,7 @@ describe('mounted Forge agent facade', () => {
     const top = document.querySelector('.fx-top')!, row = document.querySelector('.fx-tools-row')!;
     expect(row).not.toBeNull();
     const titled = (root: Element, t: string) => [...root.querySelectorAll('button')].some((b) => b.title.startsWith(t));
-    expect([titled(top, 'Select'), titled(top, 'Place the chosen prop')]).toEqual([true, true]);
+    expect([titled(top, 'Select'), titled(top, 'Place: the object chosen')]).toEqual([true, true]);
     for (const t of ['Place a door', 'Place a gate', 'Place a C4 barrier', 'Place a ladder', 'Place a turret', 'Place a hostage', 'Place a team A spawn']) {
       expect(titled(row, t), t).toBe(true);
       expect(titled(top, t), t).toBe(false);

@@ -164,6 +164,10 @@ export interface ForgePlaceResult { ok: boolean; code?: string; revision: number
 export interface ForgeEditor {
   /** Read-only preview staging does not require the placement admission required by `stagePiece`. */
   previewPiece?(asset: string): Promise<Pick<StagedPiece, 'object' | 'dispose'> | null>;
+  /** The asset browser's hover (its preview shown, or null when it goes): an ambient effect's sounds played meanwhile. */
+  hoverSound?(asset: string | null): void;
+  /** Where an asset's sound stands while it plays (0 to 1), or null: the asset browser preview's timeline. */
+  soundProgress?(asset: string): number | null;
   /** The real piece of `asset`, staged off the scene; null when it does not build here or a placement is not admitted now. */
   stagePiece(asset: string): Promise<StagedPiece | null>;
   /**

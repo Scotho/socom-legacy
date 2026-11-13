@@ -71,6 +71,8 @@ export interface ActionPageDeps {
   gatePress?(action: number, seq: number): boolean;
   /** P8: a player's press on a crane control (`CranePage.press`): true when `valve` is a hook's (its swap predicted there). */
   cranePress?(valve: string, seq: number): boolean;
+  /** Whether `valve` is a crane control's (`CranePage.owns`): a crane toggles all round, never marked used. */
+  isCrane?(valve: string): boolean;
   /**
    * A press with no player match. Chain Reaction's lever pauses the page's own hooks there (`CranePage.toggleLocal`).
    * Absent, the press is not taken.
@@ -124,9 +126,14 @@ export class ActionPage {
     const record = note.record;
     const reach = (): string => (note.why === 'none' || !record ? 'switch=-'
       : note.why !== 'ok' ? `switch=${record.node} ${note.why}`
+        : used ? `switch=${record.node} used`
         : record.typeCode !== ACTION_TYPE_CODES['SWITCH'] ? `switch=${record.node} type`
           : `switch=${record.node}`);
-    const target = note.why === 'ok' && record && record.typeCode === ACTION_TYPE_CODES['SWITCH']
+    // USED_SWITCH_PROMPT_ADAPTATION (the owner, 2026-11-08; a browser adaptation, FG.R2): a switch used this round (the
+    // room's `used`, marked here on its echo) offers no prompt -- the disc's own need no rule (their program hides the
+    // switch, research 171 s4), a Forge switch keeps its model.
+    const used = !!record && note.why === 'ok' && world.actionUsed(world.meta.actions.indexOf(record));
+    const target = note.why === 'ok' && record && record.typeCode === ACTION_TYPE_CODES['SWITCH'] && !used
       ? {
         action: world.meta.actions.indexOf(record), record,
         surface: { path: detail.pick.path, point: [detail.pick.point[0], detail.pick.point[1], detail.pick.point[2]] as [number, number, number] },
@@ -266,12 +273,14 @@ export class ActionPage {
       if (own !== undefined && ev.by === own) {
         // P8: this seat's press, presented at the press -- the run playing (or played) is this event's, never run again.
         this.pending = null;
-        if (!p.crane) world.markUsed(ev.action);             // the room's `used`: a crane toggles all round
+        if (!p.crane) world.markUsed(ev.action);   // the room's `used`: a crane's all round
         return;
       }
       p.covered = true;                                      // another's press of it: the run playing is that one's
     }
     this.played = { action: ev.action, by: ev.by, ran: world.executeAction(record.valve, false, true) };
+    // Another seat's press marks the use here too (the room's `used`, as this seat's echo does): its prompt gone for all.
+    if (!this.deps.isCrane?.(record.valve)) world.markUsed(ev.action);
   }
 
   /** For the hook: the target's node and prompt, the last press and the last event played. */

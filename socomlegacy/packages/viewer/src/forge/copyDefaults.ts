@@ -11,3 +11,5 @@ export const DEFAULT_DOOR = { source: 'MP2', name: 'bdoor_4' } as const;
 export const DEFAULT_GATE = { source: 'MP11', name: 'access1' } as const;
 /** The C4 barrier a placement copies unless it names one: Vigilance's access1 (MP51). */
 export const DEFAULT_BARRIER = { source: 'MP51', name: 'access1' } as const;
+/** Where a switch's radio look is copied from (`./placedAccess` `radioLook`): Sujo's airstrike radio, else Enowapi's. */
+export const RADIO_LOOK_SOURCES = ['MP61', 'MP62'] as const;

@@ -1,3 +1,4 @@
+import { playForgeAmbients } from './forge/forgeObjects';
 import { createForgeLighting, liftForgeFog, type ForgeLightingOptions } from './forge/lighting';
 import { FrameGuard } from './frameGuard';
 import { Scene, type Object3D } from 'three';
@@ -80,7 +81,7 @@ import { matchOptions, type MatchOptions } from './matchOptions';
 import type { NativeSettings } from './nativeSettings';
 import { fireModeInputFor } from './fireModeInput';
 import { padButtonsDown } from './weaponExchange';
-import { refusalLine } from './matchMessages';
+import { postScriptMessage, refusalLine } from './matchMessages';
 import { buildPageWorld, type PageWorld } from './matchWorld';
 import type { RenderedSound } from '@s2u/sound';
 import type { SoundData } from './soundData';
@@ -796,7 +797,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     walk, fly, doors, traversal, grenade: throws.grenade, remote, play, firearm,   // research 303: the dance's body, its trigger and reload
     net: () => net, map: () => map, view: () => view, world: () => world?.world ?? null,
     craneToggle: (valve) => cranes.toggleLocal(valve),
-    gatePress: (action, seq) => gates.press(action, seq), cranePress: (valve, seq) => cranes.press(valve, seq),   // P8
+    gatePress: (action, seq) => gates.press(action, seq), cranePress: (valve, seq) => cranes.press(valve, seq), isCrane: (valve) => cranes.owns(valve),   // P8
     bombView: {
       roundAudio: sound.roundAudio, hud, remotePlayers: remote, effects: firearm.effects, worldBomb: throws.grenade.worldBomb(),
       ownBody: ownBombBody(play, throws.throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1: `./main`'s, the own body
@@ -1127,6 +1128,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     throws.setMarks(firearm.setWorld(built));         // the scorches take the marks' shade and clip
     firearm.setView(m);
     firearm.setEffects(a.effects ?? null);
+    // FORGE_OBJECT_PLACE_ADAPTATION: a Forge layout's ambient effects, from the map's start (`./forge/forgeObjects`).
+    playForgeAmbients(firearm.effects, m.meta?.forgeAmbients);
     if (attached) soundLines(a);                       // IP3: a prepare's at its attach
     else if (a.sound) sound.audio.stageWarm(a.sound.data, (run) => { globalThis.setTimeout(run, 0); });   // SOUND_JIT_WARM_ADAPTATION: staged, nothing installed; the attach's `setData` adopts it
     for (const add of [...built.revealWorld, ...built.revealProps]) { try { add(); } catch { /* one object's failure is not the world's */ } }
@@ -1161,6 +1164,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         sound: (name, at, volume) => { sound.sceneSound(name, at, volume); },   // OBF-31: none under the round screens
         effect: (name, at) => { firearm.effects.play(name, { position: at, normal: [0, 1, 0] }); },
         log: (line) => { console.info(line); },
+        message: (text, colour) => { postScriptMessage(hud, text, colour); },   // a Forge switch's script's message
+        scriptRound: (op, at) => { firearm.effects.scriptRound(op, at); },   // FORGE_SCRIPT_BLAST_ADAPTATION: its look; the room's its damage
       }, a.effects?.ambient ?? null);                  // LATER 409 F1: the effect runner's ambient, played by it alone
     } catch (e) {
       world = null;

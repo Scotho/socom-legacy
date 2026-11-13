@@ -147,6 +147,7 @@ export class Overlays {
       group.add(label);
     }
     group.visible = this.spawnsOn;
+    if (!this.spawnsOnTop) { this.spawns = group; this.setSpawnsOnTop(false); }
     this.spawns = group;
     this.scene.add(group);
   }
@@ -164,6 +165,19 @@ export class Overlays {
   setSpawns(visible: boolean): void {
     this.spawnsOn = visible;
     if (this.spawns) this.spawns.visible = visible;
+  }
+
+  /**
+   * The spawn markers drawn over everything (`on`, the default) or behind what stands in front (the forge's Always on
+   * top switch, a browser adaptation): their materials' depth test. Kept for markers placed later.
+   */
+  private spawnsOnTop = true;
+  setSpawnsOnTop(on: boolean): void {
+    this.spawnsOnTop = on;
+    this.spawns?.traverse((o) => {
+      const m = (o as { material?: { depthTest: boolean; needsUpdate: boolean } | { depthTest: boolean; needsUpdate: boolean }[] }).material;
+      for (const x of Array.isArray(m) ? m : m ? [m] : []) if (x.depthTest === on) { x.depthTest = !on; x.needsUpdate = true; }
+    });
   }
 
   /**

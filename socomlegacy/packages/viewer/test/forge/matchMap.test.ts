@@ -56,6 +56,12 @@ describe('FORGE: the match\'s map', () => {
     expect(map.props[1]!.parts[0]!.textureName).toBe('crate.tif');     // the base's own as they are
   });
 
+  it("names each placement by its piece's collision owner when asked (a switch's script hides both), else none", () => {
+    const { map } = composeMatchMap(base, layout, libs, floorGround(100), 'seal', null, (i) => `forge/piece_${i + 10}`);
+    expect(map.props.slice(1).map((p) => p.paths)).toEqual([['forge/piece_10', 'forge/piece_12'], ['forge/piece_11']]);
+    expect(composeMatchMap(base, layout, libs, floorGround(100)).map.props[1]!.paths).toBeUndefined();
+  });
+
   it('plays on the composed hull, from the markers\' slots; a side with none starts at the other\'s', () => {
     const g = floorGround(100);
     const { map } = composeMatchMap(base, layout, libs, g);

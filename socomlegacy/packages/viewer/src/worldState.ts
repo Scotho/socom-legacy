@@ -66,6 +66,19 @@ export interface WorldHooks {
    */
   call?(name: string, path: string | null): void;
   /**
+   * A program's `MESSAGE` with its own text (a Forge switch's script, `../forge/placedAccess` `scriptPrograms`; the owner,
+   * 2026-11-08): the message window's post. A located message (`locId`) is not posted: its table is not read here. A
+   * joiner's replay (`silent`) posts none.
+   */
+  message?(text: string, colour?: number): void;
+  /**
+   * FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's `FIRE_WEAPON` (`EffectOp.forge`; a disc program's round is not handed
+   * on, BRIDGE_FIRE_WEAPON_READING) at its node's place. `scriptRound` is its drawing (a page's run, never a joiner's
+   * replay); `blast` its damage (a run that is no presentation: the room's world, PF.R26).
+   */
+  scriptRound?(op: Extract<EffectOp, { op: 'fireWeapon' }>, path: string | null): void;
+  blast?(op: Extract<EffectOp, { op: 'fireWeapon' }>, path: string | null): void;
+  /**
    * PB-9b (research 284 s3): a program's `OBJECT_OPACITY_FROM_TO` on a placed node -- its opacity now (`WorldView.setNodeOpacity`);
    * the bases' pulse outlines. Drawing only: the room lends none.
    */
@@ -364,6 +377,9 @@ export function bareMeta(stem = ''): MapMeta {
 export function forkGround(g: GroundData): GroundData {
   return { grid: { ...g.grid }, owners: g.owners.map((o) => ({ ...o })), points: Float32Array.from(g.points), fields: Uint32Array.from(g.fields) };
 }
+
+/** A Forge switch's own valve or a script's flag (`./forge/placedAccess`: `forge_switch_<n>_valve`, `forge_flag_<name>`). */
+export const isForgeScriptValve = (name: string): boolean => /^forge_switch_\d+_valve$/.test(name) || name.startsWith('forge_flag_');
 
 export class WorldState {
   /** Each node's own flag, by path; a path not here is active (every node carrying polygons is, research 23 s1.1). */
@@ -820,6 +836,9 @@ export class WorldState {
    * it started.
    */
   executeAction(valve: string, silent = this.skipEffects, presentation = false, tree?: object): boolean {
+    // FORGE_SCRIPT_WRECK_ADAPTATION (`SceneHealth.wreck`): a Forge switch's wreck of a placed damage trigger is its death.
+    const wrecked = this.health.wreck(valve, silent, presentation);
+    if (wrecked !== null) return wrecked;
     const v = valve.toLowerCase();
     const i = this.meta.actions.findIndex((a) => a.valve.toLowerCase() === v);
     if (i < 0 || this.used.has(i) || this.runs.some((r) => r.action === i && !r.run.finished)) return false;
@@ -928,8 +947,12 @@ export class WorldState {
           return opacityTick(op, (f) => { this.opacities.set(p, f); for (const h of [...this.hooks]) h.opacity?.(p, f); });
         }
         case 'valve': {
-          if (ctx.presentation) return;
           const name = op.context ? ctx.valve : op.valve;
+          // FORGE_SCRIPT_VALVE_ADAPTATION (the owner, 2026-11-08; a browser adaptation, FG.R2): a page's presentation run
+          // writes no valve (PF.R26) -- but a Forge switch's own valve and its scripts' flags are no room's wire: every
+          // page plays every press of them in order (the room's `action` events), so it keeps them itself, and a toggle's
+          // next pull, or an `if` on a flag, plays what the room's run does. A disc program's valves are as before.
+          if (ctx.presentation && !(name !== null && isForgeScriptValve(name))) return;
           if (name !== null) this.setValve(name, valveApply(this.valveIn(ctx, name), op.operation, op.operand));
           return;
         }
@@ -964,8 +987,21 @@ export class WorldState {
           for (const h of [...this.hooks]) h.particles?.(op.source, ctx.root);
           return;
         case 'destruction': for (const h of [...this.hooks]) h.destruction?.(at(op.node) ?? ctx.root); return;
-        // Research 386 §3.2 (LATER 63): the room's round (`WorldHooks.fire`); a presentation or a display run fires none.
+        case 'message':
+          if (ctx.silent || op.text === null) return;
+          for (const h of [...this.hooks]) h.message?.(op.text, op.colour);
+          return;
+        // A disc program's FIRE_WEAPON (research 386 §3.2, LATER 63): the room's round (`WorldHooks.fire`); a presentation or
+        // a display run fires none. FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's own (`op.forge`) goes to the hooks'
+        // drawing and blast instead (`WorldHooks.scriptRound`, `blast`), as before -- never also a round.
         case 'fireWeapon': {
+          if (op.forge) {
+            if (this.ambientOwned(ctx)) return;
+            const p = at(op.node) ?? ctx.root;
+            if (!ctx.silent) for (const h of [...this.hooks]) h.scriptRound?.(op, p);
+            if (!ctx.presentation) for (const h of [...this.hooks]) h.blast?.(op, p);
+            return;
+          }
           if (ctx.presentation || ctx.display) return;
           const path = op.node === 0 ? null : at(op.node);
           if (op.node !== 0 && path === null) return;                 // a node no placement carries: no round
@@ -1130,6 +1166,9 @@ export class WorldState {
    * `SCENE_SOUND_PLACE_READING` read the node's origin.
    */
   placeOf(path: string): [number, number, number] | null {
+    // FORGE_OBJECT_PLACE_ADAPTATION: a Forge object's place (an empty's, an ambient effect's: `MapMeta.forgePlaces`).
+    const forge = this.meta.forgePlaces?.[path];
+    if (forge) return [forge[0], forge[1], forge[2]];
     const polys = groundPolygons(this.ground);
     const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
     for (const o of this.ground.owners) {

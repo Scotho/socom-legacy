@@ -16,12 +16,13 @@ import type { Scene } from 'three';
  */
 export interface ForgeLightingOptions { timeOfDay: number; baseline: number; /** A new empty map's own fog colour kept over the time's tint (`lightingFog`). */ keepFogColour?: boolean }
 const baselines = new WeakMap<LoadedMap, number>();
-export function forgeLightingOptions(settings: Pick<LayoutSettings, 'timeOfDay' | 'fogColor'>, base: LoadedMap | null): ForgeLightingOptions | null {
+export function forgeLightingOptions(settings: Pick<LayoutSettings, 'timeOfDay' | 'fogColor'>, base: LoadedMap | null, keepFogColour = false): ForgeLightingOptions | null {
   if (settings.timeOfDay === null) return null;
   if (base && !baselines.has(base)) baselines.set(base, calibrate(base).median);
   // Blank layouts have no authored world. This fixed adaptation baseline also grades their match floor.
-  // A new empty map's own fog colour (`LayoutSettings.fogColor`, a blank base: no `base` here) is kept over the time's tint.
-  return { timeOfDay: settings.timeOfDay, baseline: base ? baselines.get(base)! : 0.18, ...(base === null && settings.fogColor ? { keepFogColour: true } : {}) };
+  // The layout's own fog colour (`LayoutSettings.fogColor`: a new empty map's, an official map's custom version's) is kept
+  // over the time's tint -- the caller says when (`keepFogColour`).
+  return { timeOfDay: settings.timeOfDay, baseline: base ? baselines.get(base)! : 0.18, ...(keepFogColour ? { keepFogColour: true } : {}) };
 }
 
 /**

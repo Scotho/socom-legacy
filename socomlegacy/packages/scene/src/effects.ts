@@ -305,8 +305,10 @@ export type EffectOp =
    * message window -- the u16 at +4 a raw text (a name index), the i16 at +6 a locale id that, when not 0, is read
    * instead (`FUN_00361b40`; the map's `MPnnLOC`), the f32 at +0xc the scale. Always colour index 0 and centred on the
    * multiplayer maps (byte +0xb is 1 on all of them); the bytes +8..+0xa (`c8 c8 c8`) are never read.
+   * `colour` (FORGE_MESSAGE_COLOUR_ADAPTATION, the owner, 2026-11-10; a browser adaptation): a Forge switch's script's
+   * window colour index (`../../viewer/src/matchMessages` `MESSAGE_COLOURS`, `FUN_002b7530`'s six); never a disc one's.
    */
-  | { op: 'message'; text: string | null; locId: number | null; scale: number }
+  | { op: 'message'; text: string | null; locId: number | null; scale: number; colour?: number }
   /** `CALL_SEQUENCE` (50): starts this animation's sequence named at +4 (a name index) over from its top. */
   | { op: 'callSequence'; sequence: string }
   /** `STOP_ANIMATION` (46): stops the running animation named at +4 (a name index). */
@@ -350,8 +352,11 @@ export type EffectOp =
    * and bases (research 213 s2.2). The two floats are kept as read, uninterpreted, and nothing here is damage: the
    * world runner and room ignore it (PF.R32); the effects runner presents stationary model-less rounds
    * (research 332 section 7); its fuse is +0x8c, the removal timer +0x90.
+   * `forge` (never decoded off the disc): a Forge script's blast (`@s2u/creator-contracts` `SwitchStep` `blast`, MPBOMB's
+   * as the bridges fire it) -- the one round the world runner hands on, to the page's drawing and the room's damage (the
+   * planted bomb's, the record's own numbers). A marker of where the command came from, nothing of the round's.
    */
-  | { op: 'fireWeapon'; weapon: string; ammo: string; node: number; f1: number; f2: number; offset?: [number, number, number]; atContext?: boolean }
+  | { op: 'fireWeapon'; weapon: string; ammo: string; node: number; f1: number; f2: number; offset?: [number, number, number]; atContext?: boolean; forge?: true }
   /**
    * `FOR_CHILDREN` (41; 12 bytes; `FUN_0025e360` D:L108011, its step `FUN_0025e3f0` D:L108029-108072): a loop over the
    * children of the node at the i8 +4 (`parent`), each bound to the reference at the i8 +5 (`variable`) in turn, to its

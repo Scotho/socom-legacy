@@ -78,7 +78,7 @@ import { LIMB_SPILL_PIERCING } from '../../viewer/src/net/damage';
 import { actionPoints, carriesTeam, objectivePoints, statKind, teamCarry, type ObjectiveEvent } from '../../viewer/src/net/objectiveScore';
 import { PITCH_HARD } from '../../viewer/src/look';
 import { canMount, clampAim, gunLine, holdStep, mountClipOf, mountShape, MOUNT_WORD_BOUND_TICKS, muzzleAt, ReleaseTravel, SeatSteer, TURRET_RELEASE_WAIT_TICKS, TURRET_RETICLE_STANCE_READING, turretPour, turretReloadCountdown } from '../../viewer/src/net/emplacement';
-import type { TurretPlacement } from '@s2u/scene';
+import type { EffectOp, TurretPlacement } from '@s2u/scene';
 import { noticeHeldAt, type KeptNotice } from './noticeHold';      // LATER 261: the host's restart notice, held for a welcome
 import { botProfiler } from './bots/botProfile';   // BOP-1: the bot profiler (an instrument; null unless S2U_BOT_PROFILE=1)
 import {
@@ -1427,6 +1427,8 @@ const BAKED_THROWN: ReadonlyMap<string, { record: ThrowableRecord; piercing: num
 const FLASHBANG_ID = 123;
 /** XR-08: the bomb's kit record (DEMOLITION and, since LATER 149, BREACH; item 154, research 94, 171 s4): its blast on the scene at the detonation. */
 const MPBOMB_NAME = 'MPBOMB';
+/** A cap on a tick's Forge script blasts (`Room.scriptBlasts`): a check against a chain, not a game value. */
+const SCRIPT_BLASTS_A_TICK = 64;
 /**
  * SCENE_ROUND_OWNER_READING (research 386 §3.2; LATER 63; research 332 §1.1, §1.4): whose a scene program's `FIRE_WEAPON`
  * round is -- Blizzard's outhouse's `C4` at its toilet, Crossroads' bridges' and the bases' `MPBOMB`. `FUN_0025ccb0` makes
@@ -2715,6 +2717,8 @@ export class Room {
     this.world = new WorldState(map.meta ?? bareMeta(map.stem), map.ground, map.grid);
     this.feetOrigin = feetOriginOf(map.ground.points);
     this.world.skipEffects = ROOM_SKIP_EFFECTS_READING;     // SUP-03: the deaths' effects are the pages'
+    // FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's blast (`WorldHooks.blast`), queued for the step (`scriptBlasts`).
+    this.world.on({ blast: (op, path) => { const at = path !== null ? this.world.placeOf(path) : null; if (at && path !== null) this.scriptBlastQueue.push({ op, at, path }); } });
     this.world.applyInitial();
     this.world.on({
       fire: (op, path) => this.sceneRound(op.weapon, op.f1, op.offset, path),   // research 386 §3.2
@@ -4494,6 +4498,7 @@ export class Room {
     this.gates.step(1 / TICK_HZ);                                 // MAP-07: the lever gates' slides
     this.cranes.step(1 / TICK_HZ);
     this.world.step(1 / TICK_HZ);
+    this.scriptBlasts();                                         // FORGE_SCRIPT_BLAST_ADAPTATION: the tick's script blasts
     this.fireSceneRounds();                                      // research 386 §3.2: the scene's FIRE_WEAPON rounds due
     this.flyGrenades();
     this.bomb?.step();                                          // XR-05: events before the clock (DEM_SAME_TICK_READING)
@@ -8775,7 +8780,7 @@ export class Room {
         record = { ...record, explosionDamage: record.explosionDamage / 32 };
       }
       const head: V3 = [feet[0], feet[1] + HEAD_OVER[posture], feet[2]];
-      const seen = record.ignoreExplosionDI === true || blastExposed(this.map.grid, sightFrom(point, head), head, this.map.defaultMaterial ?? '');   // LATER 416; R4B-10
+      const seen = record.ignoreExplosionDI === true || blastExposed(this.map.grid, sightFrom(point, head), head, this.map.defaultMaterial ?? '', this.blastSource);   // LATER 416; R4B-10
       const out = resolveBlast(h.health, { feet, posture, yaw: h.yaw }, point, { record, piercing: t.piercing, fragments: t.fragments, flash: record.id === FLASHBANG_ID }, this.opts.random, seen);
       if (out?.knock) h.motion?.knock(out.knock);
       if (!out?.died) continue;
@@ -8804,7 +8809,7 @@ export class Room {
       const to = f2.g.pos, distance = Math.hypot(to[0] - point[0], to[1] - point[1], to[2] - point[2]);
       if (!(distance < t.record.explosionRadius)) continue;
       if (facing && t.record.id === ITEM.BACKBLAST && !backblastReaches(point, facing, to, t.record.explosionRadius)) continue;
-      if (t.record.ignoreExplosionDI !== true && !blastSeen(this.map.grid, sightFrom(point, to), to)) continue;   // LATER 416
+      if (t.record.ignoreExplosionDI !== true && !blastSeen(this.map.grid, sightFrom(point, to), to, this.blastSource)) continue;   // LATER 416
       const base = fragmentDamage(t.record.explosionDamage + (t.record.damageModifier ?? 0), t.record.explosionRadius, distance) / DAMAGE_SCALE;
       this.chargeHit(f2, base, ownerOf(f2)?.id ?? null);
     }
@@ -8842,7 +8847,7 @@ export class Room {
     const rating = r.explosionDamage + (r.damageModifier ?? 0);
     const penetration = (p: WorldPoly): number => surfaceMaterial(p.material, this.map.defaultMaterial ?? '').penetration;
     return this.world.health.blastAt(point, rating, r.explosionRadius, (to, target) =>
-      r.ignoreExplosionDI === true || blastLine(this.map.grid, sightFrom(point, to), to, target, r.explosionRadius, penetration), { piercing, cone });
+      r.ignoreExplosionDI === true || blastLine(this.map.grid, sightFrom(point, to), to, target, r.explosionRadius, penetration, this.blastSource), { piercing, cone });
   }
 
   /**
@@ -8879,7 +8884,7 @@ export class Room {
       const head: V3 = [s.x, s.y + HEAD_OVER[posture], s.z];
       // The line to the head (FUN_005ac070); PF-35: a blocking hit vetoes the queued ray only without the round's
       // IgnoreExplosionDI (FUN_005a0e70 D:L459192-459193, IGNORE_EXPLOSION_DI_READING) -- the radius and the rest hold.
-      const seen = record.ignoreExplosionDI === true || blastExposed(this.map.grid, sightFrom(point, head), head, this.map.defaultMaterial ?? '');   // LATER 416; R4B-10
+      const seen = record.ignoreExplosionDI === true || blastExposed(this.map.grid, sightFrom(point, head), head, this.map.defaultMaterial ?? '', this.blastSource);   // LATER 416; R4B-10
       const healthBefore = [...q.health.hp], armourBefore = [...q.health.armour];
       const was = overall(q.health);
       const wounded = this.woundable(q);   // CPS cell-alive: the deathless seat's blast spends a copy
@@ -8916,6 +8921,36 @@ export class Room {
         this.kill(q, thrower, this.weaponName(t.record.id, t.record.name), how, deathCause('blast', out.part), deathClip('blast', out.part, posture, this.opts.random), how === 'orphan' ? name : undefined);
       }
     }
+  }
+
+  /**
+   * The blasts a Forge script fired this tick (`WorldHooks.blast`: a switch's pull, a damage trigger's death, a step after
+   * a wait): each its `FIRE_WEAPON` of MPBOMB / MPBOMB Ammo as Crossroads' bridges fire theirs at their `damage_point`s
+   * (research 171 s4, 332 s2: "the same command on the same path" as the bomb's) -- the bomb's own blast (`bombBlast`), the
+   * record's numbers: the players (each its own owner, `MPBOMB_BLAST_OWNER_READING`: no one is credited), the hostages, the
+   * resting charges, the scene. Run after the world's step, never inside a program's run; a death they cause that blasts
+   * again is run in the same loop, to a cap. (The disc maps' own scene FIRE_WEAPONs, the bridges', still hurt no one here:
+   * `BRIDGE_FIRE_WEAPON_READING`, LATER 63.)
+   */
+  private readonly scriptBlastQueue: { op: Extract<EffectOp, { op: 'fireWeapon' }>; at: V3; path: string }[] = [];
+  /**
+   * The object the script explosion running now goes off at (its middle, `WorldState.placeOf`): its own faces passed by
+   * the blast's lines (`blastSeen`, `blastLine` `ignore`). SCRIPT_BLAST_SOURCE_LINE_READING: whether the console's line
+   * test meets the faces of a solid the round goes off inside is not traced (the disc's own go off at bare nodes:
+   * `damage_point`, the bomb's); the port's hull would, so a blast set at a solid object (a switch's panel) shielded all
+   * round it (the owner, 2026-11-10: "the objects internal collision is blocking it"). Undefined for every other blast.
+   */
+  private blastSource: string | undefined = undefined;
+  private scriptBlasts(): void {
+    for (let n = 0; n < SCRIPT_BLASTS_A_TICK && this.scriptBlastQueue.length; n++) {
+      const { op, at, path } = this.scriptBlastQueue.shift()!;
+      if (op.weapon !== MPBOMB_NAME) continue;
+      this.blastSource = path;
+      try {
+        this.bombBlast(at);
+      } finally { this.blastSource = undefined; }
+    }
+    this.scriptBlastQueue.length = 0;
   }
 
   /**

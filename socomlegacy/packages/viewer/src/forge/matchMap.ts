@@ -138,7 +138,8 @@ export interface ContentPlacement { index: number; def: AssetDefinition; m: numb
  * `misses` (`reason` `placement`; an unresolved one `unresolved`), the same `ContentMiss` list `layoutGround` gives.
  */
 export function composeMatchMap(base: LoadedMap, layout: Layout, libraries: ReadonlyMap<string, LoadedMap>, ground: GroundData,
-  player: 'seal' | 'terrorist' = 'seal', resolveContent: ContentResolver | null = null):
+  player: 'seal' | 'terrorist' = 'seal', resolveContent: ContentResolver | null = null,
+  pieceOwner: ((index: number) => string) | null = null):
   { map: LoadedMap; missing: number; content: ContentPlacement[]; misses: ContentMiss[] } {
   const props = [...base.props];
   const textures = { ...base.textures };
@@ -149,6 +150,9 @@ export function composeMatchMap(base: LoadedMap, layout: Layout, libraries: Read
   const content: ContentPlacement[] = [];
   const misses: ContentMiss[] = [];
   const byAsset = new Map<string, number[][]>();
+  // Each placement's path (the owner, 2026-11-08): its piece's collision owner's (`pieceOwner`, the ground's own name), so
+  // a switch's script hides or shows the drawn piece with its hull (`../worldState` `setActive` takes both by path).
+  const pathsOf = new Map<string, string[]>();
   for (const [index, p] of layout.pieces.entries()) {
     if (p.content) {
       const owner = `forge/piece_${index}`;
@@ -160,6 +164,7 @@ export function composeMatchMap(base: LoadedMap, layout: Layout, libraries: Read
     const list = byAsset.get(p.asset) ?? [];
     list.push(p.m);
     byAsset.set(p.asset, list);
+    if (pieceOwner) { const named = pathsOf.get(p.asset) ?? []; named.push(pieceOwner(index)); pathsOf.set(p.asset, named); }
   }
   for (const [asset, matrices] of byAsset) {
     const id = parseAssetId(asset);
@@ -182,7 +187,8 @@ export function composeMatchMap(base: LoadedMap, layout: Layout, libraries: Read
     });
     const flat = new Float32Array(matrices.length * 16);
     matrices.forEach((m, i) => flat.set(m, i * 16));
-    props.push({ modelName: proto.modelName, parts, matrices: flat, order: order++, alternate: false, facade: proto.facade, lod: null });
+    const paths = pathsOf.get(asset);
+    props.push({ modelName: proto.modelName, parts, matrices: flat, order: order++, alternate: false, facade: proto.facade, lod: null, ...(paths ? { paths } : {}) });
   }
   const grid = groundGrid(ground);
   let slots = slotsOfSpawns(layout.spawns, grid, ground);

@@ -52,7 +52,7 @@ describe('FORGE: the layout file', () => {
   });
 
   it('keeps its settings (FG-24, FG.R18): the day/night light, the fog distance, the lobby cap and the round options, bounded; absent when none', () => {
-    const settings: LayoutSettings = { timeOfDay: null, light: 0.4, fogFar: 2500, players: 32, rounds: 7, roundSeconds: 300, friendlyFire: false, npcBehaviour: 'patrol' };
+    const settings: LayoutSettings = { timeOfDay: null, light: 0.4, fogFar: 2500, players: 32, rounds: 7, roundSeconds: 300, friendlyFire: false, npcBehaviour: 'patrol', eqLimit: 0, respawn: false };
     const l: Layout = { ...emptyLayout({ kind: 'map', archive: 'MP2' }), settings };
     expect(parseLayout(serializeLayout(l))).toEqual(l);
     // A partial record keeps only what it names; the rest reads as the disc's (`DEFAULT_SETTINGS`, `settingsOf`).
@@ -60,7 +60,7 @@ describe('FORGE: the layout file', () => {
     expect(parseLayout(JSON.stringify(part))).toEqual(part);
     expect(settingsOf(parseLayout(JSON.stringify(part)))).toEqual({ ...DEFAULT_SETTINGS, fogFar: 800 });
     expect(parseLayout(serializeLayout(emptyLayout({ kind: 'map', archive: 'MP2' })))).not.toHaveProperty('settings');
-    expect(DEFAULT_SETTINGS).toEqual({ timeOfDay: null, light: 1, fogFar: null, players: 16, rounds: 11, roundSeconds: 360, friendlyFire: false, npcBehaviour: 'patrol' });
+    expect(DEFAULT_SETTINGS).toEqual({ timeOfDay: null, light: 1, fogFar: null, players: 16, rounds: 11, roundSeconds: 360, friendlyFire: false, npcBehaviour: 'patrol', eqLimit: 0, respawn: false });
     // Out of bounds, or not a number: refused with the field's name.
     expect(() => parseLayout(JSON.stringify({ ...l, settings: { light: 1.5 } }))).toThrow(/light/);
     expect(() => parseLayout(JSON.stringify({ ...l, settings: { fogFar: 10 } }))).toThrow(/fogFar/);
@@ -85,6 +85,26 @@ describe('FORGE: the layout file', () => {
     for (const bad of ['hunt', 'Patrol', '', 1, null, true]) {
       expect(() => parseLayout(JSON.stringify({ ...base, settings: { npcBehaviour: bad } })), String(bad)).toThrow(/npcBehaviour/);
     }
+  });
+
+  it("keeps the match's arsenal and CREATE GAME rows: valves over the map's, kit picks per side, EQlimit 0..4, respawn", () => {
+    const base = emptyLayout({ kind: 'map', archive: 'MP2' });
+    const arsenal = { valves: { Enable_c4: 9, Enable_RPG: 9, Enablesig_commando: 0 }, kits: { seal: [{ slot: 4, id: 151 }], terrorist: [] } };
+    const l: Layout = { ...base, settings: { arsenal, eqLimit: 4, respawn: true } };
+    expect(parseLayout(serializeLayout(l))).toEqual(l);
+    expect(settingsOf(parseLayout(serializeLayout(base)))).toMatchObject({ eqLimit: 0, respawn: false });
+    expect(settingsOf(parseLayout(serializeLayout(base)))).not.toHaveProperty('arsenal');
+    expect(parseLayout(JSON.stringify({ ...base, settings: { arsenal: null } })).settings).toEqual({ arsenal: null });
+    const bad = (a: unknown): (() => unknown) => () => parseLayout(JSON.stringify({ ...base, settings: { arsenal: a } }));
+    expect(bad({ valves: { gravity: 1 }, kits: { seal: [], terrorist: [] } })).toThrow(/arsenal/);       // not an Enable_ valve
+    expect(bad({ valves: { Enable_c4: 64 }, kits: { seal: [], terrorist: [] } })).toThrow(/arsenal/);    // past the side and lock bits
+    expect(bad({ valves: { Enable_c4: 1.5 }, kits: { seal: [], terrorist: [] } })).toThrow(/arsenal/);
+    expect(bad({ valves: {}, kits: { seal: [{ slot: 5, id: 151 }], terrorist: [] } })).toThrow(/arsenal/);
+    expect(bad({ valves: {}, kits: { seal: [{ slot: 4, id: 254 }], terrorist: [] } })).toThrow(/arsenal/); // FULL_SLOT is no item
+    expect(bad({ valves: {}, kits: { seal: [] } })).toThrow(/arsenal/);
+    expect(bad({ valves: {}, kits: { seal: [], terrorist: [] }, extra: 1 })).toThrow(/arsenal/);
+    for (const v of [-1, 5, 1.5, '1']) expect(() => parseLayout(JSON.stringify({ ...base, settings: { eqLimit: v } })), String(v)).toThrow(/eqLimit/);
+    expect(() => parseLayout(JSON.stringify({ ...base, settings: { respawn: 1 } }))).toThrow(/respawn/);
   });
 
   it('keeps an optional objectives block (FG-51): the game type and a bomb, defaults filled, later keys kept', () => {

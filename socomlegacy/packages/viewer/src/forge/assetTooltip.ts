@@ -14,6 +14,8 @@ import { createAssetPreview, type AssetPreviewOptions } from './assetPreview';
 export interface AssetTooltipOptions extends AssetPreviewOptions {
   /** Whether a tooltip may show now (the Forge setting on, a placement admitted). */
   allowed(): boolean;
+  /** The asset it shows now, told on each show and hide (null): the page's hover sound (an ambient effect's). */
+  onShown?(asset: string | null): void;
 }
 
 /** The hover's delay before the tooltip shows (a browser adaptation's own value). */
@@ -22,10 +24,12 @@ export const ASSET_TIP_HOVER_MS = 400;
 export const ASSET_TIP_LONG_PRESS_MS = 500;
 /** A touch that moves this far (CSS pixels) before the long press is a scroll, not a press. */
 export const ASSET_TIP_TOUCH_SLOP_PX = 10;
+/** The tooltip's least width (CSS pixels; a browser adaptation's own value): wider than a tile at every size but the largest. */
+export const ASSET_TIP_MIN_WIDTH_PX = 280;
 /** The gap between the tile and the tooltip (past the focus ring, which sits inside the row). */
 export const ASSET_TIP_GAP_PX = 8;
 /** The tooltip's size where it is not laid out yet (its stylesheet's width; a preview canvas and two lines). */
-const FALLBACK = { width: 220, height: 200 } as const;
+const FALLBACK = { width: 280, height: 290 } as const;
 
 export type AssetTooltip = ReturnType<typeof createAssetTooltip>;
 
@@ -39,7 +43,9 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
   root.setAttribute('role', 'tooltip');
   root.hidden = true;
   doc.body.append(root);
-  const preview = createAssetPreview(root, { resolve: options.resolve, ...(options.renderer ? { renderer: options.renderer } : {}) });
+  const preview = createAssetPreview(root, {
+    resolve: options.resolve, ...(options.renderer ? { renderer: options.renderer } : {}), ...(options.progress ? { progress: options.progress } : {}),
+  });
   const lists = new Set<HTMLElement>();
   let anchor: HTMLElement | null = null, asset: string | null = null, disposed = false;
   let hoverTimer: ReturnType<typeof setTimeout> | null = null, pressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,6 +86,7 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
     anchor = null; asset = null;
     if (!root.hidden) root.hidden = true;
     void preview.show(null);
+    options.onShown?.(null);
   };
   const show = (tile: HTMLElement): void => {
     stopHover();
@@ -88,9 +95,16 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
     if (anchor && anchor !== tile) anchor.removeAttribute('aria-describedby');
     anchor = tile; asset = id;
     tile.setAttribute('aria-describedby', root.id);
+    // Never smaller than its tile (the owner, 2026-11-11): `ASSET_TIP_MIN_WIDTH_PX` at least, its tile's own width when
+    // that is wider (the largest tiles), its picture the tiles' 4:3 (`.fx-asset-preview canvas`).
+    root.style.width = `${Math.round(Math.max(ASSET_TIP_MIN_WIDTH_PX, tile.getBoundingClientRect().width))}px`;
     root.hidden = false;
     place(tile);
-    void preview.show(id);
+    // The tile's own info (`data-asset-info`, what its browser tooltip said) on the preview's detail line.
+    // Its badges too (an ambient effect's particles and sound), copied from the tile's picture onto the preview's.
+    const badges = [...tile.querySelectorAll('.fx-asset-badge')].map((b) => b.cloneNode(true));
+    void preview.show(id, tile.dataset['assetInfo'] ?? null, badges);
+    options.onShown?.(id);
   };
 
   return {

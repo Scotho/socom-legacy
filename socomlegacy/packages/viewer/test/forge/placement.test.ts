@@ -3,8 +3,9 @@ import { floorMesh } from '../../src/forge/matchMap';
 import { floorGround } from '../../src/forge/ground';
 import {
   blankFloorGrid, boundStep, clipOf, DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, offsetsFromCentre, pastedPlaces, placeClickKind,
-  placementGridOf, restingPoint, restingY, snapTo, snapYawRadians, surfaceYs,
+  mountOnWall, placementGridOf, restingPoint, restingY, snapTo, snapYawRadians, surfaceYs,
 } from '../../src/forge/placement';
+import { BoxGeometry, Mesh, Vector3 } from 'three';
 
 /**
  * FORGE placement aids (FG-5, FG-49; a browser adaptation, no original): the grid and the turn, the hull a piece rests
@@ -160,5 +161,35 @@ describe('seatOn', () => {
     const empty = new Group();
     seatOn(empty, new Vector3(1, 2, 3));
     expect([empty.position.x, empty.position.y, empty.position.z]).toEqual([1, 2, 3]);
+  });
+});
+
+/**
+ * A wall mount (the owner, 2026-11-10: a switch, a ladder, a prop placed on a wall takes the wall's turn): its front out
+ * along the wall's normal, the back of its box on the wall, a mount at the cursor's height, a stand on the floor below.
+ */
+describe('mountOnWall', () => {
+  // A box 2 wide, 4 tall and 1 deep, its origin at its bottom middle (z from -0.5 to 0.5).
+  const block = (): Mesh => { const m = new Mesh(new BoxGeometry(2, 4, 1)); m.geometry.translate(0, 2, 0); return m; };
+  it('turns +Z out of a wall facing +X, its back on the wall, its middle at the cursor', () => {
+    const o = block();
+    mountOnWall(o, new Vector3(10, 5, 3), new Vector3(1, 0, 0));
+    expect(o.rotation.y).toBeCloseTo(Math.PI / 2, 6);
+    expect(o.position.x).toBeCloseTo(10.55, 6);       // half its depth out, and the gap
+    expect(o.position.z).toBeCloseTo(3, 6);
+    expect(o.position.y).toBeCloseTo(3, 6);           // its middle (2 up from its origin) at the cursor's 5
+  });
+  it("a stand (a ladder) is on the floor below; its own front (a quarter off) turned out", () => {
+    const o = block();
+    mountOnWall(o, new Vector3(0, 30, 0), new Vector3(0, 0, -1), [1, 0], 'stand', () => 7);
+    expect(o.rotation.y).toBeCloseTo(Math.PI - Math.PI / 2, 6);   // local +X now points to -Z
+    expect(o.position.y).toBeCloseTo(7, 6);
+    expect(o.position.z).toBeCloseTo(-1.05, 6);       // half its width (it backs onto the wall across x) and the gap
+  });
+  it('a level normal (a floor) leaves it as it was', () => {
+    const o = block();
+    o.position.set(1, 2, 3);
+    mountOnWall(o, new Vector3(0, 0, 0), new Vector3(0, 1, 0));
+    expect(o.position.toArray()).toEqual([1, 2, 3]);
   });
 });

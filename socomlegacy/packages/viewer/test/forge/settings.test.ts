@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LoadedMap } from '../../src/loadMap';
 import type { FogSettings } from '../../src/fog';
 import { brightenOf, DEFAULT_LIGHTING } from '../../src/lighting';
-import { MAX_ROUNDS } from '../../src/net/rules';
+import { MAX_ROUNDS, RESPAWN_MAX_ROUNDS, RESPAWN_ROUND_SECONDS } from '../../src/net/rules';
 import { MAX_PLAYERS } from '../../src/net/protocol';
 import { DEFAULT_SETTINGS, SETTINGS_BOUNDS, type LayoutSettings } from '../../src/forge/layout';
 import { withSettings } from '../../src/forge/matchMap';
@@ -110,6 +110,30 @@ describe('FG-24: Play -- the room\'s options and the composed map', () => {
     expect(roomOptionsOf(DEFAULT_SETTINGS)).toEqual({ maxRounds: MAX_ROUNDS, roundSeconds: 6 * 60, allowFriendlyFire: false, maxPlayers: MAX_PLAYERS });
     expect(roomOptionsOf(s({ rounds: 3, roundSeconds: 120, friendlyFire: true, players: 8 })))
       .toEqual({ maxRounds: 3, roundSeconds: 120, allowFriendlyFire: true, maxPlayers: 8 });
+  });
+
+  it("passes CREATE GAME's EQlimit (research 362) and respawn (`mp_allow_respawn`, research 348) only when set", () => {
+    expect(roomOptionsOf(DEFAULT_SETTINGS)).not.toHaveProperty('rules');
+    expect(roomOptionsOf(DEFAULT_SETTINGS)).not.toHaveProperty('eqLimit');
+    expect(roomOptionsOf(s({ eqLimit: 2, respawn: true }))).toMatchObject({ eqLimit: 2, rules: 'respawn' });
+    expect(SETTINGS_BOUNDS.eqLimit).toEqual({ min: 0, max: 4, step: 1 });
+  });
+
+  it("respawn on takes the respawn screen's rounds and time (1, 20 min) from classic's defaults, and back; tuned values kept", () => {
+    const on = stepSetting(DEFAULT_SETTINGS, 'respawn', 1, 3000);
+    expect([on.respawn, on.rounds, on.roundSeconds]).toEqual([true, RESPAWN_MAX_ROUNDS, RESPAWN_ROUND_SECONDS]);
+    const off = stepSetting(on, 'respawn', -1, 3000);
+    expect([off.respawn, off.rounds, off.roundSeconds]).toEqual([false, MAX_ROUNDS, 360]);
+    const tuned = stepSetting(s({ rounds: 5, roundSeconds: 600 }), 'respawn', 1, 3000);
+    expect([tuned.respawn, tuned.rounds, tuned.roundSeconds]).toEqual([true, 5, 600]);
+    expect(stepSetting(DEFAULT_SETTINGS, 'eqLimit', 1, 3000).eqLimit).toBe(1);
+    expect(stepSetting(s({ eqLimit: 4 }), 'eqLimit', 1, 3000).eqLimit).toBe(4);
+  });
+
+  it("keeps the layout's arsenal whenever it is set", () => {
+    const arsenal = { valves: { Enable_c4: 9 }, kits: { seal: [], terrorist: [] } };
+    expect(settingsDelta(s({ arsenal }))).toEqual({ arsenal });
+    expect(settingsDelta(s({ eqLimit: 3, respawn: true }))).toEqual({ eqLimit: 3, respawn: true });
   });
 
   const camera = { fogColor: [100, 100, 200], fogNear: 600, fogFar: 3000, fogEnabled: false, fogAltitude: false, fogTop: 0, fogBottom: 0 };

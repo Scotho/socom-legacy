@@ -24,17 +24,24 @@ body.forge-page {
   font: var(--fx-type-body);
   user-select: none;
 }
-.fx-ico { width: var(--fx-ico); height: var(--fx-ico); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+/* The editor's line icons, heavier and brighter (the owner, 2026-11-11: "a lot of icons in the editor are too thin. make
+   them all brighter and thicker"): a 2.2 stroke (was 1.8), and a quiet icon in `--fx-ico-quiet` -- near the text's colour,
+   not the dim words' -- wherever one stands beside its words. */
+.fx-ico { width: var(--fx-ico); height: var(--fx-ico); fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+body.forge-page { --fx-ico-quiet: color-mix(in srgb, var(--fx-text) 78%, var(--fx-dim)); }
 .fx-dim { color: var(--fx-dim); }
 .fx-spacer { flex: 1 1 auto; }
 
 /* ---------- the shared states (FUI-7: VP-2, VP-7) ---------- */
 /* One focus ring for keyboard and pad, the system's (shared/ds README, "The focus ring"): the pad's own marks (the
    lobby's `.is-focus`, the START menu's `.is-on` row) draw it too until their walkers set `.is-pad-focused`. */
-body.forge-page :is(:focus-visible, .is-pad-focused), .agent-panel :is(:focus-visible, .is-pad-focused), .fx-lobby-btn.is-focus, .fx-lobby-card-field.is-focus, .fx-menu li.is-on {
+/* A field being typed in (a text or number field, a dropdown) draws no ring (the owner, 2026-11-11: "remove that blue
+   highlight around it, just keep the existing yellow highlight"): its gold edge says it has the focus (below). */
+body.forge-page :is(:focus-visible, .is-pad-focused):not(input, select, textarea), .agent-panel :is(:focus-visible, .is-pad-focused):not(input, select, textarea), .fx-lobby-btn.is-focus, .fx-lobby-card-field.is-focus, .fx-menu li.is-on {
   outline: var(--fx-focus-w) solid var(--fx-focus);
   outline-offset: var(--fx-focus-offset);
 }
+body.forge-page :is(input, select, textarea):focus { border-color: var(--fx-gold); outline-style: none; }   /* nor the browser's own ring */
 /* A scroller would clip a ring drawn outside its rows: there it sits inside (shared/ds README, the same advice). */
 .fx-top, .fx-assets, .fx-outliner, .fx-menu, .fx-check, .fx-saves-list, .fx-lobby-rows, .fx-lobby-lines { --fx-focus-offset: calc(-1 * var(--fx-focus-w)); }
 /* One disabled look: faded at the system's opacity, no hover, no press; a `.fx-why` line says why. Busy is aria-busy. */
@@ -137,7 +144,7 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
   padding: 0 6px;
   box-sizing: border-box;
 }
-.fx-select:hover:not(:disabled), .fx-search:hover:not(:disabled), .fx-num:hover:not(:disabled) { border-color: var(--fx-gold); }
+/* No hover edge on a field (the owner, 2026-11-11: "only highlight when focused"): its gold edge is its focus alone. */
 /* R7-1 (the rendered pass 2 at 02106bc86: the row 1491 px at a 1440 window; the UI seat's ruling, product track): the row's
    natural width at the default font is at most 1260 px, so it fits the 1280 default window and 1440 with nothing to
    scroll, and 1024 scrolls (LATER 226). At the root, no control hidden: the base group's select and layout name are the
@@ -191,9 +198,10 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-asset-chips { display: flex; align-items: center; gap: var(--s2u-space-1); flex: none; }
 .fx-asset-chips .fx-chip { padding: 0 var(--s2u-space-2); }
 .fx-asset-chip-row { position: relative; }
-.fx-asset-view-popup-button { display: grid; place-items: center; width: 28px; min-width: 28px; padding: 0; }
+/* Its gear in the middle: no padding (over the chips' own `.fx-asset-chips .fx-chip` padding, which pushed it aside). */
+.fx-asset-chips .fx-asset-view-popup-button, .fx-asset-view-popup-button { display: grid; place-items: center; width: 28px; min-width: 28px; padding: 0; }
 .fx-asset-view-popup-button[aria-expanded="true"] { color: var(--fx-gold); border-color: var(--fx-gold); }
-.fx-asset-view-popup-button .fx-ico { width: 16px; height: 16px; }
+.fx-asset-view-popup-button .fx-ico { width: 16px; height: 16px; stroke-width: 2.5; }
 .fx-asset-view-popup {
   position: absolute;
   z-index: var(--fx-z-popup);
@@ -228,8 +236,9 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-assets-foot .fx-asset-view-button:last-child { margin-left: -1px; border-radius: 0 var(--fx-radius) var(--fx-radius) 0; }
 .fx-assets-foot .fx-asset-view-button.is-on { position: relative; z-index: var(--fx-z-raised); }
 .fx-assets-foot .fx-asset-view-button .fx-ico,
-.fx-assets-foot .fx-asset-view-button.is-on .fx-ico { width: 16px; height: 16px; fill: none; stroke-width: 1.7; }
-.fx-asset-size-label { display: grid; flex: 0 1 160px; grid-template-columns: 1fr auto; align-items: center; gap: 8px; min-width: 0; color: var(--fx-dim); font: var(--fx-type-caption); }
+.fx-assets-foot .fx-asset-view-button.is-on .fx-ico { width: 16px; height: 16px; fill: none; stroke-width: 2.5; }
+/* The tile size: a slider alone, at the foot's right (the owner, 2026-11-11). */
+.fx-asset-size-label { display: flex; flex: 0 1 160px; align-items: center; min-width: 0; margin-left: auto; }
 .fx-asset-size { width: 100%; min-width: 48px; accent-color: var(--fx-gold); }
 .fx-asset-size-value { min-width: 34px; color: var(--fx-text); font: var(--fx-type-mono); text-align: right; }
 .fx-asset-preview-toggle { display: flex; align-items: center; gap: 8px; color: var(--fx-text); font: var(--fx-type-body); cursor: pointer; }
@@ -429,7 +438,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-dock-tab[aria-selected="true"] { color: var(--fx-text); background: var(--fx-panel); border-color: var(--fx-edge); border-bottom-color: var(--fx-panel); }
 /* FUI-1 fix-up: a card registered into a dock (the starters') takes the dock's width (290 px, 240 px at 760 px), not the
    dialog's 420 px; nothing in it runs past the dock's edge. The dialog's cards (`.fx-modal .fx-card`) are unchanged. */
-.fx-dock .fx-card {
+:is(.fx-dock, .fx-workbench) .fx-card {
   width: auto;
   max-width: 100%;
   min-width: 0;
@@ -439,8 +448,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   padding: var(--s2u-space-3);
   border: 0;
 }
-.fx-dock .fx-card .fx-saves-list li { flex-wrap: wrap; }
-.fx-dock .fx-card :is(select, pre) { max-width: 100%; }
+:is(.fx-dock, .fx-workbench) .fx-card .fx-saves-list li { flex-wrap: wrap; }
+:is(.fx-dock, .fx-workbench) .fx-card :is(select, pre) { max-width: 100%; }
 /* FUI-1 fix-up (FUI.R5): the workspace dock -- the full viewport under the toolbar, over the docks, above the status
    strip; its header the breadcrumb, the title and Back (Circle and Esc close it, `./shell/panel`). */
 .fx-workspace {
@@ -468,7 +477,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-workspace-title { margin: 0; font: var(--fx-type-title); color: var(--fx-text); }
 .fx-workspace-body { flex: 1; min-height: 0; overflow: auto; padding: var(--s2u-space-3); }
 .fx-panel-head { display: flex; align-items: baseline; justify-content: space-between; }
-.fx-panel-head h2, .fx-panel > summary {
+.fx-panel-head h2, :is(.fx-panel, .fx-fold) > summary {
   margin: 0;
   font: var(--fx-type-caption);
   text-transform: uppercase;
@@ -478,7 +487,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-panel-head .fx-dim { font: var(--fx-type-caption); }
 .fx-chip { display: inline-flex; align-items: center; gap: var(--s2u-space-1); height: 24px; padding: 0 10px; border-color: var(--fx-control-edge); border-radius: var(--fx-radius-pill); }
 .fx-chip:hover { background: var(--fx-hover); }
-.fx-chip .fx-ico { width: 12px; height: 12px; }
+/* A chip's icon a little larger and heavier: at 12px a 2.2 stroke read as a hairline (the owner, 2026-11-11). */
+.fx-chip .fx-ico { width: 14px; height: 14px; stroke-width: 2.6; }
 .fx-chip.is-on { background: var(--fx-selected); border-color: var(--fx-gold); color: var(--fx-gold); }
 .fx-chip.is-on .fx-ico { fill: currentColor; }
 .fx-assets {
@@ -488,7 +498,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   overflow-y: scroll;
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
-  scrollbar-color: var(--fx-control-edge) var(--fx-bg);
+  scrollbar-color: var(--fx-scroll-thumb) var(--fx-bg);
   scrollbar-width: thin;
   margin: 0;
   padding: 2px 0;
@@ -497,10 +507,16 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   border: 1px solid var(--fx-control-edge);
   border-radius: var(--fx-radius);
 }
-.fx-assets::-webkit-scrollbar { display: block; width: 12px; }
-.fx-assets::-webkit-scrollbar-track { background: var(--fx-bg); }
-.fx-assets::-webkit-scrollbar-thumb { background: var(--fx-control-edge); border: 2px solid var(--fx-bg); border-radius: var(--fx-radius-pill); }
-.fx-assets::-webkit-scrollbar-thumb:hover { background: var(--fx-gold); }
+/* One scroll bar for the whole Forge (the owner, 2026-11-11: "all scrollbars in this app should have the same consistent
+   style"): the asset browser's -- thin, its thumb the controls' edge on the page's ground, gold under the pointer where the
+   browser draws its own (the WebKit path; a browser with the standard properties takes `scrollbar-color` and `-width`). */
+/* No weight (`:where`): a list that hides its bar on purpose (`scrollbar-width: none`) keeps it hidden. */
+:where(body.forge-page, body.forge-page *) { scrollbar-color: var(--fx-scroll-thumb) var(--fx-bg); scrollbar-width: thin; }
+:where(body.forge-page) ::-webkit-scrollbar { display: block; width: 12px; height: 12px; }
+:where(body.forge-page) ::-webkit-scrollbar-track { background: var(--fx-bg); }
+:where(body.forge-page) ::-webkit-scrollbar-thumb { background: var(--fx-scroll-thumb); border: 2px solid var(--fx-bg); border-radius: var(--fx-radius-pill); }
+:where(body.forge-page) ::-webkit-scrollbar-thumb:hover { background: var(--fx-gold); }
+:where(body.forge-page) ::-webkit-scrollbar-corner { background: var(--fx-bg); }
 .fx-assets li {
   display: flex;
   align-items: center;
@@ -604,9 +620,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: var(--fx-radius);
-  background-color: var(--fx-checker-light);
-  background-image: conic-gradient(var(--fx-checker-dark) 25%, var(--fx-checker-light) 0 50%, var(--fx-checker-dark) 0 75%, var(--fx-checker-light) 0);
-  background-size: 16px 16px;
+  /* The preview's own ground while its picture loads (`./assetPreview` `groundTexture`): no checkerboard. */
+  background: radial-gradient(ellipse at 50% 45%, #a8a8a8 0%, #808080 60%, #5c5c5c 100%);
   color: var(--fx-dim);
 }
 .fx-asset-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
@@ -635,11 +650,13 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 /* An empty list's line (VP-15: its own rule, more specific than a list's row, so no !important). */
 .fx-empty, :is(.fx-assets, .fx-outliner, .fx-saves-list) li.fx-empty { color: var(--fx-dim); font: var(--fx-type-body); cursor: default; padding: var(--s2u-space-2); height: auto; }
 
-.fx-panel { border-bottom: 1px solid var(--fx-edge); }
-.fx-panel > summary { padding: 9px 10px; cursor: pointer; background: var(--fx-panel-2); list-style: none; }
-.fx-panel > summary::-webkit-details-marker { display: none; }
+/* Every folding section looks alike (the owner, 2026-11-11: "in the future when you add new sections, they should all look the same"):
+   a dock panel (`.fx-panel`) and a section inside one (`.fx-fold`, the Inspector's Transform and Properties) share these. */
+:is(.fx-panel, .fx-fold) { border-bottom: 1px solid var(--fx-edge); }
+.fx-panel > summary, .fx-fold > summary { padding: 9px 10px; cursor: pointer; background: var(--fx-panel-2); list-style: none; }
+:is(.fx-panel, .fx-fold) > summary::-webkit-details-marker { display: none; }
 /* The disclosure chevron drawn by its border (VP-12: no Unicode mark), turned open. */
-.fx-panel > summary::before {
+:is(.fx-panel, .fx-fold) > summary::before {
   content: '';
   display: inline-block;
   width: 5px;
@@ -649,10 +666,10 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(-45deg);
 }
-.fx-panel[open] > summary::before { transform: rotate(45deg); }
+:is(.fx-panel, .fx-fold)[open] > summary::before { transform: rotate(45deg); }
 /* FUI-22 (D2; a browser adaptation): one section style for every dock panel's body -- the Inspector, the Outliner, the
    View, the Settings, the agent's and the starters' -- its spacing on the system's steps, one sub-heading. */
-.fx-dock .fx-panel > .fx-section {
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section {
   display: flex;
   flex-direction: column;
   gap: var(--s2u-space-2);
@@ -674,6 +691,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   background: var(--fx-panel);
 }
 .fx-dock[data-forge-dock-layout="stacked"] .fx-inspect-head { top: 0; }
+/* The workbench: a tab's strip sits above its scrolling body, never inside it -- a sticky head of any section holds at the
+   body's own top (the old dock's 33 px kept room for a strip inside the scroll). */
+.fx-workbench .fx-inspect-head, .fx-workbench .fx-dg-body [style*="sticky"] { top: 0; }
 .fx-inspect-name { flex: 1 1 auto; min-width: 0; font: var(--fx-type-mono); color: var(--fx-gold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-inspect-kind { flex: none; font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-dim); }
 /* One stepper for every number of the dock: one height, the readout's face. */
@@ -703,7 +723,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-inspector .fx-field-row[hidden] { display: none; }
 .fx-field[hidden] { visibility: hidden; }
 .fx-field-reset:hover, .fx-field-reset:focus-visible { color: var(--fx-gold); background: var(--fx-hover); }
-.fx-field-reset .fx-ico { width: 14px; height: 14px; }
+.fx-field-reset .fx-ico { width: 14px; height: 14px; stroke-width: 2.8; }   /* heavier: it read as a hairline at 14px */
 /* The scrub (`./scrub`): a number field not being typed in drags left or right; while one drags, the whole page says so. */
 .fx-scrub:not(:focus):not(:disabled),
 .forge-page input[type="number"]:not(:focus):not(:disabled):not([readonly]) { cursor: ew-resize; }
@@ -726,7 +746,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-field--x > span { background: var(--fx-axis-x); }
 .fx-field--y > span { background: var(--fx-axis-y); }
 .fx-field--z > span { background: var(--fx-axis-z); }
-.fx-num { width: 100%; min-width: 0; border-radius: 0 var(--fx-radius) var(--fx-radius) 0; font-family: var(--s2u-font-mono); user-select: text; }
+.fx-num { width: 100%; min-width: 0; font-family: var(--s2u-font-mono); user-select: text; }
+/* Beside its axis chip (the transform's X / Y / Z): its left edge square, joined to the chip's. */
+.fx-field > .fx-num { border-radius: 0 var(--fx-radius) var(--fx-radius) 0; }
 .fx-outliner { margin: 0; padding: var(--s2u-space-1) 0; list-style: none; max-height: min(45vh, 420px); overflow-y: auto; }
 .fx-tree-branch { display: block; height: auto !important; padding: 0 !important; cursor: default !important; }
 .fx-tree-toggle { display: flex; align-items: center; gap: var(--s2u-space-1); width: 100%; min-width: 0; height: 26px; padding: 0 var(--s2u-space-2); color: var(--fx-text); background: transparent; border: 0; text-align: left; font: var(--fx-type-control); cursor: pointer; }
@@ -735,7 +757,13 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-outliner-children { margin: 0 0 0 8px; padding: 0 0 0 4px; list-style: none; border-left: 1px solid var(--fx-edge); }
 .fx-outliner-children[hidden] { display: none; }
 .fx-outliner-children > li:not(.fx-tree-branch) { padding-left: 8px; }
-.fx-outliner li { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; cursor: pointer; font: var(--fx-type-mono); }
+.fx-outliner li { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; cursor: pointer; font: var(--fx-type-mono); }
+/* Every other row striped, as the asset browser's list view (the owner, 2026-11-11), counted among the rows drawn (a folded
+   child or the top's drop row left out, so the alternation holds). Zero specificity: a hovered, selected or highlighted
+   row's own background shows over it. */
+:where(.fx-outliner > li:nth-child(even of li:not([hidden]):not(.fx-outliner-top))) {
+  background: color-mix(in srgb, var(--fx-panel-2) 60%, transparent);
+}
 /* A branch at any depth (Map Data's and User Data's own too): a block -- its toggle over its rows -- not a row. */
 .fx-outliner li.fx-tree-branch { display: block; height: auto; padding: 0; cursor: default; }
 .fx-outliner li.fx-tree-branch:hover { background: none; }
@@ -745,8 +773,46 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-outliner-children > li:not(.fx-tree-branch) { padding-left: 8px; }
 .fx-outliner li > span:first-of-type { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-outliner li:hover { background: var(--fx-hover); }
-.fx-outliner li.is-on { background: var(--fx-selected); color: var(--fx-gold); }
-.fx-outliner li .fx-ico { width: 13px; height: 13px; color: var(--fx-dim); }
+/* A selected row: its words in the selection's colour, the row's own face kept (the owner, 2026-11-11: "only make the text
+   selected, not the row color"). */
+.fx-outliner li.is-on { color: var(--fx-gold); }
+/* The tree (`Layout.tree`): a child's row indented under its parent's; a row a dragged placement would go under. */
+.fx-outliner li.fx-tree-child { border-left: 1px dashed var(--fx-line, rgba(255, 255, 255, 0.15)); }
+.fx-outliner li.is-drop { outline: 1px solid var(--fx-gold); outline-offset: -1px; }
+/* A drop between rows: a line above (before) or below (after) the row, as tree views draw it. */
+.fx-outliner li.is-drop-before { box-shadow: inset 0 2px 0 var(--fx-gold); }
+.fx-outliner li.is-drop-after { box-shadow: inset 0 -2px 0 var(--fx-gold); }
+/* Holding the selection below it (a child selected): highlighted, a step lighter than the selection itself. */
+.fx-outliner li.is-implicit { background: none; }
+.fx-outliner li.is-implicit > .fx-row-label { color: var(--fx-gold); opacity: 0.85; }
+/* A row under a folded parent: hidden (the rows' own display rule would show it). */
+.fx-outliner li[hidden] { display: none !important; }
+/* A folder's row: its icon, its name. */
+.fx-outliner li.fx-folder-row > .fx-ico { flex: none; width: 14px; height: 14px; }
+.fx-outliner li .fx-row-label { cursor: default; }
+/* A row renamed in place: its words a field filling their room. */
+.fx-outliner li > .fx-row-rename { flex: 1 1 auto; min-width: 0; height: 22px; padding: 0 var(--s2u-space-1); color: var(--fx-text); background: var(--fx-bg); border: 1px solid var(--fx-gold); border-radius: var(--fx-radius); font: var(--fx-type-mono); outline: none; }
+.fx-outliner-tools .fx-outliner-folder { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; }
+.fx-outliner-tools .fx-outliner-folder .fx-ico { width: 16px; height: 16px; }
+/* The Outliner's Filter: the View dropdown's look, opened to the left (the dock is at the screen's right edge). */
+.fx-outliner-filter > .fx-viewport-modes-list { left: auto; right: 0; z-index: var(--fx-z-popup, 50); }
+.fx-outliner-filter .fx-viewport-modes-summary { min-width: 72px; }
+.fx-outliner-filter .fx-viewport-modes-summary.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
+/* The Outliner's eye: a hidden placement's row dimmed (hidden in the editor only). */
+.fx-outliner li > .fx-eye { flex: none; display: inline-grid; place-items: center; width: 24px; padding: 0; }
+.fx-outliner li > .fx-eye .fx-ico { width: 14px; height: 14px; }
+.fx-outliner li.is-hidden-here > span { opacity: 0.45; }
+/* The top level's drop row: shown only while a row is dragged. */
+.fx-outliner .fx-outliner-top { display: none; justify-content: center; font-size: 11px; opacity: 0.8; border: 1px dashed var(--fx-line, rgba(255, 255, 255, 0.2)); }
+.fx-outliner.is-dragging .fx-outliner-top { display: flex; }
+/* The two top-level sections (User Objects, Map Objects): a heading row each, never selected, deleted or dragged. */
+.fx-outliner li.fx-outliner-section { padding-left: 4px; font: var(--fx-type-control); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fx-text); background: var(--fx-panel-2); }
+.fx-outliner li.fx-outliner-section > .fx-ico { flex: none; width: 14px; height: 14px; color: var(--fx-gold); }
+.fx-outliner li.fx-outliner-section > .fx-dim { flex: none; font: var(--fx-type-caption); }
+.fx-outliner li.fx-outliner-section.is-implicit > .fx-row-label { color: var(--fx-gold); }
+/* A row's fold caret (its children shown or folded). */
+.fx-outliner li > .fx-row-caret { flex: none; width: 20px; height: 20px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; }
+.fx-outliner li .fx-ico { width: 13px; height: 13px; color: var(--fx-ico-quiet); stroke-width: 2.5; }
 .fx-outliner li.fx-team-a .fx-ico { color: var(--fx-team-a); }
 .fx-outliner li.fx-team-b .fx-ico { color: var(--fx-team-b); }
 /* FCW-32 step 4 (FUI.R23; a browser adaptation): a rules entity's Outliner row, and the Rules panel in the dock's one
@@ -805,8 +871,29 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 
 /* ---------- the map settings (FG-24; the forge's own, no original) ---------- */
 .fx-inspector .fx-lock { align-self: flex-start; }
+/* The lock in the head, left of the kind at its right, both centred on the name's line. */
+.fx-inspect-head { align-items: center; }
+.fx-inspect-head > .fx-inspect-kind { align-self: center; }
+.fx-inspect-head > .fx-lock { flex: none; align-self: center; }
+.fx-inspect-head > .fx-lock[hidden] { display: none; }
+/* A lock as an icon (the Inspector's head, an Outliner row): bare, dim; gold while locked. */
+/* In a ring, bright, its strokes heavier than the line icons' (the owner, 2026-11-11: "add a circle around the lock, and
+   make it brighter ... make it thicker"); under the pointer, filled and gold. */
+.fx-lock-icon {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; box-sizing: border-box;
+  color: var(--fx-text); background: var(--fx-veil); border: 1.5px solid color-mix(in srgb, var(--fx-text) 60%, transparent); border-radius: 50%; cursor: pointer;
+}
+.fx-lock-icon .fx-ico { width: 12px; height: 12px; color: inherit; stroke-width: 2.6; }
+.fx-lock-icon:hover:not(:disabled) { color: var(--fx-on-accent, #001); background: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-lock-icon.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-outliner li .fx-lock-icon .fx-ico { width: 12px; height: 12px; color: inherit; }   /* over the rows' dim icons */
+.fx-lock-icon:disabled { opacity: var(--fx-disabled); cursor: default; }
+/* An Outliner row's lock: shown under the pointer, or always while the row is locked. */
+.fx-outliner li > .fx-lock-icon { flex: none; visibility: hidden; }
+.fx-outliner li:hover > .fx-lock-icon, .fx-outliner li.is-locked > .fx-lock-icon, .fx-outliner li > .fx-lock-icon:focus-visible { visibility: visible; }
 .fx-outliner li.is-locked { color: var(--fx-dim); }
-.fx-outliner .fx-lock { height: 18px; padding: 0 6px; font: var(--fx-type-control); }
+.fx-outliner li.is-locked.is-on { color: var(--fx-gold); }   /* a locked one selected: its words the selection's colour */
+.fx-outliner .fx-lock:not(.fx-lock-icon) { height: 18px; padding: 0 6px; font: var(--fx-type-control); }
 .fx-setting { display: flex; flex-direction: column; gap: var(--s2u-space-1); font: var(--fx-type-control); }
 .fx-setting-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-2); color: var(--fx-text); }
 .fx-setting-value { font: var(--fx-type-mono); color: var(--fx-gold); white-space: nowrap; }
@@ -817,6 +904,37 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-setting-nums .fx-setting-head { font: var(--fx-type-caption); color: var(--fx-dim); }
 .fx-setting-num { border-radius: var(--fx-radius); height: 26px; }
 .fx-setting-note { margin: calc(-1 * var(--s2u-space-1)) 0 0; font: var(--fx-type-body); line-height: 1.4; }
+/* The Map Settings panel's Weapons & equipment (`./panels/arsenalSection`). */
+.fx-arsenal { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
+.fx-arsenal-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.fx-arsenal-kits { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fx-arsenal-kit { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fx-arsenal-kit .fx-setting-head { font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-arsenal-kit .fx-select { width: 100%; min-width: 0; }
+.fx-arsenal-grid summary { cursor: pointer; font: var(--fx-type-control); color: var(--fx-text); }
+.fx-arsenal-grid table { width: 100%; border-collapse: collapse; margin-top: var(--s2u-space-1); font: var(--fx-type-body); }
+.fx-arsenal-grid th, .fx-arsenal-grid td { padding: 2px 4px; text-align: left; }
+.fx-arsenal-grid td:not(:first-child), .fx-arsenal-grid th:not(:first-child) { text-align: center; width: 72px; }
+.fx-arsenal-group th { padding-top: var(--s2u-space-2); font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-arsenal-grid tr.is-changed td:first-child { color: var(--fx-gold); }
+/* The Characters section (`./panels/rosterSection`): a column a row, its map and its type. */
+.fx-roster { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
+.fx-roster-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.fx-roster-row .fx-select { width: 100%; min-width: 0; }
+/* The Surface, sound & view section (`./panels/worldSection`). */
+.fx-world { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
+.fx-world-reverb { display: grid; grid-template-columns: auto 1fr 40px 64px; align-items: center; gap: 4px 6px; }
+.fx-world-reverb .fx-setting-value { text-align: right; }
+.fx-world-slider { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fx-world-slider .fx-range { width: 100%; }
+.fx-world-ends { font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-world .fx-search { width: 100%; }
+.fx-world .fx-chip { align-self: flex-start; }
+.fx-world-error { color: var(--fx-danger); }
+/* The original's loading screen over Play's start (`../loadingPanel`, as the main page's `styles.css` places it). */
+#original-loading { position: fixed; inset: 0; z-index: var(--fx-z-loading); display: grid; place-items: center; pointer-events: auto; background: var(--s2u-ground-deep); }
+#original-loading[hidden] { display: none; }
+#original-loading canvas { height: min(100vh, calc(100vw * 448 / 640)); aspect-ratio: 640 / 448; }
 .fx-range {
   appearance: none;
   width: 100%;
@@ -901,9 +1019,9 @@ body.is-playing .fx-input { display: none; }
   box-shadow: var(--fx-lift);
 }
 .fx-viewport-modes:not([open]) > .fx-viewport-modes-list { display: none; }
-/* The Billboards dropdown: three columns side by side, tall enough for every switch with no scroll bar. */
+/* The View dropdown: two columns side by side (the overlays, then the one list of kinds), no scroll bar. */
 .fx-viewport-modes-list.fx-billboards-list {
-  grid-template-columns: repeat(3, minmax(200px, auto));
+  grid-template-columns: repeat(2, minmax(200px, auto));
   align-items: start;
   column-gap: var(--s2u-space-4);
   max-width: calc(100vw - 24px);
@@ -936,7 +1054,6 @@ body.is-playing .fx-input { display: none; }
   color: var(--fx-deep);
   font: 700 12px/1 var(--s2u-font-label);
 }
-.fx-billboard-icon.is-square { border-radius: var(--fx-radius); }                       /* a user placement's mark */
 /* A billboard as an Outliner row's icon: the row's own icon size, never stretched -- the row's first span is otherwise its
    name, which fills the row -- and the name after it takes the row instead. */
 .fx-outliner li > span.fx-billboard-icon { flex: none; width: 14px; height: 14px; overflow: visible; font-size: 12px; }
@@ -944,6 +1061,8 @@ body.is-playing .fx-input { display: none; }
 /* The Billboards dropdown's Solo, at a map data switch's right: only that kind shown (`.fx-chip.is-on` while it is). */
 .fx-billboard-solo { flex: none; margin-left: auto; height: 20px; padding: 0 var(--s2u-space-2); font: var(--fx-type-caption); }
 .fx-viewport-mode.fx-detail-distance { gap: var(--s2u-space-2); }
+/* Textured, Lit and Untextured highlight with Geometry off (`syncGeometryDependents`): greyed, kept as set. */
+.fx-viewport-mode.is-disabled { opacity: var(--fx-disabled); cursor: default; }
 .fx-viewport-mode.fx-detail-distance > span:first-child { flex: none; }
 .fx-viewport-mode.fx-render-scale { gap: var(--s2u-space-2); }
 .fx-viewport-mode.fx-render-scale > span:first-child { flex: none; }
@@ -979,6 +1098,61 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-gizmo-tools .fx-tool:hover:not(:disabled), .fx-gizmo-tools .fx-tool.is-on { position: relative; z-index: var(--fx-z-raised); }
 .fx-gizmo-tools .fx-tool.is-on { background: var(--fx-selected); border-color: var(--fx-gold); }
 .fx-gizmo-tools .fx-tool .fx-ico { width: 16px; height: 16px; }
+/* The viewport's gizmo and snap controls as Unreal's viewport toolbar (the owner, 2026-11-11): icons alone, pills on the
+   picture -- Move / Rotate / Scale joined, World / Local round, a snap's switch beside its step's dropdown. */
+.fx-camera-hud { align-items: center; }
+.fx-camera-hud .fx-gizmo-tools { margin-right: 0; }
+.fx-camera-hud .fx-gizmo-tools .fx-tool, .fx-camera-hud .fx-gizmo-space { justify-content: center; width: 32px; min-width: 0; padding: 0; }
+.fx-camera-hud .fx-gizmo-tools .fx-tool > span, .fx-camera-hud .fx-gizmo-space > span { display: none; }
+.fx-camera-hud .fx-gizmo-tools .fx-tool:first-child { border-radius: var(--fx-radius-pill) 0 0 var(--fx-radius-pill); }
+.fx-camera-hud .fx-gizmo-tools .fx-tool:last-child { border-radius: 0 var(--fx-radius-pill) var(--fx-radius-pill) 0; }
+.fx-camera-hud .fx-gizmo-space { display: inline-grid; place-items: center; height: 28px; width: 28px; border-radius: 50%; background: var(--fx-veil); border-color: var(--fx-edge); }
+.fx-camera-hud .fx-gizmo-space .fx-ico { width: 16px; height: 16px; }
+.fx-snap-pill { position: relative; display: inline-flex; align-items: stretch; height: 28px; border: 1px solid var(--fx-edge); border-radius: var(--fx-radius-pill); background: var(--fx-veil); }
+.fx-snap-toggle { display: inline-grid; place-items: center; width: 30px; padding: 0; color: var(--fx-ico-quiet); background: transparent; border: 0; border-radius: var(--fx-radius-pill) 0 0 var(--fx-radius-pill); cursor: pointer; }
+.fx-snap-toggle .fx-ico { width: 16px; height: 16px; }
+.fx-snap-toggle:hover { color: var(--fx-text); background: var(--fx-hover); }
+.fx-snap-toggle.is-on { color: var(--fx-gold); background: var(--fx-selected); }
+.fx-snap-value { display: flex; align-items: center; height: 100%; min-width: 26px; padding: 0 10px 0 8px; color: var(--fx-text); border-left: 1px solid var(--fx-edge); border-radius: 0 var(--fx-radius-pill) var(--fx-radius-pill) 0; font: var(--fx-type-control); white-space: nowrap; cursor: pointer; list-style: none; box-sizing: border-box; }
+.fx-snap-value::-webkit-details-marker { display: none; }
+.fx-snap-value:hover { background: var(--fx-hover); }
+.fx-snap-value.is-off { color: var(--fx-dim); }
+.fx-snap-pill > .fx-viewport-snap { display: flex; }
+.fx-snap-pill .fx-viewport-snap-panel { min-width: 150px; gap: 2px; padding: var(--s2u-space-2); }
+.fx-snap-panel-title { margin-bottom: var(--s2u-space-1); color: var(--fx-dim); font: var(--fx-type-caption); text-transform: uppercase; letter-spacing: 0.08em; }
+.fx-snap-preset { height: 26px; padding: 0 var(--s2u-space-2); color: var(--fx-text); background: transparent; border: 0; border-radius: var(--fx-radius); font: var(--fx-type-control); text-align: left; cursor: pointer; }
+.fx-snap-preset:hover { background: var(--fx-hover); }
+.fx-snap-preset[aria-pressed="true"] { color: var(--fx-gold); background: var(--fx-selected); }
+.fx-snap-pill .fx-viewport-snap-field { margin-top: var(--s2u-space-1); }
+/* Surface snapping's button: round, its icon lit gold while on; its dropdown the switch, then its settings. */
+.fx-surface-snap { position: relative; display: flex; }
+.fx-surface-button { display: inline-grid; place-items: center; width: 28px; height: 28px; box-sizing: border-box; color: var(--fx-ico-quiet); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: 50%; cursor: pointer; list-style: none; }
+.fx-surface-button::-webkit-details-marker { display: none; }
+.fx-surface-button .fx-ico { width: 16px; height: 16px; }
+.fx-surface-button:hover { color: var(--fx-text); background: var(--fx-hover); }
+.fx-surface-button.is-on { color: var(--fx-gold); background: var(--fx-selected); border-color: var(--fx-gold); }
+.fx-surface-panel { min-width: 220px; gap: var(--s2u-space-2); }
+.fx-surface-row { display: flex; align-items: center; gap: var(--s2u-space-2); color: var(--fx-text); font: var(--fx-type-control); }
+.fx-surface-row.is-disabled { opacity: var(--fx-disabled); cursor: default; }
+.fx-surface-offset { grid-template-columns: auto 1fr; align-items: center; }
+/* The row's » (`fitHud`): what does not fit beside the view's menus, in a dropdown under it, each as it is on the row. */
+.fx-hud-more { position: relative; }
+.fx-hud-more[hidden] { display: none; }
+.fx-hud-more-button { display: inline-grid; place-items: center; width: 28px; height: 28px; box-sizing: border-box; color: var(--fx-text); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: 50%; font: var(--fx-type-control); font-size: 16px; line-height: 1; cursor: pointer; list-style: none; }
+.fx-hud-more-button::-webkit-details-marker { display: none; }
+.fx-hud-more-button:hover, .fx-hud-more[open] > .fx-hud-more-button { color: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-hud-more:not([open]) > .fx-hud-more-list { display: none; }
+.fx-hud-more-list {
+  position: absolute; top: 34px; right: 0; z-index: var(--fx-z-float); display: flex; flex-direction: column; align-items: flex-end;
+  gap: var(--s2u-space-2); padding: var(--s2u-space-2); background: var(--fx-panel); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift);
+}
+/* A dropdown of an item under » opens to its left, beside the list, not over the items below it. */
+.fx-hud-more-list .fx-viewport-snap-panel, .fx-hud-more-list .fx-camera-settings-panel, .fx-hud-more-list .fx-split-list { top: 0; right: calc(100% + 8px); left: auto; }
+/* The gizmo's space (World / Local): its icon and word, apart from the modes (over the joined group's -1px). */
+.fx-gizmo-tools .fx-tool.fx-gizmo-space { margin-right: var(--s2u-space-3); min-width: 74px; gap: 4px; border-radius: var(--fx-radius); }
+/* Scale keeps the joined group's right corner (World / Local stands apart after it); World / Local never the selection's colour. */
+.fx-gizmo-tools .fx-gizmo-space + .fx-tool { margin-left: 0; border-radius: var(--fx-radius) 0 0 var(--fx-radius); }
+.fx-gizmo-tools .fx-tool.fx-gizmo-space .fx-ico { width: 16px; height: 16px; }
 .fx-camera-view, .fx-camera-settings > summary {
   display: flex;
   align-items: center;
@@ -993,7 +1167,8 @@ body.is-playing .fx-viewport-modes { display: none; }
   font: var(--fx-type-control);
   white-space: nowrap;
 }
-.fx-camera-view { min-width: 130px; cursor: pointer; list-style: none; }
+/* Its width its word's (the owner, 2026-11-11: "Top" no wider than it needs). */
+.fx-camera-view { min-width: 0; cursor: pointer; list-style: none; }
 .fx-camera-view::-webkit-details-marker { display: none; }
 .fx-camera-view .fx-ico, .fx-camera-settings > summary .fx-ico { width: 16px; height: 16px; }
 .fx-camera-view::after { content: ''; width: 0; height: 0; border: 4px solid transparent; border-top-color: currentColor; transform: translateY(2px); }
@@ -1050,8 +1225,20 @@ body.is-playing .fx-viewport-modes { display: none; }
   box-shadow: var(--fx-lift);
 }
 .fx-viewport-snap:not([open]) > .fx-viewport-snap-panel { display: none; }
+/* On the toolbar (the owner, 2026-11-11): the transform group and Snap after Select / Place. The toolbar's sideways
+   scroll clips, so Snap's panel is fixed, placed under its button by the page (`placeSnapPanel`). */
+.fx-top .fx-group--transform { gap: 0; }
+.fx-top .fx-gizmo-tools { margin-right: 0; }
+/* In the middle between two spacers: no divider of its own either side. */
+.fx-top > .fx-group--transform { border-right: 0; }
+.fx-top .fx-gizmo-tools .fx-tool.fx-gizmo-space { min-width: 0; }
+.fx-top .fx-viewport-snap-summary { min-width: 0; }
+.fx-viewport-snap-panel.fx-snap-floating { position: fixed; top: var(--fx-top-bar); right: auto; left: 0; z-index: var(--fx-z-popup); }
 .fx-viewport-snap-field { display: grid; gap: var(--s2u-space-1); color: var(--fx-dim); font: var(--fx-type-caption); }
 .fx-viewport-snap-field .fx-num { width: 100%; color: var(--fx-text); }
+/* A step whose snap is off: dimmed, still set (its snap turned on uses it). */
+.fx-viewport-snap-field.is-off { opacity: 0.55; }
+.fx-viewport-snap-toggle + .fx-viewport-snap-field { margin-bottom: var(--s2u-space-1); }
 .fx-viewport-snap-toggle { color: var(--fx-text); }
 .fx-viewport-snap-toggle input { appearance: none; position: relative; width: 28px; height: 14px; margin: 0; border: 1px solid var(--fx-edge); border-radius: var(--fx-radius-pill); background: var(--fx-veil); cursor: pointer; }
 .fx-viewport-snap-toggle input::after { content: ''; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
@@ -1493,6 +1680,17 @@ body.is-matching .fx-legend { display: none; }
 /* The Inspector's Data: the selection's own record, read only -- a name and its value a row, under the transform. */
 .fx-inspect-data { display: grid; grid-template-columns: minmax(72px, auto) 1fr; gap: 2px var(--s2u-space-2); margin: var(--s2u-space-2) 0; padding-top: var(--s2u-space-2); border-top: 1px solid var(--fx-edge); font: var(--fx-type-caption); }
 .fx-inspect-data[hidden] { display: none; }
+/* The Inspector's Transform and Properties: the dock's one section look (`.fx-fold`, as Map Settings and the rest), each
+   the dock's full width over the Inspector's side padding, none apart from the next; Properties gone while it is empty. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-inspector.fx-section { gap: 0; }   /* over the docks' own section gap */
+.fx-inspector > .fx-inspect-head { margin-bottom: var(--s2u-space-2); }
+.fx-inspect-section { margin: 0 calc(-1 * var(--s2u-space-3)); }
+.fx-inspect-section:first-of-type { border-top: 1px solid var(--fx-edge); }
+.fx-inspect-section:has(> .fx-inspect-data[hidden]) { display: none; }
+/* An open section's rows: the dock section's own inset (`.fx-section`'s padding), one step between them. */
+.fx-inspect-section > :not(summary) { margin: var(--s2u-space-2) var(--s2u-space-3) 0; }
+.fx-inspect-section > :last-child:not(summary) { margin-bottom: var(--s2u-space-3); }
+.fx-inspect-section > .fx-inspect-data { padding-top: 0; border-top: 0; }   /* its section's title is its rule now */
 .fx-inspect-data dt { color: var(--fx-dim); overflow-wrap: anywhere; }
 .fx-inspect-data dd .fx-inspect-edit:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
 .fx-inspect-data dd { margin: 0; color: var(--fx-text); overflow-wrap: anywhere; user-select: text; }
@@ -1510,6 +1708,14 @@ body.is-matching .fx-legend { display: none; }
 .fx-help { width: min(760px, calc(100vw - 32px)); }
 .fx-help header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-3); margin-bottom: 6px; }
 .fx-help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s2u-space-1) var(--s2u-space-6); }
+.fx-help-cols[hidden] { display: none; }
+/* The card's switch (Editor, Walk / Play): one joined pair, the shown one gold. */
+.fx-help-switch { display: inline-flex; align-self: center; border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); overflow: hidden; }
+.fx-help-switch > button { height: 26px; padding: 0 var(--s2u-space-3); color: var(--fx-dim); background: transparent; border: 0; font: var(--fx-type-control); cursor: pointer; }
+.fx-help-switch > button + button { border-left: 1px solid var(--fx-edge); }
+.fx-help-switch > button:hover { color: var(--fx-text); background: var(--fx-hover); }
+.fx-help-switch > button.is-on { color: var(--fx-gold); background: var(--fx-selected); }
+.fx-help footer { display: flex; justify-content: flex-end; gap: var(--s2u-space-2); }
 .fx-help h3 { margin: var(--s2u-space-3) 0 6px; font: var(--fx-type-caption); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fx-gold); }
 .fx-help dl { display: grid; grid-template-columns: auto 1fr; gap: var(--s2u-space-1) var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
 .fx-help dt { font-family: var(--s2u-font-mono); color: var(--fx-text); white-space: nowrap; }
@@ -1683,3 +1889,248 @@ body.is-matching .fx-legend { display: none; }
 .fx-tools-row .fx-mode-section.is-off > .fx-mode-section__label { opacity: var(--fx-disabled); }
 /* The View dropdown's sections (the toolbar's headers): a small caption over each group of switches, both columns alike. */
 .fx-billboards-section { margin: 8px 0 2px; font: var(--fx-type-caption); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); opacity: .8; height: 14px; line-height: 14px; white-space: nowrap; }
+
+/* The object the Place tool places, on its button (`showPlacee`): that object's own icon, small, after the label. */
+.fx-placee { display: inline-flex; align-items: center; margin-left: 4px; }
+.fx-placee[hidden] { display: none; }
+.fx-placee .fx-ico { width: 14px; height: 14px; }
+.fx-placee .fx-billboard-icon { transform: scale(0.85); }
+
+/* The asset browser's object tabs (`objectTabsRow`): a wrapping row of small tabs, the chosen one lit. */
+.fx-asset-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.fx-asset-tab { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--fx-line, rgba(255,255,255,0.15)); background: transparent; color: inherit; cursor: pointer; }
+.fx-asset-tab:hover { background: var(--fx-hover); }
+.fx-asset-tab.is-on { border-color: var(--fx-gold); color: var(--fx-gold); }
+.fx-asset-tab .fx-ico { width: 14px; height: 14px; }
+.fx-asset-tab .fx-billboard-icon { transform: scale(0.85); }
+
+/* Other's More... (`moreTools`): its tools in a popup under the button. */
+.fx-more-tools { position: relative; display: inline-flex; }
+.fx-more-popup { position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--fx-panel, #1d2026); border: 1px solid var(--fx-divider, rgba(255,255,255,0.15)); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
+.fx-more-popup[hidden] { display: none; }
+.fx-more-popup .fx-tool { justify-content: flex-start; white-space: nowrap; }
+/* An ambient effect's tile: its sound's play button where a prop's star is. */
+.fx-asset-play { font-size: 11px; }
+/* An ambient tile's badges on its picture's lower left: particles, sound -- what it does at a glance. */
+.fx-asset-badges { position: absolute; left: 4px; bottom: 4px; z-index: var(--fx-z-raised); display: flex; gap: 3px; pointer-events: none; }
+.fx-asset-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; color: var(--fx-gold); background: var(--fx-veil); border-radius: 50%; }
+.fx-asset-badge .fx-ico { width: 13px; height: 13px; stroke-width: 2.4; }
+.fx-assets[data-view="list"] .fx-asset-badges { left: 2px; bottom: 2px; }
+.fx-assets[data-view="list"] .fx-asset-badge { width: 14px; height: 14px; }
+.fx-assets[data-view="list"] .fx-asset-badge .fx-ico { width: 10px; height: 10px; }
+
+/* ================= The workbench (`./shell/dockShell`; the owner, 2026-11-11: "how Visual Studio works") =================
+   One tree between the toolbar and the status bar: splits side by side or stacked (a sash between each two, dragged to
+   size them), tab groups (a strip over the panel drawn), the viewport one of them (no strip while it is alone). */
+.fx-workbench { position: fixed; top: var(--fx-top); bottom: var(--fx-status); left: 0; right: 0; z-index: var(--fx-z-dock); background: var(--fx-edge); }
+.fx-dg-root { position: absolute; inset: 0; display: flex; }
+.fx-dg-root > * { flex: 1 1 0; }
+.fx-dg-split { display: flex; min-width: 0; min-height: 0; }
+.fx-dg-row { flex-direction: row; }
+.fx-dg-column { flex-direction: column; }
+.fx-dg-sash { flex: none; background: var(--fx-edge); touch-action: none; z-index: 1; }
+.fx-dg-row > .fx-dg-sash { width: 4px; cursor: col-resize; }
+.fx-dg-column > .fx-dg-sash { height: 4px; cursor: row-resize; }
+.fx-dg-sash:hover, .fx-dg-sash.is-resizing { background: var(--fx-gold); }
+.fx-dg-group { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--fx-panel); }
+.fx-dg-tabs { display: flex; flex: none; align-items: flex-end; gap: 1px; min-height: 30px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; background: var(--fx-panel-2); border-bottom: 1px solid var(--fx-edge); }
+.fx-dg-tab {
+  display: inline-flex; flex: none; align-items: center; gap: 6px; height: 29px; padding: 0 10px; border: 0; border-radius: 0;
+  color: var(--fx-text-dim, var(--fx-text)); opacity: 0.75; background: transparent; font: var(--fx-type-control); white-space: nowrap; cursor: grab; touch-action: none;
+}
+.fx-dg-tab:hover { opacity: 1; background: var(--fx-hover); }
+.fx-dg-tab[aria-selected="true"] { opacity: 1; color: var(--fx-text); background: var(--fx-panel); box-shadow: inset 0 2px 0 var(--fx-gold); }
+/* Each tab outlined (the owner, 2026-11-11: "they all blend in with each other"): its own edge on top and both sides,
+   a face a step off the strip's, the chosen one joined to its body below (no bottom edge, the panel's colour). */
+.fx-dg-tabs { gap: 2px; padding: 3px 3px 0; }
+.fx-dg-tab {
+  height: 26px; opacity: 0.88; border: 1px solid color-mix(in srgb, var(--fx-edge) 70%, var(--fx-text) 30%); border-bottom: 0;
+  border-radius: var(--fx-radius) var(--fx-radius) 0 0; background: color-mix(in srgb, var(--fx-panel-2) 70%, var(--fx-panel) 30%);
+}
+.fx-dg-tab[aria-selected="true"] { border-color: color-mix(in srgb, var(--fx-gold) 45%, var(--fx-edge)); margin-bottom: -1px; height: 31px; }
+/* A little larger and roomier (the owner, 2026-11-11: "a bit large and ... more room to breathe, not too large"): 13 px
+   words (the body's), wider padding, a taller tab and strip. */
+.fx-dg-tabs { min-height: 34px; }
+.fx-dg-tab { height: 30px; gap: 7px; padding: 0 14px; font: var(--fx-type-body); letter-spacing: 0.02em; }
+.fx-dg-tab-icon > .fx-ico { width: 15px; height: 15px; }
+/* The toolbar's menu bar (File, Edit, Window): flat titles; an open menu's list stands in the body, under its title. */
+.fx-menubar { display: flex; align-items: center; gap: 0; height: 30px; padding-right: 6px; border-right: 1px solid var(--fx-edge); }
+.fx-menubar-menu { position: relative; }
+.fx-menubar-title { display: flex; align-items: center; height: 26px; padding: 0 9px; border-radius: var(--fx-radius); color: var(--fx-text); font: var(--fx-type-control); cursor: pointer; list-style: none; user-select: none; }
+.fx-menubar-title::-webkit-details-marker { display: none; }
+.fx-menubar-title:hover, .fx-menubar-menu[open] > .fx-menubar-title { background: var(--fx-hover); color: var(--fx-gold); }
+.fx-menubar-menu:not([open]) > .fx-menubar-list { display: none; }
+.fx-menubar-list {
+  position: fixed; z-index: var(--fx-z-popup); display: grid; min-width: 220px; padding: var(--s2u-space-1);
+  background: var(--fx-panel); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift);
+}
+.fx-menubar-row {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: var(--s2u-space-2); min-height: 28px;
+  padding: 0 var(--s2u-space-2); color: var(--fx-text); background: transparent; border: 0; border-radius: var(--fx-radius);
+  font: var(--fx-type-control); text-align: left; cursor: pointer;
+}
+.fx-menubar-row:hover:not(:disabled) { color: var(--fx-gold); background: var(--fx-hover); }
+.fx-menubar-row:disabled { opacity: var(--fx-disabled); cursor: default; }
+.fx-menubar-tick { color: var(--fx-gold); text-align: center; }
+/* A menu that ticks (Window): its tick column first. */
+.fx-menubar-list.has-ticks > .fx-menubar-row { grid-template-columns: 16px 1fr auto; }
+.fx-menubar-label { display: inline-flex; align-items: center; gap: var(--s2u-space-2); }
+.fx-menubar-label > .fx-ico { flex: none; width: 15px; height: 15px; color: var(--fx-ico-quiet); }
+.fx-menubar-row:hover:not(:disabled) .fx-menubar-label > .fx-ico { color: var(--fx-gold); }
+/* A dock tab's icon, left of its word. */
+.fx-dg-tab-icon { display: inline-grid; place-items: center; flex: none; }
+.fx-dg-tab-icon > .fx-ico { width: 15px; height: 15px; }
+.fx-dg-tab[aria-selected="true"] .fx-dg-tab-icon { color: var(--fx-gold); }
+.fx-menubar-keys { color: var(--fx-dim); font: var(--fx-type-caption); }
+.fx-menubar-rule { height: 1px; margin: var(--s2u-space-1) 0; background: var(--fx-edge); }
+/* A tab's close (the Window menu opens it again): dim till its tab is hovered or chosen, gold under the pointer. */
+.fx-dg-tab-close { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: -4px; border-radius: var(--fx-radius); font-size: 10px; line-height: 1; opacity: 0.4; cursor: pointer; }
+.fx-dg-tab:hover > .fx-dg-tab-close, .fx-dg-tab[aria-selected="true"] > .fx-dg-tab-close { opacity: 0.8; }
+.fx-dg-tab-close:hover { opacity: 1; color: var(--fx-gold); background: var(--fx-hover); }
+/* A tab's body: its sections stacked as before, scrolled together; a tab of one section (`is-single`) is that section
+   filling the tab, no title, scrolling within itself. */
+.fx-dg-body { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; }
+.fx-dg-body.is-single { display: flex; flex-direction: column; overflow: hidden; }
+.fx-dg-body.is-single > .fx-panel { position: relative; display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; overflow: auto; border: 0; }
+.fx-dg-body.is-single > .fx-panel > summary { display: none; }
+.fx-dg-body.is-single > .fx-panel::details-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+.fx-dg-body > .fx-panel > .fx-viewport { position: absolute; inset: 0; }
+.fx-dg-body > .fx-panel[data-forge-panel="viewport"] { overflow: hidden; }
+.fx-dg-body > .fx-panel[data-forge-panel="asset-browser"] { overflow: hidden; padding: var(--s2u-space-2); }
+/* The Outliner (the owner, 2026-11-11: "only have a single inner scroll bar ... the header should be fixed"): its search,
+   Filter and folder row held; its list alone scrolls. */
+.fx-dg-body.is-single > .fx-panel[data-forge-panel="outliner"] { overflow: hidden; }
+.fx-panel[data-forge-panel="outliner"] > .fx-section { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; overflow: hidden; }
+.fx-panel[data-forge-panel="outliner"] .fx-outliner-tools { flex: none; }
+/* Its rows the panel's full width and its scroll bar on the panel's right edge (the owner, 2026-11-11): the list over the
+   section's side and foot padding, its bar's room kept (`scrollbar-gutter`), never laid over the rows. */
+.fx-panel[data-forge-panel="outliner"] .fx-outliner {
+  flex: 1 1 0; min-height: 0; max-height: none; overflow-y: auto; scrollbar-gutter: stable;
+  margin: 0 calc(-1 * var(--s2u-space-3)) calc(-1 * var(--s2u-space-3)); padding-bottom: 0;
+}
+.fx-dg-alone { position: absolute; inset: 0; }
+.fx-dg-stash { display: none; }
+/* A tab dragged: its word under the pointer, where it would dock drawn in gold. */
+.fx-dg-preview { position: absolute; z-index: var(--fx-z-menu); border: 2px solid var(--fx-gold); border-radius: 4px; background: color-mix(in srgb, var(--fx-gold) 18%, transparent); pointer-events: none; transition: left 80ms, top 80ms, width 80ms, height 80ms; }
+.fx-dg-preview[hidden] { display: none; }
+.fx-dg-preview.is-bar { border: 0; border-radius: 2px; background: var(--fx-gold); transition: none; }
+.fx-dg-ghost { position: fixed; z-index: var(--fx-z-menu); padding: 4px 10px; border: 1px solid var(--fx-gold); border-radius: 4px; color: var(--fx-text); background: var(--fx-panel); box-shadow: var(--fx-lift); font: var(--fx-type-control); pointer-events: none; }
+body.fx-dg-dragging, body.fx-dg-dragging * { cursor: grabbing !important; user-select: none; }
+
+/* The docking guides: a compass of five named places over the group under a dragged tab, the lit one where it docks; the
+   workbench's four edges named while a tab is dragged. */
+.fx-dg-compass {
+  position: absolute; z-index: calc(var(--fx-z-menu) + 1); display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px);
+  gap: 4px; transform: translate(-50%, -50%) scale(var(--fx-dg-compass-scale, 1)); pointer-events: none;
+}
+.fx-dg-compass[hidden] { display: none; }
+.fx-dg-target {
+  display: grid; place-items: center; border: 1px solid var(--fx-edge); border-radius: 6px; color: var(--fx-text);
+  background: color-mix(in srgb, var(--fx-panel) 92%, transparent); box-shadow: var(--fx-lift); font: var(--fx-type-caption); font-weight: 600;
+}
+.fx-dg-target--top { grid-column: 2; grid-row: 1; }
+.fx-dg-target--left { grid-column: 1; grid-row: 2; }
+.fx-dg-target--center { grid-column: 2; grid-row: 2; }
+.fx-dg-target--right { grid-column: 3; grid-row: 2; }
+.fx-dg-target--bottom { grid-column: 2; grid-row: 3; }
+.fx-dg-target.is-on { border-color: var(--fx-gold); color: var(--fx-gold); background: var(--fx-selected); }
+.fx-dg-target.is-off { opacity: 0.3; }
+.fx-dg-edges { position: absolute; inset: 0; z-index: var(--fx-z-menu); display: none; pointer-events: none; }
+body.fx-dg-dragging .fx-dg-edges { display: block; }
+body.fx-dg-dragging .fx-dg-edges.is-quiet { display: none; }
+.fx-dg-edge {
+  position: absolute; padding: 2px 8px; border: 1px dashed var(--fx-edge); border-radius: 4px; color: var(--fx-text);
+  background: color-mix(in srgb, var(--fx-panel) 85%, transparent); font: var(--fx-type-caption); opacity: 0.75; white-space: nowrap;
+}
+.fx-dg-edge--left { left: 2px; top: 50%; writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg); }
+.fx-dg-edge--right { right: 2px; top: 50%; writing-mode: vertical-rl; transform: translateY(-50%); }
+.fx-dg-edge--top { top: 2px; left: 50%; transform: translateX(-50%); }
+.fx-dg-edge--bottom { bottom: 2px; left: 50%; transform: translateX(-50%); }
+.fx-dg-edge.is-on { opacity: 1; border-style: solid; border-color: var(--fx-gold); color: var(--fx-gold); background: var(--fx-selected); }
+
+/* ---------- the split viewport (`./splitViews`; a browser adaptation) ---------- */
+/* The layout button: an icon, beside the gizmo's World / Local; its dropdown a row a layout. */
+.fx-split-menu { position: relative; }
+.fx-split-menu > summary.fx-split-summary {
+  display: inline-grid; place-items: center; width: 32px; height: 28px; padding: 0; list-style: none; cursor: pointer;
+  color: var(--fx-text); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius);
+}
+.fx-split-menu > summary::-webkit-details-marker { display: none; }
+.fx-split-menu > summary .fx-ico, .fx-split-row .fx-ico, .fx-split-maximize .fx-ico { width: 16px; height: 16px; }
+.fx-split-menu[open] > summary { border-color: var(--fx-gold); }
+.fx-split-list {
+  position: absolute; top: 34px; right: 0; display: grid; min-width: 200px; padding: var(--s2u-space-1);
+  background: var(--fx-panel); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift);
+}
+.fx-split-menu:not([open]) > .fx-split-list { display: none; }
+/* Among the view's own menus at its top-left: its list opens rightward, under it. */
+.fx-split-menu--left > .fx-split-list { left: 0; right: auto; }
+.fx-split-row {
+  display: flex; align-items: center; gap: var(--s2u-space-2); min-height: 30px; padding: 0 var(--s2u-space-2);
+  color: var(--fx-text); background: transparent; border: 0; border-radius: var(--fx-radius); font: var(--fx-type-control);
+  text-align: left; cursor: pointer;
+}
+.fx-split-row:hover, .fx-split-row[aria-checked="true"] { color: var(--fx-gold); background: var(--fx-hover); }
+.fx-split-rule { height: 1px; margin: var(--s2u-space-1) 0; background: var(--fx-edge); }
+/* Maximize: the split menu's first row (and its rule), shown while the viewport is split. */
+.fx-split-maximize[hidden], .fx-split-rule[hidden] { display: none; }
+/* The views' frames over the picture, and their dividers. An inactive view's frame takes the pointer (it hands that view
+   the camera); the active one's lets it through to the pointer surface under it. */
+.fx-split { position: absolute; inset: 0; z-index: var(--fx-z-raised); pointer-events: none; }
+.fx-split[hidden] { display: none; }
+.fx-split-view { position: absolute; box-sizing: border-box; border: 1px solid transparent; pointer-events: auto; }
+.fx-split-view[hidden] { display: none; }
+.fx-split-view.is-active { pointer-events: none; border-color: color-mix(in srgb, var(--fx-gold) 55%, transparent); }
+.fx-split-name {
+  position: absolute; top: var(--s2u-space-2); left: 10px; display: flex; align-items: center; height: 28px; padding: 0 var(--s2u-space-3);
+  color: var(--fx-text); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius);
+  font: var(--fx-type-control); pointer-events: none;
+}
+.fx-split-view.is-active > .fx-split-name, .fx-split-view.is-active > .fx-split-axes { display: none; }
+.fx-split-axes { position: absolute; right: 10px; bottom: 36px; width: 80px; height: 80px; overflow: visible; opacity: 0.8; pointer-events: none; }
+.fx-split-axes line { stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; }
+.fx-split-sashes { position: absolute; inset: 0; pointer-events: none; }
+.fx-split-sash { position: absolute; pointer-events: auto; z-index: var(--fx-z-local); }
+.fx-split-sash::after { content: ''; position: absolute; background: var(--fx-edge); }
+.fx-split-sash--x { cursor: col-resize; }
+.fx-split-sash--x::after { top: 0; bottom: 0; left: calc(50% - 1px); width: 2px; }
+.fx-split-sash--y { cursor: row-resize; }
+.fx-split-sash--y::after { left: 0; right: 0; top: calc(50% - 1px); height: 2px; }
+.fx-split-sash--xy { cursor: move; z-index: var(--fx-z-float); }
+.fx-split-sash--xy::after { display: none; }
+.fx-split-sash:hover::after, .fx-split-sash:active::after { background: var(--fx-gold); }
+body.is-playing .fx-split { display: none; }
+/* The overlay's floating touch Menu (`../modern/overlay` `.mu-touch-menu`) hidden in the editor (the owner, 2026-11-11):
+   the toolbar's menu button opens the forge menu. Under Play it shows again, as the match's way to its settings. */
+body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
+
+/* Every control's corners rounded (the owner, 2026-11-11: dropdowns, number fields, the search, buttons, the asset list):
+   the one radius where a control sets none of its own -- no weight (`:where`), so a joined group's square inner edges keep
+   theirs. */
+:where(body.forge-page) :where(select, input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, button, .fx-search, .fx-select, .fx-num, .fx-tool) {
+  border-radius: var(--fx-radius);
+}
+/* Every dropdown's list in the Forge's own look (the owner, 2026-11-11: "in all dropdowns, make the hover highlight the
+   same yellow as the rest of the widgets not the blue"): the browser's customizable select (`appearance: base-select`),
+   its list a panel, the row under the pointer or the keys gold on the selection's face. A browser without it keeps its
+   own list (the system's blue), the field itself unchanged. */
+@supports (appearance: base-select) {
+  body.forge-page select, body.forge-page select::picker(select) { appearance: base-select; }
+  body.forge-page select { display: inline-flex; align-items: center; gap: var(--s2u-space-1); }
+  body.forge-page select::picker-icon { color: var(--fx-dim); transition: rotate var(--s2u-dur-fast) var(--s2u-ease); }
+  body.forge-page select:open::picker-icon { rotate: 180deg; }
+  body.forge-page select::picker(select) {
+    margin: 0; padding: 0; color: var(--fx-text); background: var(--fx-panel);
+    border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift);
+  }
+  /* The rows as the system's list had them (the owner, 2026-11-11: "keep the same spacing as before, just change the color"). */
+  body.forge-page option { min-height: 0; padding: 4px 9px; color: var(--fx-text); border-radius: 0; font: var(--fx-type-control); cursor: pointer; }
+  body.forge-page option::checkmark { display: none; }
+  /* The row under the pointer or the keys on gold, its words dark (the system's list's light blue, in the Forge's colour). */
+  body.forge-page option:is(:hover, :focus-visible):not(:disabled) { color: var(--fx-on-accent); background: var(--fx-gold); outline-style: none; }
+  /* A group's heading bold, its options set in under it, as the system's list draws them. */
+  body.forge-page optgroup { font: var(--fx-type-control); font-weight: 700; color: var(--fx-text); }
+  body.forge-page optgroup option { padding-left: 18px; font-weight: 400; }
+  body.forge-page select::picker(select) { max-height: min(70vh, 560px); overflow-y: auto; }
+  body.forge-page option:disabled { opacity: var(--fx-disabled); cursor: default; }
+}

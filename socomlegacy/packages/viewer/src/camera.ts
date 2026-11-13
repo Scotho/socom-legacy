@@ -141,6 +141,23 @@ export const KBM_POINTER_LOCK_SITE = 's2u-kbm-pointer-lock';
 
 export type ForgeViewportView = 'perspective' | 'top' | 'bottom' | 'left' | 'right' | 'front' | 'back';
 
+/**
+ * One Forge viewport's camera, whole (the split views, `./forge/splitViews`; a browser adaptation with no original): its
+ * projection, where it stands and how it is turned, and the orthographic frame. Kept for a view while another one has the
+ * camera, put back when the view takes it again (`FlyCamera.forgeViewState` / `setForgeViewState`), drawn meanwhile by
+ * `forgeDrawCamera`. Yaw and pitch in radians. The field of view, the speeds and the clip planes are the camera's own,
+ * shared by every view.
+ */
+export interface ForgeViewState {
+  view: ForgeViewportView;
+  position: [number, number, number];
+  yaw: number;
+  pitch: number;
+  orthographicHeight: number;
+  orthographicFocusDistance: number;
+  orthographicZoom: number;
+}
+
 /** Frame-rate independent exponential approach: the value `a` moves toward `b` at rate `k` per second. */
 const approach = (a: number, b: number, k: number, dt: number): number =>
   b + (a - b) * Math.exp(-k * dt);
@@ -528,6 +545,65 @@ export class FlyCamera {
 
   forgeViewportView(): ForgeViewportView {
     return this.viewportView;
+  }
+
+  /** This camera's view, whole (`ForgeViewState`): what a split view keeps while another view has the camera. */
+  forgeViewState(): ForgeViewState {
+    const p = this.activeCamera.position;
+    return {
+      view: this.viewportView, position: [p.x, p.y, p.z], yaw: this.yaw, pitch: this.pitch,
+      orthographicHeight: this.orthographicHeight, orthographicFocusDistance: this.orthographicFocusDistance,
+      orthographicZoom: this.orthographicCamera.zoom,
+    };
+  }
+
+  /**
+   * A kept view put back (`forgeViewState`): its projection, pose and orthographic frame, the glide and every key held
+   * let go (`halt`) so the flight of the view left does not carry into this one. The aspect stays the camera's own.
+   */
+  setForgeViewState(state: ForgeViewState): void {
+    if (!this.forgeKbm) return;
+    this.halt();
+    this.viewportView = state.view;
+    this.orthographicHeight = state.orthographicHeight;
+    this.orthographicFocusDistance = state.orthographicFocusDistance;
+    this.orthographicCamera.zoom = state.orthographicZoom;
+    this.activeCamera = state.view === 'perspective' ? this.perspectiveCamera : this.orthographicCamera;
+    this.activeCamera.position.set(state.position[0], state.position[1], state.position[2]);
+    this.yaw = state.yaw;
+    this.pitch = state.pitch;
+    this.setAspect(this.perspectiveCamera.aspect);              // the orthographic frame from its kept height
+    this.apply();
+  }
+
+  /**
+   * A kept view drawn without taking the camera: `cameras`' perspective or orthographic one posed as `state` at `aspect`,
+   * with this camera's own lens -- its field of view, clip planes, layers -- so every view draws alike but for where it
+   * looks. Returns the posed camera.
+   */
+  forgeDrawCamera(state: ForgeViewState, aspect: number, cameras: { perspective: PerspectiveCamera; orthographic: OrthographicCamera }): PerspectiveCamera | OrthographicCamera {
+    const ortho = state.view !== 'perspective';
+    const camera = ortho ? cameras.orthographic : cameras.perspective;
+    const lens = ortho ? this.orthographicCamera : this.perspectiveCamera;
+    camera.near = lens.near;
+    camera.far = lens.far;
+    camera.layers.mask = lens.layers.mask;
+    if (camera instanceof PerspectiveCamera) {
+      camera.fov = this.perspectiveCamera.fov;
+      camera.zoom = 1;
+      camera.aspect = aspect;
+    } else {
+      camera.left = -state.orthographicHeight * aspect / 2;
+      camera.right = state.orthographicHeight * aspect / 2;
+      camera.top = state.orthographicHeight / 2;
+      camera.bottom = -state.orthographicHeight / 2;
+      camera.zoom = state.orthographicZoom;
+    }
+    camera.updateProjectionMatrix();
+    camera.position.set(state.position[0], state.position[1], state.position[2]);
+    camera.rotation.set(state.pitch, state.yaw, 0, 'YXZ');
+    camera.updateMatrixWorld();
+    return camera;
   }
 
   orbitForgeViewport(dx: number, dy: number, focus: Vector3): void {

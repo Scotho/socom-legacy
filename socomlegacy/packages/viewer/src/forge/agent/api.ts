@@ -42,7 +42,7 @@ export type ForgeAgentView = Record<ForgeAgentViewToggle, boolean> & {
   snap: boolean;
   gridStep: number;
   turnStep: number;
-  tool: 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'flare' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'gate' | 'barrier' | 'ladder' | 'bomb' | 'siteSeal' | 'siteTerrorist';
+  tool: 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'flare' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'gate' | 'barrier' | 'ladder' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'switch' | 'ambient';
   gizmo: string;
   camera: { x: number; y: number; z: number; yaw: number; pitch: number };
   /** The private scenario's status (`./play` `status`), null when none ran. */

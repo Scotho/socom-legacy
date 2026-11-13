@@ -1,7 +1,10 @@
 import { FORGE_GAME_TYPE_NAME, FORGE_GAME_TYPES, NPC_BEHAVIOURS, SETTINGS_BOUNDS, type LayoutSettings } from '../layout';
 import type { MenuItem } from '../padMenu';
-import { FOG_SLIDER_STEPS, lightingLabel, NPC_BEHAVIOUR_LABEL, type NumericSetting } from '../settings';
+import { EQ_LIMIT_LABEL, FOG_SLIDER_STEPS, lightingLabel, NPC_BEHAVIOUR_LABEL, type NumericSetting, type SteppedSetting } from '../settings';
 import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
+import { buildArsenalSection, type ArsenalSection } from './arsenalSection';
+import { buildRosterSection, type RosterSection } from './rosterSection';
+import { buildWorldSection, type WorldSection } from './worldSection';
 
 /**
  * FUI-1 (the review's UX-10; FG-24, FG.R18; a browser adaptation, FG.R2): the Settings panel. The layout's map settings
@@ -10,7 +13,7 @@ import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
  * was (`.fx-settings`, `.fx-setting`, `.fx-setting-nums`, `.fx-toggle`); the page's closure keeps wiring the controls and
  * writes every change as an edit of the layout, as before. The editor's snap settings live in the viewport dropdown.
  */
-export type MapSettingId = 'gameType' | NumericSetting | 'friendlyFire' | 'npcBehaviour';
+export type MapSettingId = 'gameType' | NumericSetting | 'friendlyFire' | 'npcBehaviour' | 'respawn';
 export type SettingControl = 'select' | 'range' | 'fog' | 'number' | 'toggle' | 'choice';
 
 export interface SettingRowSpec {
@@ -42,6 +45,11 @@ export const MAP_SETTING_ROWS: readonly SettingRowSpec[] = [
   { id: 'rounds', menuId: 'setting-rounds', label: 'Rounds', control: 'number' },
   { id: 'roundSeconds', menuId: 'setting-roundSeconds', label: 'Round time', dockLabel: 'Round time (s)', control: 'number' },
   { id: 'friendlyFire', menuId: 'setting-friendlyFire', label: 'Friendly fire', control: 'toggle', menuAct: 'step' },
+  // CREATE GAME's RESPAWN and EQlimit rows (research 348, 362): the room's own `rules` and `eqLimit`.
+  { id: 'respawn', menuId: 'setting-respawn', label: 'Respawn', control: 'toggle', menuAct: 'step',
+    dockNote: 'Respawn plays 1 round of 20 minutes by default, classic 11 rounds of 6; rounds and round time you set are kept.' },
+  { id: 'eqLimit', menuId: 'setting-eqLimit', label: 'Equipment limit', control: 'choice', menuAct: 'step',
+    dockNote: 'CREATE GAME’s restriction, applied over the weapons below.' },
   // NPB-6 (NPB.R6): how the layout's NPCs play in Play here -- sentries, or the lobby bots' brain where the map has its graph.
   { id: 'npcBehaviour', menuId: 'setting-npcBehaviour', label: 'NPC behaviour', control: 'choice', menuAct: 'step',
     dockNote: 'Patrol needs the map’s navigation file (tools/prepare-bot-navigation.ts); without it the NPCs stand as sentries.' },
@@ -55,6 +63,8 @@ export function formatSetting(id: Exclude<MapSettingId, 'gameType'>, s: LayoutSe
     case 'fogFar': return `${s.fogFar ?? Math.round(discFar)} u${s.fogFar === null ? ' · map’s' : ''}`;
     case 'roundSeconds': return `${Math.floor(s.roundSeconds / 60)}:${String(s.roundSeconds % 60).padStart(2, '0')}`;
     case 'friendlyFire': return s.friendlyFire ? 'On' : 'Off';
+    case 'respawn': return s.respawn ? 'On' : 'Off';
+    case 'eqLimit': return EQ_LIMIT_LABEL[s.eqLimit] ?? String(s.eqLimit);
     case 'npcBehaviour': return NPC_BEHAVIOUR_LABEL[s.npcBehaviour];
     default: return String(s[id]);
   }
@@ -80,9 +90,17 @@ export interface SettingsDom {
   numIn: Record<'players' | 'rounds' | 'roundSeconds', HTMLInputElement>;
   ffIn: HTMLInputElement;
   npcSel: HTMLSelectElement;
+  respawnIn: HTMLInputElement;
+  eqSel: HTMLSelectElement;
+  /** The match's weapons and kits (`./arsenalSection`), drawn and wired by the page. */
+  arsenal: ArsenalSection;
+  /** The ARMORY's character types (`./rosterSection`), drawn and wired by the page. */
+  roster: RosterSection;
+  /** The default surface, the field of view, the reverb and the loading screen (`./worldSection`), drawn and wired by the page. */
+  world: WorldSection;
 }
 
-type Parts = Omit<SettingsDom, 'body' | 'lightingRows'>;
+type Parts = Omit<SettingsDom, 'body' | 'lightingRows' | 'arsenal' | 'roster' | 'world'>;
 
 /** The settings whose dock rows live in the Environment panel (still the START menu's Map settings rows). */
 export const LIGHTING_SETTINGS: readonly MapSettingId[] = ['timeOfDay', 'fogFar'];
@@ -128,6 +146,11 @@ function controls(doc: Document): Parts {
   const npcSel = forgeEl(doc, 'select', 'fx-select fx-npc-behaviour');
   npcSel.setAttribute('aria-label', 'NPC behaviour');
   npcSel.append(...NPC_BEHAVIOURS.map((b) => gameOpt(b, NPC_BEHAVIOUR_LABEL[b])));
+  const respawnIn = forgeEl(doc, 'input');
+  respawnIn.type = 'checkbox';
+  const eqSel = forgeEl(doc, 'select', 'fx-select fx-eq-limit');
+  eqSel.setAttribute('aria-label', 'Equipment limit');
+  eqSel.append(...EQ_LIMIT_LABEL.map((l, i) => gameOpt(String(i), l)));
   const num = (key: 'players' | 'rounds' | 'roundSeconds'): HTMLInputElement => numberIn(doc, SETTINGS_BOUNDS[key].min, SETTINGS_BOUNDS[key].max, SETTINGS_BOUNDS[key].step);
   const lightIn = range(doc, SETTINGS_BOUNDS.timeOfDay.min, SETTINGS_BOUNDS.timeOfDay.max, SETTINGS_BOUNDS.timeOfDay.step);
   lightIn.setAttribute('aria-label', 'Night to day');
@@ -143,7 +166,7 @@ function controls(doc: Document): Parts {
   return {
     gameTypeSel, lightIn, lightReset, lightControls,
     lightOut: forgeEl(doc, 'span', 'fx-setting-value'), fogIn: range(doc, 0, FOG_SLIDER_STEPS, 1), fogOut: forgeEl(doc, 'span', 'fx-setting-value'),
-    fogReset, numIn: { players: num('players'), rounds: num('rounds'), roundSeconds: num('roundSeconds') }, ffIn, npcSel,
+    fogReset, numIn: { players: num('players'), rounds: num('rounds'), roundSeconds: num('roundSeconds') }, ffIn, npcSel, respawnIn, eqSel,
   };
 }
 
@@ -187,8 +210,8 @@ function dockRow(doc: Document, spec: SettingRowSpec, p: Parts): HTMLElement {
     case 'range': return settingRow(doc, label, p.lightControls, p.lightOut);
     case 'fog': { const pair = forgeEl(doc, 'div', 'fx-setting-pair'); pair.append(p.fogIn, p.fogReset); return settingRow(doc, label, pair, p.fogOut); }
     case 'number': return settingRow(doc, label, p.numIn[spec.id as 'players' | 'rounds' | 'roundSeconds']);
-    case 'toggle': { const w = forgeEl(doc, 'label', 'fx-toggle'); w.append(p.ffIn, forgeEl(doc, 'span', '', label)); return w; }
-    case 'choice': return settingRow(doc, label, p.npcSel);
+    case 'toggle': { const w = forgeEl(doc, 'label', 'fx-toggle'); w.append(spec.id === 'respawn' ? p.respawnIn : p.ffIn, forgeEl(doc, 'span', '', label)); return w; }
+    case 'choice': return settingRow(doc, label, spec.id === 'eqLimit' ? p.eqSel : p.npcSel);
   }
 }
 
@@ -219,8 +242,9 @@ export function buildSettings(doc: Document): SettingsDom {
   const body = forgeEl(doc, 'div', 'fx-settings fx-section');       // FUI-22 (D2): the dock's one section style
   const p = controls(doc);
   const lighting = (spec: SettingRowSpec): boolean => LIGHTING_SETTINGS.includes(spec.id);
-  body.append(forgeEl(doc, 'h3', '', 'Map'), ...mapRows(doc, p, MAP_SETTING_ROWS.filter((s) => !lighting(s))));
-  return { body, lightingRows: mapRows(doc, p, MAP_SETTING_ROWS.filter(lighting)), ...p };
+  const arsenal = buildArsenalSection(doc), roster = buildRosterSection(doc), world = buildWorldSection(doc);
+  body.append(forgeEl(doc, 'h3', '', 'Map'), ...mapRows(doc, p, MAP_SETTING_ROWS.filter((s) => !lighting(s))), roster.body, arsenal.body, world.body);
+  return { body, lightingRows: mapRows(doc, p, MAP_SETTING_ROWS.filter(lighting)), arsenal, roster, world, ...p };
 }
 
 /** What the menu's rows read and do: the page's own settings, steps and refusals. */
@@ -229,7 +253,7 @@ export interface SettingsMenuHooks {
   discFar(): number;
   gameTypeLabel(): string;
   cycleGameType(by: 1 | -1): void;
-  step(key: NumericSetting | 'friendlyFire' | 'npcBehaviour', dir: 1 | -1): void;
+  step(key: SteppedSetting, dir: 1 | -1): void;
   resetFog(): void;
   /** Original: the saved Night -> Day cleared (`./settings` `timeSetting(s, null)`), as the dock's button. */
   resetLighting(): void;
@@ -262,6 +286,8 @@ export function settingsMenuSection(hooks: SettingsMenuHooks, rows: readonly Set
  */
 export function settingsPanel(dom: SettingsDom, hooks: SettingsMenuHooks): ForgePanel {
   // Under World, beside the Environment panel: the layout's map-wide settings, not an object's.
-  return builtPanel({ id: 'settings', title: 'Settings', dock: 'right', order: 40, defaultOpen: true, tab: 'World',
+  // Titled Map Settings and first on the Map tab (the owner, 2026-11-06): above the View (30) and the Light rig (35).
+  // Its id kept, so a saved dock layout and the tests still find it.
+  return builtPanel({ id: 'settings', title: 'Map Settings', dock: 'right', order: 25, defaultOpen: true, tab: 'Map',
     padLegend: [{ button: 'dpad', label: 'Change' }, { button: 'cross', label: 'Reset' }], menuSection: () => settingsMenuSection(hooks) }, dom.body);
 }

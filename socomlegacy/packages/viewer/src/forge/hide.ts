@@ -122,6 +122,26 @@ export function walkOrder(map: Pick<LoadedMap, 'props'>, model: string, path?: s
  * the walk, `walkOrder`, takes the k-th equal share), as `./ground` `prototypePolygons` reads it. The loaded ground is
  * not touched.
  */
+/**
+ * The hull's owners a placement (`<prop entry>:<placement>`) holds -- its own collision, what hiding it takes out of the
+ * hull (`groundWithout`). None where the disc files the placement's polygons under no node of its own: a prop with no
+ * collision, or one whose collision is baked into the world's (the owner, 2026-11-06: the Delete's warning).
+ */
+export function placementOwners(map: Pick<LoadedMap, 'props'>, ground: GroundData, key: string): CollisionOwner[] {
+  const [prop, index] = key.split(':').map(Number) as [number, number];
+  const p = map.props[prop];
+  const path = p?.paths?.[index];
+  if (!p || !path) return [];
+  const eq = path.lastIndexOf('='), slash = path.lastIndexOf('/');
+  const own = eq > slash ? `${path.slice(0, eq)}/` : null;
+  const owners = ground.owners.filter((o) => o.count > 0 && !o.switchedOff && (o.path === path || o.path.startsWith(`${path}/`) || (own !== null && o.path.startsWith(own))));
+  if (owners.length === 0) return [];
+  const order = walkOrder(map, p.modelName, path);
+  const k = order.findIndex((o) => o.prop === prop && o.index === index), n = order.length;
+  const share = n > 1 && owners.length % n === 0 ? owners.length / n : owners.length;
+  return n > 1 && owners.length % n === 0 ? owners.slice(k * share, k * share + share) : owners;
+}
+
 export function groundWithout(map: Pick<LoadedMap, 'props'>, ground: GroundData, hidden: ReadonlySet<string>): GroundData {
   if (hidden.size === 0) return ground;
   const drop = new Set<CollisionOwner>();

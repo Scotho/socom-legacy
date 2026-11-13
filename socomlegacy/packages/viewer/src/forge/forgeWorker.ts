@@ -1,3 +1,4 @@
+import { libraryProps, type LibraryProp } from './library';
 import { HttpAssetSource, mapName, type AssetSource } from '@s2u/archive';
 import { locTable, readLocArchive, type LocTable } from '@s2u/scene';
 import { sourceCache, type SourceRequest } from '../discSource';
@@ -5,6 +6,9 @@ import { loadMap, transferables, type LoadedMap, type LoadStage } from '../loadM
 import { playFromDisc, playTransferables, type PlayData } from '../motionTable';
 import { archivesOf, missionName } from './catalog';
 import { copiesOf, type MapCopies } from './mapCensus';
+import { bankSoundNames, weaponSoundCatalog, type WeaponSoundEntry } from '../soundData';
+import { effectProgramsFromDisc } from '../effectData';
+import { scriptEffectsOf, scriptSoundsOf } from './scriptAssets';
 import { servedPaths } from './servedPaths';
 
 /**
@@ -24,14 +28,20 @@ export type ForgeRequest =
   | { kind: 'load'; id: number; source: SourceRequest; path: string }
   | { kind: 'play'; id: number; source: SourceRequest; clips: string[] }
   /** The map's doors, turrets and hostages listed (`./mapCensus` `copiesOf`), the map itself let go: nothing transferred. */
-  | { kind: 'census'; id: number; source: SourceRequest; path: string };
+  | { kind: 'census'; id: number; source: SourceRequest; path: string }
+  /** A map's sounds and effects a switch's script may play (`./scriptAssets` `ScriptNames`): its banks' and its sets'. */
+  | { kind: 'scriptNames'; id: number; source: SourceRequest; path: string; archive: string }
+  /** The guns' sounds (`../soundData` `weaponSoundCatalog`): the Sound choice's Weapons, apart from every map's list. */
+  | { kind: 'weaponSounds'; id: number; source: SourceRequest };
 
 export type ForgeResponse =
   | { kind: 'list'; id: number; archives: ListedArchive[]; problems: string[] }
   | { kind: 'progress'; id: number; stage: LoadStage; done: number; total: number }
   | { kind: 'map'; id: number; map: LoadedMap }
   | { kind: 'play'; id: number; data: PlayData | null }
-  | { kind: 'census'; id: number; copies: MapCopies }
+  | { kind: 'census'; id: number; copies: MapCopies; props?: LibraryProp[] }
+  | { kind: 'scriptNames'; id: number; sounds: string[]; effects: string[] }
+  | { kind: 'weaponSounds'; id: number; sounds: WeaponSoundEntry[] }
   | { kind: 'error'; id: number; message: string };
 
 const ctx = self as unknown as {
@@ -74,8 +84,19 @@ ctx.addEventListener('message', (event: MessageEvent<ForgeRequest>) => {
       } else if (request.kind === 'play') {
         const data = await playFromDisc(sourceFor(request.source), request.clips);
         ctx.postMessage({ kind: 'play', id: request.id, data }, data ? playTransferables(data) : []);
+      } else if (request.kind === 'scriptNames') {
+        // Every sound its banks hold and its programs play (a stream's name among them); every effect of its two sets.
+        const src = sourceFor(request.source);
+        // The guns' sounds left out: they are the Weapons category's (`weaponSounds`), every map's alike.
+        const [banks, fx, guns] = await Promise.all([bankSoundNames(src, request.archive).catch(() => [] as string[]), effectProgramsFromDisc(src, request.path),
+          weaponSoundCatalog(src).catch(() => [] as WeaponSoundEntry[])]);
+        const gun = new Set(guns.map((g) => g.name));
+        ctx.postMessage({ kind: 'scriptNames', id: request.id, sounds: [...new Set([...banks, ...scriptSoundsOf(fx.mission)])].filter((n) => !gun.has(n.trim())).sort(), effects: scriptEffectsOf(fx.all) });
+      } else if (request.kind === 'weaponSounds') {
+        ctx.postMessage({ kind: 'weaponSounds', id: request.id, sounds: await weaponSoundCatalog(sourceFor(request.source)).catch(() => []) });
       } else if (request.kind === 'census') {
-        ctx.postMessage({ kind: 'census', id: request.id, copies: copiesOf(await loadMap(sourceFor(request.source), request.path)) });
+        const map = await loadMap(sourceFor(request.source), request.path);
+        ctx.postMessage({ kind: 'census', id: request.id, copies: copiesOf(map), props: libraryProps(map) });   // the asset browser's Shared and All
       } else {
         let last = -1;
         const map = await loadMap(sourceFor(request.source), request.path, (stage, done, total) => {

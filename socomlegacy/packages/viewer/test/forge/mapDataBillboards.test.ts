@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { facingVector, type SpawnSlot } from '@s2u/scene';
-import { billboardSpecs, MAP_DATA_KIND_TOGGLES, MAP_DATA_MARKS, MAP_DATA_SELECTED_BORDER, placementOfMark, userMarkKind } from '../../src/forge/mapDataBillboards';
+import { billboardSpecs, isUserMarkKind, MAP_DATA_KIND_TOGGLES, MAP_DATA_MARKS, MAP_DATA_SELECTED_BORDER, placementOfMark, userMarkKind } from '../../src/forge/mapDataBillboards';
 import type { MapDataGroup } from '../../src/forge/mapData';
 
 /**
@@ -29,7 +29,7 @@ describe('billboardSpecs', () => {
   });
 
   it('every kind a mark of its own: a glyph, a colour and the word the Inspector names it by', () => {
-    for (const kind of ['slotA', 'slotB', 'respawnA', 'respawnB', 'escortees', 'bombStart', 'turrets', 'doors', 'gates', 'cranes', 'actions', 'tacPoints', 'tacZones', 'scenicViews']) {
+    for (const kind of ['slotA', 'slotB', 'respawnA', 'respawnB', 'escortees', 'bombStart', 'turrets', 'doors', 'gates', 'cranes', 'actions', 'damage', 'tacPoints', 'tacZones', 'scenicViews']) {
       expect(MAP_DATA_MARKS[kind], kind).toMatchObject({ glyph: expect.stringMatching(/^.{1,2}$/), colour: expect.stringMatching(/^#[0-9a-f]{6}$/), word: expect.any(String) });
     }
   });
@@ -48,11 +48,15 @@ describe('billboardSpecs', () => {
     expect(Object.values(MAP_DATA_MARKS).map((m) => m.colour)).not.toContain(MAP_DATA_SELECTED_BORDER);
   });
 
-  it('a switch a kind of map data, each mark kind under exactly one (a spawn slot\'s two sides under one)', () => {
+  it('a switch a kind, the map\'s and the user\'s marks of it under one, each mark kind under exactly one (a spawn\'s two sides under one)', () => {
     const covered = MAP_DATA_KIND_TOGGLES.flatMap((t) => t.kinds);
     expect(new Set(covered).size).toBe(covered.length);
     expect(new Set(covered)).toEqual(new Set(Object.keys(MAP_DATA_MARKS)));
-    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'slots')!.kinds).toEqual(['slotA', 'slotB']);
+    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'slots')!.kinds).toEqual(['slotA', 'slotB', 'userSpawnA', 'userSpawnB']);
+    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'doors')!.kinds).toEqual(['doors', 'userDoors']);
+    // Only user data's split: the user's own kinds by their name.
+    expect(['userDoors', 'userNpcs'].every(isUserMarkKind)).toBe(true);
+    expect(['doors', 'slotA', 'mapProps'].some(isUserMarkKind)).toBe(false);
   });
 
   it('the map\'s props: an M mark each, first, keyed by their placement (and back)', () => {
@@ -63,25 +67,21 @@ describe('billboardSpecs', () => {
     expect(placementOfMark('door:0')).toBeNull();
   });
 
-  it('the user\'s own placements are kinds of their own, under User data, each drawn square (the map\'s are round)', () => {
-    const user = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'user');
-    // OT.R112: the contributor's list -- respawn points and flares placed by the user, NPCs last (no map counterpart).
-    expect(user.map((t) => t.id)).toEqual(['userProps', 'userSpawns', 'userRespawns', 'userEscortees', 'userTacZones', 'userTacPoints', 'userScenicViews', 'userTurrets', 'userDoors', 'userLadders', 'userGates', 'userFlares', 'userObjectives', 'userActions', 'userNpcs']);
-    expect([userMarkKind({ respawn: 'A' }), userMarkKind({ respawn: 'B' }), userMarkKind({ flare: true })]).toEqual(['userRespawnA', 'userRespawnB', 'userFlares']);
+  it('the user\'s own placements are kinds of their own, under User data, each drawn as its map counterpart is (one icon: the owner, 2026-11-10)', () => {
+    const user = [{ id: 'userSpawns', kinds: ['userSpawnA', 'userSpawnB'] }, { id: 'userObjectives', kinds: ['userBombStart'] }];
     expect(userMarkKind({ hostage: true })).toBe('userEscortees');
     expect(userMarkKind({ zone: true })).toBe('userTacZones');
     expect([userMarkKind({ point: true }), userMarkKind({ view: true }), userMarkKind({ turret: true }), userMarkKind({ door: true })]).toEqual(['userTacPoints', 'userScenicViews', 'userTurrets', 'userDoors']);
     expect(userMarkKind({ piece: true, ladder: true })).toBe('userLadders');           // a placed ladder: a piece, marked as a ladder
     expect(user.find((t) => t.id === 'userSpawns')!.kinds).toEqual(['userSpawnA', 'userSpawnB']);
-    for (const k of user.flatMap((t) => t.kinds)) expect(MAP_DATA_MARKS[k]!.shape, k).toBe('square');
-    for (const t of MAP_DATA_KIND_TOGGLES.filter((x) => x.group === 'map')) for (const k of t.kinds) expect(MAP_DATA_MARKS[k]!.shape ?? 'disc', k).toBe('disc');
+    for (const k of Object.keys(MAP_DATA_MARKS)) expect(MAP_DATA_MARKS[k], k).not.toHaveProperty('shape');   // every mark a disc
     expect(userMarkKind({ piece: true })).toBe('userProps');
     expect(userMarkKind({ team: 'B' })).toBe('userSpawnB');
     expect(userMarkKind({ npc: true })).toBe('userNpcs');
     expect(user.find((t) => t.id === 'userObjectives')!.kinds).toEqual(['userBombStart']);
     expect(userMarkKind({ bomb: 'start' })).toBe('userBombStart');
     expect(userMarkKind({ bomb: 'terrorist' })).toBe('userSiteTerrorist');
-    // A placed spawn wears the disc spawn slot's colours (`../overlays` SPAWN_COLOURS): only its shape tells it apart.
+    // A placed spawn wears the disc spawn slot's colours (`../overlays` SPAWN_COLOURS): the same mark.
     expect([MAP_DATA_MARKS['userSpawnA']!.colour, MAP_DATA_MARKS['userSpawnB']!.colour]).toEqual([MAP_DATA_MARKS['slotA']!.colour, MAP_DATA_MARKS['slotB']!.colour]);
     expect([MAP_DATA_MARKS['slotA']!.colour, MAP_DATA_MARKS['slotB']!.colour]).toEqual(['#4d9bff', '#ff6a3d']);
     // A spawn by its side: Ss the SEALs' (side A, 0), St the Terrorists' (side B, 1), the map's slots and the user's alike.
@@ -89,14 +89,19 @@ describe('billboardSpecs', () => {
     expect([MAP_DATA_MARKS['respawnA']!.glyph, MAP_DATA_MARKS['respawnB']!.glyph]).toEqual(['Rs', 'Rt']);
     expect(billboardSpecs([{ key: 'respawns', label: 'Respawn Points', rows: [{ key: 'respawn:B1', label: 'Respawn B1', title: '', at: [0, 0, 0], kind: 'respawnB' }] }], [])[0]!.kind)
       .toBe('respawnB');                                                                     // a row's own kind over its branch's
-    // A user kind with a map counterpart is that kind's letter and colour; only its shape (square) differs.
-    for (const [user, map] of [['userProps', 'mapProps'], ['userSpawnA', 'slotA'], ['userSpawnB', 'slotB'], ['userBombStart', 'bombStart'], ['userEscortees', 'escortees'], ['userTacZones', 'tacZones'], ['userTacPoints', 'tacPoints'], ['userScenicViews', 'scenicViews'], ['userTurrets', 'turrets'], ['userDoors', 'doors'], ['userLadders', 'ladders'], ['userGates', 'gates'], ['userBarriers', 'actions'], ['userSiteSeal', 'actions'], ['userSiteTerrorist', 'actions']] as const) {
+    // A user kind with a map counterpart is that kind's letter and colour; the same mark.
+    for (const [user, map] of [['userProps', 'mapProps'], ['userSpawnA', 'slotA'], ['userSpawnB', 'slotB'], ['userBombStart', 'bombStart'], ['userEscortees', 'escortees'], ['userTacZones', 'tacZones'], ['userTacPoints', 'tacPoints'], ['userScenicViews', 'scenicViews'], ['userTurrets', 'turrets'], ['userDoors', 'doors'], ['userLadders', 'ladders'], ['userGates', 'gates'], ['userBarriers', 'damage'], ['userSiteSeal', 'actions'], ['userSiteTerrorist', 'actions'], ['userSwitches', 'actions']] as const) {
       expect([MAP_DATA_MARKS[user]!.glyph, MAP_DATA_MARKS[user]!.colour], user).toEqual([MAP_DATA_MARKS[map]!.glyph, MAP_DATA_MARKS[map]!.colour]);
     }
     // The bomb as the disc keeps it, the map's and the user's alike: its start (StartBomb) a switch, its plant sites
     // context actions (MPBOMB), under Context actions.
     expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'bombStart')!.kinds).toEqual(['bombStart']);
-    expect(user.find((t) => t.id === 'userActions')!.kinds).toEqual(['userSiteSeal', 'userSiteTerrorist', 'userBarriers']);   // a placed C4 barrier a context action too
+    expect(user.find((t) => t.id === 'userActions')!.kinds).toEqual(['userSiteSeal', 'userSiteTerrorist', 'userSwitches']);   // a placed switch a context action too
+    expect(userMarkKind({ switch: true })).toBe('userSwitches');
+    // A placed damage trigger (a C4 barrier or a hit trigger) under Damage triggers, its own mark, not the context actions' !.
+    expect(user.find((t) => t.id === 'userDamage')!.kinds).toEqual(['userBarriers']);
+    expect(MAP_DATA_MARKS['damage']!.glyph).not.toBe(MAP_DATA_MARKS['actions']!.glyph);
+    expect(MAP_DATA_MARKS['damage']!.colour).not.toBe(MAP_DATA_MARKS['actions']!.colour);
     expect(userMarkKind({})).toBeNull();
   });
 
@@ -104,25 +109,13 @@ describe('billboardSpecs', () => {
     expect(billboardSpecs([], [])).toEqual([]);
   });
 
-  // OT.R112: the contributor's dropdown -- rows by section under a heading (the placing toolbar's own headers), a lone
-  // user switch (NPCs) in its section's first empty user cell.
-  it('the dropdown pairs each user kind with its map kind on one row, by section under its heading; a lone kind takes a free cell', async () => {
+  it('the dropdown is one list by section, every switch once (the owner, 2026-11-10: "a single list")', async () => {
     const { billboardRows } = await import('../../src/forge/mapDataBillboards');
-    const all = billboardRows();
-    expect(all.flatMap((r) => ('heading' in r ? [r.heading] : []))).toEqual(['Spawn', 'Objects', 'Demolition', 'Escort · Extraction', 'Info', 'Other']);
-    expect('heading' in all[0]!).toBe(true);
-    const rows = all.flatMap((r) => ('heading' in r ? [] : [[r.user?.id ?? null, r.map?.id ?? null]]));
-    expect(rows).toContainEqual(['userTurrets', 'turrets']);
-    expect(rows).toContainEqual(['userDoors', 'doors']);
-    expect(rows).toContainEqual(['userGates', 'gates']);
-    expect(rows).toContainEqual(['userObjectives', 'bombStart']);
-    expect(rows).toContainEqual(['userActions', 'actions']);
-    expect(rows).toContainEqual(['userRespawns', 'respawns']);
-    expect(rows).toContainEqual(['userFlares', 'flares']);
-    expect(rows).toContainEqual(['userNpcs', 'cranes']);                 // no map NPCs: the Other section's free user cell
-    // Every switch once, the map's in the sections' order.
-    expect(rows.flatMap(([u, m]) => [u, m]).filter(Boolean).sort()).toEqual(MAP_DATA_KIND_TOGGLES.map((t) => t.id).sort());
-    expect(rows.flatMap(([, m]) => (m ? [m] : []))).toEqual(['slots', 'respawns', 'mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares', 'bombStart', 'actions', 'escortees', 'tacZones', 'tacPoints', 'scenicViews', 'cranes']);
-    expect(rows[rows.length - 1]).toEqual(['userNpcs', 'cranes']);       // last
+    const rows = billboardRows();
+    const ids = rows.flatMap((r) => ('toggle' in r ? [r.toggle.id] : []));
+    expect([...ids].sort()).toEqual(MAP_DATA_KIND_TOGGLES.map((t) => t.id).sort());
+    expect(rows.filter((r) => 'heading' in r).map((r) => ('heading' in r ? r.heading : ''))).toEqual(['Spawn', 'Objects', 'Demolition \u00b7 Breach', 'Escort \u00b7 Extraction', 'Info', 'Other']);
+    expect(ids.indexOf('damage')).toBe(ids.indexOf('flares') + 1);         // Objects, beside the Triggers dropdown
+    expect(ids.slice(-3)).toEqual(['cranes', 'ambients', 'userNpcs']);
   });
 });

@@ -29,9 +29,14 @@ body.forge-page, .agent-panel, .agent-testroom-dock {
   --fx-on-accent: var(--s2u-ground-deep);
   /* edges (VP-9): a divider between regions, and a control's own edge at 3:1 (text-dim, as the system's actions) */
   --fx-divider: var(--s2u-highlight);
-  --fx-control-edge: var(--s2u-text-dim);
+  /* No edge drawn round a control for now (the owner, 2026-11-11: "remove the white borders, I want to see how it looks
+     without the borders"): a field, a dropdown, a button or a chip keeps its face and its gold edge under the pointer or
+     chosen. Was the system's text-dim (`--s2u-text-dim`, 3:1); put it back here to bring the edges back. */
+  --fx-control-edge: transparent;
   --fx-edge: var(--fx-divider);
-  --fx-edge-hi: var(--fx-control-edge);
+  --fx-edge-hi: var(--s2u-text-dim);
+  /* The scroll bars' thumb: the controls' old edge colour, kept apart so a bar shows whatever the controls' edges do. */
+  --fx-scroll-thumb: var(--s2u-text-dim);
   /* states: always beside a word, never the colour alone (shared/ds README, "s2u-chip") */
   --fx-live: var(--s2u-state-live);
   --fx-ready: var(--s2u-state-ready);
@@ -65,8 +70,10 @@ body.forge-page, .agent-panel, .agent-testroom-dock {
   --fx-type-control: 400 12px/16px var(--s2u-font-body);
   --fx-type-caption: 500 13px/16px var(--s2u-font-label);
   --fx-type-mono: var(--s2u-type-readout);
-  /* shape: one radius (the system's controls are square), the pill for a chip, the system's one lift */
-  --fx-radius: var(--s2u-radius-0);
+  /* shape: one radius, the pill for a chip, the system's one lift. The Forge's corners are rounded (the owner, 2026-11-11:
+     "everywhere where we have square ... corners in the ui ... make them rounded"; the launcher's system stays square):
+     the system's row radius (`--s2u-radius-lx-row`'s 4 px). */
+  --fx-radius: 4px;
   --fx-radius-pill: var(--s2u-radius-pill);
   --fx-lift: var(--s2u-viewer-lift);
   --fx-ico: var(--s2u-icon-16);
@@ -85,6 +92,7 @@ body.forge-page, .agent-panel, .agent-testroom-dock {
   --fx-z-window: calc(var(--s2u-z-overlay) - 10);
   --fx-z-modal: calc(var(--s2u-z-overlay) - 5);
   --fx-z-match: var(--s2u-z-overlay);
+  --fx-z-loading: calc(var(--fx-z-match) + 1);  /* the original's loading screen over Play's start (`../loadingPanel`) */
   --fx-z-match-back: 1100;
   --fx-z-testroom: 180;
 }

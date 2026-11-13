@@ -15,6 +15,9 @@ export const MESSAGE_COLOURS: readonly (readonly [number, number, number])[] = [
   [128, 128, 128], [128, 128, 64], [64, 64, 96], [64, 128, 64], [128, 64, 32], [128, 64, 64],
 ];
 
+/** The six as a Forge message step's Colour choice names them (a browser adaptation: names only, the colours the game's). */
+export const MESSAGE_COLOUR_NAMES: readonly string[] = ['White', 'Yellow', 'Slate blue', 'Green', 'Orange', 'Red'];
+
 /** The claymore's refusal posts in colour 2 (`FUN_005be9a0` D:L475331: `FUN_002b6530(..., 0x65f880, 2, 0, 0)`). */
 export const CLAYMORE_REFUSAL_COLOUR = 2;
 
@@ -42,4 +45,14 @@ export function messageLine(text: string, colour: number, scale: number): Banner
  */
 export function refusalLine(hud: Pick<Hud, 'postMessage'>): (text: string) => void {
   return (text) => { hud.postMessage([messageLine(text, CLAYMORE_REFUSAL_COLOUR, CLAYMORE_REFUSAL_SCALE_READING)]); };
+}
+
+/**
+ * A Forge switch's script's message (`./forge/placedAccess`): the window's own post as before, or -- with a `colour`
+ * (FORGE_MESSAGE_COLOUR_ADAPTATION, the owner, 2026-11-10: "specify the color of that message") -- a line in that one of
+ * the window's six colours (`MESSAGE_COLOURS`) at the window's scale.
+ */
+export function postScriptMessage(hud: Pick<Hud, 'postMessage'>, text: string, colour?: number): void {
+  if (colour === undefined) hud.postMessage(text);
+  else hud.postMessage([messageLine(text, colour, MESSAGE_SCALE)]);
 }

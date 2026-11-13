@@ -1,4 +1,4 @@
-import type { Grid } from '@s2u/scene';
+import type { EffectOp, Grid } from '@s2u/scene';
 import type { LoadedMap } from './loadMap';
 import { groundGrid } from './mover';
 import { bareMeta, GLASS_FRAGMENTS_PLACEHOLDER, WorldState } from './worldState';
@@ -28,6 +28,10 @@ export interface PageWorldHooks {
   effect(name: string, at: [number, number, number]): void;
   /** A line of the page's log (`console.info` on both pages). */
   log(line: string): void;
+  /** A program's `MESSAGE` text (a Forge switch's script): the HUD's message window. */
+  message?(text: string, colour?: number): void;
+  /** FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's blast drawn at its place (`../effects` `Effects.scriptRound`). */
+  scriptRound?(op: Extract<EffectOp, { op: 'fireWeapon' }>, at: [number, number, number]): void;
 }
 
 /** The page's world and the hull grid it keeps, the walk's to stand on; null for a map with no ground. */
@@ -50,6 +54,11 @@ export function buildPageWorld(map: LoadedMap, hooks: PageWorldHooks, ambient: r
     call: (name, path) => {
       const at = path !== null ? world.placeOf(path) : null;
       if (at) hooks.effect(name, at);
+    },
+    message: (text, colour) => { hooks.message?.(text, colour); },
+    scriptRound: (op, path) => {
+      const at = path !== null ? world.placeOf(path) : null;
+      if (at) hooks.scriptRound?.(op, at);
     },
     destruction: (path) => {
       const key = path ?? '';

@@ -258,7 +258,11 @@ export function mountSound(p: MatchSoundParts): MatchSound {
     playEvent: (e) => { if (!p.screenUp?.()) walkSounds.playEvent(e); },   // OBF-7: ROUND_SCREENS_SILENCE_WALK_READING
     ladderSlide: (at) => { audio.setLadderSlide(p.screenUp?.() ? null : at); },   // OBF-7: the loop let go under the screens
     ladderLand: (speed, at) => { if (!p.screenUp?.()) audio.onLand(speed, walkSounds.material(at), at); },
-    sceneSound: (name, at, volume) => { if (!screens()) audio.play(name, at, 'play', volume); },   // OBF-31
+    sceneSound: (name, at, volume) => {
+      if (screens()) return;                                    // OBF-31
+      // FORGE_SCRIPT_SOUND_ADAPTATION (`SoundData.lentStreams`): a Forge switch's stream, where no bank holds the name.
+      if (!audio.play(name, at, 'play', volume) && data?.lentStreams?.includes(name)) audio.playStream(name, at);
+    },
     grenadeWarning: (r) => {
       if (screens()) return null;                      // OBF-31: no thrower's voice nor its line under the screens
       const seat = p.seat?.() ?? null, others = p.others?.() ?? null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { facingVector, type SpawnSlot } from '@s2u/scene';
+import type { EffectProgram } from '@s2u/scene';
 import { mapDataGroups, type MapDataSource } from '../../src/forge/mapData';
 
 /**
@@ -87,5 +88,59 @@ describe('mapDataGroups', () => {
 
   it('a map with none of it has no branches', () => {
     expect(mapDataGroups({}, () => 0)).toEqual([]);
+  });
+});
+
+describe('mapDataGroups: what a context action does, and what damage sets off (research 171, 174, 175, 209)', () => {
+  const prog = (name: string, nodes: string[], ops: EffectProgram['sequences'][number]['ops']): EffectProgram =>
+    ({ name, root: 0, flags: 0, nodes, sequences: [{ name: 's', activation: 1, ops }] });
+  const record = { valve: '', anims: [] as string[], team: null, range: 32, elevation: -1, points: 0, bitmap: '' };
+  const source: MapDataSource = {
+    actions: [
+      { ...record, node: 'seal_callstrike_1', type: 'SWITCH', typeCode: 2, valve: 'seal_strike1', anims: ['seal_demo_site1'], range: 30, points: 2,
+        bitmap: 'action_pull_lever.tif', at: [0, 0, 0], aim: [25, 5, 0] },
+      { ...record, node: 'radio_call_1', type: 'SWITCH', typeCode: 2, team: 0, bitmap: 'action_helo.tif', at: [9, 9, 9] },
+      { ...record, node: 'access_action1', type: '', typeCode: 8, valve: 'set_access1', anims: ['destroy_access1'], at: [1, 1, 1] },
+    ],
+    programs: [
+      prog('seal_demo_site1', ['NA', 'destroyed', 'healthy'], [{ op: 'active', node: 1, on: true }, { op: 'active', node: 2, on: false },
+        { op: 'fireWeapon', weapon: 'MPBOMB', ammo: 'MPBOMB Ammo', node: 0, f1: 0, f2: 0 }]),
+      prog('destroy_access1', ['NA', 'good_parts', 'whats_left'], [{ op: 'active', node: 1, on: false }, { op: 'active', node: 2, on: true }]),
+    ],
+    destructibles: [
+      { anim: 'access1', targetPath: 'worldmodel/access1=access1/good_parts', health: 1, shield: 17,
+        program: prog('access1', ['NA'], [{ op: 'executeAction', anim: 'set_access1' }]), at: [40, 0, 40] },
+      { anim: 'plank1', targetPath: 'worldmodel/plankaccess1', health: 0, shield: 0, program: prog('plank1', ['NA'], []), at: [50, 0, 50] },
+      { anim: 'nowhere', targetPath: 'worldmodel/nowhere', health: 1, shield: 0, program: prog('nowhere', ['NA'], []) },
+    ],
+  };
+  const groups = mapDataGroups(source, () => 0);
+  const group = (key: string) => groups.find((g) => g.key === key)!;
+
+  it('a switch is marked where its collision is (what the player aims at), and says what it turns on and off and fires', () => {
+    const row = group('actions').rows[0]!;
+    expect(row.at).toEqual([25, 5, 0]);
+    expect(row.title).toMatch(/Action button \(SWITCH\)/);
+    expect(row.title).toMatch(/turns on destroyed/);
+    expect(row.title).toMatch(/turns off healthy/);
+    expect(row.title).toMatch(/fires MPBOMB/);
+    expect(row.data).toMatchObject({ node: 'seal_callstrike_1', summary: { trigger: 'Action button (SWITCH)', prompt: 'pull lever', team: 'anyone', reach: 30, points: 2,
+      shows: ['destroyed'], hides: ['healthy'], weapons: ['MPBOMB'] } });
+  });
+
+  it('a radio says its team; a type-less record has no prompt', () => {
+    expect(group('actions').rows[1]!.data).toMatchObject({ summary: { team: 'SEALs (team 0)', prompt: 'helo' } });
+    expect(group('actions').rows[2]!.title).toMatch(/no prompt/);
+  });
+
+  it('a Damage Triggers branch after the context actions: a barrier\'s death runs its action\'s program; a 0-health plank is set off by any hit', () => {
+    expect(groups.map((g) => g.key)).toEqual(['actions', 'damage']);
+    const [barrier, plank] = group('damage').rows;
+    expect(group('damage').label).toBe('Damage Triggers');
+    expect(group('damage').rows).toHaveLength(2);                  // one with no place is left out, not put at 0
+    expect(barrier).toMatchObject({ label: 'access1 · good_parts', at: [40, 0, 40], kind: 'damage' });
+    expect(barrier!.data).toMatchObject({ summary: { actions: ['set_access1'], hides: ['good_parts'], shows: ['whats_left'] } });
+    expect(barrier!.title).toMatch(/C4/);
+    expect(plank!.title).toMatch(/any hit/);
   });
 });

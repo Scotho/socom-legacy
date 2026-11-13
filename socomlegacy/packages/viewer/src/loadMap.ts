@@ -40,6 +40,7 @@ import { craneRides, readCranes, splitCranePlacements, type CraneSpec } from './
 import { readTacData, type TacData } from './tacMap';
 import { bombStartOf, mapEscortees, mapTurrets } from './simMap';
 import { worldPiecePlanFor, type WorldPieceInfo, type WorldPieceSwap } from './worldPieces';
+import { reverbZones } from './soundData';
 
 /**
  * One map, decoded far enough to draw: the world's triangles grouped one mesh per texture, the textures
@@ -154,6 +155,12 @@ export interface LoadedMap {
    */
   lines: LoadedLineGroup[] | null;
   /**
+   * The model library each model name is read from (`<LIB>_MDL.ZED`'s stem: `WORL`, the map's own `MP2`, a shared one
+   * such as `PAVE` or `TURR`), the first library holding the name, as `loadModelLibrary` keeps it. The forge's asset
+   * browser reads it for its Shared list (a prop of no one map). Absent on a map built by hand.
+   */
+  modelLibraries?: Record<string, string>;
+  /**
    * One entry per prop model-node: its geometry once, a column-major 4x4 per placement, and the place
    * of its first placement in the scene walk (see `LoadedMesh.order`).
    */
@@ -178,6 +185,13 @@ export interface LoadedMap {
    * that draws nothing. A multi-piece prop's GLB is anchored here, not on one piece.
    */
   instanceRoots?: { path: string; matrix: Float32Array }[];
+  /**
+   * The map's own ambient effects where its scene places them (the owner, 2026-11-10: "I want to see where the ambient
+   * objects are set in official maps"): each self-starting program of its mission set (`(flags & 3) === 1`, as
+   * `./effectData` reads them) by its root node's world place -- every node of that name (`flattenScene`), as the
+   * engine's node search finds one. A program rooted nowhere (the camera's rain and snow) has none. Absent: not read.
+   */
+  ambientPlaces?: { program: string; node: string; at: [number, number, number] }[];
   /**
    * The forge's placed plant sites' outlines that no program of the map's set lights (`./forge/siteOutlines`; a browser
    * adaptation, FG.R2): each its node's path and the carrier's side whose pickup lights it (`./bombPage` `worldPulse`).
@@ -344,6 +358,12 @@ export interface LoadedMap {
    * `Scenic_Views` in file order (`./spectatorView` `scenicViews`). Absent when the map has none or they do not read.
    */
   scenicViews?: ScenicView[];
+  /**
+   * `mission.rdr`'s `IndoorReverb` / `OutdoorReverb` zones, [depth, seconds] (`./soundData` `reverbZones`, the sound's own
+   * reading; research 81 §9): the forge's Settings show them as the map's own (`./forge/worldSettings`). Absent when the
+   * mission will not read.
+   */
+  reverb?: { indoor: [number, number][]; outdoor: [number, number][] };
   /** DOORS: the map's doors (`./doors`, socomlegacy/docs/research/92-doors.md), their polygons marked in `ground.owners`. */
   doors?: DoorSpec[];
   /** MAP-07: Death Trap's and Enowapi's lever gates (`./gates`), their polygons marked in `ground.owners`. */
@@ -449,6 +469,9 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
   // node draws and where; everything below is decoding what it points at.
   const archives = mdlArchives(bytes, toc, stem, notes);
   const library = loadModelLibrary(archives.map((a) => a.zar), archives.map((a) => a.form));
+  // Each model's library, the first holding it (`loadModelLibrary` keeps the first of a name).
+  const modelLibraries: Record<string, string> = {};
+  for (const a of archives) for (const key of a.zar.root.children) if (!(key.name in modelLibraries)) modelLibraries[key.name] = a.lib;
   const chunksOf = decoder(library, notes);
   // The engine's grid, cells only: what each placement is filed under for the engine order (W1.2).
   const grid = worldGrid(bytes, toc, stem, notes);
@@ -704,6 +727,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
 
   const name = missionName(bytes, toc, notes) ?? stem;
   const scenicViews = missionScenicViews(bytes, toc, notes);   // PF-31: the spectator's fixed views
+  const reverb = missionReverb(bytes, toc, notes);
   // W1.4b: the probe's grid, built here once for the two things a load stands on the floor -- the opening stand
   // and the spawn slots -- so the page's thread does not pay for it; the walk builds its own when first asked.
   const probe = placement.ground ? groundGrid(placement.ground) : undefined;
@@ -728,6 +752,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
   const actions = placement.meta ? { actions: placement.meta.actions, diagnostics: placement.meta.diagnostics } : readMapActions(bytes, toc, stem);
   for (const line of actions.diagnostics) notes.add(line);
   const instanceRoots = placement.models ? instanceRootMatrices(placement.models) : [];
+  const ambientPlaces = placement.models && placement.meta?.scene ? ambientNodePlaces(placement.models, placement.meta.scene.programs.map((p) => p.program)) : [];
   const tac = readTacData(bytes, toc);
   for (const line of tac.diagnostics) notes.add(line);
   return {
@@ -739,6 +764,8 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
     name,
     world,
     props,
+    modelLibraries,
+    ambientPlaces,
     textures,
     textureMips,
     envMaterials: usedEnv.map((e) => (e.texture in textures ? e : { ...e, texture: DEFAULT_ENV_TEXTURE })).filter((e) => e.texture in textures),
@@ -770,6 +797,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
     ...(ai ? { ai } : {}),
     ...(escortees ? { escortees } : {}),
     ...(scenicViews.length ? { scenicViews } : {}),
+    ...(reverb ? { reverb } : {}),
     grenade,
     reticle: reticle.bitmaps,
     bulletMark: bulletMark.rgba,
@@ -991,6 +1019,20 @@ function missionName(bytes: Uint8Array, toc: ZdbEntry[], notes: Notes): string |
     return typeof name === 'string' ? name : null;
   } catch (e) {
     notes.add(`mission name: ${say(e)}`);
+    return null;
+  }
+}
+
+/** `mission.rdr`'s reverb zones as the sound reads them (`./soundData` `reverbZones`); null when the mission will not read. */
+function missionReverb(bytes: Uint8Array, toc: ZdbEntry[], notes: Notes): { indoor: [number, number][]; outdoor: [number, number][] } | null {
+  try {
+    const readerm = Zar.parse(zdbMember(bytes, toc, 'READERM.ZAR'));
+    const key = readerm.root.children.find((k) => k.name.toLowerCase() === 'mission.rdr');
+    if (!key) return null;
+    const mission = parseRdr(readerm.data(key));
+    return { indoor: reverbZones(rdrGet(mission, 'IndoorReverb')), outdoor: reverbZones(rdrGet(mission, 'OutdoorReverb')) };
+  } catch (e) {
+    notes.add(`mission reverb: ${say(e)}`);
     return null;
   }
 }
@@ -1234,7 +1276,7 @@ function lightRig(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes
  * Each archive comes with the position form its chains are drawn in (`archivePositionForm`, research 79 §2): the
  * turret libraries' parts (`turretParts`) are `'scale'`, the world and the props `'bias'`.
  */
-function mdlArchives(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes): { zar: Zar; form: PositionForm }[] {
+function mdlArchives(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes): { zar: Zar; form: PositionForm; lib: string }[] {
   // The same asset-library chain the textures come from: 15 of the 22 maps name prop models that live
   // in libraries the viewer used to leave shut -- `TURR_MDL` (turrets) on eight of them, `PAVE_MDL`
   // (the Pave Hawk) on five, and so on. `WORL_MDL` is the world itself and is not an asset library, so
@@ -1246,19 +1288,45 @@ function mdlArchives(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: No
   const members = ['WORL_MDL.ZED', ...assetLibStems(bytes, toc, stem, notes)
     .filter((lib) => lib !== 'CLIB')
     .map((lib) => `${lib}_MDL.ZED`)];
-  const out: { zar: Zar; form: PositionForm }[] = [];
+  const out: { zar: Zar; form: PositionForm; lib: string }[] = [];
   const seen = new Set<string>();
   for (const member of members) {
     if (seen.has(member)) continue;
     seen.add(member);
     try {
-      out.push({ zar: Zar.parse(zdbMember(bytes, toc, member)), form: archivePositionForm(member) });
+      out.push({ zar: Zar.parse(zdbMember(bytes, toc, member)), form: archivePositionForm(member), lib: member.replace(/_MDL\.ZED$/i, '') });
     } catch {
       // A library with no models of its own is ordinary -- MP53 has no `MP53_MDL.ZED` at all and is
       // right not to, drawing its three props out of shared libraries instead.
     }
   }
   if (out.length === 0) notes.add(`no model archive of ${members.length} could be read`);
+  return out;
+}
+
+/** `LoadedMap.ambientPlaces`: the self-starting programs' root nodes, every node of each root's name, world space. */
+export function ambientNodePlaces(models: readonly SceneNode[], programs: readonly { name: string; flags: number; root: number; nodes: readonly string[] }[]): { program: string; node: string; at: [number, number, number] }[] {
+  const wanted = new Map<string, string[]>();
+  for (const p of programs) {
+    if ((p.flags & 3) !== 1) continue;
+    const node = p.nodes[p.root];
+    if (!node || node === 'NA' || node === 'camera') continue;
+    const key = node.toLowerCase();
+    wanted.set(key, [...(wanted.get(key) ?? []), p.name]);
+  }
+  if (wanted.size === 0) return [];
+  const out: { program: string; node: string; at: [number, number, number] }[] = [];
+  for (const found of flattenScene(models as SceneNode[], 'worldmodel')) {
+    const last = found.path.split('/').pop()!.split('=')[0]!.toLowerCase();
+    const names = wanted.get(last);
+    if (!names) continue;
+    const m = toColumnMajor(found.world);
+    for (const program of names) {
+      // An instance node and its model's node share the name (`bee1`, `bee1=mp6_fly1`): one place, kept once.
+      if (out.some((o) => o.program === program && Math.abs(o.at[0] - m[12]!) < 0.5 && Math.abs(o.at[1] - m[13]!) < 0.5 && Math.abs(o.at[2] - m[14]!) < 0.5)) continue;
+      out.push({ program, node: found.path, at: [m[12]!, m[13]!, m[14]!] });
+    }
+  }
   return out;
 }
 

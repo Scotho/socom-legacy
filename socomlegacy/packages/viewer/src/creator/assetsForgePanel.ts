@@ -20,6 +20,8 @@ export type AssetDropProjection = {
 export interface AssetViewportEditor extends ForgeEditor {
   stagePiece(asset: string): Promise<AssetGhostStage | null>;
   previewPiece?(asset: string): Promise<Pick<StagedPiece, 'object' | 'dispose'> | null>;
+  hoverSound?(asset: string | null): void;
+  soundProgress?(asset: string): number | null;
   viewport(): HTMLElement;
   projectDrop(clientX: number, clientY: number): AssetDropProjection;
   sourceIdentity(asset: string): object | null;
@@ -146,6 +148,25 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     if (blockReason() || !editor || !currentRequest()) return null;
     const revision = ctx.state().revision, source = editor.sourceIdentity(asset);
     if (!source) return null;
+    // The tooltip draws the preview's own build where the editor has one (the owner, 2026-11-11: previews textured, with
+    // their geometry, never the Draw menu's wireframe or overlays), as the thumbnails do; a staged piece otherwise.
+    if (editor.previewPiece) {
+      const shown = await editor.previewPiece(asset);
+      if (!shown) return null;
+      if (!currentRequest() || blockReason() || ctx.state().revision !== revision || editor.sourceIdentity(asset) !== source) {
+        shown.dispose();
+        return null;
+      }
+      accepted?.(source);
+      const at = asset.indexOf(':');
+      return {
+        object: shown.object,
+        name: palette.find(entry => entry.asset === asset)?.model ?? (at > 0 ? asset.slice(at + 1) : asset),
+        source: at > 0 ? asset.slice(0, at) : asset,
+        collision: 'Collision checked in the world',
+        dispose: shown.dispose,
+      };
+    }
     const handle = await editor.stagePiece(asset);
     if (!handle) return null;
     if (!currentRequest() || blockReason() || ctx.state().revision !== revision || editor.sourceIdentity(asset) !== source) {
@@ -172,6 +193,10 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     ...(options.renderer ? { renderer: options.renderer } : {}),
     clearColor: [64, 64, 64],
     allowed: () => !blockReason() && (options.tips?.() ?? true),
+    // Its hover sound (an ambient effect's, the owner 2026-11-11): played while its preview shows, stopped when it goes.
+    onShown: (asset) => { editor?.hoverSound?.(asset); },
+    // Its sound's timeline under the picture while it plays (an ambient effect's).
+    progress: (asset) => editor?.soundProgress?.(asset) ?? null,
     resolve: async asset => {
       const request = ++previewRequest;
       return stagePreview(asset, () => request === previewRequest, source => { previewSource = source; });
@@ -207,6 +232,10 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     resolve: resolveThumbnail,
   });
   const offTips = tooltip.attach(list);
+  // No picture under the cursor while a tile is dragged (the owner, 2026-11-10: "don't show the image on the cursor"):
+  // the browser's drag image a transparent pixel, made at once so it is ready by the first drag; the world's ghost shows it.
+  const blankDragImage = doc.createElement('img');
+  blankDragImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   const start = (asset: string, event: DragEvent): void => {
     const reason = blockReason();
     if (reason || !event.dataTransfer || !editor) { event.preventDefault(); if (reason) ctx.ui.refused(reason); return; }
@@ -219,6 +248,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
       last: null, projection: null, cancelled: false, pending: false, placing: false, consumed: false, refused: false };
     session = s;
     event.dataTransfer.setData(ASSET_DRAG_MIME, token); event.dataTransfer.effectAllowed = 'copy';
+    try { event.dataTransfer.setDragImage(blankDragImage, 0, 0); } catch { /* a browser without it shows its own */ }
     s.ready = editor.stagePiece(asset).then(handle => {
       if (!handle) { if (!s.cancelled) refuse(s, ctx.state().reason ?? 'This asset could not be prepared for placement.'); finish(s); return null; }
       if (!ghostCapable(handle)) {
