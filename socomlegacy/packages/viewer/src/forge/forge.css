@@ -486,6 +486,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 }
 .fx-panel-head .fx-dim { font: var(--fx-type-caption); }
 .fx-chip { display: inline-flex; align-items: center; gap: var(--s2u-space-1); height: 24px; padding: 0 10px; border-color: var(--fx-control-edge); border-radius: var(--fx-radius-pill); }
+/* A chip a tab does not use (the Props tab's All and Favourites, the Programs tab's filter) is gone, its `inline-flex` notwithstanding. */
+.fx-chip[hidden] { display: none; }
 .fx-chip:hover { background: var(--fx-hover); }
 /* A chip's icon a little larger and heavier: at 12px a 2.2 stroke read as a hairline (the owner, 2026-11-11). */
 .fx-chip .fx-ico { width: 14px; height: 14px; stroke-width: 2.6; }
@@ -624,6 +626,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   background: radial-gradient(ellipse at 50% 45%, #a8a8a8 0%, #808080 60%, #5c5c5c 100%);
   color: var(--fx-dim);
 }
+/* A Sound tile (the asset browser's Sound tab): no picture, its speaker on the panel's own ground. */
+.fx-asset-thumbnail.fx-asset-sound { background: var(--fx-panel-2); color: var(--fx-gold); }
+.fx-asset-thumbnail.fx-asset-sound > .fx-ico { width: 40%; height: 40%; }
 .fx-asset-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
 .fx-asset-thumbnail img:not(.is-ready) { visibility: hidden; }
 .fx-asset-thumbnail-status { position: absolute; padding: 4px; color: var(--fx-dim); font: var(--fx-type-caption); text-align: center; }
@@ -2227,9 +2232,69 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
   body.forge-page option::checkmark { display: none; }
   /* The row under the pointer or the keys on gold, its words dark (the system's list's light blue, in the Forge's colour). */
   body.forge-page option:is(:hover, :focus-visible):not(:disabled) { color: var(--fx-on-accent); background: var(--fx-gold); outline-style: none; }
-  /* A group's heading bold, its options set in under it, as the system's list draws them. */
-  body.forge-page optgroup { font: var(--fx-type-control); font-weight: 700; color: var(--fx-text); }
-  body.forge-page optgroup option { padding-left: 18px; font-weight: 400; }
+  /* A group's heading a heading (the owner, 2026-11-13: "make those headers look like actual header ... room to
+     breathe ... a line/divider between Multiplayer and Campaign"; every map list alike -- Across maps, Multiplayer,
+     Campaign, Custom / Preset): the menus' own section heading's look (`.fx-viewport-modes-heading`: capitals, spaced,
+     dim), larger, with space above and below it, and a rule between one group and the next. Its options set in under
+     it in their own words. */
+  body.forge-page optgroup {
+    display: block; padding: 10px 0 4px; font: var(--fx-type-control); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--fx-dim); text-indent: 12px;   /* the heading's line set in, its options' own */
+    /* Its band a shade of its own (the owner, 2026-11-13: "a nice background color so they stand out"), the options under
+       it back on the list's own panel -- so only the heading wears it. */
+    padding-bottom: 0; background: var(--fx-panel-2);
+  }
+  body.forge-page optgroup > option { background: var(--fx-panel); }
+  body.forge-page :is(optgroup, option) + optgroup { margin-top: 6px; border-top: 1px solid var(--fx-edge); }
+  /* The band's foot: the space under the heading (the group's own shade), then the first option on the panel. */
+  body.forge-page optgroup > option:first-of-type { margin-top: 6px; }
+  body.forge-page optgroup option { padding: 5px 12px 5px 22px; font-weight: 400; letter-spacing: normal; text-transform: none; text-indent: 0; }
   body.forge-page select::picker(select) { max-height: min(70vh, 560px); overflow-y: auto; }
-  body.forge-page option:disabled { opacity: var(--fx-disabled); cursor: default; }
+  /* A row greyed by its words alone (the owner, 2026-11-13: "when an item is disabled, don't change the background color,
+     just the text"): a faded row let its group heading's band through. */
+  body.forge-page option:disabled { opacity: 1; color: color-mix(in srgb, var(--fx-text) 38%, transparent); cursor: default; }
+  /* A row's note set at its right (`optionWithNote`: a map's count; the owner, 2026-11-13: "right aligned"), dim, its
+     separator unseen here (the closed field reads the three as one line). On the hover's gold, and greyed, as its words. */
+  body.forge-page option:has(> .fx-option-note) { display: flex; align-items: center; }
+  body.forge-page option > .fx-option-sep { display: none; }
+  body.forge-page option > .fx-option-note { margin-left: auto; padding-left: 16px; color: var(--fx-dim); white-space: nowrap; }
+  body.forge-page option:is(:hover, :focus-visible):not(:disabled) > .fx-option-note, body.forge-page option:disabled > .fx-option-note { color: inherit; }
 }
+/* An asset tile dragged over an Inspector row that takes it (Source, its object): marked as the Outliner's drop is. */
+.fx-inspect-edit.is-asset-drop { outline: 2px solid var(--fx-gold); outline-offset: -1px; }
+
+/* An object tile's star and its sound's play button both on it: the star at the right as a prop's, the play at the left. */
+.fx-assets[data-view="grid"] .fx-star.fx-asset-play { right: auto; left: 8px; }
+
+/* An Inspector select with its browse button at its right (`InspectorEditor.browse`). */
+.fx-inspect-data dd.fx-inspect-browse-row { display: flex; gap: 4px; align-items: center; }
+.fx-inspect-data dd.fx-inspect-browse-row > .fx-inspect-edit { flex: 1 1 auto; min-width: 0; }
+.fx-inspect-browse { flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; }
+.fx-inspect-browse .fx-ico { width: 14px; height: 14px; }
+/* The mini asset browser: the asset browser lent to a popup by an Inspector row, its tabs and its footer left out. */
+.fx-asset-picker {
+  position: fixed; z-index: 1000; display: flex; flex-direction: column; width: 380px; height: min(560px, 80vh);
+  padding: 0 8px 8px; box-sizing: border-box; background: var(--fx-panel); border: 1px solid var(--fx-edge);
+  border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); overflow: hidden;
+  /* Resized by its corner (the owner, 2026-11-13: "movable and resizable"). */
+  resize: both; min-width: 260px; min-height: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+}
+.fx-asset-picker-head {
+  cursor: move; user-select: none; touch-action: none;
+  display: flex; align-items: center; justify-content: space-between; margin: 0 -8px 8px; padding: 6px 8px 6px 12px;
+  background: var(--fx-panel-2); border-bottom: 1px solid var(--fx-edge); color: var(--fx-dim);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.fx-asset-picker-close { width: 24px; height: 24px; padding: 0; }
+.fx-assets-pane.is-picking > .fx-asset-tabs,
+.fx-assets-pane.is-picking > .fx-assets-foot { display: none; }
+
+/* A Source's Custom (a damage trigger's, a switch's, a program's; the owner, 2026-11-13: "make the custom row a bit more
+   visible"): gold and bold; the groups' own divider sets it apart from the maps under it. */
+body.forge-page option[value="*custom"] { padding: 7px 12px; color: var(--fx-gold); font-weight: 700; }
+/* Its group header straight under it, no gap between: the header's own line the one divider. */
+body.forge-page option[value="*custom"] + optgroup { margin-top: 0; }
+body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(--fx-on-accent); }
+
+/* An Inspector row with room above it (`InspectorEditor.gap`): a script's header, each of its steps, its Add row. */
+.fx-inspect-data > .fx-inspect-gap { margin-top: 12px; }

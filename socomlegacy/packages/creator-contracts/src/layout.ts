@@ -783,15 +783,16 @@ export interface PieceTrigger { piece?: number; node?: string; health: number; a
  *   its particles, its sound, its light) -- played here from the round's start, rooted at this place;
  * - `crane`: a copy of a disc map's crane (`source`, `name` its node: Chain Reaction's).
  *
- * `audio` (an ambient's; the owner, 2026-11-10: "keep ambient, but make it fully scriptable ... I don't want to have any
- * custom behaviour"): its program's sounds written as a script of the game's own commands (`AudioStep`), standing in for
- * the program's own (its particles and light as ever).
+ * `script` (an ambient's; the owner, 2026-11-13: "one script format ... a fully generic scripting way of doing things that
+ * is unified"): its steps (`ScriptStep`, the switches' and the triggers' own), run from the round's start at the object
+ * as the map's own self-starting programs run -- standing in for its program's sounds (its particles and light as ever).
+ * A file's older `audio` (`AudioStep`) is read into it (`scriptOfAudio`).
  */
 export type ForgeObjectKind = "ambient" | "crane";
-export interface ForgeObject { kind: ForgeObjectKind; source: string; name: string; at: [number, number, number]; yaw: number; locked?: boolean; audio?: AudioStep[] }
+export interface ForgeObject { kind: ForgeObjectKind; source: string; name: string; at: [number, number, number]; yaw: number; locked?: boolean; script?: ScriptSteps }
 export const FORGE_OBJECT_KINDS: readonly ForgeObjectKind[] = ["ambient", "crane"];
 /**
- * An ambient's audio script step: each one of the game's own program commands as its ambient programs use them (the
+ * The older ambient audio script step (before 2026-11-13; read into `ScriptStep`s by `scriptOfAudio`, never written): each one of the game's own program commands as its ambient programs use them (the
  * disc's: Sujo's `lightning_flashes`, the Fish Hook crickets, Desert Glory's `mp6_battlesounds`), run as the game runs them:
  * - `play`: `SOUND` at the object (`FUN_002659c0`): `sound` from the disc map `from` (absent, the base map's), at the
  *   command's `volume` (flag 0x10; absent 1), heard by the sound's own RANGE. A `~` sound is one of the game's loops: as
@@ -801,20 +802,26 @@ export const FORGE_OBJECT_KINDS: readonly ForgeObjectKind[] = ["ambient", "crane
  *   ever with neither (the disc's `LOOP -1`);
  * - `while` ... `endWhile`: `WHILE` (for ever) and `END_WHILE`;
  * - `if` / `elseif` (`chance`) ... `else` ... `endif`: `IF` / `ELSEIF` on `RANDOM_WEIGHT` (`FUN_0025dcf0`: taken when
- *   `rand() <= chance`, 0 to 1), `ELSE`, `ENDIF`.
+ *   `rand() <= chance`, 0 to 1), `ELSE`, `ENDIF`;
+ * - `effect`: `CALL_ANIMATION` of the effect program `effect` from the disc map `from` (absent, the base map's) at the
+ *   object, as the disc's own ambient programs call theirs (the owner, 2026-11-13: one effect object, its sounds and
+ *   its effects alike; a browser adaptation, FG.R2 -- the game has no editor).
  */
 export type AudioStep =
   | { do: "play"; sound: string; from?: string; volume?: number }
   | { do: "wait"; seconds: number; random?: number }
   | { do: "loop"; times?: number; seconds?: number }
   | { do: "while" } | { do: "endWhile" }
-  | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "endif" };
+  | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "endif" }
+  | { do: "effect"; effect: string; from?: string };
 /** The checks on a file's audio script (not game values): its steps, a wait's or a loop's seconds, a volume, a count. */
 export const AUDIO_STEPS_MAX = 64;
 export const AUDIO_WAIT_MAX = 600;
 export const AUDIO_VOLUME_MAX = 4;
 export const AUDIO_LOOP_MAX = 1000;
 const AUDIO_SOUND = /^[A-Za-z0-9_.~!^ -]{1,48}$/;
+/** An effect program's name a script may call (the switches' own rule, `viewer/src/forge/scriptAssets` SCRIPT_ASSET_NAME). */
+const AUDIO_EFFECT = /^[A-Za-z0-9_. -]{1,48}$/;
 /** Whether `v` is an audio script (`AudioStep[]`): known steps, in bounds, each `while` and `if` closed in order. */
 export function audioScriptOk(v: unknown): boolean {
   if (!Array.isArray(v) || v.length > AUDIO_STEPS_MAX) return false;
@@ -830,6 +837,10 @@ export function audioScriptOk(v: unknown): boolean {
         if (!keys("sound", "from", "volume") || typeof s["sound"] !== "string" || !AUDIO_SOUND.test(s["sound"])) return false;
         if (s["from"] !== undefined && (typeof s["from"] !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(s["from"]))) return false;
         if (s["volume"] !== undefined && !num(s["volume"], 0, AUDIO_VOLUME_MAX)) return false;
+        break;
+      case "effect":
+        if (!keys("effect", "from") || typeof s["effect"] !== "string" || !AUDIO_EFFECT.test(s["effect"])) return false;
+        if (s["from"] !== undefined && (typeof s["from"] !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(s["from"]))) return false;
         break;
       case "wait":
         if (!keys("seconds", "random") || !num(s["seconds"], 0, AUDIO_WAIT_MAX) || (s["random"] !== undefined && !num(s["random"], 0, AUDIO_WAIT_MAX))) return false;
@@ -850,16 +861,47 @@ export function audioScriptOk(v: unknown): boolean {
   }
   return open.length === 0;
 }
+/**
+ * An older audio script (`AudioStep[]`) as script steps (`ScriptStep`): `play` a `sound` (its `name`), `effect` its `name`,
+ * `endif` an `end`; the rest as they were. A step already a script step is kept, so a list of either reads.
+ */
+export function scriptOfAudio(steps: readonly unknown[]): ScriptStep[] {
+  return steps.map((raw): ScriptStep => {
+    const s = raw as Record<string, unknown>;
+    switch (s["do"]) {
+      case "play": return { do: "sound", name: s["sound"] as string, ...(s["from"] !== undefined ? { from: s["from"] as string } : {}), ...(s["volume"] !== undefined ? { volume: s["volume"] as number } : {}) };
+      case "effect": return s["effect"] !== undefined ? { do: "effect", name: s["effect"] as string, ...(s["from"] !== undefined ? { from: s["from"] as string } : {}) } : JSON.parse(JSON.stringify(s)) as ScriptStep;
+      case "endif": return { do: "end" };
+      default: return JSON.parse(JSON.stringify(s)) as ScriptStep;
+    }
+  });
+}
+/** Whether a step list is the older audio script's (`AudioStep`): a `play`, an `endif`, or an `effect` by `effect`. */
+const isAudioSteps = (v: unknown): boolean => Array.isArray(v) && v.some((x) => isObj(x) && (x["do"] === "play" || x["do"] === "endif" || (x["do"] === "effect" && x["effect"] !== undefined)));
+/** An object's steps as a file holds them, either form (`script`'s `{ steps }`, or an older `audio` list), as script steps; null, none or bad. */
+export function objectScriptOf(v: { script?: unknown; audio?: unknown }, c: SwitchCounts): ScriptSteps | null | false {
+  if (v.script !== undefined) return switchScriptOk(v.script, c) ? JSON.parse(JSON.stringify(v.script)) as ScriptSteps : false;
+  if (v.audio === undefined) return null;
+  if (isAudioSteps(v.audio) ? !audioScriptOk(v.audio) : !Array.isArray(v.audio)) return false;
+  const script = { steps: scriptOfAudio(v.audio as unknown[]) };
+  return switchScriptOk(script, c) ? script : false;
+}
 const OBJECT_NAME = /^[A-Za-z0-9_ .=-]{1,48}$/;
 const OBJECT_SOURCE = /^[A-Z]{1,3}\d{1,3}$/;
-/** Whether `v` is a `ForgeObject` as a file holds one (its map, its name there, its place; an ambient's audio script). */
-export function forgeObjectOk(v: unknown): boolean {
-  if (!isObj(v) || !Object.keys(v).every((k) => ["kind", "source", "name", "at", "yaw", "locked", "audio"].includes(k))) return false;
+/** No list of the layout's: a script whose steps name none of its objects (a check before the lists are known). */
+const NO_COUNTS: SwitchCounts = { pieces: 0, barriers: 0, gates: 0, objects: 0 };
+/**
+ * Whether `v` is a `ForgeObject` as a file holds one (its map, its name there, its place; an ambient's script, `script`,
+ * or an older file's `audio`), its script's targets in `c`'s lists.
+ */
+export function forgeObjectOk(v: unknown, c: SwitchCounts = NO_COUNTS): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => ["kind", "source", "name", "at", "yaw", "locked", "audio", "script"].includes(k))) return false;
   if (typeof v["kind"] !== "string" || !(FORGE_OBJECT_KINDS as readonly string[]).includes(v["kind"])) return false;
   if (typeof v["name"] !== "string" || !OBJECT_NAME.test(v["name"])) return false;
   if (!(typeof v["source"] === "string" && OBJECT_SOURCE.test(v["source"]))) return false;
   if (!Array.isArray(v["at"]) || v["at"].length !== 3 || !v["at"].every(isNum) || !isNum(v["yaw"])) return false;
-  if (v["audio"] !== undefined && (v["kind"] !== "ambient" || !audioScriptOk(v["audio"]))) return false;
+  if (v["audio"] !== undefined && v["script"] !== undefined) return false;
+  if ((v["audio"] !== undefined || v["script"] !== undefined) && (v["kind"] !== "ambient" || objectScriptOf(v, c) === false)) return false;
   return v["locked"] === undefined || v["locked"] === true;
 }
 /** A trigger's health, armour and shield: a check on the file's, not a game value. */
@@ -884,7 +926,14 @@ export function pieceTriggerOk(v: unknown, c: SwitchCounts): boolean {
  */
 export type SwitchTarget = { map: string } | { piece: number } | { barrier: number } | { gate: number } | { object: number };
 /**
- * A script step (the owner, 2026-11-08; a browser adaptation, FG.R2): each one of the original's own program commands
+ * A script step -- the one script of the Forge (the owner, 2026-11-13: "one script format ... replace our weird home made
+ * formats"): a switch's pull, a damage trigger's death and an effect object's round all run these. Since 2026-11-13 also
+ * the game's own flow commands: `wait` with a `random` range (WAIT flag 0x20); `if` / `elseif` on a `chance`
+ * (`RANDOM_WEIGHT`, `FUN_0025dcf0`: taken when `rand() <= chance`) as well as on a flag; `while` ... `endWhile` (`WHILE`
+ * for ever, `END_WHILE`); `loop` (`LOOP`: from the first step again, `times` in all, for `seconds`, or for ever); a
+ * `sound`'s `volume` (SOUND flag 0x10). A `~` sound is one of the game's loops.
+ *
+ * As before (the owner, 2026-11-08; a browser adaptation, FG.R2): each one of the original's own program commands
  * (`@s2u/scene` `EffectOp`; research 209): `run` an action -- a base map's by its valve, or a damage trigger's death
  * (`EXECUTE_ACTION`); `show`/`hide` a node (`OBJECT_ACTIVE_STATE`); `wait` (`WAIT`); a `message` (`MESSAGE`); a `sound`
  * (`SOUND`) or an `effect` (a common effect, `CALL_ANIMATION`) at a target -- `from` the disc map whose sound or effect
@@ -895,25 +944,37 @@ export type SwitchTarget = { map: string } | { piece: number } | { barrier: numb
  * 332 s0-s2) -- the record's own Explosion_Damage 50 and Explosion_Radius 300 u, its fuse 0.001 and second timer 0.01,
  * nothing of the Forge's (the owner, 2026-11-10: "no custom stuff ... if we can support damage without custom, do it").
  */
-export type SwitchStep =
+export type ScriptStep =
   | { do: "run"; action: string } | { do: "run"; barrier: number }
   | { do: "show" | "hide"; target: SwitchTarget }
-  | { do: "wait"; seconds: number }
+  | { do: "wait"; seconds: number; random?: number }
   | { do: "message"; text: string }
-  | { do: "sound" | "effect"; name: string; at?: SwitchTarget; from?: string }
+  | { do: "sound"; name: string; at?: SwitchTarget; from?: string; volume?: number }
+  | { do: "effect"; name: string; at?: SwitchTarget; from?: string }
   | { do: "set"; flag: string; value: number }
-  | { do: "if"; flag: string; equals: number } | { do: "else" } | { do: "end" }
+  | { do: "if" | "elseif"; flag: string; equals: number } | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "end" }
+  | { do: "while" } | { do: "endWhile" }
+  | { do: "loop"; times?: number; seconds?: number }
   | { do: "blast"; at?: SwitchTarget };
+/** The older name of `ScriptStep` (a switch's, before the one script). */
+export type SwitchStep = ScriptStep;
+/** What a script step acts on: `SwitchTarget`, by its general name. */
+export type ScriptTarget = SwitchTarget;
 /**
- * A switch's script: the `steps` a pull runs -- once a round, as the disc's switches are (the room's `used`, cleared at the
- * round by `FUN_002b5510`; the owner, 2026-11-10: "no custom stuff").
+ * A script: its `steps`, run top to bottom by the game's own commands. A switch's pull runs it -- once a round, as the
+ * disc's switches are (the room's `used`, cleared at the round by `FUN_002b5510`); a damage trigger's death; an effect
+ * object's round, from its start.
  */
-export interface SwitchScript { steps: SwitchStep[] }
+export interface ScriptSteps { steps: ScriptStep[] }
+/** The older name of `ScriptSteps` (a switch's). */
+export type SwitchScript = ScriptSteps;
 /** A script's bounds: steps a list, the wait, the message and the names -- a check on the file's, not a game value. */
 export const SWITCH_SCRIPT_STEPS_MAX = 64;
 export const SWITCH_WAIT_MAX = 600;
 const SWITCH_MESSAGE = /^[^\u0000-\u001f]{1,80}$/;
 const SWITCH_SOUND = /^[A-Za-z0-9_. -]{1,48}$/;
+/** A sound's name: an effect's rule, and the game's loops' `~` and its other marks (`!`, `^`). */
+const SCRIPT_SOUND = /^[A-Za-z0-9_.~!^ -]{1,48}$/;
 /** A step's `from`: a disc map's archive stem (`MP72`, `M51`). */
 const SWITCH_FROM = /^[A-Z]{1,3}\d{1,3}$/;
 const SWITCH_FLAG = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
@@ -934,34 +995,49 @@ function switchTargetOk(t: unknown, c: SwitchCounts): boolean {
 }
 function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
   if (!Array.isArray(list) || list.length > SWITCH_SCRIPT_STEPS_MAX) return false;
-  const open: boolean[] = [];   // each open `if`: whether its `else` was seen
+  // The open blocks, innermost last: a while, an if before its else, an if after it.
+  const open: ("while" | "if" | "else")[] = [];
+  const num = (x: unknown, lo: number, hi: number): boolean => isNum(x) && (x as number) >= lo && (x as number) <= hi;
   for (const st of list) {
     if (!isObj(st) || typeof st["do"] !== "string") return false;
     const has = (...k: string[]) => Object.keys(st).every((x) => x === "do" || k.includes(x));
+    // An if or an else if: on a flag (`flag` is `equals`) or on a chance (0 to 1).
+    const test = (): boolean => (st["chance"] !== undefined
+      ? has("chance") && num(st["chance"], 0, 1)
+      : has("flag", "equals") && typeof st["flag"] === "string" && SWITCH_FLAG.test(st["flag"]) && isPoints10k(st["equals"]));
     switch (st["do"]) {
       case "run":
         if (!(has("action") && typeof st["action"] === "string" && SWITCH_ACTION.test(st["action"]))
           && !(has("barrier") && isIndex(st["barrier"], c.barriers))) return false;
         break;
       case "show": case "hide": if (!has("target") || !switchTargetOk(st["target"], c)) return false; break;
-      case "wait": if (!has("seconds") || !isNum(st["seconds"]) || st["seconds"] < 0 || st["seconds"] > SWITCH_WAIT_MAX) return false; break;
+      case "wait":
+        if (!has("seconds", "random") || !num(st["seconds"], 0, SWITCH_WAIT_MAX) || (st["random"] !== undefined && !num(st["random"], 0, SWITCH_WAIT_MAX))) return false;
+        break;
       case "message":
         if (!has("text") || typeof st["text"] !== "string" || !SWITCH_MESSAGE.test(st["text"])) return false;
         break;
       case "sound": case "effect":
-        if (!has("name", "at", "from") || typeof st["name"] !== "string" || !SWITCH_SOUND.test(st["name"]) || (st["at"] !== undefined && !switchTargetOk(st["at"], c))
-          || (st["from"] !== undefined && (typeof st["from"] !== "string" || !SWITCH_FROM.test(st["from"])))) return false;
+        if (!(st["do"] === "sound" ? has("name", "at", "from", "volume") : has("name", "at", "from")) || typeof st["name"] !== "string"
+          || !(st["do"] === "sound" ? SCRIPT_SOUND : SWITCH_SOUND).test(st["name"]) || (st["at"] !== undefined && !switchTargetOk(st["at"], c))
+          || (st["from"] !== undefined && (typeof st["from"] !== "string" || !SWITCH_FROM.test(st["from"])))
+          || (st["volume"] !== undefined && !num(st["volume"], 0, AUDIO_VOLUME_MAX))) return false;
         break;
       case "blast":
         if (!has("at") || (st["at"] !== undefined && !switchTargetOk(st["at"], c))) return false;
         break;
       case "set": if (!has("flag", "value") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["value"])) return false; break;
-      case "if":
-        if (!has("flag", "equals") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["equals"])) return false;
-        open.push(false);
+      case "if": if (!test()) return false; open.push("if"); break;
+      case "elseif": if (!test() || open[open.length - 1] !== "if") return false; break;
+      case "else": if (!has() || open[open.length - 1] !== "if") return false; open[open.length - 1] = "else"; break;
+      case "end": { if (!has()) return false; const top = open.pop(); if (top !== "if" && top !== "else") return false; break; }
+      case "while": if (!has()) return false; open.push("while"); break;
+      case "endWhile": if (!has() || open.pop() !== "while") return false; break;
+      case "loop":
+        if (!has("times", "seconds") || (st["times"] !== undefined && st["seconds"] !== undefined)) return false;
+        if (st["times"] !== undefined && !(Number.isInteger(st["times"]) && num(st["times"], 1, AUDIO_LOOP_MAX))) return false;
+        if (st["seconds"] !== undefined && !num(st["seconds"], 0, SWITCH_WAIT_MAX * 6)) return false;
         break;
-      case "else": if (!has() || open.length === 0 || open[open.length - 1]) return false; open[open.length - 1] = true; break;
-      case "end": if (!has() || open.length === 0) return false; open.pop(); break;
       default: return false;
     }
   }
@@ -1426,12 +1502,15 @@ export function parseLayout(text: string): Layout {
     }),
     ...(raw["objects"] === undefined ? {} : {
       objects: (Array.isArray(raw["objects"]) ? raw["objects"] as unknown[] : [null]).map((o, i): ForgeObject => {
-        if (!forgeObjectOk(o)) throw new Error(`object ${i} is not an ambient effect or a crane: a kind, a map, a name, a place and a turn, an audio script on an ambient`);
+        const counts: SwitchCounts = { pieces: Array.isArray(raw["pieces"]) ? (raw["pieces"] as unknown[]).length : 0,
+          barriers: Array.isArray(raw["barriers"]) ? (raw["barriers"] as unknown[]).length : 0, gates: Array.isArray(raw["gates"]) ? (raw["gates"] as unknown[]).length : 0, objects: Array.isArray(raw["objects"]) ? (raw["objects"] as unknown[]).length : 0 };
+        if (!forgeObjectOk(o, counts)) throw new Error(`object ${i} is not an ambient effect or a crane: a kind, a map, a name, a place and a turn, a script on an ambient`);
         const v = o as Record<string, unknown>;
         const at = v["at"] as number[];
+        const script = objectScriptOf(v, counts);
         return { kind: v["kind"] as ForgeObjectKind, source: v["source"] as string, name: v["name"] as string,
           at: [at[0]!, at[1]!, at[2]!], yaw: v["yaw"] as number, ...(v["locked"] === true ? { locked: true } : {}),
-          ...(v["audio"] !== undefined ? { audio: JSON.parse(JSON.stringify(v["audio"])) as AudioStep[] } : {}) };
+          ...(script ? { script } : {}) };
       }),
     }),
     ...(raw["turrets"] === undefined ? {} : {
@@ -1796,7 +1875,7 @@ export type SwitchRow = [gate: number, x: number, y: number, z: number, yaw: num
  */
 export type TriggerRow = [piece: number, health: number, armor: number, shield: number, script: SwitchScript | null, node: string, x: number | null, y: number | null, z: number | null];
 /** A Forge object's record row (`Layout.objects`): its kind, its map ('' an empty's), its name, its place and turn (degrees). */
-export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, audio?: AudioStep[]];
+export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, steps?: ScriptStep[] | AudioStep[]];
 /** A placed flare's record row (`Layout.flares`): its source and node name, its place. */
 export type FlareRow = [source: string, name: string, x: number, y: number, z: number, locked?: true];
 /** A placed spectator view's record row (`Layout.scenicViews`): yaw and pitch in degrees, on the lattice. */
@@ -2237,7 +2316,7 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   if (l.objects?.length) record.objects = l.objects.map((o): ObjectRow => {
     const row: ObjectRow = [o.kind, o.source, o.name, tenth(o.at[0]), tenth(o.at[1]), tenth(o.at[2]), wholeDeg(o.yaw)];
     if (o.locked === true) row[7] = true;
-    if (o.audio) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.audio)) as AudioStep[]; }
+    if (o.script) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.script.steps)) as ScriptStep[]; }
     return row;
   });
   if (l.turrets?.length) record.turrets = l.turrets.map((t): TurretRow => {
@@ -2350,9 +2429,10 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   if (!isV2(r) && r.triggers?.length) layout.triggers = r.triggers.map(([piece, health, armor, shield, script, node, x, y, z]): PieceTrigger => ({
     ...(node ? { node } : piece >= 0 ? { piece } : {}), ...(x !== null && y !== null && z !== null ? { at: [x, y, z] as [number, number, number] } : {}), health, armor, shield, ...(script ? { script: JSON.parse(JSON.stringify(script)) as SwitchScript } : {}),
   }));
-  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, audio]): ForgeObject => ({
+  // An object's steps (row 8): the one script's, or an older record's audio script read into it (`scriptOfAudio`).
+  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, steps]): ForgeObject => ({
     kind, source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
-    ...(audio ? { audio: JSON.parse(JSON.stringify(audio)) as AudioStep[] } : {}),
+    ...(steps ? { script: { steps: scriptOfAudio(steps as unknown[]) } } : {}),
   }));
   if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
     source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
@@ -2573,8 +2653,10 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
     for (const [i, t] of rows.entries()) {
       if (!Array.isArray(t) || t.length < 7 || t.length > 9 || (t.length === 8 && t[7] !== true) || (t.length === 9 && typeof t[7] !== "boolean")
         || ![t[3], t[4], t[5]].every(inBound) || !isDeg(t[6])
-        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0, ...(t.length === 9 ? { audio: t[8] } : {}) })) {
-        return `object ${i} is not [kind, source, name, x, y, z, yaw, locked?, audio?] of an ambient effect or a crane`;
+        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0, ...(t.length === 9 ? { audio: t[8] } : {}) }, {
+          pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0, barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0,
+          gates: Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0, objects: rows.length })) {
+        return `object ${i} is not [kind, source, name, x, y, z, yaw, locked?, steps?] of an ambient effect or a crane`;
       }
     }
   }

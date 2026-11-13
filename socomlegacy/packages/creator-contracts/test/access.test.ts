@@ -151,7 +151,7 @@ describe("a switch's script", () => {
     expect(() => parseLayout(JSON.stringify({ ...base, switches: [{ script: { steps: [{ do: "blast", at: { object: 0 } }] }, at: [0, 0, 0], yaw: 0 }] }))).toThrow(/switch 0/);
   });
 
-  it("an ambient's audio script (the owner, 2026-11-10: the game's own commands only) kept, through the record too; a bad one refused", () => {
+  it("an ambient's older audio script reads into the one script (the owner, 2026-11-13), through the record too; a bad one refused", () => {
     // Sujo's lightning_flashes, as the disc has it: IF/ELSEIF on RANDOM_WEIGHT, SOUND at a volume, WAIT, LOOP -1.
     const audio = [
       { do: "play", sound: "~FIRE_SM", from: "MP6", volume: 3 },
@@ -166,11 +166,26 @@ describe("a switch's script", () => {
       { kind: "ambient", source: "MP61", name: "lightning_flashes", at: [0, 0, 0], yaw: 0, audio: [{ do: "loop", times: 3 }] },
       { kind: "ambient", source: "MP61", name: "lightning_flashes", at: [0, 0, 0], yaw: 0, audio: [{ do: "loop", seconds: 30 }] },
     ];
+    // Read as the one script (`ScriptStep`): a `play` a `sound` by its name, an `endif` an `end`.
+    const steps = [
+      { do: "sound", name: "~FIRE_SM", from: "MP6", volume: 3 },
+      { do: "if", chance: 0.25 }, { do: "sound", name: ".LIGHTNING", from: "MP61" }, { do: "wait", seconds: 10 },
+      { do: "elseif", chance: 0.5 }, { do: "sound", name: ".DIST_THUNDER", from: "MP61", volume: 0.35 }, { do: "wait", seconds: 7.5 },
+      { do: "else" }, { do: "wait", seconds: 6, random: 2 }, { do: "end" },
+      { do: "while" }, { do: "wait", seconds: 1 }, { do: "endWhile" },
+      { do: "loop" },
+    ];
+    const read = objects.map(({ audio: a, ...o }) => ({ ...o, script: { steps: a === audio ? steps : a } }));
     const l = parseLayout(JSON.stringify({ ...base, objects }));
-    expect(l.objects).toEqual(objects);
+    expect(l.objects).toEqual(read);
     const record = recordOfLayout(l, "audio");
     expect(checkCreatorRecord(record)).toBeNull();
-    expect(layoutOfRecord(record).objects).toEqual(objects);
+    expect(layoutOfRecord(record).objects).toEqual(read);
+    // The one script itself, as a file now writes it: a switch's steps on an object, its targets the layout's.
+    const scripted = parseLayout(JSON.stringify({ ...base, pieces: [], objects: [{ kind: "ambient", source: "MP6", name: "=script", at: [0, 0, 0], yaw: 0,
+      script: { steps: [{ do: "effect", name: "fire_explode_med" }, { do: "hide", target: { object: 0 } }, { do: "if", flag: "power", equals: 1 }, { do: "end" }, { do: "wait", seconds: 5 }, { do: "loop" }] } }] }));
+    expect(scripted.objects![0]!.script!.steps).toHaveLength(6);
+    expect(layoutOfRecord(recordOfLayout(scripted, "script")).objects).toEqual(scripted.objects);
     const bad = (a: unknown, kind = "ambient") => () => parseLayout(JSON.stringify({ ...base, objects: [{ kind, source: "MP6", name: "S", at: [0, 0, 0], yaw: 0, audio: a }] }));
     for (const a of [
       [{ do: "while" }], [{ do: "endWhile" }], [{ do: "if", chance: 0.5 }], [{ do: "else" }], [{ do: "endif" }],

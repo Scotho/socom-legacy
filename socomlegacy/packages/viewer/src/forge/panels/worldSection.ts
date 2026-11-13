@@ -144,7 +144,11 @@ export function buildWorldSection(doc: Document): WorldSection {
     const from = forgeEl(doc, 'select', 'fx-select');
     from.dataset['world'] = 'loading-from';
     from.setAttribute('aria-label', 'Loading screen map');
-    from.append(option('', 'Map’s own'), ...v.maps.map(([stem, label]) => option(stem, label)));
+    // Under its header, as every map list of the Forge (the asset browser's): the multiplayer maps.
+    const group = forgeEl(doc, 'optgroup', '');
+    group.label = 'Multiplayer';
+    group.append(...v.maps.map(([stem, label]) => option(stem, label)));
+    from.append(option('', 'Map’s own'), group);
     from.value = l.from ?? '';
     from.disabled = v.locked;
     from.addEventListener('change', () => write({ from: from.value === '' ? null : from.value }));

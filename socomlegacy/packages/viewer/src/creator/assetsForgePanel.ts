@@ -52,6 +52,8 @@ export interface AssetTiles extends Required<Pick<ForgePanelInstance, 'update' |
   thumbnail(asset: string, width: number, height: number): Promise<string | null>;
   /** The tile drag in flight that can still be dropped (its token, as the drag's data carries it), or null. */
   dragToken(): string | null;
+  /** The asset of the tile drag in flight that can still be dropped (the Inspector's drop, a browser adaptation), or null. */
+  dragAsset(): string | null;
   /**
    * The drag in flight dropped at the centre of the view, as the camera sees it (the Outliner's drop, a browser
    * adaptation): placed through the same guarded path as a drop on the world, or refused and said.
@@ -376,6 +378,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     },
     redrawn() { if (!disposed) tooltip.reanchor(); },
     dragToken: () => (session && !session.pending && !session.cancelled ? session.token : null),
+    dragAsset: () => (session && !session.pending && !session.cancelled ? session.asset : null),
     dropAtCentre,
   };
 }

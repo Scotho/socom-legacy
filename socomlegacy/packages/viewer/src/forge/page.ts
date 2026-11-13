@@ -63,7 +63,7 @@ import type { ArmoryData } from '../armoryData';
 import {
   canPickDiscFolder, canPickDiscImage, discRequestFromHandle, pickDiscFolder, pickDiscImage, readStartState, rememberedDisc, requestDisc,
 } from '../discMemory';
-import { assetsShown, readFavourites, toggleFavourite, writeFavourites, type AssetFilter } from './favourites';
+import { assetsShown, readFavourites, readObjectFavourites, toggleFavourite, writeFavourites, writeObjectFavourites, type AssetFilter } from './favourites';
 import { floorGround, layoutGround, prototypePolygons, standingSpot, type ContentMiss, type ContentPiece, type PieceHull } from './ground';
 import type { AssetDefinition } from '../packs/content/assets';
 import { CONTENT_METRES_PER_UNIT_ADAPTATION, contentPieceHull, type ContentResolver } from '../packs/content/collision';
@@ -112,7 +112,7 @@ import { blankFloorOf, bombMarkerPlaysIn, breachReady, forgeTypeUnplayable, type
 import { under as mapUnder } from '../mapMeta';
 import type { WeaponSoundEntry } from '../soundData';
 import { COMMON_SCRIPT_EFFECTS, commonScriptNames, lentAccessAssets, lentScriptAssets, mergeLent, scriptEffectsOf, scriptSoundsOf, scriptSteps, type LentScriptAssets } from './scriptAssets';
-import { ambientProgramsOf, audioOfProgram, audioScriptSounds, forgeAmbientEmitters, withForgeObjects, type AmbientProgram } from './forgeObjects';
+import { ambientProgramsOf, EFFECT_ASSET_PREFIX, effectOfAssetName, FORGE_SCRIPT_OBJECT, forgeAmbientEmitters, isScriptObject, scriptOfProgram, SOUND_ASSET_PREFIX, scriptObjectData, soundOfAssetName, withForgeObjects, type AmbientProgram } from './forgeObjects';
 import { ambientPreview, playAmbientSounds, previewSounds } from './previewAssets';
 import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
 import { turnFacade } from '../facade';
@@ -145,7 +145,7 @@ import {
   contentAssetKey, contentBaseRef, missingPackRefs, onlineRecordRefusal, withoutTree, readContentMapDefinition, TRIGGER_STAT_MAX, type ContentLayoutBase, type ContentMapDefinition,
   type ContentRef, type InstalledRulesPack, type PackRef, type RecordMode,
 } from '@s2u/creator-contracts';
-import { createWorkspaceDock, ForgePanelError, type ForgePanel, type ForgeShell, type ForgeShellPage } from './shell/panel';
+import { createWorkspaceDock, ForgePanelError, optionWithNote, type ForgePanel, type ForgeShell, type ForgeShellPage } from './shell/panel';
 import { createDockShell, type DockNode } from './shell/dockShell';
 import {
   createFocusLeases, panelContext, type CharacterRow, type ForgeDropProjection, type ForgeEditor, type ForgePageContext, type ForgePalette, type ForgePanelContext, type ForgeUi,
@@ -167,8 +167,8 @@ import { buildOutliner, OUTLINER_KINDS, outlinerPanel, spawnSlotRows } from './p
 import { mapDataGroups, type MapDataSource } from './mapData';
 import { aimPointOf, linkSegments, linkTargets, programEffects } from './actionSummary';
 import { FORGE_SWITCH_REACH, leverLook, SCRIPT_BLAST_DAMAGE, SCRIPT_BLAST_RADIUS, lookModelMap, mapActionTargets, radioLook, withPieceInstances, type SwitchLook, type SwitchLookId } from './placedAccess';
-import type { AudioStep, SwitchScript, SwitchStep, SwitchTarget } from '@s2u/creator-contracts';
-import { AUDIO_LOOP_MAX, AUDIO_STEPS_MAX, AUDIO_VOLUME_MAX, AUDIO_WAIT_MAX, audioScriptOk } from '@s2u/creator-contracts';
+import type { ScriptStep, ScriptSteps, ScriptTarget } from '@s2u/creator-contracts';
+import { AUDIO_LOOP_MAX, AUDIO_VOLUME_MAX, SWITCH_WAIT_MAX } from '@s2u/creator-contracts';
 import { ACTION_ICONS } from '../hud';
 import { bitmapWords } from './actionSummary';
 import { environmentSections } from './environment';
@@ -208,7 +208,7 @@ import {
   boundSetting, brightenFor, fogOfSlider, fogWithFar, matchBrightenOf, respawnSetting, roomOptionsOf, settingsDelta, sliderOfFog, stepSetting, type SteppedSetting,
   timeSetting,
 } from './settings';
-import { palette, type PaletteEntry } from './library';
+import { libraryProps, palette, type PaletteEntry } from './library';
 import { standingPose } from './figure';
 import { ASSET_DRAG_MIME } from './assetDrag';
 import { FORGE_TOOL_ORDER, forgeKeyAction, forgeLeaseExit, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from './keys';
@@ -294,13 +294,11 @@ const GHOST_ICON_KINDS: Partial<Record<string, string>> = {
 };
 
 /** The asset browser's tabs (`objectTab`): the props, then the objects the Place tool places, in the toolbar's order. */
-/** An ambient's audio script's step kinds as its Inspector offers them (`AudioStep`: the game's own commands). */
-const AUDIO_STEP_KINDS: readonly (readonly [AudioStep['do'], string])[] = [
-  ['play', 'Play (SOUND)'], ['wait', 'Wait (WAIT)'], ['loop', 'Loop from the top (LOOP)'], ['while', 'While, for ever (WHILE)'], ['endWhile', 'End while'],
-  ['if', 'If chance (IF RANDOM_WEIGHT)'], ['elseif', 'Else if chance'], ['else', 'Else'], ['endif', 'End if'],
-];
-/** The markers of the block a `while` / `endWhile` / `if` / `endif` step opens or closes (its elseifs and else with it). */
-const audioBlock = (l: readonly AudioStep[], k: number): number[] => {
+/**
+ * The steps of the block a `while` / `endWhile` / `if` / `end` step opens or closes (an if's else ifs and else with it):
+ * what a Remove takes out together, so a script always reads back.
+ */
+const scriptBlock = (l: readonly { do: string }[], k: number): number[] => {
   const st = l[k];
   if (!st) return [];
   if (st.do === 'while' || st.do === 'endWhile') {
@@ -313,12 +311,12 @@ const audioBlock = (l: readonly AudioStep[], k: number): number[] => {
     }
     return [k];
   }
-  if (st.do !== 'if' && st.do !== 'endif') return [k];
-  // The if that opens it, then its own elseifs, else and endif.
+  if (st.do !== 'if' && st.do !== 'end') return [k];
+  // The if that opens it, then its own else ifs, else and end.
   let at = k;
-  if (st.do === 'endif') {
+  if (st.do === 'end') {
     let d = 0;
-    for (let j = k; j >= 0; j--) { const x = l[j]!.do; if (x === 'endif') d++; else if (x === 'if' && --d === 0) { at = j; break; } }
+    for (let j = k; j >= 0; j--) { const x = l[j]!.do; if (x === 'end') d++; else if (x === 'if' && --d === 0) { at = j; break; } }
   }
   const out = [at];
   let d = 0;
@@ -326,14 +324,9 @@ const audioBlock = (l: readonly AudioStep[], k: number): number[] => {
     const x = l[j]!.do;
     if (x === 'if') d++;
     else if (d === 1 && (x === 'elseif' || x === 'else')) out.push(j);
-    else if (x === 'endif' && --d === 0) { out.push(j); break; }
+    else if (x === 'end' && --d === 0) { out.push(j); break; }
   }
   return out;
-};
-/** Why an audio script is refused (`audioScriptOk`), in the editor's words. */
-const audioWhy = (l: readonly AudioStep[]): string => {
-  if (l.length > AUDIO_STEPS_MAX) return `An audio script holds at most ${AUDIO_STEPS_MAX} steps`;
-  return 'Each While needs an End while after it, and each If an End if (Else if and Else between them), in order';
 };
 /** An ambient effect's hearing guide's colour (`syncAmbientGuides`): its billboard's orange (`userAmbients`). */
 const AMBIENT_GUIDE_COLOUR = 0xe08a2c;
@@ -341,10 +334,34 @@ const AMBIENT_GUIDE_COLOUR = 0xe08a2c;
 const AMBIENT_DEFAULT_RANGE: [number, number] = [160, 430];
 /** The asset browser's map choice that is no one map (`showEveryMap`): its first, every map's. */
 const PALETTE_ALL = '*all';
-type ObjectTab = 'props' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare' | 'ambient';
+/**
+ * The asset browser's Common (the owner, 2026-11-13: "All, Common, then all the maps"; "do the same for all the asset
+ * types"): what the maps share, so a map lists only its own -- the props of a shared library (`libraryProps` `shared`:
+ * a model of another archive's library, the Pave Hawk's, the turrets'), the sounds every map's banks hold (the guns'
+ * with them), the called effects every map has. A scene object (a door, a gate...) is a copy of one map's own: none.
+ */
+const PALETTE_COMMON = '*common';
+type ObjectTab = 'props' | 'characters' | 'sound' | 'ambient' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare';
+/**
+ * The asset browser's tabs (the owner, 2026-11-13: "the cleanest separations of asset/object types ... the true asset
+ * engine types"): the disc's own kinds of asset -- its props (models), its characters (`chartype`), its sounds (the
+ * banks and their `sounds.rdr` entries) and its programs (zAnim: self-starting ambient ones and called effects alike)
+ * -- then the scene objects a map's copy is placed whole as (each the Place tool's), kept as they were for now.
+ */
+/** The Characters tab shown: off for now (the owner, 2026-11-13: "hide the character assets for now"). */
+const CHARACTERS_TAB_SHOWN = false;
 const OBJECT_TABS: readonly (readonly [ObjectTab, string])[] = [
-  ['props', 'Props'], ['door', 'Door'], ['ladder', 'Ladder'], ['turret', 'Turret'], ['barrier', 'Damage trigger'], ['switch', 'Switch'], ['gate', 'Gate'], ['flare', 'Flare'], ['ambient', 'Effect'],
+  // Characters hidden for now (the owner, 2026-11-13: placed NPCs are the Forge's own, not a disc object; `CHARACTERS_TAB_SHOWN`).
+  ['props', 'Props'], ...(CHARACTERS_TAB_SHOWN ? [['characters', 'Characters'] as const] : []),
+  ['door', 'Door'], ['ladder', 'Ladder'], ['turret', 'Turret'], ['barrier', 'Damage trigger'], ['switch', 'Switch'], ['gate', 'Gate'], ['flare', 'Flare'],
+  // The sounds and the programs last (the owner, 2026-11-13).
+  ['sound', 'Sounds'], ['ambient', 'Programs'],
 ];
+/** A tab's things, plural, as the list's words say them ("doors", "sounds", "programs"). */
+const tabWords = (word: string): string => { const w = word.toLowerCase(); return w.endsWith('s') ? w : /(ch|sh|x)$/.test(w) ? `${w}es` : `${w}s`; };
+/** The Programs tab's filter (the owner, 2026-11-13): every program, the self-starting ambient ones, or the called effects. */
+type ProgramFilter = 'all' | 'ambient' | 'effect';
+
 /** A disc object a tile names: its map and its name there. */
 type ObjectRef = { source: string; name: string };
 /** The object kinds an asset id names (a ladder is a prop: its tile is its prop's own id). */
@@ -1068,13 +1085,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   } catch { /* Invalid saved presentation preferences use the browser defaults. */ }
   // FUI-22 (D5, FUI.R21; D3; a browser adaptation): the one asset browser -- archive, search, filters, and a view
   // settings popup; both formats use static staged-prop thumbnails and the optional hover tooltip (`assetTiles`, below).
-  const chipAll = el(doc, 'button', 'fx-chip', 'All');
-  chipAll.setAttribute('aria-label', 'All');
-  chipAll.title = 'Every prop of the archive';
   const chipFav = el(doc, 'button', 'fx-chip');
   chipFav.innerHTML = `${icon('star')}<span class="s2u-visually-hidden">Favourites</span>`;
   chipFav.setAttribute('aria-label', 'Favourites');
-  chipFav.title = 'Favourites: the props you starred';
+  chipFav.title = 'Favourites: only the ones you starred (press again for all of them)';
+  chipFav.setAttribute('aria-pressed', 'false');
   const search = el(doc, 'input', 'fx-search');
   search.type = 'search';
   search.placeholder = 'Search props…';
@@ -1082,7 +1097,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const list = el(doc, 'ul', 'fx-assets');
   list.setAttribute('aria-label', 'Assets');
   const assetsHead = el(doc, 'div', 'fx-panel-head');
-  assetsHead.append(el(doc, 'span', 'fx-dim', 'your disc’s props'));
+  assetsHead.append(el(doc, 'span', 'fx-dim', 'Source'));
   const filters = el(doc, 'div', 'fx-asset-filters');
   const chips = el(doc, 'div', 'fx-asset-chips');
   chips.classList.add('fx-asset-chip-row');
@@ -1153,7 +1168,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   assetLoopSoundsLabel.title = "A previewed ambient effect's sounds play round again until stopped; off, once";
   assetLoopSoundsLabel.append(assetLoopSoundsToggle, el(doc, 'span', '', 'Loop sounds'));
   assetViewPopup.append(assetLoopSoundsLabel);
-  chips.append(chipAll, chipFav, chipChars, assetViewPopupButton, assetViewPopup);
+  chipChars.hidden = true;                                     // a tab now (the owner, 2026-11-13): Characters
+  // The Programs tab's filter chips: every program, the ambient ones, the called effects.
+  const programChips = (['all', 'ambient', 'effect'] as const).map((f) => {
+    const c = el(doc, 'button', 'fx-chip', f === 'all' ? 'All' : f === 'ambient' ? 'Ambient' : 'Effects');
+    c.type = 'button';
+    c.title = f === 'all' ? 'Every program' : f === 'ambient' ? "Self-starting ambient programs: they run from the round's start as the map runs them" : 'Called effects (explosions, dust, sparks): placed, they run again and again';
+    c.dataset['programFilter'] = f;
+    c.addEventListener('click', () => { programFilter = f; drawAssets(); });
+    return c;
+  });
+  chips.append(chipFav, chipChars, ...programChips, assetViewPopupButton, assetViewPopup);
   filters.append(search, chips);
   const assetsFoot = el(doc, 'div', 'fx-assets-foot');
   assetsFoot.append(displayModes, sizeLabel);
@@ -1171,11 +1196,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     b.type = 'button';
     // Its icon beside its word (the owner, 2026-11-10: "add the icons next to the text"): its toolbar button's own
     // (`markBadge`, the placement's billboard), the props' their mark.
-    const own = key === 'props' ? markBadge('userProps') : modeBtns[key].querySelector('.fx-billboard-icon, svg.fx-ico')?.outerHTML ?? '';
+    const own = key === 'props' ? markBadge('userProps') : key === 'characters' ? icon('npc') : key === 'sound' ? icon('sound')
+      : modeBtns[key].querySelector('.fx-billboard-icon, svg.fx-ico')?.outerHTML ?? '';
     b.innerHTML = `${own}<span>${word}</span>`;
     b.setAttribute('role', 'tab');
-    b.title = key === 'props' ? "The map's props" : `The map's ${word.toLowerCase()}s: click one to place it, or drag it onto the world`;
-    b.addEventListener('click', () => { objectTab = key; showChars = false; search.value = ''; drawAssets(); });
+    b.title = key === 'props' ? "The map's props" : key === 'characters' ? "The base map's own player models, placed as NPCs"
+      : key === 'sound' ? "The map's sounds: each placed as an effect object that plays it (its script yours to change)"
+      : key === 'ambient' ? "The map's programs (zAnim): its self-starting ambient effects and its called effects, each placed as an effect object"
+      : `The map's ${tabWords(word)}: click one to place it, or drag it onto the world`;
+    // Characters: the list the chip showed (`showChars`); any other tab its own list.
+    b.addEventListener('click', () => { if (key === 'characters') showChars = true; else { objectTab = key; showChars = false; } search.value = ''; drawAssets(); });
     objectTabButtons.set(key, b);
     objectTabsRow.append(b);
   }
@@ -3268,6 +3298,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let chosen: string | null = null;
   let entriesOfPalette: PaletteEntry[] = [];
   let favs = readFavourites();
+  /** The other tabs' starred tiles (`readObjectFavourites`): each tab's Favourites, starred first under All. */
+  let objectFavs = readObjectFavourites();
   /** FUI-3 (PAD-11): the props chosen last, newest first (the menu's Props screen, its Recent tab; this session's only). */
   let recentProps: string[] = [];
   const noteRecentProp = (asset: string): void => { recentProps = [asset, ...recentProps.filter((a) => a !== asset)].slice(0, PROPS_RECENT_MAX); };
@@ -3282,6 +3314,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const objectChoice: { door?: ObjectRef; turret?: ObjectRef; gate?: ObjectRef; barrier?: ObjectRef; flare?: ObjectRef; ambient?: ObjectRef; ladder?: string; switch?: SwitchLookId } = {};
   /** FG-21: the assets dock lists the base map's characters (its player models) instead of its props. */
   let showChars = false;
+  let programFilter: ProgramFilter = 'all';
+
   /** FG-21: the character the NPC tool places: a side and its type on the map (`LoadedMap.types`). */
   let npcChoice: { side: 'seal' | 'terrorist'; type: number } | null = null;
   /** FG-21: the map whose characters the NPCs are (the base's; the blank floor's library's). */
@@ -3869,7 +3903,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const rosterMaps = (): (readonly [string, string])[] => {
     if (rosterMapsOf !== entries) {                            // the disc's MP maps, kept one list while `entries` is
       rosterMapsOf = entries;
-      rosterMapList = entries.filter((e) => !e.campaign && /^MP\d+$/i.test(e.stem)).map((e) => [e.stem, `${e.stem} · ${e.label}`] as const);
+      rosterMapList = entries.filter((e) => !e.campaign && /^MP\d+$/i.test(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const);
     }
     return rosterMapList;
   };
@@ -4517,7 +4551,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // A Forge object (`Layout.objects`): its kind, its map (an ambient's), its name, its place and turn.
         const o = objectOf(r)!;
         (l.objects ??= []).push({ kind: o.kind, source: o.source, name: o.name, at: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}),
-          ...(o.audio ? { audio: JSON.parse(JSON.stringify(o.audio)) as AudioStep[] } : {}) });
+          ...(objectScript.get(r) ? { script: scriptToFile(objectScript.get(r)!) } : {}) });
       } else if (r.userData['forgePoint']) {
         const t = r.userData['forgePoint'] as { name: string; kind: number };
         (l.tacPoints ??= []).push({ name: t.name, kind: t.kind, at: [r.position.x, r.position.y, r.position.z], ...(locked ? { locked: true } : {}) });
@@ -5066,10 +5100,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * Each placed switch's script (the owner, 2026-11-08; a browser adaptation, FG.R2), as the editor holds it: its steps
    * naming the layout's own objects by the objects themselves (a delete or a reorder never points a step at another),
-   * written as their places in their lists (`SwitchTarget`) by `layoutNow` (`scriptToFile`).
+   * written as their places in their lists (`ScriptTarget`) by `layoutNow` (`scriptToFile`).
    */
   type EditorTarget = { map: string } | { obj: Object3D };
-  type EditorStep = { do: SwitchStep['do']; action?: string; run?: Object3D; target?: EditorTarget; at?: EditorTarget; seconds?: number; text?: string; name?: string; from?: string; flag?: string; value?: number };
+  type EditorStep = {
+    do: ScriptStep['do']; action?: string; run?: Object3D; target?: EditorTarget; at?: EditorTarget; seconds?: number; random?: number;
+    text?: string; name?: string; from?: string; volume?: number; flag?: string; value?: number; chance?: number; times?: number;
+  };
   type EditorScript = { steps: EditorStep[] };
   const switchScript = new WeakMap<Object3D, EditorScript>();
   /**
@@ -5134,8 +5171,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   });
   const SCRIPT_FLAG = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
   const SCRIPT_NAME = /^[A-Za-z0-9_. -]{1,48}$/;
+  /** A sound's name: an effect's rule, and the game's loops' `~` and its other marks. */
+  const SCRIPT_SOUND_NAME = /^[A-Za-z0-9_.~!^ -]{1,48}$/;
   /** An editor target as the file writes it; null for an object no longer placed. */
-  const targetToFile = (t: EditorTarget | undefined, own: ReturnType<typeof ownLists>): SwitchTarget | null => {
+  const targetToFile = (t: EditorTarget | undefined, own: ReturnType<typeof ownLists>): ScriptTarget | null => {
     if (!t) return null;
     if ('map' in t) return { map: t.map };
     const at = (list: Object3D[]): number => list.indexOf(t.obj);
@@ -5149,9 +5188,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * A step list as the file writes it: a step whose object is gone, or whose words do not read, left out; the ifs kept
    * whole (a stray else or end dropped, an open if closed), so a file always reads back.
    */
-  const stepsToFile = (list: readonly EditorStep[], own: ReturnType<typeof ownLists>): SwitchStep[] => {
-    const out: SwitchStep[] = [];
-    const open: boolean[] = [];
+  const stepsToFile = (list: readonly EditorStep[], own: ReturnType<typeof ownLists>): ScriptStep[] => {
+    const out: ScriptStep[] = [];
+    // The open blocks, innermost last: a while, an if before its else, an if after it.
+    const open: ('while' | 'if' | 'else')[] = [];
+    const n10k = (v: unknown): number => Math.min(9999, Math.max(0, Math.round(Number(v) || 0)));
+    const test = (st: EditorStep): { flag: string; equals: number } | { chance: number } | null =>
+      (st.chance !== undefined ? { chance: Math.min(1, Math.max(0, Number(st.chance) || 0)) } : st.flag && SCRIPT_FLAG.test(st.flag) ? { flag: st.flag, equals: n10k(st.value) } : null);
     for (const st of list) {
       switch (st.do) {
         case 'run': {
@@ -5161,13 +5204,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           break;
         }
         case 'show': case 'hide': { const t = targetToFile(st.target, own); if (t) out.push({ do: st.do, target: t }); break; }
-        case 'wait': out.push({ do: 'wait', seconds: Math.min(600, Math.max(0, Number(st.seconds) || 0)) }); break;
+        case 'wait': {
+          const random = Math.min(SWITCH_WAIT_MAX, Math.max(0, Number(st.random) || 0));
+          out.push({ do: 'wait', seconds: Math.min(SWITCH_WAIT_MAX, Math.max(0, Number(st.seconds) || 0)), ...(random > 0 ? { random } : {}) });
+          break;
+        }
         case 'message': { const text = String(st.text ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80); if (text) out.push({ do: 'message', text }); break; }
         case 'sound': case 'effect': {
-          if (!st.name || !SCRIPT_NAME.test(st.name)) break;
+          if (!st.name || !(st.do === 'sound' ? SCRIPT_SOUND_NAME : SCRIPT_NAME).test(st.name)) break;
           const at = targetToFile(st.at, own);
           const from = st.from && /^[A-Z]{1,3}\d{1,3}$/.test(st.from) && st.from !== scriptHome() ? st.from : undefined;
-          out.push({ do: st.do, name: st.name, ...(at ? { at } : {}), ...(from ? { from } : {}) });
+          const volume = st.do === 'sound' && st.volume !== undefined && Number.isFinite(st.volume) && st.volume !== 1 ? Math.min(AUDIO_VOLUME_MAX, Math.max(0, st.volume)) : undefined;
+          if (st.do === 'sound') out.push({ do: 'sound', name: st.name, ...(at ? { at } : {}), ...(from ? { from } : {}), ...(volume !== undefined ? { volume } : {}) });
+          else out.push({ do: 'effect', name: st.name, ...(at ? { at } : {}), ...(from ? { from } : {}) });
           break;
         }
         case 'blast': {
@@ -5177,37 +5226,49 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           break;
         }
         case 'set': if (st.flag && SCRIPT_FLAG.test(st.flag)) out.push({ do: 'set', flag: st.flag, value: Math.min(9999, Math.max(0, Math.round(Number(st.value) || 0))) }); break;
-        case 'if': if (st.flag && SCRIPT_FLAG.test(st.flag)) { out.push({ do: 'if', flag: st.flag, equals: Math.min(9999, Math.max(0, Math.round(Number(st.value) || 0))) }); open.push(false); } break;
-        case 'else': if (open.length && !open[open.length - 1]) { open[open.length - 1] = true; out.push({ do: 'else' }); } break;
-        case 'end': if (open.length) { open.pop(); out.push({ do: 'end' }); } break;
+        case 'if': { const t = test(st); if (t) { out.push({ do: 'if', ...t }); open.push('if'); } break; }
+        case 'elseif': { const t = test(st); if (t && open[open.length - 1] === 'if') out.push({ do: 'elseif', ...t }); break; }
+        case 'else': if (open[open.length - 1] === 'if') { open[open.length - 1] = 'else'; out.push({ do: 'else' }); } break;
+        case 'end': if (open[open.length - 1] === 'if' || open[open.length - 1] === 'else') { open.pop(); out.push({ do: 'end' }); } break;
+        case 'while': out.push({ do: 'while' }); open.push('while'); break;
+        case 'endWhile': if (open[open.length - 1] === 'while') { open.pop(); out.push({ do: 'endWhile' }); } break;
+        case 'loop': {
+          const times = st.times !== undefined ? Math.min(AUDIO_LOOP_MAX, Math.max(1, Math.round(Number(st.times) || 1))) : undefined;
+          const seconds = times === undefined && st.seconds !== undefined ? Math.min(SWITCH_WAIT_MAX * 6, Math.max(0, Number(st.seconds) || 0)) : undefined;
+          out.push({ do: 'loop', ...(times !== undefined ? { times } : {}), ...(seconds !== undefined ? { seconds } : {}) });
+          break;
+        }
         default: break;
       }
       if (out.length >= 64) break;
     }
-    while (open.length && out.length < 64) { open.pop(); out.push({ do: 'end' }); }
+    // A block left open closed (a file always reads back): its End if or End while.
+    while (open.length && out.length < 64) out.push({ do: open.pop() === 'while' ? 'endWhile' : 'end' });
     return out;
   };
-  const scriptToFile = (sc: EditorScript): SwitchScript => {
+  const scriptToFile = (sc: EditorScript): ScriptSteps => {
     const own = ownLists();
     return { steps: stepsToFile(sc.steps, own) };
   };
   /** A file's script for the editor, its objects the staged ones (`prepareLayout`'s lists, in the file's order). */
-  const scriptFromFile = (sc: SwitchScript, own: { pieces: Object3D[]; barriers: Object3D[]; gates: Object3D[]; objects?: Object3D[] }): EditorScript => {
-    const target = (t: SwitchTarget | undefined): EditorTarget | undefined => {
+  const scriptFromFile = (sc: ScriptSteps, own: { pieces: Object3D[]; barriers: Object3D[]; gates: Object3D[]; objects?: Object3D[] }): EditorScript => {
+    const target = (t: ScriptTarget | undefined): EditorTarget | undefined => {
       if (!t) return undefined;
       if ('map' in t) return { map: t.map };
       const obj = 'piece' in t ? own.pieces[t.piece] : 'barrier' in t ? own.barriers[t.barrier] : 'object' in t ? own.objects?.[t.object] : own.gates[t.gate];
       return obj ? { obj } : undefined;
     };
-    const steps = (list: readonly SwitchStep[]): EditorStep[] => list.map((st): EditorStep => {
+    const steps = (list: readonly ScriptStep[]): EditorStep[] => list.map((st): EditorStep => {
       switch (st.do) {
         case 'run': return 'action' in st ? { do: 'run', action: st.action } : { do: 'run', ...(own.barriers[st.barrier] ? { run: own.barriers[st.barrier]! } : {}) };
         case 'show': case 'hide': return { do: st.do, ...(target(st.target) ? { target: target(st.target)! } : {}) };
-        case 'wait': return { do: 'wait', seconds: st.seconds };
+        case 'wait': return { do: 'wait', seconds: st.seconds, ...(st.random ? { random: st.random } : {}) };
         case 'message': return { do: 'message', text: st.text };
-        case 'sound': case 'effect': return { do: st.do, name: st.name, ...(target(st.at) ? { at: target(st.at)! } : {}), ...(st.from ? { from: st.from } : {}) };
+        case 'sound': return { do: 'sound', name: st.name, ...(target(st.at) ? { at: target(st.at)! } : {}), ...(st.from ? { from: st.from } : {}), ...(st.volume !== undefined ? { volume: st.volume } : {}) };
+        case 'effect': return { do: 'effect', name: st.name, ...(target(st.at) ? { at: target(st.at)! } : {}), ...(st.from ? { from: st.from } : {}) };
         case 'set': return { do: 'set', flag: st.flag, value: st.value };
-        case 'if': return { do: 'if', flag: st.flag, value: st.equals };
+        case 'if': case 'elseif': return 'chance' in st ? { do: st.do, chance: st.chance } : { do: st.do, flag: st.flag, value: st.equals };
+        case 'loop': return { do: 'loop', ...(st.times !== undefined ? { times: st.times } : {}), ...(st.seconds !== undefined ? { seconds: st.seconds } : {}) };
         case 'blast': return { do: 'blast', ...(target(st.at) ? { at: target(st.at)! } : {}) };
         default: return { do: st.do };
       }
@@ -5378,18 +5439,32 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * pick box), its look its billboard (`userAmbients`); `userData.forgeObject` its kind, its map and its program, and its
    * audio script where it has one.
    */
-  type ForgeObjectData = { kind: 'ambient'; source: string; name: string; audio?: AudioStep[] };
+  type ForgeObjectData = { kind: 'ambient'; source: string; name: string; script?: ScriptSteps };
   const objectOf = (r: Object3D): ForgeObjectData | undefined => r.userData['forgeObject'] as ForgeObjectData | undefined;
-  const newForgeObject = (o: ForgeObjectData): Object3D => {
+  /**
+   * Each effect object's script (the one script, `scriptEditors`), as the editor holds it: its steps naming the layout's
+   * own objects by the objects themselves (a switch's and a trigger's alike), written by `layoutNow` (`scriptToFile`).
+   */
+  const objectScript = new WeakMap<Object3D, EditorScript>();
+  const newForgeObject = (given: ForgeObjectData): Object3D => {
+    const o = scriptObjectData(given);                         // a single sound's or effect's tile: a scripted effect running it
     const r = pointMarker('point');
+    // Its script the editor's (`objectScript`): what it starts with, its targets none yet (a loaded one's set by `prepareLayout`).
+    if (o.script) objectScript.set(r, scriptFromFile(o.script, ownLists()));
     // Its look its billboard (`userAmbients`), its View switch theirs; its audio script its own copy.
-    r.userData['forgeObject'] = { ...o, ...(o.audio ? { audio: JSON.parse(JSON.stringify(o.audio)) as AudioStep[] } : {}) };
+    r.userData['forgeObject'] = { kind: o.kind, source: o.source, name: o.name };
     r.name = `${o.kind} ${o.name}`;
     return r;
   };
   const objectLabel = (r: Object3D): string => {
     const o = objectOf(r);
-    return !o ? '' : `Ambient \u00b7 ${o.name} (${o.source})${o.audio ? ' \u00b7 its own script' : ''}`;
+    const sc = objectScript.get(r);
+    if (o && isScriptObject(o)) {
+      // Named by what it runs first: its first effect, else its first sound.
+      const first = sc?.steps.find((x) => x.do === 'effect') ?? sc?.steps.find((x) => x.do === 'sound');
+      return `Effect \u00b7 ${first?.name ? `${first.name.trim()} (${first.from ?? o.source})` : 'empty'}`;
+    }
+    return !o ? '' : `Ambient \u00b7 ${o.name} (${o.source})${sc ? ' \u00b7 its own script' : ''}`;
   };
   /** The ambient effect the Ambient tool places: the asset browser's tile, else the palette map's first. */
   const defaultAmbient = async (): Promise<ObjectRef | null> => {
@@ -5455,7 +5530,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return (r.userData['forgePiece'] as string | undefined) ?? `Spawn ${r.userData['forgeSpawn'] as string}`;
   };
   /** FUI-22 (D2): the Inspector head's kind word for a placement. */
-  const kindOf = (r: Object3D): string => (objectOf(r) ? 'Ambient effect' : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
+  const kindOf = (r: Object3D): string => (objectOf(r) ? (isScriptObject(objectOf(r)!) ? 'Effect' : 'Ambient effect') : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
   /**
    * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2): drawn, not yet wired. A single piece shows its
    * own values (pitch and roll read in the `YXZ` order, so yaw stays the turn about Y); anything else -- a group, a map
@@ -5658,15 +5733,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const censusKnown = new Map<string, MapCopies>();
   let censusAsked = false;
+  /** Each map's own props, counted with its census (`askCensus`): the Source's Props counts. */
+  const ownPropCounts = new Map<string, number>();
+  /** Each map's props as read (`archives.props`): a placed prop's Prop row. */
+  const mapPropLists = new Map<string, NonNullable<Awaited<ReturnType<typeof archives.props>>>>();
+  const propListAsked = new Set<string>();
+  /** A map's props, read once on asking (the Inspector drawn again when they come); null till then. */
+  const propListOf = (stem: string): NonNullable<Awaited<ReturnType<typeof archives.props>>> | null => {
+    const got = mapPropLists.get(stem);
+    if (got || propListAsked.has(stem)) return got ?? null;
+    propListAsked.add(stem);
+    void archives.props(stem).catch(() => null).then((props) => { mapPropLists.set(stem, props ?? []); refreshInspector(); });
+    return null;
+  };
   const askCensus = (): void => {
     if (censusAsked) return;
     censusAsked = true;
     const none: MapCopies = { door: [], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [], ambient: [] };
     for (const [stem] of copyMaps()) {
       if (absent.has(stem)) { censusKnown.set(stem, none); continue; }
-      void archives.census(stem).then((c) => {
+      void archives.census(stem).then(async (c) => {
         censusKnown.set(stem, c ?? none);
+        // Its own props (a shared library's are Common's), for the Source's counts (`drawPaletteCounts`).
+        const props = await archives.props(stem).catch(() => null);
+        ownPropCounts.set(stem, (props ?? []).filter((x) => !x.shared).length);
+        if (props) mapPropLists.set(stem, props);
         refreshInspector();
+        drawPaletteCounts();
         if (paletteSel.value === PALETTE_ALL && objectTab !== 'props') drawAssets();   // All's object tabs fill as maps are read
       });
     }
@@ -5682,7 +5775,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const got = scriptNameLists.get(stem);
     if (got) return got;
     if (absent.has(stem)) return { sounds: [], effects: [] };
-    void archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); } });
+    void archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); if (objectTab === 'ambient' || objectTab === 'sound') drawAssets(); } });
     return null;
   };
   /** A map's own sounds or effects: its list less what every map has (`scriptCommonNow`), once that is known. */
@@ -5697,7 +5790,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     let chain: Promise<unknown> = Promise.resolve();
     for (const [stem] of copyMaps()) {
       if (absent.has(stem)) continue;
-      chain = chain.then(() => archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); } }));
+      chain = chain.then(() => archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); if (objectTab === 'ambient' || objectTab === 'sound') drawAssets(); } }));
     }
   };
   /**
@@ -5735,7 +5828,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let weaponSoundList: WeaponSoundEntry[] | null = null;
   let weaponSoundsAsked = false;
   const weaponSoundsNow = (): WeaponSoundEntry[] | null => {
-    if (!weaponSoundsAsked) { weaponSoundsAsked = true; void archives.weaponSounds().then((l) => { weaponSoundList = l; refreshInspector(); }); }
+    if (!weaponSoundsAsked) { weaponSoundsAsked = true; void archives.weaponSounds().then((l) => { weaponSoundList = l; refreshInspector(); if (objectTab === 'sound') drawAssets(); }); }
     return weaponSoundList;
   };
   /**
@@ -5764,14 +5857,39 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const n = scriptNamesOf(stem);
       return n ? { ...(c ? censusOfCopies(c) : { door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, ambient: 0 }), sound: ownScriptNames(n, 'sound').length, effect: ownScriptNames(n, 'effect').length } : null;
     };
-    return censusOptions(maps.some(([m]) => m === current) ? maps : [[current, current] as const, ...maps], known, kind, current);
+    // A current map the list lacks shown first; none (a Custom one's: '' or a `*` choice) adds no row.
+    const listed = !current || current.startsWith('*') || maps.some(([m]) => m === current);
+    return censusOptions(listed ? maps : [[current, current] as const, ...maps], known, kind, current);
   };
   /**
    * Every map on this disc, multiplayer then campaign, by stem and name: where a door, turret, hostage, ladder, gate,
    * damage trigger or flare may be copied from (the owner, 2026-11-10: "every asset from every map available at all times").
    */
+  /**
+   * A map choice's group (the owner, 2026-11-13: "add the headers Multiplayer/Campaign the same way it is shown in the
+   * asset browser ... unify the look and feel of these maps lists"): a disc map's Multiplayer or Campaign, a category
+   * of every map's (Weapons, Common: a `*` value) Across maps; anything else (Custom) none.
+   */
+  const mapGroupOf = (value: string): string | undefined => {
+    if (value.startsWith('*') && value !== CUSTOM_TRIGGER) return 'Across maps';
+    const e = entries.find((x) => x.stem === value);
+    return e ? (e.campaign ? 'Campaign' : 'Multiplayer') : undefined;
+  };
+  /**
+   * Map choices with their groups (`mapGroupOf`), for an Inspector select; a map's count (`mapChoices`' "\u00b7 3 doors",
+   * "\u00b7 none") its note, set right in its row (`optionWithNote`), as the asset browser's Source sets its own.
+   */
+  const groupedMaps = (rows: readonly (readonly [string, string, boolean?])[]): (readonly [string, string, boolean, string | undefined, string | undefined])[] => {
+    const names = new Map(copyMaps());
+    return rows.map((r) => {
+      const name = names.get(r[0]);
+      const note = name && r[1].startsWith(`${name} \u00b7 `) ? r[1].slice(name.length + 3) : undefined;
+      return [r[0], note !== undefined ? name! : r[1], r[2] ?? false, mapGroupOf(r[0]), note] as const;
+    });
+  };
   const copyMaps = (): (readonly [string, string])[] => [
-    ...entries.filter((e) => !e.campaign && /^MP\d+$/i.test(e.stem)).map((e) => [e.stem, `${e.stem} \u00b7 ${e.label}`] as const),
+    // A map's name first, so the list (by name, as `entries` is) reads in its order.
+    ...entries.filter((e) => !e.campaign && /^MP\d+$/i.test(e.stem)).map((e) => [e.stem, `${e.label} \u00b7 ${e.stem}`] as const),
     ...entries.filter((e) => e.campaign).map((e) => [e.stem, `${e.stem} \u00b7 ${e.label} (campaign)`] as const),
   ];
   /**
@@ -5782,11 +5900,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     custom?: () => void): InspectorEditor[] => {
     const pending = copyPending.get(ref);
     const list = pending ? null : copyList(kind, own.source);
-    const words = kind;
+    const words = kind === 'barrier' ? 'damage trigger' : kind;
     return [
-      { label: 'Map', kind: 'select', value: pending ?? own.source, covers: [`${kind}.source`], disabled: off,
+      { label: 'Source', kind: 'select', value: pending ?? own.source, covers: [`${kind}.source`], disabled: off,
         // A damage trigger's Custom first (`customFromBarrier`): a prop of your choice made one.
-        options: custom ? [[CUSTOM_TRIGGER, 'Custom \u00b7 any prop, your own numbers and death', false] as const, ...mapChoices(kind, pending ?? own.source)] : mapChoices(kind, pending ?? own.source),
+        options: groupedMaps(custom ? [[CUSTOM_TRIGGER, 'Custom', false] as const, ...mapChoices(kind, pending ?? own.source)] : mapChoices(kind, pending ?? own.source)),
         title: custom ? `Custom: a prop you choose made a damage trigger; a disc map: that map's own ${words} copied whole` : `The disc map whose ${words} it copies`,
         set: (v) => {
           const stem = String(v);
@@ -5800,24 +5918,31 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             : () => (kind === 'door' ? doorsOf(stem) : turretsOf(stem)).then((ts) => ts[0]?.name ?? null);
           switchCopyMap(ref, kind, stem, first, (name) => set(`${stem}:${name}`));
         } },
-      { label: kind === 'door' ? 'Door' : kind === 'ladder' ? 'Ladder' : kind === 'flare' ? 'Flare' : kind === 'gate' ? 'Gate' : kind === 'barrier' ? 'Barrier' : 'Turret', kind: 'select', value: pending ? '' : own.name, covers: [`${kind}.name`], disabled: off || !list,
+      { label: kind === 'door' ? 'Door' : kind === 'ladder' ? 'Ladder' : kind === 'flare' ? 'Flare' : kind === 'gate' ? 'Gate' : kind === 'barrier' ? 'Damage Trigger' : 'Turret', kind: 'select', value: pending ? '' : own.name, covers: [`${kind}.name`], disabled: off || !list,
         options: pending ? [['', 'Loading…']] : list ? (list.some(([n]) => n === own.name) ? list : [...list, [own.name, own.name] as const]) : [[own.name, 'Loading…']],
-        title: kind === 'flare' ? "The disc glow it copies: one facade node, the lamp it hangs on left behind" : kind === 'gate' ? "The disc gate it copies: its slide, its lever and its wreck are that gate's" : kind === 'barrier' ? "The disc access barrier it copies: its health, its parts and its wreck are that barrier's" : kind === 'door' ? "The disc door it copies: its swing and reach are that door's" : kind === 'ladder' ? "The disc ladder prop it is: its height and rungs are that ladder's" : "The disc turret it copies: its definition, weapon and limits are that turret's",
+        title: kind === 'flare' ? "The disc glow it copies: one facade node, the lamp it hangs on left behind" : kind === 'gate' ? "The disc gate it copies: its slide, its lever and its wreck are that gate's" : kind === 'barrier' ? "The disc damage trigger it copies: its health, its parts and its wreck are that trigger's" : kind === 'door' ? "The disc door it copies: its swing and reach are that door's" : kind === 'ladder' ? "The disc ladder prop it is: its height and rungs are that ladder's" : "The disc turret it copies: its definition, weapon and limits are that turret's",
         set: (v) => set(`${own.source}:${String(v)}`) },
     ];
   };
   /** A script step's kinds, in the Add list's order, and each one's words. */
-  const STEP_KINDS: readonly (readonly [SwitchStep['do'], string])[] = [
-    ['run', 'Run an action'], ['hide', 'Hide an object'], ['show', 'Show an object'], ['wait', 'Wait'], ['message', 'Show a message'],
-    ['sound', 'Play a sound'], ['effect', 'Play an effect'], ['blast', "Explosion (the bomb's: MPBOMB, 300 u)"], ['set', 'Set a flag'], ['if', 'If a flag is'], ['else', 'Otherwise'], ['end', 'End if'],
+  const STEP_KINDS: readonly (readonly [ScriptStep['do'], string])[] = [
+    ['sound', 'Play a sound (SOUND)'], ['effect', 'Play an effect (CALL)'], ['wait', 'Wait (WAIT)'], ['loop', 'Loop from the top (LOOP)'],
+    ['while', 'While, for ever (WHILE)'], ['endWhile', 'End while'], ['if', 'If (IF)'], ['elseif', 'Else if'], ['else', 'Otherwise (ELSE)'], ['end', 'End if'],
+    ['set', 'Set a flag (VALVE)'], ['show', 'Show an object'], ['hide', 'Hide an object'], ['run', 'Run an action'], ['message', 'Show a message'],
+    ['blast', "Explosion (the bomb's: MPBOMB, 300 u)"],
   ];
+  /** The steps the Add list starts a block with (a While with its End while, an If with its End if); the closers come with them. */
+  const ADD_KINDS = STEP_KINDS.filter(([d]) => d !== 'endWhile' && d !== 'end' && d !== 'elseif' && d !== 'else');
   /**
-   * A switch's script in the Inspector (the owner, 2026-11-08): each step a row of what it does (with Move up and Remove),
-   * then a row for what on; an Add row for each list; Toggle (a second list, run on the next pull) and Repeat.
+   * A script in the Inspector -- the one script (the owner, 2026-11-13: "a fully generic scripting way of doing things that
+   * is unified"): a switch's pull, a damage trigger's death, an effect object's round. Each step a row of what it does
+   * (Move up, Move down, Remove: a While or an If with its End), then its own fields; then Add a step. `title` the list's
+   * head, `self` what a step with no At acts at (the switch, the prop, the object).
    */
   function scriptEditors(s: Object3D, ref: string, sc: EditorScript, off: boolean, out: InspectorEditor[],
-    opts: { store?: WeakMap<Object3D, EditorScript>; death?: boolean } = {}): void {
+    opts: { store?: WeakMap<Object3D, EditorScript>; death?: boolean; title?: string; self?: string } = {}): void {
     const store = opts.store ?? switchScript;
+    if (!store.has(s)) store.set(s, sc);                        // the steps edited are the store's own
     const lib = baseMap ? scriptLibOf(baseMap) : { objects: [], sounds: [], effects: [...COMMON_SCRIPT_EFFECTS] };
     // The map whose sounds and effects the match has of its own: the base's, or a blank floor's library (`charMap`, the
     // archive the match plays on: `composeGround`'s `groundMap`).
@@ -5856,32 +5981,41 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ...own.barriers.map((r, i) => [`barrier:${i}`, `Wreck your damage trigger ${i + 1} \u00b7 ${accessLabel(r)}`] as const),
       ...(baseMap ? mapActionTargets(baseMap) : []).map((a) => [`action:${a.valve}`, `Map action \u00b7 ${a.type || 'no prompt'} \u00b7 ${a.node} \u2192 ${a.anims[0] ?? ''}`] as const),
     ];
-    const fresh = (kind: SwitchStep['do']): EditorStep => {
+    const fresh = (kind: ScriptStep['do']): EditorStep => {
       switch (kind) {
         case 'run': { const first = runOptions[0]?.[0] ?? ''; return first.startsWith('barrier:') ? { do: 'run', run: own.barriers[Number(first.slice(8))]! } : { do: 'run', ...(first ? { action: first.slice(7) } : {}) }; }
         case 'show': case 'hide': { const t = targetOf(objectOptions[0]?.[0] ?? ''); return { do: kind, ...(t ? { target: t } : {}) }; }
         case 'wait': return { do: 'wait', seconds: 1 };
         case 'message': return { do: 'message', text: 'MESSAGE' };
-        case 'sound': return { do: 'sound', name: lib.sounds[0] ?? '.EXP_1' };
-        case 'effect': return { do: 'effect', name: lib.effects[0] ?? 'fire_explode_med' };
+        // A new sound or effect: the list's last one's map again (else the match's own map's first).
+        case 'sound': { const last = [...sc.steps].reverse().find((x) => x.do === 'sound'); return last ? { do: 'sound', name: last.name, ...(last.from ? { from: last.from } : {}) } : { do: 'sound', name: lib.sounds[0] ?? '.EXP_1' }; }
+        case 'effect': { const last = [...sc.steps].reverse().find((x) => x.do === 'effect'); return last ? { do: 'effect', name: last.name, ...(last.from ? { from: last.from } : {}) } : { do: 'effect', name: lib.effects[0] ?? 'fire_explode_med' }; }
         case 'set': return { do: 'set', flag: 'flag', value: 1 };
-        case 'if': return { do: 'if', flag: 'flag', value: 1 };
+        case 'if': case 'elseif': return { do: kind, flag: 'flag', value: 1 };
+        case 'loop': return { do: 'loop' };
         case 'blast': return { do: 'blast' };
         default: return { do: kind };
       }
     };
     const list = (title: string): void => {
       const steps = sc.steps;
-      out.push({ label: title, kind: 'select', value: '', options: [['', steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps yet']], disabled: true, set: () => undefined });
+      out.push({ label: title, kind: 'select', value: '', options: [['', steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps yet']], disabled: true, set: () => undefined,
+        gap: true, stepsStart: true,
+        title: "Run top to bottom, as the game runs its own programs' commands. A ~ sound loops at its place from the start (the game's rule)" });
       const at = (fn: (l: EditorStep[]) => void) => (x: EditorScript): void => { fn(x.steps); };
+      let depth = 0;
       steps.forEach((st, k) => {
-        const n = `${k + 1}`;
-        out.push({ label: `${n}.`, kind: 'select', value: st.do, disabled: off,
-          options: [...STEP_KINDS, ...(k > 0 ? [['up', '\u2191 Move up'] as const] : []), ['remove', '\u2715 Remove'] as const],
-          title: 'What this step does; Move up or Remove', set: (v) => change('step', at((l) => {
-            if (v === 'remove') l.splice(k, 1);
-            else if (v === 'up') { const [x] = l.splice(k, 1); l.splice(k - 1, 0, x!); }
-            else if (v !== st.do) l[k] = fresh(v as SwitchStep['do']);
+        // Its number, indented a dot a block it stands in (an else if or an else at its if's own depth).
+        if (st.do === 'endWhile' || st.do === 'end') depth = Math.max(0, depth - 1);
+        const inner = st.do === 'elseif' || st.do === 'else' ? Math.max(0, depth - 1) : depth;
+        const n = `${'\u00b7 '.repeat(inner)}${k + 1}`;
+        if (st.do === 'while' || st.do === 'if') depth++;
+        out.push({ label: `${n}.`, kind: 'select', value: st.do, disabled: off, gap: true,
+          options: [...STEP_KINDS, ...(k > 0 ? [['up', '\u2191 Move up'] as const] : []), ...(k < steps.length - 1 ? [['down', '\u2193 Move down'] as const] : []), ['remove', '\u2715 Remove'] as const],
+          title: 'What this step does; Move up, Move down or Remove (a While or an If is removed with its End, Else if and Otherwise)', set: (v) => change('step', at((l) => {
+            if (v === 'remove') { for (const j of scriptBlock(l, k).sort((a, b) => b - a)) l.splice(j, 1); }
+            else if (v === 'up' || v === 'down') { const to = v === 'up' ? k - 1 : k + 1; const [x] = l.splice(k, 1); l.splice(to, 0, x!); }
+            else if (v !== st.do) l[k] = fresh(v as ScriptStep['do']);
           })) });
         const field = (label: string, ed: Omit<InspectorEditor, 'label' | 'disabled'>): void => { out.push({ ...ed, label: `${n}. ${label}`, disabled: off }); };
         const objectField = (label: string, key: 'target' | 'at', none: string | null): void => field(label, {
@@ -5893,7 +6027,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             title: "Your damage trigger's wreck, or one of the map's own actions -- run as the disc runs one (EXECUTE_ACTION)",
             set: (v) => change('run', at((l) => { const p = String(v); l[k] = p.startsWith('barrier:') ? { do: 'run', run: own.barriers[Number(p.slice(8))]! } : { do: 'run', action: p.slice(7) }; })) }); break;
           case 'show': case 'hide': objectField('Object', 'target', null); break;
-          case 'wait': field('Seconds', { kind: 'number', value: st.seconds ?? 0, title: 'How long before the next step', set: (v) => change('seconds', at((l) => { l[k] = { ...l[k]!, seconds: Number(v) }; })) }); break;
+          case 'wait':
+            field('Seconds', { kind: 'number', value: st.seconds ?? 0, title: `How long before the next step (up to ${SWITCH_WAIT_MAX})`, set: (v) => change('seconds', at((l) => { l[k] = { ...l[k]!, seconds: Number(v) }; })) });
+            field('Random +', { kind: 'number', value: st.random ?? 0, title: "Up to this many seconds more, at random each time (WAIT's random range)",
+              set: (v) => change('random', at((l) => { const x = Number(v); const next = { ...l[k]! }; if (!Number.isFinite(x) || x <= 0) delete next.random; else next.random = x; l[k] = next; })) });
+            break;
+          case 'loop': {
+            const how = st.times !== undefined ? 'times' : st.seconds !== undefined ? 'seconds' : 'ever';
+            field('Until', { kind: 'select', value: how,
+              options: [['ever', 'For ever (LOOP -1)'] as const, ['times', 'A number of runs'] as const, ['seconds', 'A time'] as const],
+              title: 'LOOP runs the script again from its first step: for ever, until it has run so many times, or until so many seconds have passed',
+              set: (v) => change('loop', at((l) => { l[k] = v === 'times' ? { do: 'loop', times: 2 } : v === 'seconds' ? { do: 'loop', seconds: 30 } : { do: 'loop' }; })) });
+            if (st.times !== undefined) field('Runs', { kind: 'number', value: st.times, title: `How many times the script runs in all (1 to ${AUDIO_LOOP_MAX})`, set: (v) => change('times', at((l) => { l[k] = { do: 'loop', times: Number(v) }; })) });
+            if (st.seconds !== undefined) field('Seconds', { kind: 'number', value: st.seconds, title: 'How long it keeps running again', set: (v) => change('seconds', at((l) => { l[k] = { do: 'loop', seconds: Number(v) }; })) });
+            break;
+          }
           case 'message':
             field('Text', { kind: 'text', value: st.text ?? '', title: 'Posted on the message window, as the round start\'s (80 letters)', set: (v) => change('text', at((l) => { l[k] = { ...l[k]!, text: String(v) }; })) });
             break;
@@ -5925,7 +6073,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
               [COMMON_CATEGORY, `Common \u00b7 ${counted(commonNames?.length, kind === 'sound' ? 'sounds' : 'effects')} every map has`, false] as const,
             ];
             const mapNow = pending && !pending.startsWith('*') ? pending : from.startsWith('*') ? home : from;
-            if (home) field('From', { kind: 'select', value: pending ?? from, options: [...categories, ...mapChoices(kind, mapNow)],
+            if (home) field('From', { kind: 'select', value: pending ?? from, options: groupedMaps([...categories, ...mapChoices(kind, mapNow)]),
               title: kind === 'sound' ? "Weapons, Common (what every map has) or a disc map's own: another map's is lent into the match out of that map's banks"
                 : "Common (what every map has) or a disc map's own: another map's is lent into the match out of that map's effect sets",
               set: (v) => {
@@ -5949,165 +6097,62 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
                 : st.name && !names.some(([n]) => n === st.name) ? [[st.name, st.name] as const, ...names] : names,
               title: kind === 'sound' ? "The category's or the map's sounds" : "The category's or the map's effects (those that draw where they are called)",
               set: (v) => { if (v) change('name', at((l) => { l[k] = { ...l[k]!, name: String(v) }; })); } });
-            objectField('At', 'at', 'The switch');
+            if (kind === 'sound') {
+              field('Volume', { kind: 'number', value: st.volume ?? 1,
+                title: `The command's volume (SOUND's flag 0x10): 1 the sound's own level, 0 silent, up to ${AUDIO_VOLUME_MAX} (the maps' fires play at 3)`,
+                set: (v) => change('volume', at((l) => { const x = Number(v); const next = { ...l[k]! }; if (!Number.isFinite(x) || x === 1) delete next.volume; else next.volume = x; l[k] = next; })) });
+              const fromNow = st.from ?? home;
+              if (st.name && fromNow && !fromNow.startsWith('*')) out.push({ ...previewSoundButton(fromNow, st.name), label: `${n}. Hear`, disabled: false });
+            }
+            objectField('At', 'at', opts.self ?? (opts.death ? 'The prop' : 'The switch'));
             break;
           }
           case 'blast':
             // MPBOMB's blast at its place, as Crossroads' bridges fire theirs (`./placedAccess` `SCRIPT_BLAST_WEAPON`): the
             // record's own Explosion_Damage 50 and radius 300 u, blocked by cover, its look the satchel's. Nothing to set.
-            objectField('At', 'at', opts.death ? 'The prop' : 'The switch');
+            objectField('At', 'at', opts.self ?? (opts.death ? 'The prop' : 'The switch'));
             out.push({ label: `${n}. Blast`, kind: 'select', value: '', disabled: true, set: () => undefined,
               options: [['', `The bomb's: damage ${SCRIPT_BLAST_DAMAGE}, radius ${SCRIPT_BLAST_RADIUS} u (${SCRIPT_BLAST_RADIUS / 10} m), cover blocks it`] as const],
               title: "FIRE_WEAPON of MPBOMB / MPBOMB Ammo, as Crossroads' bridges and the planted bomb fire it: its fragments on every player within the radius whose head it sees. Set At on a bare place (an ambient, a map node) rather than inside a solid object" });
             break;
-          case 'set': case 'if':
-            field('Flag', { kind: 'text', value: st.flag ?? '', title: 'A name every switch of the layout shares (letters, digits, _)', set: (v) => change('flag', at((l) => { l[k] = { ...l[k]!, flag: String(v).trim() }; })) });
-            field(st.do === 'set' ? 'To' : 'Is', { kind: 'number', value: st.value ?? 0, title: st.do === 'set' ? 'The flag set to this (0 to 9999); every flag starts each round at 0' : 'The steps up to Otherwise / End if run when the flag is this', set: (v) => change('value', at((l) => { l[k] = { ...l[k]!, value: Number(v) }; })) });
+          case 'if': case 'elseif': {
+            // On a flag (VALVE ==) or on a chance (RANDOM_WEIGHT).
+            const chance = st.chance !== undefined;
+            field('Test', { kind: 'select', value: chance ? 'chance' : 'flag', options: [['flag', 'A flag is'] as const, ['chance', 'A random chance'] as const],
+              title: "A flag's value (every script of the layout shares its flags), or a random chance each time it runs (RANDOM_WEIGHT)",
+              set: (v) => change('test', at((l) => { l[k] = v === 'chance' ? { do: st.do, chance: 0.5 } : { do: st.do, flag: 'flag', value: 1 }; })) });
+            if (chance) {
+              field('Chance %', { kind: 'number', value: Math.round((st.chance ?? 0) * 1000) / 10, title: 'Taken this often (rand() <= the chance); else on to the next Else if, Otherwise or End if',
+                set: (v) => change('chance', at((l) => { const x = Number(v); l[k] = { ...l[k]!, chance: Number.isFinite(x) ? Math.min(1, Math.max(0, x / 100)) : 0.5 }; })) });
+              break;
+            }
+            field('Flag', { kind: 'text', value: st.flag ?? '', title: 'A name every script of the layout shares (letters, digits, _)', set: (v) => change('flag', at((l) => { l[k] = { ...l[k]!, flag: String(v).trim() }; })) });
+            field('Is', { kind: 'number', value: st.value ?? 0, title: 'The steps up to the next Else if, Otherwise or End if run when the flag is this', set: (v) => change('value', at((l) => { l[k] = { ...l[k]!, value: Number(v) }; })) });
+            break;
+          }
+          case 'set':
+            field('Flag', { kind: 'text', value: st.flag ?? '', title: 'A name every script of the layout shares (letters, digits, _)', set: (v) => change('flag', at((l) => { l[k] = { ...l[k]!, flag: String(v).trim() }; })) });
+            field('To', { kind: 'number', value: st.value ?? 0, title: 'The flag set to this (0 to 9999); every flag starts each round at 0', set: (v) => change('value', at((l) => { l[k] = { ...l[k]!, value: Number(v) }; })) });
             break;
           default: break;
         }
       });
-      out.push({ label: 'Add a step', kind: 'select', value: '', disabled: off,
-        options: [['', '+ Add a step\u2026'] as const, ...STEP_KINDS],
-        title: 'A step at the end of this list', set: (v) => { if (v) change('add', at((l) => { l.push(fresh(v as SwitchStep['do'])); })); } });
+      out.push({ label: 'Add a step', kind: 'select', value: '', disabled: off, gap: true,
+        options: [['', '+ Add a step\u2026'] as const, ...ADD_KINDS],
+        title: 'A step at the end of the script (a While comes with its End while, an If with its End if)',
+        set: (v) => { if (v) change('add', at((l) => { l.push(fresh(v as ScriptStep['do'])); if (v === 'while') l.push({ do: 'endWhile' }); if (v === 'if') l.push({ do: 'end' }); })); } });
     };
+    if (opts.title) { list(opts.title); return; }
     // A damage trigger's death: one list, run once (its prop hidden first: `withPlacedAccess`).
     if (opts.death) { list('When destroyed'); return; }
     list('When pulled (once a round)');
   }
-  /** An ambient's program's own sounds as a script (`audioOfProgram`), once its map is read; null till then. */
-  const programAudioNow = (o: ForgeObjectData): { steps: AudioStep[]; whole: boolean } | null => {
+  /** An ambient's program's own sounds as script steps (`scriptOfProgram`), once its map is read; null till then. */
+  const programScriptNow = (o: ForgeObjectData): { steps: ScriptStep[]; whole: boolean } | null => {
     const lib = hostageLibNow(o.source);
     const program = lib?.meta?.scene?.programs.find((p) => p.program.name.toLowerCase() === o.name.toLowerCase())?.program;
-    return program ? audioOfProgram(program, o.source) : null;
+    return program ? scriptOfProgram(program, o.source) : null;
   };
-  /**
-   * An ambient's audio script's editor (the owner, 2026-11-10: "make it fully scriptable ... I don't want to have any
-   * custom behaviour"): its steps in order -- each one of the game's own commands, run as the game runs it
-   * (`@s2u/creator-contracts` `AudioStep`) -- each with its kind (Move up, Move down, Remove; a While or an If goes with
-   * its End), then its own fields; then Add a step. Each change one `placement.set`, refused where it would not read back.
-   */
-  function audioEditors(s: Object3D, ref: string, fobj: ForgeObjectData, off: boolean, out: InspectorEditor[]): void {
-    const steps = fobj.audio ?? [];
-    const home = scriptHome();
-    const commit = (field: string, fn: (l: AudioStep[]) => void): void => {
-      const next = JSON.parse(JSON.stringify(steps)) as AudioStep[];
-      fn(next);
-      if (!audioScriptOk(next)) { notifier.refused(audioWhy(next)); refreshInspector(); return; }
-      personEdit('placement.set', { ref, field: 'audio', value: field }, (step) => {
-        const before = selectionIds();
-        (s.userData['forgeObject'] as ForgeObjectData).audio = next;
-        edit(before, step);
-        ambientGuideKey = '';
-        refreshInspector();
-      }, true);
-    };
-    // A new Play starts on the script's last sound (else its map's first).
-    const lastPlay = [...steps].reverse().find((x): x is Extract<AudioStep, { do: 'play' }> => x.do === 'play');
-    const fresh = (kind: AudioStep['do']): AudioStep => {
-      switch (kind) {
-        case 'play': {
-          const from = lastPlay?.from ?? fobj.source;
-          return { do: 'play', sound: lastPlay?.sound ?? scriptNamesOf(from)?.sounds[0] ?? '.EXP_1', from };
-        }
-        case 'wait': return { do: 'wait', seconds: 1 };
-        case 'loop': return { do: 'loop' };
-        case 'if': case 'elseif': return { do: kind, chance: 0.5 };
-        default: return { do: kind } as AudioStep;
-      }
-    };
-    out.push({ label: 'Steps', kind: 'select', value: '', disabled: true, set: () => undefined,
-      options: [['', steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}, from the round's start` : 'No steps yet: it plays nothing'] as const],
-      title: "Run from the round's start, top to bottom, at its place, as the game runs an ambient program's commands. A ~ sound loops at its place from the start, wherever it stands (the game's rule)" });
-    let depth = 0;
-    steps.forEach((st, k) => {
-      if (st.do === 'endWhile' || st.do === 'endif') depth = Math.max(0, depth - 1);
-      const inner = st.do === 'elseif' || st.do === 'else' ? Math.max(0, depth - 1) : depth;
-      const n = `${'\u00b7 '.repeat(inner)}${k + 1}`;
-      if (st.do === 'while' || st.do === 'if') depth++;
-      const field = (label: string, ed: Omit<InspectorEditor, 'label' | 'disabled'>): void => { out.push({ ...ed, label: `${n}. ${label}`, disabled: off }); };
-      const setStep = (key: string, fn: (x: AudioStep) => AudioStep): void => commit(key, (l) => { l[k] = fn(l[k]!); });
-      out.push({ label: `${n}.`, kind: 'select', value: st.do, disabled: off,
-        options: [...AUDIO_STEP_KINDS, ...(k > 0 ? [['up', '\u2191 Move up'] as const] : []), ...(k < steps.length - 1 ? [['down', '\u2193 Move down'] as const] : []), ['remove', '\u2715 Remove'] as const],
-        title: 'Which of the game\'s commands this step is; Move up, Move down or Remove (a While or an If is removed with its End, Else if and Else)',
-        set: (v) => commit('step', (l) => {
-          if (v === 'remove') { for (const j of audioBlock(l, k).sort((a, b) => b - a)) l.splice(j, 1); return; }
-          if (v === 'up' || v === 'down') { const to = v === 'up' ? k - 1 : k + 1; const [x] = l.splice(k, 1); l.splice(to, 0, x!); return; }
-          if (v !== st.do) l[k] = fresh(v as AudioStep['do']);
-        }) });
-      switch (st.do) {
-        case 'play': {
-          const from = st.from ?? home;
-          const key = `${ref}:audio:${k}`;
-          const pending = stepPending.get(key);
-          field('From', { kind: 'select', value: pending ?? from, options: mapChoices('sound', pending ?? from),
-            title: "The disc map whose sound it is: any map's, read from that map's banks (each player's own disc)",
-            set: (v) => {
-              const stem = String(v);
-              if (stem === from) return;
-              stepPending.set(key, stem);
-              refreshInspector();
-              void archives.scriptNames(stem).then((names) => {
-                const list = names?.sounds ?? [];
-                const sound = list.includes(st.sound) ? st.sound : list[0];
-                if (!sound) { notifier.refused(`${stem} has no sound to play`); return; }
-                stepPending.delete(key);
-                setStep('from', (x) => ({ ...(x as typeof st), from: stem, sound }));
-              }).finally(() => { stepPending.delete(key); refreshInspector(); });
-            } });
-          const names = pending ? null : scriptNamesOf(from)?.sounds ?? null;
-          field('Sound', { kind: 'select', value: names ? st.sound : '',
-            options: !names ? [['', `${st.sound} (reading ${pending ?? from}\u2026)`] as const] : names.includes(st.sound) ? names.map((x) => [x, x] as const) : [[st.sound, st.sound] as const, ...names.map((x) => [x, x] as const)],
-            title: "The map's sounds: a ~ name is one of the game's loops (it loops here from the round's start), a . name plays once each time this step runs",
-            set: (v) => { if (v) setStep('sound', (x) => ({ ...(x as typeof st), sound: String(v) })); } });
-          out.push({ ...previewSoundButton(from, st.sound), label: `${n}. Hear`, disabled: false });
-          field('Volume', { kind: 'number', value: st.volume ?? 1,
-            title: `The command's volume (SOUND's flag 0x10): 1 the sound's own level, 0 silent, up to ${AUDIO_VOLUME_MAX} (the maps' fires play at 3)`,
-            set: (v) => { const x = Number(v); setStep('volume', (y) => { const next = { ...(y as typeof st) }; if (!Number.isFinite(x) || x === 1) delete next.volume; else next.volume = Math.min(AUDIO_VOLUME_MAX, Math.max(0, x)); return next; }); } });
-          // How it is heard: its own script entry's RANGE (FUN_00342670), read only.
-          const params = soundParamsFor(from);
-          const own = params?.get(st.sound) ?? params?.get(st.sound.trim());
-          const range = own?.range ?? AMBIENT_DEFAULT_RANGE;
-          out.push({ label: `${n}. Heard`, kind: 'select', value: 'x', disabled: true, set: () => undefined,
-            options: [['x', params ? `${(range[0] / 10).toFixed(1)} m full \u2192 ${(range[1] / 10).toFixed(1)} m silent \u00b7 ${st.sound.startsWith('~') ? 'loops' : 'once'}${own ? '' : ' (its default range)'}` : 'reading its range\u2026'] as const],
-            title: "The sound's own RANGE: full volume inside the first distance, silent past the second" });
-          break;
-        }
-        case 'wait':
-          field('Seconds', { kind: 'number', value: st.seconds, title: `How long before the next step (up to ${AUDIO_WAIT_MAX})`,
-            set: (v) => { const x = Number(v); setStep('seconds', (y) => ({ ...(y as typeof st), seconds: Number.isFinite(x) ? Math.min(AUDIO_WAIT_MAX, Math.max(0, x)) : 0 })); } });
-          field('Random +', { kind: 'number', value: st.random ?? 0, title: "Up to this many seconds more, at random each time (WAIT's random range)",
-            set: (v) => { const x = Number(v); setStep('random', (y) => { const next = { ...(y as typeof st) }; if (!Number.isFinite(x) || x <= 0) delete next.random; else next.random = Math.min(AUDIO_WAIT_MAX, x); return next; }); } });
-          break;
-        case 'loop': {
-          const how = st.times !== undefined ? 'times' : st.seconds !== undefined ? 'seconds' : 'ever';
-          field('Until', { kind: 'select', value: how,
-            options: [['ever', 'For ever (LOOP -1)'] as const, ['times', 'A number of runs'] as const, ['seconds', 'A time'] as const],
-            title: 'LOOP runs the script again from its first step: for ever, until it has run so many times, or until so many seconds have passed',
-            set: (v) => setStep('loop', () => (v === 'times' ? { do: 'loop', times: 2 } : v === 'seconds' ? { do: 'loop', seconds: 30 } : { do: 'loop' })) });
-          if (st.times !== undefined) {
-            field('Runs', { kind: 'number', value: st.times, title: `How many times the script runs in all (1 to ${AUDIO_LOOP_MAX})`,
-              set: (v) => { const x = Math.round(Number(v)); setStep('times', () => ({ do: 'loop', times: Number.isFinite(x) ? Math.min(AUDIO_LOOP_MAX, Math.max(1, x)) : 1 })); } });
-          }
-          if (st.seconds !== undefined) {
-            field('Seconds', { kind: 'number', value: st.seconds, title: 'How long it keeps running again',
-              set: (v) => { const x = Number(v); setStep('seconds', () => ({ do: 'loop', seconds: Number.isFinite(x) ? Math.min(AUDIO_WAIT_MAX * 6, Math.max(0, x)) : 0 })); } });
-          }
-          break;
-        }
-        case 'if': case 'elseif':
-          field('Chance %', { kind: 'number', value: Math.round(st.chance * 1000) / 10,
-            title: "Taken this often (RANDOM_WEIGHT: rand() <= the chance); else on to the next Else if, the Else or the End if",
-            set: (v) => { const x = Number(v); setStep('chance', (y) => ({ ...(y as typeof st), chance: Number.isFinite(x) ? Math.min(1, Math.max(0, x / 100)) : 0.5 })); } });
-          break;
-        default: break;
-      }
-    });
-    out.push({ label: 'Add a step', kind: 'select', value: '', disabled: off,
-      options: [['', '+ Add a step\u2026'] as const, ...AUDIO_STEP_KINDS.filter(([d]) => d !== 'endWhile' && d !== 'endif' && d !== 'elseif' && d !== 'else')],
-      title: 'A step at the end of the script (a While comes with its End while, an If with its End if)',
-      set: (v) => { if (v) commit('add', (l) => { l.push(fresh(v as AudioStep['do'])); if (v === 'while') l.push({ do: 'endWhile' }); if (v === 'if') l.push({ do: 'endif' }); }); } });
-  }
   /** The Damage trigger's Map choice's Custom (`triggerEditors`): no map's stem, never written to a file. */
   const CUSTOM_TRIGGER = '*custom';
   /** A satchel's numbers (C4): Vigilance's access1's record (`DEFAULT_BARRIER`), read off the disc; null where it is not on it. */
@@ -6172,8 +6217,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }, true);
     };
     const pending = copyPending.get(ref);
-    out.push({ label: 'Map', kind: 'select', value: pending ?? CUSTOM_TRIGGER, covers: ['barrier.source'], disabled: off,
-      options: [[CUSTOM_TRIGGER, 'Custom \u00b7 any prop, your own numbers and death', false] as const, ...mapChoices('barrier', pending ?? '')],
+    out.push({ label: 'Source', kind: 'select', value: pending ?? CUSTOM_TRIGGER, covers: ['barrier.source'], disabled: off,
+      options: groupedMaps([[CUSTOM_TRIGGER, 'Custom', false] as const, ...mapChoices('barrier', pending ?? '')]),
       title: "Custom: a prop you choose made a damage trigger; a disc map: that map's own trigger copied whole",
       set: (v) => {
         const stem = String(v);
@@ -6240,6 +6285,239 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     stat('Shield', 'shield', 'The least damage a hit or a satchel must carry to count at all');
     scriptEditors(s, ref, triggerScript.get(s) ?? { steps: [] }, off, out, { store: triggerScript, death: true });
   }
+  /**
+   * An asset tile dropped on the selection's Source or its object row (the owner, 2026-11-13: "drag and drop assets from
+   * the asset browser into the inspector ... It should automatically adjust the source from the asset"; a browser
+   * adaptation): the tile's map and its object taken at once, as choosing both there would -- a door's, a turret's, a
+   * flare's, a gate's, a damage trigger's (a custom one made that disc one again), a ladder's, a switch's look, a
+   * program's (a sound's or an effect's tile its scripted one). One of another kind is refused (the row takes no drop).
+   */
+  const assetDropPlan = (s: Object3D, asset: string): (() => void) | null => {
+    const ref = selectionIds()[0];
+    if (!ref || editsLocked() || lockedOf(s)) return null;
+    const copy = (stem: string, name: string): void => {
+      copyPending.set(ref, stem);
+      refreshInspector();
+      void entityEdit('placement.set', { ref, field: 'model', value: `${stem}:${name}` }).finally(() => { copyPending.delete(ref); refreshInspector(); });
+    };
+    const o = parseObjectAsset(asset);
+    if (!o) {
+      // A ladder's tile is its prop's own id; taken only from the Ladder tab, onto a ladder.
+      const p = parseAssetId(asset);
+      if (p && objectTab === 'ladder' && s.userData['forgeLadder']) return () => copy(p.archive, p.model);
+      return p && objectTab === 'props' && s.userData['forgePiece'] && !s.userData['forgeLadder'] ? () => copy(p.archive, p.model) : null;
+    }
+    const sameCopy = (kind: string): boolean =>
+      (kind === 'door' && !!s.userData['forgeDoor']) || (kind === 'turret' && !!s.userData['forgeTurret'])
+      || (kind === 'flare' && !!s.userData['forgeFlare']) || ((kind === 'gate' || kind === 'barrier') && accessOwnOf(s)?.kind === kind);
+    if (sameCopy(o.kind)) return () => copy(o.source, o.name);
+    if (o.kind === 'barrier' && pieceTrigger.has(s)) {
+      // A custom trigger made that disc trigger again (its numbers and death steps let go), as its Source does.
+      return () => {
+        copyPending.set(ref, o.source);
+        refreshInspector();
+        void newAccess('barrier', o.source, o.name).then((r) => {
+          personEdit('placement.set', { ref, field: 'trigger', value: 'disc' }, (step) => {
+            const before = selectionIds();
+            swapRoot(s, r);
+            edit(before, step);
+          }, true);
+        }).finally(() => { copyPending.delete(ref); refreshInspector(); });
+      };
+    }
+    if (o.kind === 'switch' && s.userData['forgeSwitch']) {
+      // Its look's map chosen in its Source (each map one switch: the look follows).
+      const radioHome = RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0];
+      const home = o.name === 'radio' ? radioHome : DEFAULT_GATE.source;
+      return () => inspectorEditors().find((e) => e.label === 'Source' && e.covers?.includes('switch.look'))?.set(home);
+    }
+    const fobj = objectOf(s);
+    if (o.kind === 'ambient' && fobj) {
+      return () => {
+        const next: ForgeObjectData = { kind: 'ambient', source: o.source, name: o.name };
+        personEdit('placement.set', { ref, field: 'model', value: o.name }, (step) => {
+          const before = selectionIds();
+          swapRoot(s, newForgeObject(next));
+          edit(before, step);
+          refreshInspector();
+        }, true);
+      };
+    }
+    return null;
+  };
+  /** The asset browser's tab of a selection's kind (the mini browser's, `openAssetPicker`); null for one it has none of. */
+  const pickTabOf = (s: Object3D): ObjectTab | null => {
+    if (s.userData['forgeDoor']) return 'door';
+    if (s.userData['forgeTurret']) return 'turret';
+    if (s.userData['forgeFlare']) return 'flare';
+    if (s.userData['forgeLadder']) return 'ladder';
+    const access = accessOwnOf(s);
+    if (access) return access.kind;
+    if (pieceTrigger.has(s)) return 'barrier';
+    if (s.userData['forgeSwitch']) return 'switch';
+    if (objectOf(s)) return 'ambient';
+    if (s.userData['forgePiece']) return 'props';
+    return null;
+  };
+  /**
+   * The mini asset browser (the owner, 2026-11-13: "opens a mini popup asset browser filtered to that item type, where I
+   * can pick and browse for my asset ... the same as the asset browser, but without the tabs"; a browser adaptation): the
+   * asset browser itself, lent to a popup by the row -- its tab the row's kind, its tabs hidden, its Source the object's
+   * -- a tile's click taken by the object as its drop is (`assetDropPlan`). Closed (a pick, Escape, a click outside, its
+   * x), the browser goes back to its panel as it was: its tab, its Source, its search, its filter.
+   */
+  /** The mini browser's size as last left (its corner dragged), for the next one opened this session. */
+  let assetPickSize: { w: number; h: number } | null = null;
+  let assetPick: {
+    s: Object3D; popup: HTMLDivElement; home: HTMLElement | null; ghost: HTMLElement | null; scroll: number;
+    tab: ObjectTab; source: string; query: string; filter: AssetFilter; chars: boolean;
+    off: () => void;
+  } | null = null;
+  const closeAssetPicker = (): void => {
+    const p = assetPick;
+    if (!p) return;
+    assetPick = null;
+    p.off();
+    assetPickSize = { w: p.popup.offsetWidth, h: p.popup.offsetHeight };
+    assetsSurface.classList.remove('is-picking');
+    // Back in its panel, where its still copy stood.
+    if (p.ghost?.isConnected) p.ghost.replaceWith(assetsSurface);
+    else if (p.home?.isConnected) p.home.append(assetsSurface);
+    else assetsSurface.remove();
+    p.ghost?.remove();
+    p.popup.remove();
+    objectTab = p.tab; showChars = p.chars; search.value = p.query; filter = p.filter;
+    if (paletteSel.value !== p.source && Array.from(paletteSel.options).some((o) => o.value === p.source)) {
+      paletteSel.value = p.source;
+      paletteSel.dispatchEvent(new Event('change'));
+    } else drawAssets();
+    list.scrollTop = p.scroll;
+  };
+  /**
+   * The asset browser as its panel shows it, a still copy (the owner, 2026-11-13: "the asset browser content on the dock
+   * window gets hidden ... it should not"): left in the panel while the browser itself is lent to the mini browser --
+   * its fields' values, its list's scroll and its thumbnails as they were, inert (a press on it closes the mini browser,
+   * the browser back in its place).
+   */
+  const assetsGhost = (): HTMLElement => {
+    const ghost = assetsSurface.cloneNode(true) as HTMLElement;
+    ghost.classList.add('fx-assets-ghost');
+    ghost.inert = true;
+    ghost.setAttribute('aria-hidden', 'true');
+    for (const x of [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>('[id]'))]) x.removeAttribute('id');
+    // A field's live value is not its markup's: each copied by its place.
+    const from = Array.from(assetsSurface.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'));
+    const to = Array.from(ghost.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'));
+    from.forEach((f, i) => {
+      const t = to[i];
+      if (!t) return;
+      if (f instanceof HTMLInputElement && t instanceof HTMLInputElement && (f.type === 'checkbox' || f.type === 'radio')) t.checked = f.checked;
+      else t.value = f.value;
+    });
+    return ghost;
+  };
+  const openAssetPicker = (s: Object3D, tab: ObjectTab, source: string, anchor: HTMLElement): void => {
+    closeAssetPicker();
+    const popup = el(doc, 'div', 'fx-asset-picker');
+    popup.setAttribute('role', 'dialog');
+    const word = OBJECT_TABS.find(([k]) => k === tab)?.[1] ?? 'Assets';
+    popup.setAttribute('aria-label', `Choose ${tabWords(word)}`);
+    const head = el(doc, 'div', 'fx-asset-picker-head');
+    const close = el(doc, 'button', 'fx-tool fx-asset-picker-close', '\u2715');
+    close.type = 'button';
+    close.title = 'Close';
+    close.setAttribute('aria-label', 'Close');
+    head.append(el(doc, 'span', '', tabWords(word)), close);
+    const home = assetsSurface.parentElement;
+    const scroll = list.scrollTop;
+    const ghost = home ? assetsGhost() : null;
+    if (ghost) home!.insertBefore(ghost, assetsSurface);
+    popup.append(head, assetsSurface);
+    const ghostList = ghost?.querySelector<HTMLElement>('.fx-assets');
+    if (ghostList) ghostList.scrollTop = scroll;
+    assetsSurface.classList.add('is-picking');
+    if (assetPickSize) { popup.style.width = `${assetPickSize.w}px`; popup.style.height = `${assetPickSize.h}px`; }
+    doc.body.append(popup);
+    // At the Inspector's left (the owner, 2026-11-13: "place it the left side of the inspector"), level with the row;
+    // inside the window (its right where the Inspector is docked left).
+    const r = anchor.getBoundingClientRect();
+    const panel = (anchor.closest('.fx-inspector') ?? anchor).getBoundingClientRect();
+    const win = doc.defaultView;
+    const vw = win?.innerWidth ?? 1280, vh = win?.innerHeight ?? 800;
+    const w = popup.offsetWidth, h = popup.offsetHeight;
+    const left = panel.left - w - 8 >= 8 ? panel.left - w - 8 : Math.min(vw - w - 8, panel.right + 8);
+    popup.style.left = `${Math.max(8, left)}px`;
+    popup.style.top = `${Math.max(8, Math.min(vh - h - 8, r.top - 40))}px`;
+    // Moved by its head (its close button aside), kept inside the window.
+    head.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+      e.preventDefault();
+      head.setPointerCapture(e.pointerId);
+      const sx = e.clientX - popup.offsetLeft, sy = e.clientY - popup.offsetTop;
+      const move = (m: PointerEvent): void => {
+        const vw2 = win?.innerWidth ?? 1280, vh2 = win?.innerHeight ?? 800;
+        popup.style.left = `${Math.max(0, Math.min(vw2 - 60, m.clientX - sx))}px`;
+        popup.style.top = `${Math.max(0, Math.min(vh2 - 30, m.clientY - sy))}px`;
+      };
+      const up = (): void => { head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); head.removeEventListener('pointercancel', up); };
+      head.addEventListener('pointermove', move);
+      head.addEventListener('pointerup', up);
+      head.addEventListener('pointercancel', up);
+    });
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeAssetPicker(); } };
+    const onDown = (e: PointerEvent): void => {
+      const t = e.target as Node | null;
+      // A click in the popup, or in a list the browser opened (its Source's own options, its view popup), stays.
+      if (t && (popup.contains(t) || anchor.contains(t))) return;
+      closeAssetPicker();
+    };
+    doc.addEventListener('keydown', onKey, true);
+    doc.addEventListener('pointerdown', onDown, true);
+    close.addEventListener('click', () => closeAssetPicker());
+    assetPick = {
+      s, popup, home, ghost, scroll, tab: objectTab, source: paletteSel.value, query: search.value, filter, chars: showChars,
+      off: () => { doc.removeEventListener('keydown', onKey, true); doc.removeEventListener('pointerdown', onDown, true); },
+    };
+    objectTab = tab; showChars = false; search.value = ''; filter = 'all';
+    // Its Source the object's own map where the browser lists it (Custom, or a map not listed: as it is).
+    if (source && paletteSel.value !== source && Array.from(paletteSel.options).some((o) => o.value === source)) {
+      paletteSel.value = source;
+      paletteSel.dispatchEvent(new Event('change'));
+    } else drawAssets();
+    search.focus();
+  };
+  /** A tile chosen in the mini browser: taken by its object as a drop is, the popup closed. */
+  const pickFromBrowser = (asset: string): void => {
+    const p = assetPick;
+    if (!p) return;
+    // Read while the picker's tab is the browser's; its object gone meanwhile (deleted, undone), nothing taken.
+    const plan = roots.includes(p.s) ? assetDropPlan(p.s, asset) : null;
+    closeAssetPicker();
+    if (plan) plan(); else notifier.refused('That asset cannot go on this object');
+  };
+  /** The object rows next to a Source that take a tile too (`assetDropPlan`). */
+  const OBJECT_ROW_LABELS = new Set(['Door', 'Turret', 'Ladder', 'Flare', 'Gate', 'Damage Trigger', 'Trigger', 'Program']);
+  const withAssetDrop = (editors: InspectorEditor[]): InspectorEditor[] => {
+    const s = isGroup() || baseSelected ? null : selected;
+    if (!s) return editors;
+    const drop = {
+      accepts: (): boolean => { const a = assetTiles?.dragAsset(); return !!a && assetDropPlan(s, a) !== null; },
+      take: (): void => { const a = assetTiles?.dragAsset(); const plan = a ? assetDropPlan(s, a) : null; plan?.(); },
+    };
+    const owner = selectionIds()[0] ?? '';
+    const tab = pickTabOf(s);
+    const source = String(editors.find((e) => e.label === 'Source')?.value ?? '');
+    const word = OBJECT_TABS.find(([k]) => k === tab)?.[1] ?? 'asset';
+    // The browse button on the object row (the owner, 2026-11-13: "not on the source row ... on the second row").
+    const browse = tab ? { icon: icon('panelAssets'), title: `Browse ${tabWords(word)}`, disabled: editsLocked() || lockedOf(s),
+      open: (anchor: HTMLElement) => openAssetPicker(s, tab, source, anchor) } : undefined;
+    return editors.map((e, i) => {
+      if (e.kind !== 'select') return e;
+      const objectRow = !!e.covers?.includes('piece.model') || (OBJECT_ROW_LABELS.has(e.label) && editors[i - 1]?.label === 'Source');
+      if (e.label === 'Source') return { ...e, drop, owner };
+      return objectRow ? { ...e, drop, owner, ...(browse ? { browse } : {}) } : e;
+    });
+  };
   const inspectorEditors = (): InspectorEditor[] => {
     const s = isGroup() || baseSelected ? null : selected;
     // A map's own ambient effect (Map Data's Ambient Effects; the owner, 2026-11-10: "add play/pause to map data ambient
@@ -6289,8 +6567,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const home = (baseMap ?? charMap)?.archive ?? '';
       const pending = copyPending.get(ref);
       const from = pending ?? own.source ?? home;
-      out.push({ label: 'Map', kind: 'select', value: from, covers: ['hostage.source'], disabled: off,
-        options: mapChoices('hostage', from),
+      out.push({ label: 'Source', kind: 'select', value: from, covers: ['hostage.source'], disabled: off,
+        options: groupedMaps(mapChoices('hostage', from)),
         title: 'The disc map whose hostage character it wears', set: (v) => {
           const stem = String(v);
           const character = (value: string): Promise<void> => entityEdit('placement.set', { ref, field: 'character', value });
@@ -6303,7 +6581,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const theirs = pending ? null : lent ? copyList('hostage', own.source!)?.map(([c]) => c) ?? null : chars;
       const shown = pending ? '' : own.character ?? theirs?.[0] ?? '';
       const listed = theirs ? (own.character && !theirs.includes(own.character) ? [...theirs, own.character] : theirs) : (shown ? [shown] : []);
-      out.push({ label: 'Character', kind: 'select', value: shown, covers: ['hostage.character'], disabled: off || listed.length === 0 || !theirs,
+      out.push({ label: 'Hostage', kind: 'select', value: shown, covers: ['hostage.character'], disabled: off || listed.length === 0 || !theirs,
         options: pending ? [['', 'Loading…']] : !theirs ? [[shown, 'Loading…']] : listed.length ? listed.map((c) => [c, c] as const) : [['', 'No hostage characters on this map']],
         title: 'Its body: one of the hostage characters that map has', set: (v) => set('character')(lent ? `${own.source}:${String(v)}` : String(v)) });
     }
@@ -6311,7 +6589,129 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (doorOwn) out.push(...copyEditors('door', ref, doorOwn, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
     // A placed ladder: its Map and its Ladder, as a door's; either a change of the piece's asset (`placement.set` model).
     const ladderAsset = s.userData['forgeLadder'] ? parseAssetId(String(s.userData['forgePiece'] ?? '')) : null;
+    // A placed prop: its Source and its Prop, as every copied object's (the owner, 2026-11-13: "add the Source/Prop drop
+    // downs to inspector for props"): any map, each with its own props counted (one with none greyed), then that map's
+    // props -- its own, then a shared library's (Common's) -- either a change of the piece's asset (`placement.set` model).
+    const propAsset = !ladderAsset && s.userData['forgePiece'] ? parseAssetId(String(s.userData['forgePiece'])) : null;
+    if (propAsset) {
+      askCensus();
+      const pending = copyPending.get(ref);
+      const src = pending ?? propAsset.archive;
+      const setModel = (v: string): Promise<void> => entityEdit('placement.set', { ref, field: 'model', value: v });
+      const maps = copyMaps();
+      const sourceRows = (maps.some(([m]) => m === src) ? maps : [[src, src] as const, ...maps]).map(([stem, name]) => {
+        const n = absent.has(stem) ? 0 : ownPropCounts.get(stem);
+        const note = n === undefined ? 'loading\u2026' : n === 0 ? 'none' : `${n} prop${n === 1 ? '' : 's'}`;
+        return [stem, `${name} \u00b7 ${note}`, n === 0 && stem !== src] as const;
+      });
+      out.push({ label: 'Source', kind: 'select', value: src, covers: ['piece.source'], disabled: off, options: groupedMaps(sourceRows),
+        title: 'The disc map whose prop it is',
+        set: (v) => {
+          const stem = String(v);
+          copyPending.set(ref, stem);
+          refreshInspector();
+          // That map's first own prop (else its first): its own list read if it is not yet.
+          void archives.props(stem).catch(() => null).then(async (props) => {
+            if (props) mapPropLists.set(stem, props);
+            const first = (props ?? []).find((x) => !x.shared) ?? props?.[0];
+            if (!first) { notifier.refused(`${stem} has no prop to copy`); return; }
+            await setModel(`${stem}:${first.model}`);
+          }).finally(() => { copyPending.delete(ref); refreshInspector(); });
+        } });
+      const list = pending ? null : propListOf(propAsset.archive);
+      const models = list
+        ? [...list].sort((a, b) => Number(!!a.shared) - Number(!!b.shared) || a.model.localeCompare(b.model))
+          .map((x) => [x.model, x.shared ? `${x.model} \u00b7 common` : x.model] as const)
+        : null;
+      out.push({ label: 'Prop', kind: 'select', value: pending ? '' : propAsset.model, covers: ['piece.model'], disabled: off || !models,
+        options: pending ? [['', 'Loading\u2026']] : models ? (models.some(([m]) => m === propAsset.model) ? models : [...models, [propAsset.model, propAsset.model] as const]) : [[propAsset.model, 'Loading\u2026']],
+        title: "The disc prop it is: its model and its collision",
+        set: (v) => { void setModel(`${propAsset.archive}:${String(v)}`); } });
+    }
     if (s.userData['forgeSwitch']) {
+      // Its look and its record's own fields (the owner, 2026-11-08): each its action's own until set.
+      const opts = switchOpts.get(s) ?? {};
+      const ownRec = switchOwnRecord(s);
+      const setOpt = (field: string, patch: (o: SwitchOpts) => SwitchOpts, rebuild = false, onProp = switchPropMode.has(s)) => {
+        personEdit('placement.set', { ref, field, value: field }, (step) => {
+          const before = selectionIds();
+          const next = patch({ ...(switchOpts.get(s) ?? {}) });
+          if (!rebuild) { switchOpts.set(s, next); addSwitchGuide(s); edit(before, step); refreshInspector(); return; }
+          // A new look is a new model: the switch built anew in its place, its links and fields kept.
+          void newSwitch(switchGate.get(s) ?? null, switchAction.get(s) ?? null, next, onProp).then((r) => {
+            const sc = switchScript.get(s), link = switchLink.get(s);
+            if (sc) switchScript.set(r, sc);
+            if (onProp && link) switchLink.set(r, link);
+            r.position.copy(s.position);
+            r.quaternion.copy(s.quaternion);
+            if (s.userData['forgeLock']) r.userData['forgeLock'] = true;
+            const at = roots.indexOf(s);
+            if (at >= 0) roots[at] = r; else roots.push(r);
+            scene.remove(s);
+            (s.userData['dispose'] as (() => void) | undefined)?.();
+            scene.add(r);
+            publishCreatorPiece(r);
+            applyGizmoDepth();
+            select(r);
+            edit(before, step);
+          });
+        }, true);
+      };
+      const onProp = switchPropMode.has(s);
+      // Its Source and its Trigger, as every copied object's (the owner, 2026-11-13: "consistent with the rest of the
+      // objects. Source, Trigger ... not look"): Custom (a prop you link) or the map whose switch it copies -- the lever
+      // panel Death Trap's gate's (`DEFAULT_GATE`), the radio Sujo's (`RADIO_LOOK_SOURCES`) -- then that map's switch.
+      const radioHome = RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0];
+      const lookNow: SwitchLookId = opts.look ?? 'lever';
+      const homeOf = (look: SwitchLookId): string => (look === 'radio' ? radioHome : DEFAULT_GATE.source);
+      const sourceNow = onProp ? CUSTOM_TRIGGER : homeOf(lookNow);
+      const switchMaps = copyMaps().map(([stem, name]) => {
+        const n = paletteCountOf(stem, 'switch');
+        const note = n === null ? 'loading…' : n === 0 ? 'none' : `${n} switch${n === 1 ? '' : 'es'}`;
+        return [stem, `${name} · ${note}`, n === 0 && stem !== sourceNow] as const;
+      });
+      out.push({ label: 'Source', kind: 'select', value: sourceNow, covers: ['switch.look'], disabled: off,
+        options: groupedMaps([[CUSTOM_TRIGGER, 'Custom', false] as const, ...switchMaps]),
+        title: "Custom: a prop you link, which the pick lands on; a disc map: that map's own switch copied whole, its model and its collision",
+        set: (v) => {
+          const stem = String(v);
+          if (stem === CUSTOM_TRIGGER) { if (!onProp) setOpt('look', (o) => o, true, true); return; }
+          const look: SwitchLookId | null = stem === DEFAULT_GATE.source ? 'lever' : stem === radioHome ? 'radio' : null;
+          if (!look) { notifier.refused(`${stem} has no switch to copy`); return; }
+          setOpt('look', (o) => { const { look: _l, ...rest } = o; return look === 'lever' ? rest : { ...rest, look }; }, true, false);
+        } });
+      // Its Trigger: the chosen map's switch (Plate only, the lever's retired pick plate, offered only to a switch that has it).
+      if (!onProp) {
+        const looks = SWITCH_LOOK_TILES.filter(([l]) => homeOf(l) === sourceNow).map(([l, w]) => [l, w] as const);
+        if (lookNow === 'plate') looks.push(['plate', 'Plate only (retired: use Custom)'] as const);
+        out.push({ label: 'Trigger', kind: 'select', value: lookNow, covers: ['switch.look'], disabled: off || looks.length < 2,
+          options: looks,
+          title: "The disc switch it copies: its model and its collision (the pick lands on it)",
+          set: (v) => setOpt('look', (o) => { const { look: _l, ...rest } = o; return v === 'lever' ? rest : { ...rest, look: v as Exclude<SwitchLookId, 'lever'> }; }, true, false) });
+      }
+      // Its prop (FORGE_SWITCH_PROP_ADAPTATION): used where it stands, the switch moved to its middle. Never a prop another switch
+      // is on, nor a map object with an action of its own (a door, a disc switch: the pick would find that one).
+      if (onProp) {
+        const mapActionPaths = (baseMap?.meta?.actions ?? []).map((a) => a.path);
+        const link = switchLink.get(s);
+        out.push({ label: 'Prop', kind: 'select', value: propLinkValue(link), disabled: off,
+          options: propLinkOptions(roots.filter((x) => x !== s && switchPropMode.has(x)).map((x) => switchLink.get(x)),
+            (path) => mapActionPaths.some((a) => mapUnder(a, path) || mapUnder(path, a))),
+          title: "The prop players use it on, left as it is: aiming at it shows the prompt (it must be solid). The switch moves to its middle",
+          set: (v) => {
+            const to = propLinkOf(String(v));
+            personEdit('placement.set', { ref, field: 'switchProp', value: String(v) }, (step) => {
+              const before = selectionIds();
+              if (to) switchLink.set(s, to); else switchLink.delete(s);
+              // The owner, 2026-11-10: the switch moves to its prop's middle once linked, as a custom damage trigger does.
+              const mid = linkCentre(to ?? undefined);
+              if (mid) s.position.set(mid[0], mid[1], mid[2]);
+              switchLinksKey = '';
+              edit(before, step);
+              refreshInspector();
+            }, true);
+          } });
+      }
       // What it runs (the owner, 2026-11-08): a placed gate (its lever), one of the base map's own actions (run as the
       // original's EXECUTE_ACTION runs one: `./placedAccess` `mapActionTargets`, `mapActionProgram`), or nothing.
       const gates = gateRootsNow();
@@ -6343,71 +6743,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         } });
       // Its script (the owner, 2026-11-08): a row a step -- what it does, then what on -- an Add row, the toggle's second
       // list, and whether it can be used again. Each change one edit.
-      if (ownScript) scriptEditors(s, ref, ownScript, off, out);
-      // Its look and its record's own fields (the owner, 2026-11-08): each its action's own until set.
-      const opts = switchOpts.get(s) ?? {};
-      const ownRec = switchOwnRecord(s);
-      const setOpt = (field: string, patch: (o: SwitchOpts) => SwitchOpts, rebuild = false, onProp = switchPropMode.has(s)) => {
-        personEdit('placement.set', { ref, field, value: field }, (step) => {
-          const before = selectionIds();
-          const next = patch({ ...(switchOpts.get(s) ?? {}) });
-          if (!rebuild) { switchOpts.set(s, next); addSwitchGuide(s); edit(before, step); refreshInspector(); return; }
-          // A new look is a new model: the switch built anew in its place, its links and fields kept.
-          void newSwitch(switchGate.get(s) ?? null, switchAction.get(s) ?? null, next, onProp).then((r) => {
-            const sc = switchScript.get(s), link = switchLink.get(s);
-            if (sc) switchScript.set(r, sc);
-            if (onProp && link) switchLink.set(r, link);
-            r.position.copy(s.position);
-            r.quaternion.copy(s.quaternion);
-            if (s.userData['forgeLock']) r.userData['forgeLock'] = true;
-            const at = roots.indexOf(s);
-            if (at >= 0) roots[at] = r; else roots.push(r);
-            scene.remove(s);
-            (s.userData['dispose'] as (() => void) | undefined)?.();
-            scene.add(r);
-            publishCreatorPiece(r);
-            applyGizmoDepth();
-            select(r);
-            edit(before, step);
-          });
-        }, true);
-      };
-      const onProp = switchPropMode.has(s);
-      out.push({ label: 'Look', kind: 'select', value: onProp ? 'prop' : opts.look ?? 'lever', covers: ['switch.look'], disabled: off,
-        // Plate only (the lever's pick plate alone) is retired for Custom prop (the owner, 2026-11-10): offered only to a
-        // switch that has it, so a layout that used it reads and can change it.
-        options: [['lever', "Lever panel (a gate's own; Death Trap's)"] as const, ['radio', "Radio (Sujo's airstrike radio)"] as const,
-          ...(!onProp && opts.look === 'plate' ? [['plate', 'Plate only (retired: use Custom prop)'] as const] : []),
-          ['prop', "Custom prop (one of yours or the map's, used where it stands)"] as const],
-        title: "What it is in the world: a disc object copied whole, its model and its collision (the pick lands on it); or a prop you link, which the pick lands on instead",
-        set: (v) => {
-          if (v === 'prop') { setOpt('look', (o) => o, true, true); return; }
-          setOpt('look', (o) => { const { look: _l, ...rest } = o; return v === 'lever' ? rest : { ...rest, look: v as Exclude<SwitchLookId, 'lever'> }; }, true, false);
-        } });
-      // Its prop (FORGE_SWITCH_PROP_ADAPTATION): used where it stands, the switch moved to its middle. Never a prop another switch
-      // is on, nor a map object with an action of its own (a door, a disc switch: the pick would find that one).
-      if (onProp) {
-        const mapActionPaths = (baseMap?.meta?.actions ?? []).map((a) => a.path);
-        const link = switchLink.get(s);
-        out.push({ label: 'Prop', kind: 'select', value: propLinkValue(link), disabled: off,
-          options: propLinkOptions(roots.filter((x) => x !== s && switchPropMode.has(x)).map((x) => switchLink.get(x)),
-            (path) => mapActionPaths.some((a) => mapUnder(a, path) || mapUnder(path, a))),
-          title: "The prop players use it on, left as it is: aiming at it shows the prompt (it must be solid). The switch moves to its middle",
-          set: (v) => {
-            const to = propLinkOf(String(v));
-            personEdit('placement.set', { ref, field: 'switchProp', value: String(v) }, (step) => {
-              const before = selectionIds();
-              if (to) switchLink.set(s, to); else switchLink.delete(s);
-              // The owner, 2026-11-10: the switch moves to its prop's middle once linked, as a custom damage trigger does.
-              const mid = linkCentre(to ?? undefined);
-              if (mid) s.position.set(mid[0], mid[1], mid[2]);
-              switchLinksKey = '';
-              edit(before, step);
-              refreshInspector();
-            }, true);
-          } });
-      }
-      const ownWord = ownRec?.bitmap ? bitmapWords(ownRec.bitmap) : 'the look\'s';
+      // Its prompt (the owner, 2026-11-13: removed, then "add back the switch.prompt dropdown"): its action's own until set.
+      const ownWord = ownRec?.bitmap ? bitmapWords(ownRec.bitmap) : "the look's";
       out.push({ label: 'Prompt', kind: 'select', value: opts.prompt ?? '', covers: ['switch.prompt'], disabled: off,
         options: [['', `Its action's own (${ownWord})`] as const, ...[...new Set(Object.values(ACTION_ICONS))].map((b) => [b, bitmapWords(b)] as const)],
         title: "The HUD's prompt icon over it: its action's own, or any the HUD draws",
@@ -6426,6 +6763,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       num('Reach', 'range', ownRec?.range, 'How near along the ground the player stands to use it, world units');
       num('Height reach', 'elevation', ownRec?.elevation, 'How near in height (-1: no height test)');
       num('Points', 'points', ownRec?.points, 'Points for the player who uses it, once a round');
+      // Its steps last (the owner, 2026-11-13: "move the reach, height reach, points ... above the steps").
+      if (ownScript) scriptEditors(s, ref, ownScript, off, out);
     }
     if (pieceTrigger.has(s)) triggerEditors(s, ref, off, out);
     const accessOwn = accessOwnOf(s);
@@ -6442,21 +6781,40 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const setObj = (field: string, next: ForgeObjectData): void => {
         personEdit('placement.set', { ref, field, value: next.name }, (step) => {
           const before = selectionIds();
-          // An ambient's own script kept across a change of its effect.
-          const r = newForgeObject(next.kind === 'ambient' && fobj.audio && !next.audio ? { ...next, audio: fobj.audio } : next);
+          const r = newForgeObject(next);
           if (fobj.kind === next.kind && fobj.source === next.source && fobj.name === next.name) return;
+          // An ambient's own script kept across a change of its effect (not across Custom and a map: each its own).
+          const sc = objectScript.get(s);
+          if (sc && !isScriptObject(fobj) && !isScriptObject(next)) objectScript.set(r, sc);
           swapRoot(s, r);
           edit(before, step);
           refreshInspector();
         }, true);
       };
-      {
-        const maps = copyMaps();
-        out.push({ label: 'Map', kind: 'select', value: fobj.source ?? '', disabled: off, options: maps, title: 'The disc map whose ambient effects it copies',
-          set: (v) => { const stem = String(v); void hostageLibOf(stem).then((lib) => { const first = lib ? ambientProgramsOf(lib)[0] : undefined;
-            if (!first) { notifier.refused(`${stem} has no ambient effect`); return; } setObj('model', { kind: 'ambient', source: stem, name: first.name }); }); } });
+      // Its Source and its Program, as every copied object's (the owner, 2026-11-13: "do the same for the effect/program
+      // inspector ... keep it consistent across all objects"): Custom (a scripted effect, `FORGE_SCRIPT_OBJECT`: your own
+      // steps) or the map whose ambient program it copies, each map with its count (`mapChoices`), one with none greyed.
+      const scripted = isScriptObject(fobj);
+      out.push({ label: 'Source', kind: 'select', value: scripted ? CUSTOM_TRIGGER : fobj.source ?? '', covers: ['ambient.source'], disabled: off,
+        options: groupedMaps([[CUSTOM_TRIGGER, 'Custom', false] as const, ...mapChoices('ambient', scripted ? '' : fobj.source ?? '')]),
+        title: "Custom: a script of the game's own commands, yours to write; a disc map: that map's own ambient program copied whole",
+        set: (v) => {
+          const stem = String(v);
+          if (stem === CUSTOM_TRIGGER) {
+            // A map's program made Custom: a script that CALLs that program, once, from the round's start.
+            if (!scripted) setObj('model', { kind: 'ambient', source: fobj.source, name: FORGE_SCRIPT_OBJECT, script: { steps: [{ do: 'effect', name: fobj.name, from: fobj.source }] } });
+            return;
+          }
+          void hostageLibOf(stem).then((lib) => { const first = lib ? ambientProgramsOf(lib)[0] : undefined;
+            if (!first) { notifier.refused(`${stem} has no ambient program`); return; } setObj('model', { kind: 'ambient', source: stem, name: first.name }); });
+        } });
+      if (scripted) {
+        out.push({ label: 'Program', kind: 'select', value: 'x', disabled: true, options: [['x', 'Your own script (below)'] as const],
+          title: 'A Custom program: its steps below', set: () => undefined });
+        scriptEditors(s, ref, objectScript.get(s) ?? { steps: [] }, off, out, { store: objectScript, title: "From the round's start", self: 'The object' });
+      } else {
         const list = fobj.source ? copyList('ambient', fobj.source) : null;
-        out.push({ label: 'Effect', kind: 'select', value: fobj.name, disabled: off || !list,
+        out.push({ label: 'Program', kind: 'select', value: fobj.name, covers: ['ambient.name'], disabled: off || !list,
           options: list ? (list.some(([n]) => n === fobj.name) ? list : [[fobj.name, fobj.name] as const, ...list]) : [[fobj.name, 'Loading\u2026'] as const],
           title: "The map's ambient effect: its particles, its sound and its light, as its map plays it from the round's start",
           set: (v) => setObj('model', { kind: 'ambient', source: fobj.source, name: String(v) }) });
@@ -6471,7 +6829,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             'What its program runs: PARTICLE_SOURCE, SOUND, LIGHT (the programs it calls too)');
           info('On its map', prog.root ? `at ${prog.root}` : 'about the camera (the whole map)', "Where its own map plays it: a node of that map's, or the camera (rain, snow, bugs)");
         }
-        const heard = ambientSoundsOf(fobj);
+        const heard = ambientSoundsOf(fobj, objectScript.get(s));
         if (heard) for (const h of heard) {
           info(h.name, `${(h.range[0] / 10).toFixed(1)} m full \u2192 ${(h.range[1] / 10).toFixed(1)} m silent \u00b7 ${h.loop ? 'loop' : 'once'}${h.volume !== null ? ` \u00b7 vol ${h.volume}` : ''}${h.doppler ? ' \u00b7 doppler' : ''}`,
             "The sound's own script entry: RANGE (full volume inside the first, silent past the second; FUN_00342670), one-shot or a loop, VOLUME, doppler");
@@ -6479,29 +6837,29 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // Its sound previewed (the owner, 2026-11-10: "add a button in the inspector for sound objects to preview the
         // sound"): Play its program's sounds here once (a loop until Stop), Stop ends them. An effect with no sound, none.
         const sounds = fobj.source ? copyList('ambient', fobj.source)?.find(([n]) => n === fobj.name)?.[1].includes('sound') : undefined;
-        if (sounds !== false && !fobj.audio) {
+        if (sounds !== false && !objectScript.has(s)) {
           if (fobj.source) out.push(ambientSoundButton(fobj.source, fobj.name));
         }
         // Its sound: its effect's own, or its sounds written as a script of the game's own commands (the owner, 2026-11-10:
         // "make it fully scriptable ... I don't want to have any custom behaviour"). The script starts as its program's own
-        // sound commands (`audioOfProgram`) where they are those commands alone.
-        out.push({ label: 'Sound script', kind: 'select', value: fobj.audio ? 'custom' : 'own', disabled: off,
+        // sound commands (`scriptOfProgram`) where they are those commands alone.
+        out.push({ label: 'Script', kind: 'select', value: objectScript.has(s) ? 'custom' : 'own', disabled: off,
           options: [['own', "Its effect's own (as its map plays it)"] as const, ['custom', 'Scripted (the game\'s commands)'] as const],
-          title: "Its effect's own sounds, or a script of the game's own sound commands in their place -- SOUND, WAIT, LOOP, WHILE, IF on a random chance -- with any map's sounds (its particles and light stay)",
+          title: "Its effect's own sounds, or a script of the game's own commands in their place -- SOUND, CALL an effect, WAIT, LOOP, WHILE, IF on a random chance -- with any map's sounds and effects (its own particles and light stay)",
           set: (v) => {
-            const own = v === 'custom' ? programAudioNow(fobj) : null;
+            const own = v === 'custom' ? programScriptNow(fobj) : null;
             const next = v === 'custom' ? own?.steps ?? [] : undefined;
             if (own && !own.whole) say(`${fobj.name}'s program sounds by more than these commands: its ~ loops are copied, the rest is yours to write`);
-            personEdit('placement.set', { ref, field: 'audio', value: String(v) }, (step) => {
+            personEdit('placement.set', { ref, field: 'script', value: String(v) }, (step) => {
               const before = selectionIds();
-              const o = s.userData['forgeObject'] as ForgeObjectData;
-              if (next) o.audio = next; else delete o.audio;
+              if (next) objectScript.set(s, scriptFromFile({ steps: next }, ownLists())); else objectScript.delete(s);
               edit(before, step);
               ambientGuideKey = '';
               refreshInspector();
             }, true);
           } });
-        if (fobj.audio) audioEditors(s, ref, fobj, off, out);
+        const own = objectScript.get(s);
+        if (own) scriptEditors(s, ref, own, off, out, { store: objectScript, title: "From the round's start", self: 'The object' });
       }
     }
     const point = s.userData['forgePoint'] as { name: string; kind: number } | undefined;
@@ -6598,7 +6956,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     showResets();
     // The record's lock and parent are the head's lock icon and the Outliner's tree: not listed again under Properties.
     const rows = dataRows(inspectorData()).filter(([k]) => k !== 'lock' && k !== 'parent' && !k.startsWith('parent.'));
-    showInspectorData(inspectorDom, rows, inspectorEditors());
+    showInspectorData(inspectorDom, rows, withAssetDrop(inspectorEditors()));
   };
   resetPosition.addEventListener('click', () => {
     if (!selected && !isGroup() && !baseSelected && mapDataSelected && mapDataMovable()) { commitMapDataMove(null); return; }
@@ -8280,16 +8638,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return lib ? ambientProgramsOf(lib).find((x) => x.name === o.name) ?? null : null;
   };
   /** Each of an ambient effect's sounds with its hearing (its RANGE, else the default), once its map's sounds are read. */
-  const ambientSoundsOf = (o: ForgeObjectData): { name: string; range: [number, number]; loop: boolean; volume: number | null; doppler: boolean }[] | null => {
-    // An audio script's: each sound it plays, at its own RANGE.
-    if (o.audio) {
+  const ambientSoundsOf = (o: ForgeObjectData, script?: EditorScript): { name: string; range: [number, number]; loop: boolean; volume: number | null; doppler: boolean }[] | null => {
+    // A script's: each sound it plays, at its own RANGE.
+    if (script) {
       const out: { name: string; range: [number, number]; loop: boolean; volume: number | null; doppler: boolean }[] = [];
-      for (const st of o.audio) {
-        if (st.do !== 'play') continue;
-        const params = soundParamsFor(st.from ?? scriptHome());
+      for (const st of script.steps) {
+        if (st.do !== 'sound' || !st.name) continue;
+        const params = soundParamsFor(st.from && !st.from.startsWith('*') ? st.from : scriptHome());
         if (!params) return null;
-        const p = params.get(st.sound) ?? params.get(st.sound.trim());
-        out.push({ name: st.sound, range: p?.range ?? AMBIENT_DEFAULT_RANGE, loop: st.sound.startsWith('~'), volume: st.volume ?? null, doppler: p?.doppler ?? false });
+        const p = params.get(st.name) ?? params.get(st.name.trim());
+        out.push({ name: st.name, range: p?.range ?? AMBIENT_DEFAULT_RANGE, loop: st.name.startsWith('~'), volume: st.volume ?? null, doppler: p?.doppler ?? false });
       }
       return out;
     }
@@ -8323,7 +8681,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const r of roots) {
       const o = objectOf(r);
       if (o?.kind !== 'ambient') continue;
-      const sounds = ambientSoundsOf(o);
+      const sounds = ambientSoundsOf(o, objectScript.get(r));
       if (!sounds?.length) continue;
       const max = Math.max(...sounds.map((x) => x.range[1])), min = Math.max(...sounds.map((x) => x.range[0]));
       const at = [r.position.x, r.position.y, r.position.z];
@@ -8382,8 +8740,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** `quiet`: no line said (a hover's: a silent effect is no news). */
   const previewAmbientSound = async (source: string, name: string, quiet = false): Promise<void> => {
     stopAmbientPreview();
-    const lib = await hostageLibOf(source);
-    const p = lib ? ambientProgramsOf(lib).find((x) => x.name === name) : undefined;
+    // A Sound tile's (`=sound:<sound>`): that sound alone.
+    const solo = soundOfAssetName(name);
+    const lib = solo === null ? await hostageLibOf(source) : null;
+    const p = solo !== null ? { sounds: [solo] } : lib ? ambientProgramsOf(lib).find((x) => x.name === name) : undefined;
     if (!p?.sounds.length) { if (!quiet) say(`${name} plays no sound of its own`); return; }
     // Looped or once, as the asset browser's Loop sounds says; once run out, its ■ a ▶ again.
     const h = await playAmbientSounds(archives.sourceRequest(), source, p.sounds, {
@@ -8430,9 +8790,77 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   };
   /** The tiles of an object tab: the chosen map's copies of that kind (`copyList`), a ladder's as its prop, the switch's looks. */
-  const objectTiles = (kind: Exclude<ObjectTab, 'props'>): { id: string; name: string; meta: string }[] | null => {
+  /**
+   * The Effect tab's tiles (the owner, 2026-11-13: "a unified effect object"): the map's ambient effects, then its single
+   * effects (the script's "Play an effect": `scriptNamesOf`, each one not an ambient effect already) and its sounds --
+   * each placed as one effect object (`./forgeObjects` `scriptObjectData`: run, wait, again).
+   */
+  const objectTiles = (kind: Exclude<ObjectTab, 'props' | 'characters'>): { id: string; name: string; meta: string }[] | null => {
+    if (kind === 'sound') return soundTiles();
+    const own = objectTilesOwn(kind);
+    if (kind !== 'ambient') return own;
     const stem = paletteStem();
-    if (kind === 'switch') return SWITCH_LOOK_TILES.map(([look, word]) => ({ id: objectAssetId('switch', SWITCH_LOOK_SOURCE, look), name: word, meta: 'on every map' }));
+    const ambient = new Set((own ?? []).map((t) => { const o = parseObjectAsset(t.id); return o ? `${o.source}:${o.name.trim().toLowerCase()}` : ''; }));
+    // The called effects: a map's own (its list less what every map has, `scriptCommonNow`, once every map is read), each
+    // one not an ambient program already; Common's what every map has, placed from the match's own map.
+    const common = scriptCommonNow();
+    const effectTile = (m: string, e: string, meta: string) => ({ id: objectAssetId('ambient', m, `${EFFECT_ASSET_PREFIX}${e}`), name: e.trim(), meta });
+    const ownEffects = (m: string, n: { sounds: string[]; effects: string[] }) =>
+      ownScriptNames(n, 'effect').filter((e) => !ambient.has(`${m}:${e.trim().toLowerCase()}`)).map((e) => effectTile(m, e, `${m} \u00b7 effect, called`));
+    const anyMap = stem || scriptHome() || copyMaps()[0]?.[0] || '';
+    const commonEffects = (): { id: string; name: string; meta: string }[] => (common?.effects ?? []).map((e) => effectTile(anyMap, e, 'every map \u00b7 effect, called'));
+    let more: { id: string; name: string; meta: string }[] | null;
+    if (paletteSel.value === PALETTE_COMMON) more = common ? commonEffects() : null;
+    else if (!stem && paletteSel.value === PALETTE_ALL) {
+      // All: what every map has once, then each map's own (read so far).
+      const read = copyMaps().map(([m]) => m).filter((m) => scriptNameLists.has(m));
+      more = common ? [...commonEffects(), ...read.flatMap((m) => ownEffects(m, scriptNameLists.get(m)!))] : null;
+    } else if (!stem) more = [];
+    else { const n = scriptNamesOf(stem); more = n && common ? ownEffects(stem, n) : null; }
+    // The Programs filter: the ambient ones (the map's own self-starting programs), the called effects, or both.
+    const shown = (list: { id: string; name: string; meta: string }[] | null): typeof list => (list === null ? null
+      : list.filter((t) => { const called = effectOfAssetName(parseObjectAsset(t.id)?.name ?? '') !== null; return programFilter === 'all' || (programFilter === 'effect') === called; }));
+    return own === null && more === null ? null : shown([...(own ?? []), ...(more ?? [])]);
+  };
+  /**
+   * The Sounds tab's tiles, by the map choice (the owner, 2026-11-13: "each map sound to only refer to sounds for that
+   * map"): a map its own sounds -- its list less what every map has (`scriptCommonNow`, once every map is read: null till
+   * then) and less the guns' (`weaponSoundsNow`); Common what every map has, the guns' with it; All both, each once. A
+   * sound every map has is placed from the match's own map (it is in every map's banks).
+   */
+  const soundTiles = (): { id: string; name: string; meta: string }[] | null => {
+    const stem = paletteStem();
+    const tile = (m: string, n: string, meta: string) => ({ id: objectAssetId('ambient', m, `${SOUND_ASSET_PREFIX}${n}`), name: n.trim(), meta });
+    const guns = weaponSoundsNow();
+    const common = scriptCommonNow();
+    // Every map's own and what every map has wait on every map being read, and on the guns' list.
+    if (!common || !guns) return null;
+    const anyMap = stem || scriptHome() || copyMaps()[0]?.[0] || '';
+    const gunNames = new Set(guns.map((g) => g.name));
+    const commonTiles = (): { id: string; name: string; meta: string }[] => [
+      ...common.sounds.filter((n) => !gunNames.has(n)).map((n) => tile(anyMap, n, 'every map')),
+      ...guns.map((g) => tile(anyMap, g.name, `every map \u00b7 ${g.weapon} ${g.kind}`)),
+    ];
+    const own = (m: string, n: { sounds: string[] }): { id: string; name: string; meta: string }[] =>
+      ownScriptNames({ sounds: n.sounds, effects: [] }, 'sound').filter((x) => !gunNames.has(x)).map((x) => tile(m, x, m));
+    if (paletteSel.value === PALETTE_COMMON) return commonTiles();
+    if (paletteSel.value === PALETTE_ALL) return [...commonTiles(), ...copyMaps().map(([m]) => m).filter((m) => scriptNameLists.has(m)).flatMap((m) => own(m, scriptNameLists.get(m)!))];
+    if (!stem) return [];
+    const n = scriptNamesOf(stem);
+    return n ? own(stem, n) : null;
+  };
+  /** A tab's own tiles: the chosen map's copies of the kind (`copyList`), a ladder's as its prop, the switch's looks. */
+  const objectTilesOwn = (kind: Exclude<ObjectTab, 'props' | 'characters' | 'sound'>): { id: string; name: string; meta: string }[] | null => {
+    const stem = paletteStem();
+    if (kind === 'switch') {
+      // Each look under the map whose object it copies (the owner, 2026-11-13: "these assets don't belong to every map"):
+      // the lever panel Death Trap's gate's (`DEFAULT_GATE`), the radio Sujo's (else Enowapi's, `switchLookOf`). All both;
+      // Common none (a look is one map's own object).
+      const home = (look: SwitchLookId): string => (look === 'radio' ? RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0] : DEFAULT_GATE.source);
+      const tiles = SWITCH_LOOK_TILES.map(([look, word]) => ({ id: objectAssetId('switch', SWITCH_LOOK_SOURCE, look), name: word, meta: home(look), map: home(look) }));
+      if (paletteSel.value === PALETTE_ALL) return tiles.map(({ map: _m, ...t }) => t);
+      return tiles.filter((t) => t.map === stem).map(({ map: _m, ...t }) => t);
+    }
     if (!stem && paletteSel.value === PALETTE_ALL) {
       // All: every map's of the kind (the census's lists, `censusKnown`), each by its map; null till a map is read.
       const maps = copyMaps().map(([m]) => m);
@@ -8449,7 +8877,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return got.map(([name, label]) => ({ id: kind === 'ladder' ? assetId(stem, name) : objectAssetId(kind, stem, name), name: name.trim(), meta: label.split(' \u00b7 ').slice(1).join(' \u00b7 ') || stem }));
   };
   /** An object tile's click: that object the Place tool's (`objectChoice`), the tool on its kind. */
-  const chooseObject = (kind: Exclude<ObjectTab, 'props'>, id: string): void => {
+  const chooseObject = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): void => {
     if (kind === 'ladder') objectChoice.ladder = id;
     else {
       const o = parseObjectAsset(id);
@@ -8458,26 +8886,31 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       else objectChoice[o.kind] = { source: o.source, name: o.name };
     }
     queuedTurn = 0; wheelTravel = 0;
-    setMode(kind);
+    setMode(kind === 'sound' ? 'ambient' : kind);               // a sound is placed as an effect object (`scriptObjectData`)
     syncGhost();
     drawAssets();
     assetTiles?.activate(id);
     say(`placing ${OBJECT_TABS.find(([k]) => k === kind)?.[1] ?? kind}: ${id.slice(id.indexOf(':') + 1)}`);
   };
   /** Whether an object tile is the one the Place tool places now. */
-  const objectChosen = (kind: Exclude<ObjectTab, 'props'>, id: string): boolean => {
-    if (mode !== kind) return false;
+  const objectChosen = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): boolean => {
+    if (mode !== (kind === 'sound' ? 'ambient' : kind)) return false;
     if (kind === 'ladder') return objectChoice.ladder === id;
     const o = parseObjectAsset(id);
     const c = o ? (o.kind === 'switch' ? objectChoice.switch ?? 'lever' : objectChoice[o.kind]) : undefined;
     return !!o && (typeof c === 'string' ? c === o.name : !!c && c.source === o.source && c.name === o.name);
   };
-  const drawObjects = (kind: Exclude<ObjectTab, 'props'>): void => {
+  const drawObjects = (kind: Exclude<ObjectTab, 'props' | 'characters'>): void => {
     const q = search.value.trim().toLowerCase();
     const tiles = objectTiles(kind);
     const word = OBJECT_TABS.find(([k]) => k === kind)?.[1] ?? kind;
     const items: HTMLElement[] = [];
-    for (const t of (tiles ?? []).filter((x) => !q || `${x.name} ${x.meta}`.toLowerCase().includes(q))) {
+    const matched = (tiles ?? []).filter((x) => !q || `${x.name} ${x.meta}`.toLowerCase().includes(q));
+    // Favourites: the starred alone; else the starred first, a line, then the rest (as the props are).
+    const starred = matched.filter((x) => objectFavs.has(x.id));
+    const ordered = filter === 'favs' ? starred : [...starred, ...matched.filter((x) => !objectFavs.has(x.id))];
+    for (const t of ordered) {
+      if (filter !== 'favs' && starred.length && t === ordered[starred.length]) items.push(el(doc, 'li', 'fx-sep'));
       // A tile as a prop's: its preview, its name, dragged onto the world as one (`assetTiles`: the editor seam's object).
       const li = el(doc, 'li');
       li.dataset['asset'] = t.id;
@@ -8494,7 +8927,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       image.setAttribute('aria-hidden', 'true');
       image.loading = 'lazy';
       image.draggable = false;                                 // the tile's drag, never the browser's own image drag
-      preview.append(image, el(doc, 'span', 'fx-asset-thumbnail-status', 'Loading preview…'));
+      // A single sound has no picture: its speaker (`fx-asset-sound`), no thumbnail asked for.
+      const tileAsset = parseObjectAsset(t.id);
+      const soundTile = !!tileAsset && soundOfAssetName(tileAsset.name) !== null;
+      if (soundTile) { preview.classList.add('fx-asset-sound'); preview.innerHTML = icon('sound'); }
+      else preview.append(image, el(doc, 'span', 'fx-asset-thumbnail-status', 'Loading preview…'));
       // An ambient effect's badges on its picture (the owner, 2026-11-11: "easy at a glance ... which ambient assets are
       // sounds/particles"): a sparks icon where it draws particles, a speaker where it plays sound -- its census's own
       // words (`mapCensus`: "particles + sound + light").
@@ -8521,10 +8958,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       copy.append(el(doc, 'span', 'fx-asset-name', t.name), el(doc, 'span', 'fx-dim', tileMeta));
       pick.append(preview, copy);
       li.append(pick);
+      const fav = objectFavs.has(t.id);
+      const star = el(doc, 'button', 'fx-star');
+      star.type = 'button';
+      star.innerHTML = icon('star');
+      star.title = fav ? 'Remove from favourites' : 'Add to favourites';
+      star.setAttribute('aria-label', `${star.title}: ${t.name}`);
+      star.classList.toggle('is-on', fav);
+      star.addEventListener('click', (e) => { e.stopPropagation(); objectFavs = toggleFavourite(objectFavs, t.id); writeObjectFavourites(objectFavs); drawAssets(); });
+      li.prepend(star);
       // An ambient effect's sound, played here (`previewAmbientSound`); its particles are its tile's preview (`ambientPreview`).
       // Only for an effect that plays sound (the owner, 2026-11-11): a particles-only one has nothing to play.
       const playsSound = /\bsound\b/.test(t.meta.split(' · ').find((s) => /\b(particles|sound|light)\b/.test(s)) ?? '');
-      if (kind === 'ambient' && playsSound) {
+      if ((kind === 'ambient' && playsSound) || kind === 'sound') {
         const o = parseObjectAsset(t.id);
         const play = el(doc, 'button', 'fx-star fx-asset-play');
         play.type = 'button';
@@ -8542,12 +8988,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // No browser tooltip on a tile (the owner, 2026-11-11: one popup, the preview's): its words the preview's info line.
       li.dataset['assetInfo'] = `${word}${t.meta ? ` \u00b7 ${t.meta}` : ''}`;
       li.classList.toggle('is-on', objectChosen(kind, t.id));
-      li.addEventListener('click', () => chooseObject(kind, t.id));
+      li.addEventListener('click', () => { if (assetPick) pickFromBrowser(t.id); else chooseObject(kind, t.id); });
       items.push(li);
     }
     if (items.length === 0) {
-      items.push(el(doc, 'li', 'fx-empty', tiles === null ? `Reading ${paletteStem() || 'every map'}'s ${word.toLowerCase()}s…`
-        : q ? `No ${word.toLowerCase()} matches` : paletteStem() ? `No ${word.toLowerCase()} on ${paletteStem()}: choose another map above` : `Choose a map above for its ${word.toLowerCase()}s`));
+      // A map's own sounds wait on every map (what they all have is left out): said so.
+      items.push(el(doc, 'li', 'fx-empty', filter === 'favs' && tiles !== null && !q ? `No favourite ${tabWords(word)} here yet: star one to keep it here` : tiles === null ? ((kind === 'sound' || kind === 'ambient') && !scriptCommon
+        ? `Reading every map's ${tabWords(word)}, to tell each map's own from what every map has…` : `Reading ${paletteStem() || 'every map'}'s ${tabWords(word)}…`)
+        : q ? `No ${tabWords(word)} match` : paletteStem() ? `No ${tabWords(word)} on ${paletteStem()}: choose another map above`
+        : paletteSel.value === PALETTE_COMMON ? `A ${word.toLowerCase()} is one map's own: choose a map above for its ${tabWords(word)}` : `Choose a map above for its ${tabWords(word)}`));
     }
     list.replaceChildren(...items);
     drawAmbientPlayButtons();                                   // ▶ or ■, as the sounding one stands
@@ -8582,17 +9031,70 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       try { listener(); } catch (e) { console.error('forge palette listener', e); }
     }
   };
+  /**
+   * The Source's maps, each with what it has of the tab's kind (the owner, 2026-11-13: "the same for the asset browser,
+   * depending on which tab is selected", as the Inspector's Map choices count theirs): its count, "loading\u2026" until read,
+   * "none" -- greyed, not choosable -- where it has none (the one chosen never greyed). A map's own: its own props,
+   * sounds and called effects (none every map has: Common's), its ambient programs, its copies of a scene object's kind,
+   * a switch look's map. All and Common as they are.
+   */
+  const PALETTE_WORDS: Readonly<Record<Exclude<ObjectTab, 'characters'>, readonly [string, string]>> = {
+    props: ['prop', 'props'], sound: ['sound', 'sounds'], ambient: ['program', 'programs'], door: ['door', 'doors'], ladder: ['ladder', 'ladders'],
+    turret: ['turret', 'turrets'], barrier: ['damage trigger', 'damage triggers'], switch: ['switch', 'switches'], gate: ['gate', 'gates'], flare: ['flare', 'flares'],
+  };
+  const paletteCountOf = (stem: string, tab: Exclude<ObjectTab, 'characters'>): number | null => {
+    if (absent.has(stem)) return 0;
+    const census = censusKnown.get(stem);
+    switch (tab) {
+      case 'props': return ownPropCounts.get(stem) ?? null;
+      case 'switch': {
+        const radio = RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0];
+        return Number(stem === DEFAULT_GATE.source) + Number(stem === radio);
+      }
+      case 'sound': case 'ambient': {
+        // Its own: what every map has and the guns' left out, once known.
+        const n = scriptNameLists.get(stem), common = scriptCommon, guns = weaponSoundList;
+        if (!n || !common || (tab === 'sound' && !guns)) return null;
+        if (tab === 'sound') { const g = new Set((guns ?? []).map((x) => x.name)); return ownScriptNames(n, 'sound').filter((x) => !g.has(x)).length; }
+        if (!census) return null;
+        const ambient = new Set(census.ambient.map(([x]) => x.trim().toLowerCase()));
+        return census.ambient.length + ownScriptNames(n, 'effect').filter((e) => !ambient.has(e.trim().toLowerCase())).length;
+      }
+      default: return census ? census[tab].length : null;
+    }
+  };
+  /** The counts asked for: once the Source is first opened (`paletteSel`'s press), so no map is read before it is. */
+  let paletteCountsAsked = false;
+  const drawPaletteCounts = (): void => {
+    if (!paletteCountsAsked) return;
+    const tab: Exclude<ObjectTab, 'characters'> = showChars || objectTab === 'characters' ? 'props' : objectTab;
+    // What the tab's counts read: every map's census, and its sounds and effects (with the guns') for those tabs.
+    if (tab === 'sound' || tab === 'ambient') { askScriptNames(); if (tab === 'sound') weaponSoundsNow(); }
+    askCensus();
+    const [one, many] = PALETTE_WORDS[tab];
+    for (const o of Array.from(paletteSel.querySelectorAll('option'))) {
+      if (o.value.startsWith('*')) continue;                    // All, Common
+      const base = o.dataset['base'] ?? (o.dataset['base'] = o.textContent ?? o.value);
+      const n = paletteCountOf(o.value, tab);
+      const words = n === null ? 'loading\u2026' : n === 0 ? 'none' : `${n} ${n === 1 ? one : many}`;
+      // Its name, then its count set right (`optionWithNote`; the closed field reads them as one line).
+      if (o.dataset['note'] !== words) { optionWithNote(o, base, words); o.dataset['note'] = words; }
+      o.disabled = n === 0 && o.value !== paletteSel.value;
+    }
+  };
   const drawAssetList = (): void => {
+    drawPaletteCounts();
     applyAssetDisplay();
-    chipAll.classList.toggle('is-on', !showChars && filter === 'all');
     chipFav.classList.toggle('is-on', !showChars && filter === 'favs');
+    chipFav.setAttribute('aria-pressed', String(!showChars && filter === 'favs'));
     chipChars.classList.toggle('is-on', showChars);
-    for (const [k, b] of objectTabButtons) { const on = !showChars && objectTab === k; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
-    // The props' own filters (All, Favourites) belong to the Props tab.
-    chipAll.hidden = chipFav.hidden = objectTab !== 'props' && !showChars;
-    search.placeholder = showChars ? 'Search characters…' : objectTab === 'props' ? 'Search props…' : `Search ${(OBJECT_TABS.find(([k]) => k === objectTab)?.[1] ?? '').toLowerCase()}s…`;
+    for (const [k, b] of objectTabButtons) { const on = k === 'characters' ? showChars : !showChars && objectTab === k; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+    // Favourites (on or off) every tab's (the owner, 2026-11-13); the program filter Programs'.
+    chipFav.hidden = showChars;
+    for (const c of programChips) { c.hidden = showChars || objectTab !== 'ambient'; c.classList.toggle('is-on', c.dataset['programFilter'] === programFilter); }
+    search.placeholder = showChars ? 'Search characters…' : objectTab === 'props' ? 'Search props…' : `Search ${tabWords(OBJECT_TABS.find(([k]) => k === objectTab)?.[1] ?? '')}…`;
     if (showChars) { drawCharacters(); return; }
-    if (objectTab !== 'props') { drawObjects(objectTab); return; }
+    if (objectTab !== 'props' && objectTab !== 'characters') { drawObjects(objectTab); return; }
     const shown = assetsShown(entriesOfPalette, favs, filter, search.value);
     let favsEnded = false;
     const items: HTMLElement[] = [];
@@ -8642,7 +9144,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       li.append(star, pick);
       li.setAttribute('aria-label', a.model);                  // no browser tooltip: the preview names it (one popup)
       li.classList.toggle('is-on', chosen === a.asset);
-      li.addEventListener('click', () => choosePaletteRow(a.asset));
+      li.addEventListener('click', () => { if (assetPick) pickFromBrowser(a.asset); else choosePaletteRow(a.asset); });
       items.push(li);
     }
     if (items.length === 0) items.push(el(doc, 'li', 'fx-empty', paletteEmptyReason()));
@@ -8700,8 +9202,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     assetLoopSounds = assetLoopSoundsToggle.checked;           // from the next play on
     writeView();
   });
-  chipAll.addEventListener('click', () => { filter = 'all'; showChars = false; drawAssets(); });
-  chipFav.addEventListener('click', () => { filter = 'favs'; showChars = false; drawAssets(); });
+  // The All chip gone (the owner, 2026-11-13: "useless now"): Favourites a toggle, off is every prop.
+  chipFav.addEventListener('click', () => { filter = filter === 'favs' && !showChars ? 'all' : 'favs'; showChars = false; drawAssets(); });
   chipChars.addEventListener('click', () => { showChars = true; drawAssets(); });
   /**
    * R6 (the rendered pass's case 8): a palette loaded -- the open START menu redrawn (its Props screen reads the palette at
@@ -8715,7 +9217,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * are every map's alike (`objectTiles`).
    */
   let everyMapRun = 0;
-  const showEveryMap = async (which: string): Promise<void> => {
+  const showEveryMap = async (which: string, sharedOnly = false): Promise<void> => {
     const run = ++everyMapRun;
     invalidateAssetThumbnails();
     entriesOfPalette = [];
@@ -8731,6 +9233,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const props = await archives.props(stem);
       if (run !== everyMapRun || paletteSel.value !== which) return;
       for (const p of props ?? []) {
+        if (sharedOnly && !p.shared) continue;                 // Common: a shared library's models alone
         if (p.shared) {
           const key = `${p.lib.toUpperCase()}:${p.model}`;
           if (seenShared.has(key)) continue;
@@ -8745,11 +9248,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     paletteLoading = null;
     drawAssets();
     refreshMenuForPalette();
-    say(`All: ${entriesOfPalette.length} props from ${stems.length} maps`);
+    say(sharedOnly ? `Common: ${entriesOfPalette.length} props of the shared libraries` : `All: ${entriesOfPalette.length} props from ${stems.length} maps`);
   };
   const showPalette = async (stem: string): Promise<void> => {
     everyMapRun++;                                             // a Shared or All still reading stops
     if (stem === PALETTE_ALL) { paletteSel.value = stem; await showEveryMap(stem); return; }
+    // Common: the shared libraries' props, from every map (`showEveryMap`'s read, their models alone).
+    if (stem === PALETTE_COMMON) { paletteSel.value = stem; await showEveryMap(stem, true); return; }
     invalidateAssetThumbnails();
     paletteSel.value = stem;
     entriesOfPalette = [];
@@ -8758,10 +9263,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     let map: LoadedMap;
     try { map = await archives.load(stem); } finally { if (paletteLoading === stem) paletteLoading = null; }
     if (paletteSel.value !== stem) return;
-    entriesOfPalette = creatorPalette(map);
+    // Its own props alone: a shared library's (`libraryProps` `shared`) are Common's.
+    const shared = new Set(libraryProps(map).filter((p) => p.shared).map((p) => p.model));
+    entriesOfPalette = creatorPalette(map).filter((e) => !shared.has(e.model));
     drawAssets();
     refreshMenuForPalette();
-    say(`${labelOf(entries, stem, map.name)} (${stem}): ${entriesOfPalette.length} props`);   // the mission's name, never its raw loc key
+    say(`${labelOf(entries, stem, map.name)} (${stem}): ${entriesOfPalette.length} props of its own${shared.size ? ` (${shared.size} shared: Common)` : ''}`);   // the mission's name, never its raw loc key
   };
 
   /* ---------- pieces and markers ---------- */
@@ -9493,11 +10000,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (kind === 'gate') stagedGates.push(r);
       }
     }
-    // The Forge objects (`Layout.objects`), before the scripts that name them (`SwitchTarget` `object`).
+    // The Forge objects (`Layout.objects`), before the scripts that name them (`ScriptTarget` `object`).
     const stagedObjects: Object3D[] = [];
     for (const o of l.objects ?? []) {
       if (o.kind !== 'ambient') continue;
-      const r = newForgeObject({ kind: o.kind, source: o.source, name: o.name, ...(o.audio ? { audio: o.audio } : {}) });
+      const r = newForgeObject({ kind: o.kind, source: o.source, name: o.name });
       r.position.set(o.at[0], o.at[1], o.at[2]);
       r.rotation.y = o.yaw;
       if (o.locked) r.userData['forgeLock'] = true;
@@ -9505,6 +10012,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       stagedObjects.push(r);
     }
     const stagedOwn = { pieces: staged.filter((x) => x.userData['forgePiece']), barriers: staged.filter((x) => x.userData['forgeBarrier']), gates: stagedGates, objects: stagedObjects };
+    // The objects' scripts, their targets the staged lists (an object may name a prop, a trigger, a gate or another object).
+    (l.objects ?? []).filter((o) => o.kind === 'ambient').forEach((o, k) => { if (o.script && stagedObjects[k]) objectScript.set(stagedObjects[k]!, scriptFromFile(o.script, stagedOwn)); });
     for (const t of l.triggers ?? []) {
       // A custom damage trigger: its object at its place (else at its prop), linked to its prop or map object.
       const r = newTriggerMarker();
@@ -10886,6 +11395,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (t) pieceTrigger.set(to, { ...t });
     const ts = triggerScript.get(from);
     if (ts) triggerScript.set(to, copyScript(ts));
+    const os = objectScript.get(from);
+    if (os) objectScript.set(to, copyScript(os));
     if (triggerLink.has(from)) copyNotes++;
   }
   function markerClone(s: Object3D): Object3D | null {
@@ -11417,18 +11928,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const ambientLent: LentScriptAssets = { sounds: [], effects: [] };
     const ambientPrograms = new Map<string, AmbientProgram | null>();
     for (const o of layout.objects ?? []) {
-      if (o.kind !== 'ambient' || !o.source) continue;
+      if (o.kind !== 'ambient' || !o.source || isScriptObject(o)) continue;   // a scripted effect: its script's, below
       const lib = await hostageLibOf(o.source);
       const prog = lib ? ambientProgramsOf(lib).find((x) => x.name === o.name) : undefined;
       ambientPrograms.set(`${o.source}:${o.name}`, prog ?? null);
       if (o.source.toUpperCase() !== c.groundMap.archive.toUpperCase()) ambientLent.effects.push({ from: o.source, names: [o.name] });
       if (prog?.sounds.length) ambientLent.sounds.push({ from: o.source, names: [...prog.sounds] });
     }
-    // The audio scripts' sounds (FORGE_AUDIO_SCRIPT_ADAPTATION), each from its own map's banks.
-    for (const o of layout.objects ?? []) {
-      for (const l of audioScriptSounds(o.audio, c.groundMap.archive)) if (l.from.toUpperCase() !== c.groundMap.archive.toUpperCase()) ambientLent.sounds.push(l);
-    }
-    const lentAssets0 = mergeLent(lentScriptAssets(scriptSteps([...(layout.switches ?? []), ...(layout.triggers ?? [])]), c.groundMap.archive), lentAccessAssets([...accessNow.values()].map((t) => {
+    // Every script's sounds and effects (the one script: switches', triggers' and effect objects'), each from its own map.
+    const lentAssets0 = mergeLent(lentScriptAssets(scriptSteps([...(layout.switches ?? []), ...(layout.triggers ?? []), ...(layout.objects ?? [])]), c.groundMap.archive), lentAccessAssets([...accessNow.values()].map((t) => {
       const set = new Set((t.lib.meta?.scene?.programs ?? []).map((p) => p.program.name.toLowerCase()));
       const programs = [...t.destructibles.map((d) => d.program), ...t.actions.flatMap((a) => (a.program ? [a.program.program] : [])), ...calledOf(t, { anims: {} }).map((p) => p.program)];
       return { lib: t.lib, programs, set };
@@ -12318,6 +12826,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   dupBtn.addEventListener('click', duplicate);
   delBtn.addEventListener('click', remove);
   search.addEventListener('input', drawAssets);
+  // The Source's counts (`drawPaletteCounts`): asked for the first time it is opened, by the pointer or the keys.
+  for (const type of ['pointerdown', 'keydown', 'focus'] as const) {
+    paletteSel.addEventListener(type, () => { if (paletteCountsAsked) return; paletteCountsAsked = true; drawPaletteCounts(); });
+  }
   paletteSel.addEventListener('change', () => { void showPalette(paletteSel.value).catch((e: unknown) => say(String(e), true)); });
   /**
    * FP-6 item 1 (FP.R4; product track, a browser adaptation with no original): the base list's Custom Maps group, added
@@ -13562,7 +14074,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       async previewPiece(asset) {
         const obj = parseObjectAsset(asset);
         // An ambient effect's thumbnail: its particles stepped ahead (`./previewAssets` `ambientPreview`).
-        if (obj?.kind === 'ambient') return ambientPreview(archives.sourceRequest(), obj.source, obj.name, true);
+        if (obj?.kind === 'ambient' && soundOfAssetName(obj.name) !== null) return null;   // a sound: nothing to draw
+        // An ambient effect's thumbnail, or a single effect's: its particles stepped ahead (`ambientPreview` plays any by name).
+        if (obj?.kind === 'ambient') return ambientPreview(archives.sourceRequest(), obj.source, effectOfAssetName(obj.name) ?? obj.name, true);
         // Drawn as the game draws it (the owner, 2026-11-11): the previews' own templates -- textured, lit, no wireframe,
         // whatever the Draw menu says -- and no editor guides (a door's swing, a ladder's climb side...).
         const r = obj ? await buildObject(obj, true).catch(() => null) : await newPiece(asset, undefined, true).catch(() => null);
@@ -13587,8 +14101,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const r = obj ? await buildObject(obj).catch(() => null) : await newPiece(asset).catch(() => null);
         if (!r) return null;
         // An ambient effect's ghost and tooltip run its particles (`ambientPreview`) about its marker.
-        if (obj?.kind === 'ambient') {
-          const live = await ambientPreview(archives.sourceRequest(), obj.source, obj.name).catch(() => null);
+        if (obj?.kind === 'ambient' && soundOfAssetName(obj.name) === null) {
+          const live = await ambientPreview(archives.sourceRequest(), obj.source, effectOfAssetName(obj.name) ?? obj.name).catch(() => null);
           if (live) { r.add(live.object); const d = r.userData['dispose'] as (() => void) | undefined; r.userData['dispose'] = () => { live.dispose(); d?.(); }; }
         }
         let gone = false;
@@ -14125,6 +14639,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const listOrStop = async (): Promise<boolean> => {
     try {
       ({ entries, problems } = await archives.list());
+      // The multiplayer maps by name (the owner, 2026-11-13: "list them in alphabetical order ... don't sort the
+      // campaigns"), then the campaign's missions in their own order -- every map list reads this: the asset browser's,
+      // the base's, New's and the Inspector's Map choices.
+      entries = [...entries].sort((a, b) => Number(a.campaign) - Number(b.campaign)
+        || (a.campaign ? 0 : a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true })));
       listFailed = false;
       return true;
     } catch (e) {
@@ -14298,8 +14817,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // ... it should be a union of all the maps"; `showEveryMap`): every map's props and objects together.
   {
     const g = el(doc, 'optgroup');
-    g.label = 'Every map';
-    g.append(opt(PALETTE_ALL, 'All \u00b7 every map\u2019s props and objects'));
+    g.label = 'Across maps';
+    g.append(opt(PALETTE_ALL, 'All \u00b7 every map'), opt(PALETTE_COMMON, 'Common \u00b7 shared by every map'));
     paletteSel.append(g);
   }
   if (mp.length) { baseSel.append(optgroup('Multiplayer', mp)); paletteSel.append(optgroup('Multiplayer', mp)); }

@@ -2,7 +2,7 @@ import { parseRdr, rdrGet, Zar, zdbMember, type RdrNode, type ZdbEntry } from '@
 import { decodeEffectProgram, flattenScene, missionNameOf, NODE_ROOT, parseAnimSets, type EffectProgram, type SceneNode, type ZAnimArchive, type ZAnimNodeRef } from '@s2u/scene';
 import { readMapActions, type MapAction } from './mapActions';
 import { sceneOf, type SceneMeta } from './sceneHealth';
-import type { AudioStep } from '@s2u/creator-contracts';
+import type { ScriptStep } from '@s2u/creator-contracts';
 import { runsProfileStroke, runsScroll } from './sceneScroll';
 
 export { actionAtPick } from './mapActions';
@@ -51,10 +51,11 @@ export interface MapInitial {
 
 /** A Forge ambient effect placed (`./forge/forgeObjects`): its program of map `source`, at its path's place, turned `yaw`. */
 /**
- * A placed ambient effect (`./forge/forgeObjects` `withForgeObjects`): `source` its map, `name` its program; `audio` its
- * audio script (the game's own commands), standing in for its program's own sounds.
+ * A placed ambient effect (`./forge/forgeObjects` `withForgeObjects`): `source` its map, `name` its program; `script` its
+ * steps (the one script, `ScriptStep`), standing in for its program's own sounds -- made a self-starting program at its
+ * place (`./forge/placedAccess` `withPlacedAccess`).
  */
-export interface ForgeAmbient { path: string; source: string; name: string; at: [number, number, number]; yaw: number; audio?: AudioStep[] }
+export interface ForgeAmbient { path: string; source: string; name: string; at: [number, number, number]; yaw: number; script?: ScriptStep[] }
 
 export interface MapMeta {
   stem: string;

@@ -265,7 +265,12 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
       {
         const want = [['', 'None (the fog colour)'] as const, ...hooks.skyChoices()];
         if (skySel.options.length !== want.length || want.some(([v], i) => skySel.options[i]?.value !== v)) {
-          skySel.replaceChildren(...want.map(([v, w]) => { const o = forgeEl(doc, 'option', '', w); o.value = v; return o; }));
+          // None first, then the maps under their header, as every map list of the Forge (the asset browser's).
+          const opt = ([v, w]: readonly [string, string]): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', w); o.value = v; return o; };
+          const group = forgeEl(doc, 'optgroup', '');
+          group.label = 'Multiplayer';
+          group.append(...want.slice(1).map(opt));
+          skySel.replaceChildren(opt(want[0]!), ...(want.length > 1 ? [group] : []));
         }
         skySel.value = a.sky;
       }

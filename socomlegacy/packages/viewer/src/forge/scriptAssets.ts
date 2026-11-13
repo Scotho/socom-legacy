@@ -1,5 +1,5 @@
 import type { EffectProgram } from '@s2u/scene';
-import type { SwitchStep } from '@s2u/creator-contracts';
+import type { ScriptStep } from '@s2u/creator-contracts';
 import type { SoundEmitter } from '../soundData';
 
 /**
@@ -13,7 +13,7 @@ import type { SoundEmitter } from '../soundData';
  *   common effect does) that draw something (a `PARTICLE_SOURCE` or a `LIGHT`, theirs or a program's they call); a
  *   program rooted at one of the map's own nodes plays there, a node another map has not, so it is left out.
  *
- * A step naming another map's (`SwitchStep.from`) is lent into the match (`lentScriptAssets`): its sound out of that
+ * A step naming another map's (`ScriptStep.from`) is lent into the match (`lentScriptAssets`): its sound out of that
  * map's banks (`../soundData` `borrowMissing`), its effect out of that map's mission set (`../effectData` `borrow`).
  */
 
@@ -74,7 +74,7 @@ function grouped(pairs: Iterable<readonly [string, string]>): { from: string; na
  * The steps' sounds, each by its map (`from`, else `base`: the base's own streams are read for it too, its banks being
  * in already), and their effects `from` another map than `base` (the base's own are in its sets already).
  */
-export function lentScriptAssets(steps: Iterable<SwitchStep>, base: string): LentScriptAssets {
+export function lentScriptAssets(steps: Iterable<ScriptStep>, base: string): LentScriptAssets {
   const sounds: [string, string][] = [], effects: [string, string][] = [];
   for (const st of steps) {
     if (st.do === 'sound') sounds.push([st.from ?? base, st.name]);
@@ -85,7 +85,7 @@ export function lentScriptAssets(steps: Iterable<SwitchStep>, base: string): Len
 }
 
 /** Every step of a layout's switches' scripts, both lists. */
-export function scriptSteps(switches: readonly { script?: { steps: readonly SwitchStep[] } }[] | undefined): SwitchStep[] {
+export function scriptSteps(switches: readonly { script?: { steps: readonly ScriptStep[] } }[] | undefined): ScriptStep[] {
   return (switches ?? []).flatMap((s) => s.script?.steps ?? []);
 }
 

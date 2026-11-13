@@ -1,6 +1,6 @@
 import type { MenuItem } from '../padMenu';
 import { scrubNumber, type ScrubDetail } from '../scrub';
-import { builtPanel, forgeEl, revealRow, type ForgePanel } from '../shell/panel';
+import { builtPanel, forgeEl, optionWithNote, revealRow, type ForgePanel } from '../shell/panel';
 
 /**
  * FUI-1 (a browser adaptation, FG.R2): the Inspector, below the Outliner in the right dock. Its markup is the page's as
@@ -149,8 +149,13 @@ export interface InspectorEditor {
   /** `button`: a press, no value of its own -- its `value` the button's words, `set(true)` the press. */
   kind: 'text' | 'number' | 'select' | 'check' | 'button';
   value: string | number | boolean;
-  /** Each `[value, label, greyed?]`: a greyed one listed, not choosable. */
-  options?: readonly (readonly [string, string, boolean?])[];
+  /**
+   * Each `[value, label, greyed?, group?, note?]`: a greyed one listed, not choosable; a `note` set at its row's right (a
+   * map's count, `optionWithNote`); one with a `group` under that header (an
+   * `<optgroup>`, as the asset browser's map list draws Across maps, Multiplayer, Campaign), in the order the groups first
+   * come. One with none stands before them.
+   */
+  options?: readonly (readonly [string, string, boolean?, string?, string?])[];
   covers?: readonly string[];
   title?: string;
   disabled?: boolean;
@@ -160,6 +165,33 @@ export interface InspectorEditor {
    * value with no edit made; null puts it back as it was (Escape, or just before the release's one edit, `set`).
    */
   preview?(value: number | null): void;
+  /**
+   * An asset tile dropped on the row (the owner, 2026-11-13: "drag and drop assets from the asset browser into the
+   * inspector ... automatically adjust the source"; a browser adaptation): `accepts` while a tile is dragged over it,
+   * `take` on its drop.
+   */
+  drop?: { accepts(): boolean; take(): void };
+  /**
+   * A small button at the select's right (the owner, 2026-11-13: "a small button to the right that when clicked opens a
+   * mini popup asset browser filtered to that item type"): its icon's markup, its tooltip, and its press (`anchor` the
+   * button, where the popup opens).
+   */
+  browse?: { icon: string; title: string; disabled?: boolean; open(anchor: HTMLElement): void };
+  /** Whose row it is (the selection's reference): a row with a drop or a browse drawn anew for another object. */
+  owner?: string;
+  /** Room above the row (the owner, 2026-11-13: "spacing between the steps"): a script's header, each step, its Add row. */
+  gap?: boolean;
+  /**
+   * The row a script's steps start at: the read-only rows drawn before it, not under the steps (the owner, 2026-11-13:
+   * "since we can have many steps they get buried at the bottom").
+   */
+  stepsStart?: boolean;
+}
+
+/** A row's pair with room above it where it asks (`InspectorEditor.gap`). */
+function spaced(e: InspectorEditor, pair: HTMLElement[]): HTMLElement[] {
+  if (e.gap) for (const x of pair) x.classList.add('fx-inspect-gap');
+  return pair;
 }
 
 /**
@@ -196,7 +228,7 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
   const held = heldOpen.get(dom.data);
   if (held?.open) { held.pending = () => showInspectorData(dom, rows, editors); return; }
   if (held) held.pending = null;
-  const sig = JSON.stringify([rows, editors.map((e) => [e.label, e.kind, e.value, e.options, e.disabled])]);
+  const sig = JSON.stringify([rows, editors.map((e) => [e.label, e.kind, e.value, e.options, e.disabled, e.owner ?? null, !!e.drop, !!e.browse, !!e.gap, !!e.stepsStart])]);
   // Held only while a text or number field is being typed in; a choice (a select, a box) redraws at once, so a field
   // that depends on it (a door's on its map) follows, the focus kept on the same field.
   const active = doc.activeElement;
@@ -205,7 +237,7 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
   const refocus = active && dom.data.contains(active) ? active.getAttribute('aria-label') : null;
   dom.data.dataset['sig'] = sig;
   const covered = new Set(editors.flatMap((e) => e.covers ?? []));
-  const fields = editors.flatMap((e) => {
+  const perEditor = editors.map((e): HTMLElement[] => {
     // A button (an ambient effect's sound played, a preview): its words its value, its press `set(true)`.
     if (e.kind === 'button') {
       const b = forgeEl(doc, 'button', 'fx-tool fx-inspect-edit fx-inspect-button', String(e.value));
@@ -216,12 +248,22 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
       b.addEventListener('click', () => e.set(true));
       const dd = forgeEl(doc, 'dd', '');
       dd.append(b);
-      return [forgeEl(doc, 'dt', '', e.label), dd];
+      return spaced(e, [forgeEl(doc, 'dt', '', e.label), dd]);
     }
     let input: HTMLInputElement | HTMLSelectElement;
     if (e.kind === 'select') {
       const s = forgeEl(doc, 'select', 'fx-select fx-inspect-edit');
-      for (const [v, w, off] of e.options ?? []) { const o = forgeEl(doc, 'option', '', w); o.value = v; if (off) o.disabled = true; s.append(o); }
+      const groups = new Map<string, HTMLOptGroupElement>();
+      for (const [v, w, off, group, note] of e.options ?? []) {
+        const o = forgeEl(doc, 'option', '', w);
+        if (note) optionWithNote(o, w, note);
+        o.value = v;
+        if (off) o.disabled = true;
+        if (!group) { s.append(o); continue; }
+        let g = groups.get(group);
+        if (!g) { g = forgeEl(doc, 'optgroup', ''); g.label = group; groups.set(group, g); s.append(g); }
+        g.append(o);
+      }
       s.value = String(e.value);
       holdWhileOpen(dom.data, s);
       input = s;
@@ -249,10 +291,49 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
     if (input instanceof HTMLInputElement && e.kind !== 'check') input.addEventListener('keydown', (k) => { if (k.key === 'Enter') input.blur(); });
     const dd = forgeEl(doc, 'dd', '');
     dd.append(input);
-    return [forgeEl(doc, 'dt', '', e.label), dd];
+    if (e.browse) {
+      const browse = e.browse;
+      const b = forgeEl(doc, 'button', 'fx-tool fx-inspect-browse');
+      b.type = 'button';
+      b.innerHTML = browse.icon;
+      b.title = browse.title;
+      b.setAttribute('aria-label', browse.title);
+      // Its own (a row shown greyed, a Custom program's, still browses: a pick makes it that asset).
+      b.disabled = browse.disabled === true;
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); browse.open(b); });
+      dd.classList.add('fx-inspect-browse-row');
+      dd.append(b);
+    }
+    const dt = forgeEl(doc, 'dt', '', e.label);
+    if (e.drop && !e.disabled) {
+      const drop = e.drop;
+      const mark = (on: boolean): void => { input.classList.toggle('is-asset-drop', on); };
+      for (const el of [dt, dd]) {
+        el.addEventListener('dragover', (ev) => {
+          if (!drop.accepts()) return;
+          ev.preventDefault();
+          if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+          mark(true);
+        });
+        el.addEventListener('dragleave', () => mark(false));
+        el.addEventListener('drop', (ev) => {
+          mark(false);
+          if (!drop.accepts()) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          drop.take();
+        });
+      }
+    }
+    return spaced(e, [dt, dd]);
   });
   const shown = rows.filter(([k]) => !covered.has(k));
-  dom.data.replaceChildren(...fields, ...shown.flatMap(([k, v]) => [forgeEl(doc, 'dt', '', k), forgeEl(doc, 'dd', '', v)]));
+  const readOnly = shown.flatMap(([k, v]) => [forgeEl(doc, 'dt', '', k), forgeEl(doc, 'dd', '', v)]);
+  // The read-only rows before a script's steps (`stepsStart`), else after every field.
+  const at = editors.findIndex((e) => e.stepsStart);
+  const fields = perEditor.flat();
+  const ordered = at < 0 ? [...fields, ...readOnly] : [...perEditor.slice(0, at).flat(), ...readOnly, ...perEditor.slice(at).flat()];
+  dom.data.replaceChildren(...ordered);
   dom.data.hidden = fields.length + shown.length === 0;
   if (refocus !== null) [...dom.data.querySelectorAll<HTMLElement>('.fx-inspect-edit')].find((el) => el.getAttribute('aria-label') === refocus)?.focus();
 }
