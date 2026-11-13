@@ -2,6 +2,8 @@ import type { AiMaps, EscorteeStart } from '@s2u/scene';
 import { ESCORT_ZONE_KIND, EXTRACT_ZONE_KIND, withPlacedZones } from './extractionZones';
 import { hostagesPlayIn, withPlacedHostages } from './hostages';
 import type { Layout } from './layout';
+import type { GroundData } from '../mover';
+import { aiMapsWithPieces } from './aiPieceBlock';
 import { applyForgeObjectives, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
 
 type TacZone = { minX: number; minZ: number; maxX: number; maxZ: number; kind: number; name: string };
@@ -23,9 +25,12 @@ export const FORGE_ESCORT_ZONE_MARK_ADAPTATION = 'a placed escort zone marked fr
  * (a blank floor's: its library's first escortee). `why`: what cannot play, with `blocked` (the page's blank-floor word)
  * before the type's own test; then the map keeps the base's type.
  */
-export function playObjectives<T extends ObjectiveMap & { ai?: AiMaps; escortees?: EscorteeStart[]; tac?: { zones: TacZone[] } | null; forgeZoneMarks?: [number, number, number][] }>(
-  map: T, layout: Pick<Layout, 'objectives' | 'hostages' | 'extractionZones'>, lent: EscorteeStart | undefined, blocked: string | null = null,
+export function playObjectives<T extends ObjectiveMap & { ai?: AiMaps; escortees?: EscorteeStart[]; tac?: { zones: TacZone[] } | null; forgeZoneMarks?: [number, number, number][]; ground?: GroundData }>(
+  given: T, layout: Pick<Layout, 'objectives' | 'hostages' | 'extractionZones'>, lent: EscorteeStart | undefined, blocked: string | null = null,
 ): { map: T; why: string | null; hostagesLeft: number; hostagesOffGrid: number; hostagesPastBound: number; zonesLeft: number } {
+  // The layout's placed pieces on the AI map (`./aiPieceBlock`, FORGE_AI_PIECE_BAND_ADAPTATION): the cells they cover are
+  // nogo, so the room's hostages and bots path round them; the disc's own grid is never changed, only this copy.
+  const map: T = given.ai && given.ground ? { ...given, ai: aiMapsWithPieces(given.ai, given.ground).ai } : given;
   const type = layout.objectives?.gameType;
   const hostaged = hostagesPlayIn(type) && layout.hostages?.length ? withPlacedHostages(map, layout.hostages, lent) : { map, unplaced: 0, offGrid: 0, pastBound: 0 };
   const zoned = (type === 3 || type === 4) && layout.extractionZones?.length

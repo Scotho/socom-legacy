@@ -64,6 +64,7 @@ export function buildOutliner(doc: Document): OutlinerDom {
   search.setAttribute('aria-label', 'Search the outliner');
   // The Filter: a dropdown as the View's -- your objects, the map's, then a switch and a Solo each kind (`OUTLINER_KINDS`).
   const filter = forgeEl(doc, 'details', 'fx-viewport-modes fx-outliner-filter');
+  filter.dataset['forgePopup'] = '';                                 // closed by a press outside it (`./page` FORGE_POPUPS)
   const filterSummary = forgeEl(doc, 'summary', 'fx-viewport-modes-summary', 'Filter');
   filterSummary.title = 'Which objects the Outliner lists: yours, the map\u2019s, and each kind on or off (Solo: that kind alone)';
   const filterList = forgeEl(doc, 'div', 'fx-viewport-modes-list fx-outliner-filter-list');

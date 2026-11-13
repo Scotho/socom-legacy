@@ -24,6 +24,7 @@ export interface AssetViewportEditor extends ForgeEditor {
   soundProgress?(asset: string): number | null;
   viewport(): HTMLElement;
   projectDrop(clientX: number, clientY: number): AssetDropProjection;
+  projectCentre?(): AssetDropProjection;
   sourceIdentity(asset: string): object | null;
 }
 
@@ -49,6 +50,13 @@ export interface AssetTiles extends Required<Pick<ForgePanelInstance, 'update' |
   escape(): void;
   /** A static image rendered by the shared thumbnail preview. */
   thumbnail(asset: string, width: number, height: number): Promise<string | null>;
+  /** The tile drag in flight that can still be dropped (its token, as the drag's data carries it), or null. */
+  dragToken(): string | null;
+  /**
+   * The drag in flight dropped at the centre of the view, as the camera sees it (the Outliner's drop, a browser
+   * adaptation): placed through the same guarded path as a drop on the world, or refused and said.
+   */
+  dropAtCentre(token: string): Promise<boolean>;
   readonly tooltip: AssetTooltip;
 }
 
@@ -304,7 +312,12 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
         viewportDepth = Math.max(0, viewportDepth - 1); return;
       }
       viewportDepth = event.relatedTarget ? 0 : Math.max(0, viewportDepth - 1);
-      if (viewportDepth === 0 && session && !session.pending) finish(session);
+      // Out of the view: its ghost and hint put away, the drag kept (it may still drop on the Outliner); `dragend` ends it.
+      if (viewportDepth === 0 && session && !session.pending) {
+        if (session.handle && !session.handle.disposed) session.handle.hide();
+        session.projection = null;
+        clearHint();
+      }
     });
     listen(viewport, 'drop', event => {
       if (event.dataTransfer?.types.includes('text/uri-list')) {
@@ -322,6 +335,25 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
       }, () => refuse(s, 'Asset could not be placed. Try again in Build.')).finally(() => finish(s));
     });
   }
+  const dropAtCentre = async (token: string): Promise<boolean> => {
+    const s = session;
+    if (!s || s.pending || token !== s.token || !editor) return false;
+    const reason = staleReason(s);
+    const projection = reason ? { reason } : editor.projectCentre ? editor.projectCentre() : { reason: 'Asset placement is not ready on this page' };
+    s.projection = projection;
+    s.pending = true;
+    try {
+      const ok = await drag.drop(token, 'reason' in projection ? null : { at: [...projection.snapped], yaw: projection.yaw });
+      if (!disposed) {
+        if (ok) ctx.ui.accepted();
+        else refuse(s, staleReason(s) ?? ('reason' in projection ? projection.reason : 'Asset was not placed. Try again in Build.'));
+      }
+      return ok;
+    } catch {
+      refuse(s, 'Asset could not be placed. Try again in Build.');
+      return false;
+    } finally { finish(s); }
+  };
   const onVisibility = (): void => { update(); };
   doc.addEventListener('visibilitychange', onVisibility);
   const unsubscribe = ctx.forge.subscribe(update);
@@ -343,6 +375,8 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
       return disposed || !visible || !documentVisible() ? Promise.resolve(null) : thumbnailPreview.capture(asset, width, height);
     },
     redrawn() { if (!disposed) tooltip.reanchor(); },
+    dragToken: () => (session && !session.pending && !session.cancelled ? session.token : null),
+    dropAtCentre,
   };
 }
 

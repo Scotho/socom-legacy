@@ -662,7 +662,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
       .toEqual(['outliner', 'inspector']);
     document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
     const labels = [...document.querySelectorAll('.fx-menu li .fx-menu-label')].map((l) => l.textContent);
-    const wanted = ['Inspector', 'Outliner', 'Settings', 'Wireframe', 'Day / night', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
+    const wanted = ['Inspector', 'Outliner', 'Settings', 'Wireframe', 'Night / day', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
     for (const label of wanted) expect(labels).toContain(label);
     expect(labels.filter((l) => l === 'Connect your agent')).toHaveLength(1);
     expect([...document.querySelectorAll('.fx-menu li.is-head')].map((h) => h.textContent)).toContain(PANELS_MENU_HEADING);

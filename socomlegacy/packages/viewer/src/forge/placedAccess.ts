@@ -6,7 +6,7 @@ import type { GateLeverSpec, GateSpec } from '../gates';
 import type { LoadedMap } from '../loadMap';
 import type { MapAction } from '../mapActions';
 import { under, type MapInitial, type MapInstance } from '../mapMeta';
-import { accessShapes, gateShapes, type GuideShapes } from './interactOverlay';
+import type { GuideShapes } from './interactOverlay';
 import { groundPolygons, packGround } from '../mover';
 import { placeRefs, type SceneDestructible, type SceneProgram } from '../sceneHealth';
 import { DOOR_GATE_WIRE_SLOTS } from '../net/codec';
@@ -821,34 +821,11 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
 }
 
 /**
- * A template's gizmo (`./interactOverlay`; the owner, 2026-11-06), in its library map's world: its C4 prompt's reach and
- * side (`accessShapes`, the death's action's place and range), and a gate's slide and its lever's reach (`gateShapes`)
- * -- the disc lever's own place for the map's own gate (`lever: 'disc'`), the gate itself for a placed copy's (its
- * lever's prompt stands there, `withPlacedAccess`).
+ * A template's gizmo (`./interactOverlay`; the owner, 2026-11-06): none since 2026-11-13 -- a gate's lever ring and a
+ * damage trigger's C4 reach ring both taken out; the arguments kept for the callers.
  */
-export function accessGizmo(t: AccessTemplate, lever: 'disc' | 'atGate'): GuideShapes {
-  const segments: number[] = [], triangles: number[] = [];
-  const action = t.actions[0]?.action;
-  if (action) {
-    const s = accessShapes(t.anchor, action.at, action.range > 0 ? action.range : 0);
-    segments.push(...s.segments); triangles.push(...s.triangles);
-  }
-  if (t.gate) {
-    const g = t.gate.spec;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const { owner, polys } of t.owners) if (under(owner.path, g.path)) for (const p of polys) for (let k = 0; k < p.points.length; k += 3) {
-      minX = Math.min(minX, p.points[k]!); maxX = Math.max(maxX, p.points[k]!); minY = Math.min(minY, p.points[k + 1]!); maxY = Math.max(maxY, p.points[k + 1]!);
-      minZ = Math.min(minZ, p.points[k + 2]!); maxZ = Math.max(maxZ, p.points[k + 2]!);
-    }
-    if (Number.isFinite(minX)) {
-      const centre = [(minX + maxX) / 2, minY + Math.min(FORGE_GATE_LEVER_HEIGHT_ADAPTATION, (maxY - minY) / 2), (minZ + maxZ) / 2];
-      const slide = new Vector3(...g.open).applyMatrix4(new Matrix4().fromArray(g.parent).setPosition(0, 0, 0));
-      const disc = t.gate.levers[0];
-      // A placed copy has no lever of its own (its switch is placed apart): its slide alone.
-      const at = lever === 'disc' && disc ? disc.at : centre;
-      const s = gateShapes(centre, [slide.x, slide.y, slide.z], at, lever === 'disc' && disc && disc.range > 0 ? disc.range : 0);
-      segments.push(...s.segments); triangles.push(...s.triangles);
-    }
-  }
-  return { segments, triangles };
+export function accessGizmo(_t: AccessTemplate, _lever: 'disc' | 'atGate'): GuideShapes {
+  // None for either kind (the owner, 2026-11-13: "just remove the gate gizmo entirely"; "remove the orange circle gizmo
+  // from damage triggers"): a gate or a damage trigger is its billboard (G, X) alone.
+  return { segments: [], triangles: [] };
 }

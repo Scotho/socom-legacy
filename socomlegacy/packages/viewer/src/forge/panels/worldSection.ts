@@ -33,7 +33,7 @@ const FOV_MIN_DEG = Math.ceil(verticalDegrees(FOV_HALF_MIN)), FOV_MAX_DEG = Math
 const ZONES_SHOWN = 2;
 
 export function buildWorldSection(doc: Document): WorldSection {
-  const body = forgeEl(doc, 'div', 'fx-world');
+  const body = forgeEl(doc, 'div', 'fx-world fx-prop-table');
   let listeners: ((p: Partial<LayoutSettings>) => void)[] = [];
   let stamp = '';
   const tell = (p: Partial<LayoutSettings>): void => { for (const l of listeners) l(p); };
@@ -129,7 +129,7 @@ export function buildWorldSection(doc: Document): WorldSection {
         }
         const depthValue = forgeEl(doc, 'span', 'fx-setting-value', pct(depth));
         d.addEventListener('input', () => { depthValue.textContent = pct(Number(d.value)); });   // follows the drag
-        grid.append(forgeEl(doc, 'span', 'fx-dim', word), withEnds(d, 'Dry', 'Echoey'), depthValue, t);
+        grid.append(forgeEl(doc, 'span', 'fx-dim', word), withEnds(d, 'Dry', 'Wet'), depthValue, t);
       });
     }
     reverbRow.append(grid);

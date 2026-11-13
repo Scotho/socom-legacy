@@ -341,7 +341,7 @@ export function bombSiteShapes(at: readonly number[], range: number, elevation: 
 }
 
 /**
- * A gate's gizmo: a ring of its lever's `range` round the lever's prompt (`lever`). The circle alone (the owner,
+ * A gate's gizmo: a ring of its lever's `range` round `lever` (the gate's own middle since 2026-11-13). The circle alone (the owner,
  * 2026-11-06): no slide arrow. `centre` and `slide` are kept for the callers' one shape.
  */
 export function gateShapes(_centre: readonly number[], _slide: readonly number[], lever: readonly number[], range: number): GuideShapes {

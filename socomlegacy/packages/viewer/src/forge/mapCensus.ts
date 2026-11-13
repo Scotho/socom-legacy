@@ -109,7 +109,7 @@ export function censusOptions(maps: readonly (readonly [string, string])[], know
   const [one, many] = COPY_WORDS[kind];
   return maps.map(([stem, label]) => {
     const c = known(stem);
-    if (!c) return [stem, `${label} · counting…`, false] as const;
+    if (!c) return [stem, `${label} · loading…`, false] as const;
     const n = c[kind] ?? 0;
     return [stem, `${label} · ${n === 0 ? 'none' : `${n} ${n === 1 ? one : many}`}`, n === 0 && stem !== current] as const;
   });

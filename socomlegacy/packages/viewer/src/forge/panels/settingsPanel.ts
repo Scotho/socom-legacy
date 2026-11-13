@@ -38,7 +38,7 @@ export interface SettingRowSpec {
 export const MAP_SETTING_ROWS: readonly SettingRowSpec[] = [
   { id: 'gameType', menuId: 'gametype', label: 'Game type', control: 'select', note: 'The layout\'s own mode. Map\'s own keeps the base\'s.' },
   // Saved Forge Night -> Day (a browser adaptation, no original): the row the legacy dimmer (`light`) held.
-  { id: 'timeOfDay', menuId: 'setting-timeOfDay', label: 'Day / night', control: 'range', note: '← → Night to Day · ✕ Original', menuAct: 'original' },
+  { id: 'timeOfDay', menuId: 'setting-timeOfDay', label: 'Night / day', control: 'range', note: '← → Night to Day · ✕ Original', menuAct: 'original' },
   { id: 'fogFar', menuId: 'setting-fogFar', label: 'Fog distance', control: 'fog', note: '← → a quarter nearer or farther · ✕ the map’s own', menuAct: 'reset' },
   { id: 'players', menuId: 'setting-players', label: 'Players', control: 'number', note: 'Above 16 a lobby seats them all, half a side; Play seats 8 a side',
     dockNote: 'Above 16 a lobby made from the map seats them all, half a side; Play here seats 8 a side.' },
@@ -157,12 +157,12 @@ function controls(doc: Document): Parts {
   const lightReset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Original');
   lightReset.type = 'button';
   lightReset.title = 'Restore original lighting';
+  // Its ends' words on the slider's own line, each at the end it names (the owner, 2026-11-12: "use the same sides as
+  // the slider values ... aligned to the slider"): Night at the left (0), Day at the right (1), then the reset.
   const lightWrap = forgeEl(doc, 'div', 'fx-setting-pair');
-  lightWrap.append(lightIn, lightReset);
-  const lightLabels = forgeEl(doc, 'div', 'fx-setting-head');
-  lightLabels.append(forgeEl(doc, 'span', '', 'Night'), forgeEl(doc, 'span', '', 'Day'));
+  lightWrap.append(forgeEl(doc, 'span', 'fx-slider-end', 'Night'), lightIn, forgeEl(doc, 'span', 'fx-slider-end', 'Day'), lightReset);
   const lightControls = forgeEl(doc, 'div');
-  lightControls.append(lightWrap, lightLabels);
+  lightControls.append(lightWrap);
   return {
     gameTypeSel, lightIn, lightReset, lightControls,
     lightOut: forgeEl(doc, 'span', 'fx-setting-value'), fogIn: range(doc, 0, FOG_SLIDER_STEPS, 1), fogOut: forgeEl(doc, 'span', 'fx-setting-value'),
@@ -239,7 +239,7 @@ function mapRows(doc: Document, p: Parts, rows: readonly SettingRowSpec[]): HTML
 }
 
 export function buildSettings(doc: Document): SettingsDom {
-  const body = forgeEl(doc, 'div', 'fx-settings fx-section');       // FUI-22 (D2): the dock's one section style
+  const body = forgeEl(doc, 'div', 'fx-settings fx-section fx-prop-table');       // FUI-22 (D2): the dock's one section style
   const p = controls(doc);
   const lighting = (spec: SettingRowSpec): boolean => LIGHTING_SETTINGS.includes(spec.id);
   const arsenal = buildArsenalSection(doc), roster = buildRosterSection(doc), world = buildWorldSection(doc);

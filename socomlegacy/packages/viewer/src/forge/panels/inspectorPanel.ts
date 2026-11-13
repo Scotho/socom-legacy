@@ -166,8 +166,36 @@ export interface InspectorEditor {
  * The Data list in the Inspector: the editable fields first (`editors`), then each read-only row, a name and its value;
  * none, the list hidden. Left as it is while a text or number field is being typed in, so a redraw never takes the typing.
  */
+/**
+ * A dropdown of the Data list held open (a browser adaptation, FG.R2): a redraw replaces its element, which closes the
+ * browser's list under the pointer -- the maps' census landing in the background did that. While one is open the redraw
+ * waits (its latest call kept) and runs once the list closes: a choice, Escape / Enter / Tab, a second press, or the focus gone.
+ */
+const heldOpen = new WeakMap<HTMLElement, { open: boolean; pending: (() => void) | null }>();
+
+function holdWhileOpen(data: HTMLElement, s: HTMLSelectElement): void {
+  const close = (): void => {
+    const h = heldOpen.get(data);
+    if (!h || !h.open) return;
+    h.open = false;
+    // After the choice's own edit (its `change`), so a redraw it asks for wins over the one kept.
+    setTimeout(() => { const run = h.pending; h.pending = null; run?.(); }, 0);
+  };
+  s.addEventListener('mousedown', () => {
+    const h = heldOpen.get(data) ?? { open: false, pending: null };
+    heldOpen.set(data, h);
+    if (h.open) close(); else h.open = true;
+  });
+  s.addEventListener('change', close);
+  s.addEventListener('blur', close);
+  s.addEventListener('keydown', (k) => { if (k.key === 'Escape' || k.key === 'Enter' || k.key === 'Tab') close(); });
+}
+
 export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonly (readonly [string, string])[], editors: readonly InspectorEditor[] = []): void {
   const doc = dom.data.ownerDocument;
+  const held = heldOpen.get(dom.data);
+  if (held?.open) { held.pending = () => showInspectorData(dom, rows, editors); return; }
+  if (held) held.pending = null;
   const sig = JSON.stringify([rows, editors.map((e) => [e.label, e.kind, e.value, e.options, e.disabled])]);
   // Held only while a text or number field is being typed in; a choice (a select, a box) redraws at once, so a field
   // that depends on it (a door's on its map) follows, the focus kept on the same field.
@@ -195,6 +223,7 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
       const s = forgeEl(doc, 'select', 'fx-select fx-inspect-edit');
       for (const [v, w, off] of e.options ?? []) { const o = forgeEl(doc, 'option', '', w); o.value = v; if (off) o.disabled = true; s.append(o); }
       s.value = String(e.value);
+      holdWhileOpen(dom.data, s);
       input = s;
     } else {
       const i = forgeEl(doc, 'input', e.kind === 'check' ? 'fx-inspect-edit' : 'fx-num fx-inspect-edit');

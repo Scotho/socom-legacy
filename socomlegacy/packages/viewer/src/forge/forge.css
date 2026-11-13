@@ -777,7 +777,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
    selected, not the row color"). */
 .fx-outliner li.is-on { color: var(--fx-gold); }
 /* The tree (`Layout.tree`): a child's row indented under its parent's; a row a dragged placement would go under. */
-.fx-outliner li.fx-tree-child { border-left: 1px dashed var(--fx-line, rgba(255, 255, 255, 0.15)); }
+.fx-outliner li.fx-tree-child { position: relative; }
+/* A row with no children: its caret's room kept, so every icon at a depth stands in one column. */
+.fx-outliner li > .fx-row-caret-room { display: inline-block; cursor: default; }
 .fx-outliner li.is-drop { outline: 1px solid var(--fx-gold); outline-offset: -1px; }
 /* A drop between rows: a line above (before) or below (after) the row, as tree views draw it. */
 .fx-outliner li.is-drop-before { box-shadow: inset 0 2px 0 var(--fx-gold); }
@@ -840,7 +842,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-assets li.fx-group-head { cursor: default; padding-top: 10px; font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); }
 .fx-assets li.fx-group-head:hover { background: none; }
 .fx-toggle { display: flex; align-items: center; gap: var(--s2u-space-2); height: 24px; cursor: pointer; font: var(--fx-type-control); }
-.fx-toggle input[type=checkbox] {
+/* Every on / off in the Forge a switch (the owner, 2026-11-12: "just a switch for everything ... across all of the forge
+   ui"): each checkbox of the page drawn as the pill, labelled (`.fx-toggle`) or not; the agent's switch and the game overlay's keep their own. */
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)) {
   appearance: none;
   width: 28px;
   height: 14px;
@@ -852,13 +856,15 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   cursor: pointer;
   flex: none;
   transition: background var(--s2u-dur-fast) var(--s2u-ease);
+  vertical-align: middle;
 }
-.fx-toggle input[type=checkbox]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
-.fx-toggle input[type=checkbox]:checked { background: var(--fx-gold); }
-.fx-toggle input[type=checkbox]:checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input))::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):checked { background: var(--fx-gold); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
 /* A switch over several (the Billboards dropdown's All): some on, some off -- its knob midway, the track half lit. */
-.fx-toggle input[type=checkbox]:indeterminate { background: color-mix(in srgb, var(--fx-gold) 45%, var(--fx-divider)); }
-.fx-toggle input[type=checkbox]:indeterminate::after { transform: translateX(7px); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):indeterminate { background: color-mix(in srgb, var(--fx-gold) 45%, var(--fx-divider)); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):indeterminate::after { transform: translateX(7px); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):disabled { opacity: var(--fx-disabled); cursor: default; }
 .fx-detail-distance .fx-range { flex: 1 1 auto; min-width: 0; }
 .fx-detail-distance__value { flex: none; min-width: 3.5ch; text-align: right; }
 /* FP-2 (FP.R5, a browser adaptation): Draw > Picture's render scale row, the detail distance's shape. */
@@ -898,7 +904,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-setting-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-2); color: var(--fx-text); }
 .fx-setting-value { font: var(--fx-type-mono); color: var(--fx-gold); white-space: nowrap; }
 .fx-setting-pair { display: flex; align-items: center; gap: 6px; }
-.fx-setting-pair .fx-range { flex: 1 1 auto; }
+.fx-setting-pair .fx-range { flex: 1 1 auto; min-width: 0; }
+/* A slider's end words on its own line (Night ... Day): each beside the end it names. */
+.fx-slider-end { flex: none; font: var(--fx-type-caption); color: var(--fx-dim); }
 .fx-setting-reset { flex: none; height: 20px; padding: 0 var(--s2u-space-2); font: var(--fx-type-control); }
 .fx-setting-nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 .fx-setting-nums .fx-setting-head { font: var(--fx-type-caption); color: var(--fx-dim); }
@@ -1038,7 +1046,7 @@ body.is-playing .fx-input { display: none; }
 }
 .fx-viewport-mode { min-width: 0; }
 /* The Environment panel's read-only rows (`./panels/environmentPanel`): a label and its value, a colour's swatch first. */
-.fx-env-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
+.fx-env-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
 .fx-env-rows dt { color: var(--fx-dim); white-space: nowrap; }
 .fx-env-rows dd { display: flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; margin: 0; color: var(--fx-text); font-family: var(--s2u-font-mono); overflow-wrap: anywhere; }
 .fx-env-swatch { flex: none; width: 14px; height: 14px; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); }
@@ -1375,6 +1383,40 @@ body.is-playing .fx-axis-widget { display: none; }
   pointer-events: none;
 }
 .fx-legend[hidden] { display: none; }
+/* The AI map overlay's legend (`./aiMapOverlay` `drawAiMapLegend`): the viewport's lower left, over the keys' strip. */
+.fx-ai-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 40px;
+  z-index: var(--fx-z-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+  padding: var(--s2u-space-2) var(--s2u-space-3);
+  background: var(--fx-veil-strong);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  pointer-events: none;
+}
+.fx-ai-legend[hidden] { display: none; }
+.fx-ai-legend__head { margin-bottom: 2px; font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-ai-legend__row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px; }
+.fx-ai-legend__swatch { width: 12px; height: 12px; border-radius: 2px; opacity: 0.85; }
+.fx-ai-legend__swatch.is-line { height: 2px; border-radius: 1px; opacity: 1; }
+/* A row's context line, under its words (indented past the swatch). */
+.fx-ai-legend__hint { margin: -1px 0 2px 20px; max-width: 260px; font: var(--fx-type-caption); line-height: 1.35; color: var(--fx-dim); }
+.fx-ai-legend__count { font: var(--fx-type-mono); color: var(--fx-dim); }
+.fx-ai-legend__foot { margin-top: 2px; font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-ai-legend__kinds { display: flex; flex-direction: column; gap: 3px; }
+/* The cell under the pointer, and each hostage's route: a rule above each part. */
+.fx-ai-legend__hover, .fx-ai-legend__routes { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--fx-edge); font: var(--fx-type-mono); max-width: 340px; overflow-wrap: anywhere; }
+.fx-ai-legend__routes { display: flex; flex-direction: column; gap: 2px; }
+.fx-ai-legend__routes[hidden] { display: none; }
+.fx-ai-legend__route { color: #f4d35e; }
+.fx-ai-legend__route.is-none { color: #ff3b30; }
 /* R7-A R2: the legend's inline form (`drawLegend`'s placement 'inline'), the menu header's prompts -- in the header's
    flow, with no strip veil or rule; its own class, so `.fx-legend` (the strip, absolute in `.fx-modal` too) never takes it
    to the bottom of the window as a second strip. */
@@ -1873,15 +1915,72 @@ body.is-matching .fx-legend { display: none; }
 .fx-light-rig > h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fx-light-rig__light { margin: 6px 0 10px; }
 .fx-light-rig__title { margin: 0 0 4px; font: var(--fx-type-caption); letter-spacing: .1em; text-transform: uppercase; color: var(--fx-dim); }
-.fx-light-rig__row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
-.fx-light-rig__label { flex: 0 0 96px; color: var(--fx-dim); }
 .fx-light-rig__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.fx-light-rig__row { flex-wrap: wrap; }
-.fx-light-rig__row .fx-light-rig__num { width: 58px; }
 .fx-light-rig__check { margin: 0; }
 .fx-light-rig__buttons { display: flex; gap: 6px; flex: none; }
-.fx-light-rig__row .fx-num { width: 64px; }
 .fx-light-rig__colour { width: 36px; height: 24px; padding: 0; border: 1px solid var(--fx-control-edge); background: none; cursor: pointer; }
+.fx-light-rig__row .fx-num { width: 64px; }
+/* A property table (the owner, 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
+   largest text in that property table"): a panel's body as one grid -- its labels' column as wide as its widest label,
+   then the widgets, then a readout at the end. Each row lines up on it (`subgrid`); a heading, a note or a section of
+   its own spans the whole width. */
+.fx-prop-table { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; column-gap: 10px; row-gap: 6px; align-content: start; }
+/* A dock panel's body that is a table: the table's grid over the docks' own column (`.fx-section`), its spacing kept. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section.fx-prop-table { display: grid; row-gap: var(--s2u-space-2); }
+.fx-prop-table > * { grid-column: 1 / -1; min-width: 0; }
+.fx-prop-table > .fx-prop-row,
+.fx-prop-table > .fx-setting,
+.fx-prop-table > .fx-toggle,
+.fx-prop-table > .fx-setting-nums > .fx-setting,
+.fx-prop-table > .fx-light-rig__slot > .fx-setting { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; row-gap: 4px; }
+.fx-prop-table > .fx-setting-nums, .fx-prop-table > .fx-light-rig__slot { display: contents; }
+/* The light rig's rows: the label, then its widgets in a line as they were. */
+.fx-prop-row { font: var(--fx-type-control); }
+.fx-prop-label { grid-column: 1; color: var(--fx-dim); }
+.fx-prop-value { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+/* A setting's row: its label, its control, its readout (or its reset) at the end; a row's further controls under the
+   first, in the control's column. Outside a table, the same columns on the row alone. */
+.fx-setting { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; }
+.fx-setting > .fx-setting-head { display: contents; }
+.fx-setting > .fx-setting-head > span:first-child { grid-column: 1; grid-row: 1; color: var(--fx-dim); }
+.fx-setting > .fx-setting-head > .fx-setting-value, .fx-setting > .fx-setting-head > .fx-setting-reset { grid-column: 3; justify-self: end; }
+.fx-setting > .fx-setting-head > .fx-setting-value { grid-row: 1; }
+.fx-setting > :not(.fx-setting-head) { grid-column: 2; min-width: 0; }
+/* No readout or reset of its own: its control runs to the row's end. */
+.fx-setting:not(:has(> .fx-setting-head > :is(.fx-setting-value, .fx-setting-reset))) > :not(.fx-setting-head) { grid-column: 2 / -1; }
+.fx-setting > .fx-select, .fx-setting > .fx-num { justify-self: start; max-width: 100%; }
+/* A table of its own (the reverb's zones): the row's full width, under its label. */
+.fx-setting > .fx-world-reverb { grid-column: 1 / -1; }
+.fx-setting-nums .fx-setting-head { font: var(--fx-type-control); }
+/* A switch in a table: its words in the label column, the switch in the widgets'. */
+.fx-prop-table > .fx-toggle > span { grid-column: 1; grid-row: 1; color: var(--fx-dim); }
+.fx-prop-table > .fx-toggle > input { grid-column: 2; justify-self: start; }
+/* One property style in every panel (the owner, 2026-11-12: "keep the same text style, height, spacing for all the
+   properties ... like the transform's Position and Rotation"; "Don't make it all caps"): every property's label in the
+   transform caption's face, in its own case; every row the transform row's height (the stepper's 26px), 6px apart. */
+.fx-field-caption,
+.fx-inspect-data dt,
+.fx-prop-label,
+.fx-setting > .fx-setting-head > span:first-child,
+.fx-prop-table > .fx-toggle > span,
+.fx-env-rows dt {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  font: var(--fx-type-caption);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--fx-dim);
+  white-space: nowrap;
+}
+.fx-inspect-data dd, .fx-env-rows dd, .fx-prop-value { min-height: 26px; display: flex; align-items: center; }
+.fx-inspect-data { grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--s2u-space-3); }
+.fx-env-rows { gap: 6px var(--s2u-space-3); }
+.fx-prop-table, :is(.fx-dock, .fx-workbench) .fx-panel > .fx-section.fx-prop-table { row-gap: 6px; }
+.fx-fields { gap: 6px; }
+/* The controls in a property row: the stepper's height. */
+.fx-prop-value .fx-select, .fx-setting > .fx-select, .fx-inspect-data .fx-select, .fx-inspect-data .fx-inspect-button { height: 26px; }
+.fx-light-rig__colour { height: 26px; }
 /* The layout's name: shown, not typed (Saves' Save as names it). */
 .fx-top .fx-name[readonly] { cursor: default; background: transparent; border-color: transparent; text-overflow: ellipsis; }
 .fx-top .fx-name[readonly]:focus { outline: none; }

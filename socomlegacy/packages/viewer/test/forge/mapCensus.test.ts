@@ -29,8 +29,8 @@ describe('the map census', () => {
     const known = new Map([['MP2', count({ door: 3 })], ['MP72', count({ turret: 3, barrier: 1 })]]);
     const at = (s: string) => known.get(s) ?? null;
     expect(censusOptions(maps, at, 'door', 'MP2')).toEqual([
-      ['MP2', 'MP2 · FROSTFIRE · 3 doors', false], ['MP6', 'MP6 · DESERT GLORY · counting…', false],
-      ['MP72', 'MP72 · CROSSROADS · none', true], ['M51', 'M51 · TIGER BAY (campaign) · counting…', false],
+      ['MP2', 'MP2 · FROSTFIRE · 3 doors', false], ['MP6', 'MP6 · DESERT GLORY · loading…', false],
+      ['MP72', 'MP72 · CROSSROADS · none', true], ['M51', 'M51 · TIGER BAY (campaign) · loading…', false],
     ]);
     expect(censusOptions(maps, at, 'barrier', 'MP72')[2]).toEqual(['MP72', 'MP72 · CROSSROADS · 1 damage trigger', false]);
     expect(censusOptions(maps, at, 'hostage', 'MP2')[0]).toEqual(['MP2', 'MP2 · FROSTFIRE · none', false]);   // the current: never greyed

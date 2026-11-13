@@ -9,7 +9,7 @@ import { hullLineMaterial } from '../../src/forge/hull';
 describe("the editor's guides and fog", () => {
   it('a billboard is never fogged, on top or not', () => {
     for (const onTop of [true, false]) {
-      expect(billboardMaterialParams(onTop)).toMatchObject({ fog: false, depthTest: !onTop, depthWrite: false, transparent: true, sizeAttenuation: false });
+      expect(billboardMaterialParams(onTop)).toMatchObject({ fog: false, depthTest: !onTop, depthWrite: false, transparent: true, sizeAttenuation: true });
     }
   });
 

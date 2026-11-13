@@ -70,35 +70,38 @@ export function forgeLeaseExit(e: ForgeKeyEvent, s: ForgeKeyState): ForgeLeaseEx
 }
 
 /**
- * The placing tools' keys (the owner, 2026-11-06; a browser adaptation, FG.R2): Q the Select tool, and the number keys
- * the placing tools in the tools row's order (`./page` `modeSection`: Spawn, Objects, Demolition, Escort and Extraction,
- * Info, Other) -- 1 to 9 then 0 the first ten, Shift with 1 to 8 the rest. The Place tool has none: choosing a prop places.
+ * The tools' keys (the owner, 2026-11-06; 2026-11-12: "make 1/2 shortcuts for select and place tool"; a browser
+ * adaptation, FG.R2): 1 the Select tool, 2 the Place tool, then the placing tools in the tools row's order (`./page`
+ * `modeSection`: Spawn, Objects, Demolition, Escort and Extraction, Info, Other) -- 3 to 9 then 0 the first eight, Shift
+ * with 1 to 0 the next ten; the last has none.
  */
 export const FORGE_TOOL_ORDER = [
   'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate', 'flare',
   'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc',
 ] as const;
-export type ForgeToolKey = 'select' | (typeof FORGE_TOOL_ORDER)[number];
+export type ForgeToolKey = 'select' | 'place' | (typeof FORGE_TOOL_ORDER)[number];
+
+/** The keyed tools in key order: Select, Place, then the placing tools (`FORGE_TOOL_ORDER`). */
+const KEYED_TOOLS: readonly ForgeToolKey[] = ['select', 'place', ...FORGE_TOOL_ORDER];
 
 const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'] as const;
 
-/** A tool's key as its tooltip shows it (`Q`, `3`, `Shift+2`), or null for one with none. */
+/** A tool's key as its tooltip shows it (`1`, `3`, `Shift+2`), or null for one with none. */
 export function forgeToolKeyLabel(tool: string): string | null {
-  if (tool === 'select') return 'Q';
-  const i = (FORGE_TOOL_ORDER as readonly string[]).indexOf(tool);
+  const i = (KEYED_TOOLS as readonly string[]).indexOf(tool);
   if (i < 0 || i >= DIGITS.length * 2) return null;
   const digit = DIGITS[i % DIGITS.length]!.slice(5);
   return i < DIGITS.length ? digit : `Shift+${digit}`;
 }
 
 /**
- * The help card's tool rows (FP-1b; a browser adaptation, FG.R2): Q and the Select tool, then the plain number keys' tools
- * and the Shift ones', each named by `nameOf` beside its key -- read from `FORGE_TOOL_ORDER` and `forgeToolKeyLabel`, so
- * the card says what the keys do, never a list written beside them.
+ * The help card's tool rows (FP-1b; a browser adaptation, FG.R2): the plain number keys' tools and the Shift ones', each
+ * named by `nameOf` beside its key -- read from `KEYED_TOOLS` and `forgeToolKeyLabel`, so the card says what the keys do,
+ * never a list written beside them.
  */
 export function forgeToolKeyHelp(nameOf: (tool: ForgeToolKey) => string): [string, string][] {
-  const keyed = FORGE_TOOL_ORDER.flatMap((t) => { const k = forgeToolKeyLabel(t); return k ? [{ t, k }] : []; });
-  const rows: [string, string][] = [['Q', `Tool: ${nameOf('select')}`]];
+  const keyed = KEYED_TOOLS.flatMap((t) => { const k = forgeToolKeyLabel(t); return k ? [{ t, k }] : []; });
+  const rows: [string, string][] = [];
   for (const group of [keyed.filter((x) => !x.k.startsWith('Shift+')), keyed.filter((x) => x.k.startsWith('Shift+'))]) {
     if (group.length) rows.push([`${group[0]!.k} … ${group[group.length - 1]!.k}`, `Tools: ${group.map((x) => `${x.k} ${nameOf(x.t)}`).join(', ')}`]);
   }
@@ -107,16 +110,15 @@ export function forgeToolKeyHelp(nameOf: (tool: ForgeToolKey) => string): [strin
 
 /** The tool a key chooses (`forgeToolKeyLabel`'s inverse), or null. */
 function toolOfKey(e: ForgeKeyEvent): ForgeToolKey | null {
-  if (e.code === 'KeyQ' && !e.shiftKey) return 'select';
   const d = (DIGITS as readonly string[]).indexOf(e.code);
   if (d < 0) return null;
-  return FORGE_TOOL_ORDER[d + (e.shiftKey ? DIGITS.length : 0)] ?? null;
+  return KEYED_TOOLS[d + (e.shiftKey ? DIGITS.length : 0)] ?? null;
 }
 
 export type ForgeKeyAction =
   | 'undo' | 'redo' | 'copy' | 'paste' | 'cut' | 'openLayout' | 'saves' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
   | { tool: ForgeToolKey } | 'translate' | 'rotate' | 'scale' | 'snap'
-  | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'cancelPlace'
+  | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'cancelPlace' | 'space' | 'group' | 'ungroup'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
   | { menu: MenuInput };
 
@@ -126,10 +128,12 @@ const MENU_KEYS: Readonly<Record<string, MenuInput>> = {
 
 const EDITOR_KEYS: Readonly<Record<string, ForgeKeyAction>> = {
   KeyH: 'docks', KeyF: 'frame',
-  // The tools' keys are `toolOfKey`'s (Q and the number keys, `FORGE_TOOL_ORDER`).
+  // The tools' keys are `toolOfKey`'s (the number keys, `KEYED_TOOLS`). Q the gizmo's World / Local (the owner,
+  // 2026-11-12); G groups the selection into a folder, Shift+G ungroups (`forgeKeyAction`). The snap has no key now
+  // (its button, the menu's row, the pad's L3).
   // The gizmo's modes on W, E, R, as an engine editor's: the fly camera's W and E (and its R) move it only while RMB is
   // held, and the camera keeps them from the editor then (`../camera` `onKeyDown`).
-  KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyG: 'snap', Delete: 'delete', Backspace: 'delete',
+  KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyQ: 'space', Delete: 'delete', Backspace: 'delete',
   BracketLeft: 'prevAsset', BracketRight: 'nextAsset', Comma: 'turnLeft', Period: 'turnRight', KeyM: 'menu',
 };
 
@@ -159,5 +163,7 @@ export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyActi
   if (e.code === 'Escape') return s.pointerLocked ? null : s.queued ? 'cancelPlace' : 'deselect';   // FUI-22 (D4): the queue first
   const tool = toolOfKey(e);
   if (tool) return { tool };
+  // G groups, Shift+G ungroups (the owner, 2026-11-12): the selected folders (or the selection's own) taken out.
+  if (e.code === 'KeyG') return e.shiftKey ? 'ungroup' : 'group';
   return EDITOR_KEYS[e.code] ?? null;
 }

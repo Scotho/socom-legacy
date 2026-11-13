@@ -181,6 +181,11 @@ export interface ForgeEditor {
   /** R3-B: a drop at the client point, projected through the page's camera (`ForgeDropProjection`). */
   projectDrop(clientX: number, clientY: number): ForgeDropProjection;
   /**
+   * A drop at the centre of the view, as the camera sees it (a browser adaptation: the Outliner's asset drop, the owner
+   * 2026-11-12: "creates the asset at the center point in the viewport from the camera's view").
+   */
+  projectCentre?(): ForgeDropProjection;
+  /**
    * R3-B: an opaque object standing for the source `asset` is read from -- the same object while that source stays
    * loaded, another once it is read again; null when it is not loaded here. A caller compares it, never reads it.
    */

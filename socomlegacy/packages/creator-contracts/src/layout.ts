@@ -148,6 +148,13 @@ export interface Layout {
    */
   hiddenData?: string[];
   /**
+   * The base map's own data objects this layout moves (the owner, 2026-11-12: "allow all map objects to be moveable";
+   * a browser adaptation, FG.R2), each by its key (`MOVED_DATA_KEY`: `slot:A1`, `respawn:B3`, `hostage:<name>`,
+   * `bomb:start`, `tacpoint:<i>`, `taczone:<name>`, `view:<i>`) to its new place. The disc's map is untouched; this
+   * layout's editor and match read them there (`viewer/src/forge/mapDataMove`). Absent: none. Online refused.
+   */
+  movedData?: Record<string, MovedMapData>;
+  /**
    * The placements' tree (the owner, 2026-11-10: "implement the tree layout"): each `[child, parent]` pair a placement's
    * parent, both by their place in the layout (`TREE_REF`: `piece:3`, `door:0`, `bomb:seal:0`) -- the engine's own
    * model (a node's matrix local to its parent's, `@s2u/scene` `flattenScene`). Every placement keeps its own world place
@@ -1507,6 +1514,11 @@ export function parseLayout(text: string): Layout {
         return h;
       }),
     }),
+    ...(raw["movedData"] === undefined ? {} : (() => {
+      const why = movedDataWhy(raw["movedData"]);
+      if (why) throw new Error(why);
+      return { movedData: movedDataOf(raw["movedData"] as Record<string, MovedMapData>) };
+    })()),
     ...(raw["settings"] === undefined ? {} : { settings: parseSettings(raw["settings"]) }),
     ...(raw["objectives"] === undefined ? {} : { objectives: parseObjectives(raw["objectives"]) }),
     ...(raw["ids"] === undefined ? {} : objectiveIdsOf(raw["ids"])),
@@ -1868,6 +1880,8 @@ export interface CreatorLayoutRecord {
   hidden?: string[];
   /** The base map's own objectives the layout takes out (`Layout.hiddenData`), present only when it has some. */
   hiddenData?: string[];
+  /** The base map's own data objects the layout moves (`Layout.movedData`), present only when it moves some. */
+  movedData?: Record<string, MovedMapData>;
   /** The placements' tree (`Layout.tree`), present only when some placement has a parent. */
   tree?: [string, string][];
   /** The Outliner's folders (`Layout.folders`) and its order (`Layout.order`), present only when the layout has some. */
@@ -1987,9 +2001,33 @@ export function withoutTree<L extends { tree?: unknown; folders?: unknown; order
 /** A taken-out map objective's key (`Layout.hiddenData`): its kind and its name (a node, a hostage, a zone). */
 const HIDDEN_DATA_KEY = /^(hostage|site|zone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:start$|^(slot|respawn):[AB]\d{1,3}$/;
 
+/** A moved map data object's new place (`Layout.movedData`), world units. */
+export interface MovedMapData { at: [number, number, number] }
+/** A moved map data object's key (`Layout.movedData`): its kind and its name or its place among the map's. */
+export const MOVED_DATA_KEY = /^(hostage|taczone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:start$|^(slot|respawn):[AB]\d{1,3}$|^(tacpoint|view):\d{1,4}$/;
+/** The bound on a moved object's place (world units): the record's own sanity bound, as a placement's. */
+const MOVED_DATA_BOUND = 1e6;
+/** Why `raw` is not a `movedData` map, or null. */
+function movedDataWhy(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return "movedData is not a map of moved objects";
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > RECORD_LIMITS.pieces) return "movedData is not a map of moved objects";
+  for (const [key, v] of entries) {
+    if (!MOVED_DATA_KEY.test(key)) return `movedData ${key} is not a map data object's key`;
+    const at = (v as { at?: unknown } | null)?.at;
+    if (typeof v !== "object" || v === null || Object.keys(v).some((k) => k !== "at") || !Array.isArray(at) || at.length !== 3
+      || at.some((n) => typeof n !== "number" || !Number.isFinite(n) || Math.abs(n) > MOVED_DATA_BOUND)) return `movedData ${key} is not a place`;
+  }
+  return null;
+}
+/** A checked `movedData` map, copied. */
+function movedDataOf(raw: Record<string, MovedMapData>): Record<string, MovedMapData> {
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { at: [v.at[0], v.at[1], v.at[2]] as [number, number, number] }]));
+}
+
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
+  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "movedData", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
   "poses"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
@@ -2154,6 +2192,7 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   };
   if (l.hidden?.length) record.hidden = [...l.hidden];
   if (l.hiddenData?.length) record.hiddenData = [...l.hiddenData];
+  if (l.movedData && Object.keys(l.movedData).length) record.movedData = movedDataOf(l.movedData);
   if (l.tree?.length) record.tree = l.tree.map(([c, p]) => [c, p] as [string, string]);
   if (l.folders?.length) record.folders = l.folders.map((f) => ({ name: f.name }));
   if (l.order?.length) record.order = [...l.order];
@@ -2283,6 +2322,7 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   };
   if (r.hidden?.length) layout.hidden = [...r.hidden];
   if (!isV2(r) && r.hiddenData?.length) layout.hiddenData = [...r.hiddenData];
+  if (!isV2(r) && r.movedData && Object.keys(r.movedData).length) layout.movedData = movedDataOf(r.movedData);
   if (!isV2(r) && r.tree?.length) layout.tree = r.tree.map(([c, p]) => [c, p] as [string, string]);
   if (!isV2(r) && r.folders?.length) layout.folders = r.folders.map((f) => ({ name: f.name }));
   if (!isV2(r) && r.order?.length) layout.order = [...r.order];
@@ -2465,6 +2505,7 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
     if (!Array.isArray(keys) || keys.length === 0 || keys.length > RECORD_LIMITS.pieces) return "hiddenData is not a list of map objectives";
     for (const [i, h] of keys.entries()) if (typeof h !== "string" || !HIDDEN_DATA_KEY.test(h)) return `hiddenData ${i} is not a map objective's key`;
   }
+  if (r["movedData"] !== undefined) { const why = movedDataWhy(r["movedData"]); if (why) return why; }
   if (r["npcs"] !== undefined) {
     const npcs = r["npcs"];
     if (!Array.isArray(npcs) || npcs.length === 0 || npcs.length > RECORD_LIMITS.spawns) return "npcs is not a list";
@@ -2972,6 +3013,7 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
   // objective taken out, a switch, a damage trigger on a prop, a crane (the Forge branch's own) -- still play locally only.
   return [...onlineRefusal(r.requires ?? [], r.mode, r.contentBase),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", r.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(r.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", r.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", r.triggers?.length ?? 0, "damage triggers on props"),
     ...placedRefusal(RECORD_CODES.onlineObjects, "objects", r.objects?.filter((o) => o[0] !== "ambient").length ?? 0, "cranes")];
@@ -2998,6 +3040,7 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
   // FP-1a (main): the placed kinds the room composes admitted; the branch's own kinds it does not, refused (as the record's).
   return [...onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", l.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(l.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", l.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", l.triggers?.length ?? 0, "damage triggers on props"),
     // An ambient effect plays online (the owner, 2026-11-10: "make it ... such that they will load in online games"): the
