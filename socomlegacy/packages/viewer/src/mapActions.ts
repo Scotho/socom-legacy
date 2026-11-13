@@ -54,6 +54,20 @@ export interface ActionRecord {
   points: number;
   /** The prompt's icon, lower case (`action_door_open.tif`), '' when none. */
   bitmap: string;
+  /**
+   * G1 (action-labels review; reading, pending review): `descriptor`, the action's own caption as written, '' when absent
+   * -- the loader's `FUN_0032ee10(.., 0x3f2118 "descriptor")` (D:L157285), kept at the action's `+0x2c` (D:L157318-157321);
+   * `mapActionCaption` reads it. None of the four fixture maps' records carries one (`mapActions.test.ts`). Optional for a
+   * record the reader did not make (the Forge's placed actions, the tests'): absent is none.
+   */
+  descriptor?: string;
+  /**
+   * Review S2 (reading, pending review): whether the record names the `tcm` key -- the loader asks only its presence
+   * (`FUN_0032f0d0(.., 0x3f21c8 "tcm")`) and sets the action's `+0x3f` bit 2 (D:L157420-157422), which makes
+   * `FUN_00220350` draw the text at 0x436500 or PLEASE ADD TO MISSION.RDR instead of the record's (D:L74405-74416).
+   * Optional as `descriptor` is; absent is false.
+   */
+  tcm?: boolean;
 }
 
 /** A record on its placed node. */
@@ -91,9 +105,53 @@ export function actionRecordsOf(script: RdrNode): ActionRecord[] {
       valve: one(r, 'valve'), anims: all(r, 'anim'),
       team: team === '' || !Number.isFinite(Number(team)) ? null : Number(team),
       range: num(r, 'range', ACTION_RANGE_DEFAULT), elevation: num(r, 'elevation', ACTION_ELEVATION_NONE),
-      points: num(r, 'points', 0), bitmap: one(r, 'bitmap').toLowerCase(),
+      points: num(r, 'points', 0), bitmap: one(r, 'bitmap').toLowerCase(), descriptor: one(r, 'descriptor'),
+      tcm: rdrGet(r, 'tcm') !== undefined,
     };
   });
+}
+
+/**
+ * G1 (action-labels review, `agent-mail/evidence/v0420/action-labels-review/REPORT.md` s3; reading, pending review, no
+ * capture): `FUN_002b48e0`'s texts by the action's type (`+0x24`), each the string its pointer at `at` names in the ELF
+ * (checked on the disc by `mapActions.test.ts`): type 0 OPEN DOOR (`PTR_s_OPEN_DOOR_003de62c`), or CLOSE DOOR
+ * (`PTR_s_CLOSE_DOOR_003de628`) when the valve's short (`+0x18`'s `+4`) is non-zero (D:L156975-156979); type 2 FLIP
+ * SWITCH (`PTR_s_FLIP_SWITCH_003de630`, D:L156982-156984).
+ */
+export const MAP_ACTION_TYPE_CAPTIONS = {
+  open: { at: 0x3de62c, text: 'OPEN DOOR' }, close: { at: 0x3de628, text: 'CLOSE DOOR' }, flip: { at: 0x3de630, text: 'FLIP SWITCH' },
+} as const;
+/**
+ * G1: MAP_ACTION_CAPTION_OTHER_TYPES_READING -- a map action of another type with no `descriptor`, on the map-action
+ * record: types 4 (MPBOMB) and 6 (SATCHEL) never make that record (they set the offer's bits 7 and 0x11, not 13:
+ * `FUN_005937c0` D:L452414-452424; their caption is the bomb's path), so this is types 1 (WINDOW), 3 (DEFUSE),
+ * 5 (ACT_BREACH), 7 (ITEM) and 8 (none): `FUN_002b48e0` gives DEFUSE BOMB, BREACH, TAKE ITEM for 3, 5, 7 and nothing for
+ * 1 and 8, which `FUN_002209c0` turns into UNKNOWN (D:L74570-74572); those texts are not re-read and ported yet, so the
+ * port draws none. What settles it: their pointers read on the disc and a capture of one. An empty `descriptor` is taken
+ * as none here, where the original would draw the empty string (D:L74576-74581); no known record has one.
+ */
+export const MAP_ACTION_CAPTION_OTHER_TYPES_READING = 'none: the texts of the other types and UNKNOWN are unported' as const;
+/**
+ * Review S2: MAP_ACTION_TCM_CAPTION_READING -- a `tcm` action (`ActionRecord.tcm`) is captioned with the text at 0x436500
+ * when it is not empty, else PLEASE ADD TO MISSION.RDR (0x3e4f30), never its descriptor or type text (`FUN_00220350`
+ * D:L74405-74416); what writes 0x436500 is not read, so the port draws none. The only known `tcm` records are the airstrike
+ * radios (MP61, MP62, MP73, MP82; raw bytes, research 174). What settles it: the writer of 0x436500 read, a capture of a
+ * radio's caption.
+ */
+export const MAP_ACTION_TCM_CAPTION_READING = 'none: the tcm text at 0x436500 is unported' as const;
+
+/**
+ * G1: a map action's caption, as `FUN_002209c0` sets the type-13 record's text (D:L74567-74582) -- the action's
+ * `descriptor` when it has one, any type; else `FUN_002b48e0`'s by its type (`MAP_ACTION_TYPE_CAPTIONS`; `valve` is its
+ * valve's value now, read for a DOOR only); else null (`MAP_ACTION_CAPTION_OTHER_TYPES_READING`). A `tcm` action: null
+ * (`MAP_ACTION_TCM_CAPTION_READING`).
+ */
+export function mapActionCaption(record: Pick<ActionRecord, 'typeCode' | 'descriptor' | 'tcm'>, valve: number): string | null {
+  if (record.tcm) return null;
+  if (record.descriptor) return record.descriptor;
+  if (record.typeCode === ACTION_TYPE_CODES.DOOR) return (valve !== 0 ? MAP_ACTION_TYPE_CAPTIONS.close : MAP_ACTION_TYPE_CAPTIONS.open).text;
+  if (record.typeCode === ACTION_TYPE_CODES.SWITCH) return MAP_ACTION_TYPE_CAPTIONS.flip.text;
+  return null;
 }
 
 /**

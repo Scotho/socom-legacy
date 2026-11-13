@@ -414,6 +414,106 @@ describe('the smoke and the flash going off', () => {
     expect(booms.map((p) => p[0])).toEqual([180, 220, 140]);
   });
 
+  /**
+   * MINES-ROOM (research 235 §8): the room now broadcasts a PMN's trip as `detonate` (no `except`), while the page still
+   * trips its own copy (`proximityTripped` in `fly`, grenade.ts) -- the page's half is deferred (LATER 930). Both orders end in ONE
+   * explosion and no copy left at rest: `detonateRemote` sets the trigger of a copy at rest only (a `detonated` copy is
+   * passed over), and `proximityTripped` passes over a copy whose trigger is already set (`g.trigger`, scene
+   * `projectile.ts`). No page code changed for this.
+   */
+  describe('a PMN tripped by the page and by the room\'s `detonate`: one explosion, either order (research 235 §8)', () => {
+    const PMN_RECORD: ThrowableRecord = { ...THROWABLES.Claymore, name: 'PMN Mine', id: 158, fuse: 8, removal: 10, explosionDamage: 6.5, explosionRadius: 40, proximity: 10, model: 'pmn', icon: 'pmn.tif', capacity: 4 };
+    const mine: V3 = [140, 50.1, 200];
+    const page = () => {
+      const grid = claymoreFloor();
+      let actors: V3[] = [[600, 50, 200]];                       // no one near
+      const booms: string[] = [];
+      const { g } = thrower({ grid: () => grid, snapshot: () => snap({ feet: [600, 50, 200], yaw: 0 }), actors: () => actors, online: () => true });
+      g.setRecords([PMN_RECORD]);
+      g.on('explode', (e) => booms.push(e.item));
+      g.launchRemote('PMN Mine', mine, [1, 0, 0], 2, { pid: 5 });   // the room's `grenade` event for another's mine
+      run(g, PMN_RECORD.fuse + 0.5);                            // armed (Timer1 8 s), no one near
+      expect(booms).toEqual([]);
+      expect(g.stats().live.map((l) => [l.pid, l.state])).toEqual([[5, 'rest']]);
+      return { g, booms, walkIn: (): void => { actors = [[143, 50, 200]]; } };
+    };
+
+    it('the page\'s own trip first, then the room\'s `detonate` for the same pid: no second explosion, no throw, no ghost', () => {
+      const { g, booms, walkIn } = page();
+      walkIn();
+      run(g, 0.1);                                               // the page's copy trips and goes off
+      expect(booms).toEqual(['PMN Mine']);
+      expect(g.stats().live.find((l) => l.pid === 5)?.state).not.toBe('rest');
+      expect(() => g.detonateRemote(5)).not.toThrow();          // the room's `detonate`, a frame or more later
+      expect(() => run(g, 0.5)).not.toThrow();
+      expect(booms).toEqual(['PMN Mine']);
+      run(g, PMN_RECORD.removal + 0.5);                         // its Timer2 (10 s): gone, never back at rest
+      expect(g.stats().live.filter((l) => l.pid === 5)).toEqual([]);
+      expect(booms).toEqual(['PMN Mine']);
+    });
+
+    it('the room\'s `detonate` first, then the page\'s own trip a frame later: one explosion, no ghost', () => {
+      const { g, booms, walkIn } = page();
+      g.detonateRemote(5);                                       // the room's trip, before the page's snapshot shows the body
+      walkIn();                                                  // the body inside 10 u on the next frame
+      expect(() => run(g, 0.5)).not.toThrow();
+      expect(booms).toEqual(['PMN Mine']);
+      run(g, PMN_RECORD.removal + 0.5);
+      expect(g.stats().live.filter((l) => l.pid === 5)).toEqual([]);
+      expect(booms).toEqual(['PMN Mine']);
+    });
+
+    it('the room\'s `detonate` alone -- the case the page never saw (H1): the copy goes off, no ghost', () => {
+      const { g, booms } = page();
+      g.detonateRemote(5);
+      run(g, 0.5);
+      expect(booms).toEqual(['PMN Mine']);
+      run(g, PMN_RECORD.removal + 0.5);
+      expect(g.stats().live.filter((l) => l.pid === 5)).toEqual([]);
+    });
+
+    // The MINES-ROOM fold: the placer's OWN copy takes the room's `detonate` only once `tagOwn` has given it the room's
+    // pid (its launch point matched within 0.01, OWN_PID_READING); untagged, the message is ignored and the page's own
+    // trip still sets it off.
+    const own = () => {
+      const grid = claymoreFloor();
+      let actors: V3[] = [[600, 50, 200]];
+      const booms: string[] = [];
+      const { g } = thrower({ grid: () => grid, snapshot: () => snap({ feet: [100, 50, 200], yaw: 0 }), handPoint: () => [102, 62, 192], actors: () => actors, online: () => true });
+      g.setRecords([PMN_RECORD]);
+      g.setKit(['PMN Mine']);
+      g.on('explode', (e) => booms.push(e.item));
+      g.select('PMN Mine');
+      g.pull();
+      run(g, PMN_RECORD.fuse + 2);                              // set down (~1.35 s) and armed (Timer1 8 s), no one near
+      const l = g.stats().live[0]!;
+      expect([l.state, l.pid]).toEqual(['rest', undefined]);
+      return { g, booms, at: l.pos as V3, walkIn: (): void => { actors = [[l.pos[0] + 3, l.pos[1], l.pos[2]]]; } };
+    };
+
+    it('the placer\'s own PMN, tagged by `tagOwn`, goes off on the room\'s `detonate`: one explosion', () => {
+      const { g, booms, at } = own();
+      g.tagOwn('PMN Mine', [at[0] + 0.005, at[1], at[2]], 5);   // the room's `placed`: its launch point within 0.01
+      expect(g.stats().live[0]!.pid).toBe(5);
+      g.detonateRemote(5);
+      run(g, 0.5);
+      expect(booms).toEqual(['PMN Mine']);
+    });
+
+    it('the placer\'s own PMN, untagged (the launch point not matched), ignores the room\'s `detonate`; the page\'s own trip still sets it off', () => {
+      const { g, booms, at, walkIn } = own();
+      g.tagOwn('PMN Mine', [at[0] + 1, at[1], at[2]], 5);       // 1 u off: not this copy
+      expect(g.stats().live[0]!.pid).toBeUndefined();
+      g.detonateRemote(5);
+      run(g, 0.5);
+      expect(booms).toEqual([]);
+      expect(g.stats().live[0]!.state).toBe('rest');
+      walkIn();
+      run(g, 0.1);
+      expect(booms).toEqual(['PMN Mine']);
+    });
+  });
+
   it('the claymore: four down at most, set down on the move, none wading past 3.2 u or off the ground, and the Detonator reaches 500 units', () => {
     const grid = claymoreFloor();
     let feet: V3 = [100, 50, 200], vx = 0;

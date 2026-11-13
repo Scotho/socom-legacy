@@ -1681,6 +1681,7 @@ function padFrame(dt: number): void {
     touch.padConnected(readsPad(gamePad));            // MP-1 (FI.R4): the touch layer hidden while the pad read is a connected one
     exchangePart.hold(new Set([...padButtonsDown(held), ...padButtonsDown(touch.pad)]));   // WEAPON EXCHANGE's edges taken against the pad as it is; MP-1 F2: the touch pad's too
     armoryPart.stick(held, new Set(), false);       // AM-2's review F1: the stick armed through the hold, as the buttons' edges are -- no flick at the release
+    exchangePart.stick(held);                         // EXCHANGE-STICK (the owner's ruling 2026-11-12, an adaptation): read through the hold, no push at the release
     // The original's flush at the state's start (research 116 R116.13; `./padFlush`): the edges are taken against the
     // pad as it is, so a button held through the release is held, not pressed, and a stick is live at once.
     const heldInput = padInput(held);
@@ -1715,6 +1716,7 @@ function padFrame(dt: number): void {
   // Start and R2 step it, and the game's own lanes below take nothing (HUD mode 1).
   const down = new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]);   // MP-1 (FI.R3): the touch pad's buttons are a pad's
   const edges = exchangePart.edges(down);              // the buttons pressed this frame; the menu's context kept current
+  exchangePart.stick(polled);                          // EXCHANGE-STICK (the owner's ruling 2026-11-12, an adaptation): open, the left stick a d-pad press
   // TAUNTS (`./matchTaunts`): `?devmode`'s SETUP TAUNTS, then the Chat menu -- open, the pad is its (research 301 §7).
   const editorOwns = tauntDev?.frame(performance.now(), down) ?? false;
   nativeSettings.frame(performance.now(), down, polled, touch.pad);
@@ -2258,7 +2260,7 @@ async function boot(): Promise<void> {
     }
 
     // Every 200 ms (redrawing text every frame is itself a cost): the ratio checked, the frame counter, the Online line.
-    if (adaptiveRatio.frame(dt, performance.now(), created, presentation === 'ps2' || revealing !== null)) {
+    if (adaptiveRatio.frame(frameTime.real(), performance.now(), created, presentation === 'ps2' || revealing !== null)) {
       ui.setFps(1000 / adaptiveRatio.smoothedMs(), adaptiveRatio.smoothedMs());
       devPanel?.sample(1000 / adaptiveRatio.smoothedMs(), adaptiveRatio.smoothedMs());
       showOnline();                               // the Online line: connecting, online and the players, the retry

@@ -111,7 +111,7 @@ for (const size of [...LANDSCAPES, ...PORTRAITS]) {
   test.describe(`walk mode on a phone, ${upright ? 'portrait' : 'landscape'} ${size.width}x${size.height}`, () => {
     test.use({ hasTouch: true, isMobile: true, viewport: size });
 
-    test('the bottom layout: PlayStation buttons, nothing overlapping, the complete HUD clear', async ({ page }) => {
+    test('the bottom layout: PlayStation buttons, nothing overlapping, over the picture', async ({ page }) => {
       await phone(page, size);
       await expect(page.locator('#touch-lift')).toBeVisible();                   // flying: the lift buttons
       await expect(page.locator('#touch-walk')).toBeHidden();
@@ -130,7 +130,10 @@ for (const size of [...LANDSCAPES, ...PORTRAITS]) {
       for (const id of [...PAD_IDS, 'stick-rest', 'aim-rest', 'fullscreen']) expect(ids, id).toContain(id);
       await expect(page.locator('#tw-select')).toHaveText('');
       await expect(page.locator('#tw-start')).toHaveText('');
-      // Browser adaptation: all 18 controls are below the complete game frame, with no overlap.
+      // Browser adaptation: all 18 controls inside the screen, with no overlap. MTO.R1 (2026-10-23,
+      // `docs/plans/2026-10-23-mobile-touch-overlay.md`; the owner's "Yes", H311) has them overlay the picture, which fills
+      // the screen behind them -- this case asserted the earlier rule (dedf795fcd, 10-18: every control below the
+      // picture), retired by MTO.R1; `./mobileScreenFit.spec.ts` holds the picture's fill and the HUD covers as a record.
       const picture = (await page.locator('#view').boundingBox())!;
       for (const b of shown) {
         expect(b.x, b.id).toBeGreaterThanOrEqual(0);
@@ -138,7 +141,7 @@ for (const size of [...LANDSCAPES, ...PORTRAITS]) {
         expect(b.x + b.width, b.id).toBeLessThanOrEqual(size.width);
         expect(b.y + b.height, b.id).toBeLessThanOrEqual(size.height);
         expect(Math.min(b.width, b.height), b.id).toBeGreaterThanOrEqual(36);
-        if (b.id !== 'fullscreen') expect(b.y, `${b.id} clears the HUD`).toBeGreaterThanOrEqual(picture.y + picture.height - 1);
+        if (b.id !== 'fullscreen') expect(b.y + b.height, `${b.id} overlays the picture`).toBeLessThanOrEqual(picture.y + picture.height + 1);
       }
       for (const [i, a] of shown.entries()) for (const b of shown.slice(i + 1)) expect(hit(a, b), `${a.id} over ${b.id}`).toBe(false);
       const fingers = new Fingers(await page.context().newCDPSession(page), page);

@@ -59,22 +59,77 @@ export const contentMapMemberPath = (mapId: string): string => `maps/${mapId}.js
  * `CONTENT_METRES_PER_UNIT_ADAPTATION`; `viewer/test/packs/contentMap.test.ts` holds the two equal). An adaptation.
  */
 export const CONTENT_MAP_METRES_PER_UNIT_ADAPTATION = 0.1;
-/**
- * How far from the origin, in metres, any point of a map may lie on each axis: half the forge's blank floor
- * (`match/src/forgeSimMap.ts` `FORGE_FLOOR_SIZE`, 8000 units, at 0.1 m a unit: 800 m square). A bound of this tool, not
- * a game value.
+/*
+ * FX-LIMITS (the owner, 2026-11-11: "lift the poly and 400m limit count to something we think the engine could handle and
+ * wouldn't be malicious"): the size bounds below are set from the disc's own 34 maps, measured by the map size census
+ * (`tools/mapSizeCensus.ts`; its record `agent-mail/evidence/forge/fxlimits-88a71dab0/`, every map's hull and AI grid at
+ * 0.1 m a unit). Each is a bound of this tool, not a game value: it decides which authored maps a reader takes, and
+ * nothing a retail map does. Unchanged by it: the engine's own fields (`CONTENT_MAP_POLYGON_POINTS_MAX`,
+ * `CONTENT_MAP_NAV_AXIS_MAX`), the spawns, the props and the dependencies.
  */
-export const CONTENT_MAP_EXTENT_METRES_ADAPTATION = 400;
 /**
- * The most collision polygons a map's regions may carry: the forge's own polygon budget for a layout's pieces
- * (`match/src/forgeSimMap.ts` `FORGE_PIECE_POLYS_MAX`, 20,000; a disc map's hull is in the low tens of thousands). A bound.
+ * How far from the origin, in metres, any point of a map may lie on each axis (every coordinate of `bounds`, and so of
+ * everything inside them). The census's farthest hull point from the origin is 664 m (M52; median 281.8 m; 7 of the 34
+ * maps lay past the old 400 m), its farthest AI grid 635.5 m (MP72): 1,000 m holds every one with a third to spare. Where
+ * the map sits is not the engine's constraint (the wire's feet are relative to the map's own centre: the width is,
+ * `CONTENT_MAP_SPAN_METRES_ADAPTATION`); this bound only keeps coordinates sane. A bound of this tool, not a game value.
  */
-export const CONTENT_MAP_POLYGONS_MAX_ADAPTATION = 20_000;
-/** The most regions (each one collision owner) a map may name. A bound of this tool, not a game value. */
-export const CONTENT_MAP_REGIONS_MAX_ADAPTATION = 1024;
+export const CONTENT_MAP_EXTENT_METRES_ADAPTATION = 1000;
+/**
+ * The wire's reach for a body's feet, in game units either side of its origin: i16 steps of 1/8 unit
+ * (`viewer/src/net/codec.ts` `FEET_STEP`, `FEET_RANGE` = 32767 x 1/8 = 4,095.875), from the centre of the room's map's
+ * hull bounds (`feetOriginOf`). Restated here, since this package does not import the viewer;
+ * `viewer/test/packs/contentMap.test.ts` holds the two equal.
+ */
+export const CONTENT_MAP_FEET_RANGE_UNITS = 32767 / 8;
+/**
+ * How wide, in metres, a map's `bounds` may be on any axis: the wire's feet reach `CONTENT_MAP_FEET_RANGE_UNITS` either
+ * side of the centre of the room's final ground (`feetOriginOf`), 2 x 4,095.875 units = 819.175 m at 0.1 m a unit; 800
+ * leaves 9.6 m a side of margin. The census's widest hull is 600.9 m (M51; median 249.4 m). Measured over the declared
+ * `bounds`, which hold every region's points, every spawn, site and grid, and every prop's position (`map.OUT_OF_BOUNDS`
+ * otherwise): so it bounds the regions' hull, and nothing more. A prop's asset brings its own collision hull, which is
+ * added to the ground and can reach past the bounds, and a Forge layout's pieces can too (`match/src/room.ts` takes the
+ * feet origin from the final ground); a body standing past the wire's reach is clamped on the other players' screens
+ * (`viewer/src/net/codec.ts` `qFeet`), as on the Forge's own blank floor today. No asset-bounds bound is set here. A bound
+ * of this tool, from the port's wire, not a game value.
+ */
+export const CONTENT_MAP_SPAN_METRES_ADAPTATION = 800;
+/**
+ * The most collision polygons a map's regions may carry. The census's largest hull is 18,482 polygons (MP82; median
+ * 9,697), which sat at 92% of the old 20,000: 60,000 is a little over three times it. Not the Forge's budget for a
+ * layout's pieces (`match/src/forgeSimMap.ts` `FORGE_PIECE_POLYS_MAX`, unchanged), which is counted apart, on top of the
+ * map's hull. A bound of this tool, not a game value.
+ */
+export const CONTENT_MAP_POLYGONS_MAX_ADAPTATION = 60_000;
+/**
+ * The most regions (each one collision owner) a map may name. The census's most owners on one map is 974 (M52; median
+ * 440), against the old 1,024: 4,096 is four times it. A bound of this tool, not a game value.
+ */
+export const CONTENT_MAP_REGIONS_MAX_ADAPTATION = 4096;
+/**
+ * The most polygons one region may carry. The collision grid files a whole owner under each cell it touches
+ * (`@s2u/scene` `grid.ts`), and a ground probe tests every polygon of each owner it meets (`probe.ts`), so one region's
+ * polygons are a probe's cost. The census's largest owner is 551 polygons (MP64, "largest owner polygons"): 4,096 is
+ * over seven times it. A bound of this tool, not a game value. New in this build (FX-LIMITS), and narrower than before
+ * for a single region: v0.4.19 bounded only the map's total (20,000 polygons), so one region of up to 20,000 polygons
+ * was accepted there, and a map saved earlier with a region over 4,096 is refused here (`map.TOO_LARGE`).
+ */
+export const CONTENT_MAP_REGION_POLYGONS_MAX_ADAPTATION = 4096;
+/**
+ * The most points all the regions' polygons may carry together: what the viewer's region mesh and the packed collision
+ * allocate, and what the reader's per-polygon checks walk. What is known today: no retail map can carry more than
+ * 18,482 polygons x 16 points = 295,712 (the product of two measured maxima, the census's largest hull and its most
+ * points in one polygon); the measured figure is the census's "hull points" quantity (`tools/mapSizeCensus.ts`
+ * `collision.points`) in its next run. 1,000,000 is over three times that ceiling. Counted from the arrays' lengths
+ * before any polygon's geometry is read. A bound of this tool, not a game value. New in this build (FX-LIMITS), and
+ * narrower than before for the total: v0.4.19 had no points bound, so a map of up to 20,000 polygons x 255 points (about
+ * 5.1 million) was accepted there, and a map saved earlier over 1,000,000 points is refused here (`map.TOO_LARGE`).
+ */
+export const CONTENT_MAP_POINTS_MAX_ADAPTATION = 1_000_000;
 /**
  * The most points one polygon may have: a collision polygon's `m_ptcount` is eight bits of its surface word
  * (`@s2u/scene` `collision.ts` `surfaceWord`; reCOM `zIntersect/zintersect.h:21-28`), FCW-09's `ASSET_FACE_POINTS_MAX`.
+ * The engine's field, unchanged by FX-LIMITS (the census's most points in one polygon is 16).
  */
 export const CONTENT_MAP_POLYGON_POINTS_MAX = 255;
 /**
@@ -90,9 +145,14 @@ export const CONTENT_MAP_DEPENDENCIES_MAX_ADAPTATION = RECORD_LIMITS.requires;
 /**
  * The most stored cells the navigation grid may hold: a bound of this tool -- Desert Glory's nine sub-maps store 13,547
  * (`viewer/src/simMap.ts` `SimMap.ai`, research 237 s1), the 83 disc sub-maps 946,155 in all (`@s2u/scene` `aimaps.ts`).
+ * The census's largest single sub-map stores 105,152 cells (MP8; median 33,418; 4 of the 26 maps with a grid lay past
+ * the old 65,536): 262,144 is two and a half times it.
  */
-export const CONTENT_MAP_NAV_CELLS_MAX_ADAPTATION = 65_536;
-/** A grid axis's most cells: a loc's x and z are 13 bits each (`@s2u/scene` `aimaps.ts` `decodeAiLoc`, research 75 s4). */
+export const CONTENT_MAP_NAV_CELLS_MAX_ADAPTATION = 262_144;
+/**
+ * A grid axis's most cells: a loc's x and z are 13 bits each (`@s2u/scene` `aimaps.ts` `decodeAiLoc`, research 75 s4).
+ * The engine's field, unchanged by FX-LIMITS (the census's most cells on one axis is 729).
+ */
 export const CONTENT_MAP_NAV_AXIS_MAX = 8192;
 /** The most named points the grid may carry. A bound of this tool, not a game value. */
 export const CONTENT_MAP_NAV_POINTS_MAX_ADAPTATION = 64;
@@ -123,6 +183,11 @@ export const CONTENT_MAP_CODES = {
   up: "map.UP",
   boundsInvalid: "map.BOUNDS_INVALID",
   outOfBounds: "map.OUT_OF_BOUNDS",
+  /**
+   * FX-LIMITS: bounds wider on an axis than `CONTENT_MAP_SPAN_METRES_ADAPTATION` (the wire's feet reach from the map's
+   * centre); `actual` names the axis and the width in metres (`x 801`), `expected` the bound.
+   */
+  tooWide: "map.TOO_WIDE",
   dependenciesMissing: "map.DEPENDENCIES_MISSING",
   dependencyInvalid: "map.DEPENDENCY_INVALID",
   dependencyUndeclared: "map.DEPENDENCY_UNDECLARED",
@@ -368,7 +433,12 @@ function readBounds(v: unknown, r: Refusals): { min: MapVec3; max: MapVec3 } | n
     r.add(CONTENT_MAP_CODES.outOfBounds, `A map lies within ${e} m of the origin on every axis.`, "bounds");
     return null;
   }
-  return { min: v3(min), max: v3(max) };
+  const span = CONTENT_MAP_SPAN_METRES_ADAPTATION;
+  const wide = (["x", "y", "z"] as const).map((axis, i) => ({ axis, width: max[i]! - min[i]! })).filter((w) => w.width > span);
+  for (const { axis, width } of wide) {
+    r.add(CONTENT_MAP_CODES.tooWide, `A map is at most ${span} m wide on each axis (the wire carries a body's feet about 409 m either side of the map's centre); on ${axis} it is ${width} m.`, "bounds", `${axis} ${width}`, String(span));
+  }
+  return wide.length > 0 ? null : { min: v3(min), max: v3(max) };
 }
 
 /** `own` is the map's own pack (the reader's `ref.pack`; null when that reference is refused, a refusal already). */
@@ -396,9 +466,11 @@ type Outside = (p: MapVec3, field: string) => void;
 function readRegions(v: unknown, r: Refusals, inBounds: InBounds, outside: Outside): ContentMapRegion[] | null {
   if (!Array.isArray(v) || v.length === 0) { r.add(CONTENT_MAP_CODES.regionsMissing, "A map has regions: at least one walkable.", "regions"); return null; }
   if (v.length > CONTENT_MAP_REGIONS_MAX_ADAPTATION) { r.add(CONTENT_MAP_CODES.tooLarge, `A map has at most ${CONTENT_MAP_REGIONS_MAX_ADAPTATION} regions.`, "regions"); return null; }
-  const out: ContentMapRegion[] = [];
+  // FX-LIMITS: first every region's shape and the cheap counts (polygons a region, polygons, points: array lengths only,
+  // at most CONTENT_MAP_POLYGONS_MAX_ADAPTATION steps), so a map over a bound is refused before any polygon's geometry is
+  // read; then the geometry, region by region.
   const ids = new Set<string>();
-  let polygons = 0;
+  let polygons = 0, points = 0;
   for (const [i, g] of v.entries()) {
     const at = `regions[${i}]`;
     if (!isObject(g) || extraKey(g, ["id", "role", "polygons", "label"]) || typeof g["id"] !== "string" || !REGION_ID.test(g["id"])
@@ -409,23 +481,43 @@ function readRegions(v: unknown, r: Refusals, inBounds: InBounds, outside: Outsi
     }
     if (ids.has(g["id"])) { r.add(CONTENT_MAP_CODES.regionInvalid, "Each region id is used once.", `${at}.id`, g["id"]); return null; }
     ids.add(g["id"]);
-    polygons += g["polygons"].length;
+    const own = g["polygons"] as unknown[];
+    if (own.length > CONTENT_MAP_REGION_POLYGONS_MAX_ADAPTATION) {
+      r.add(CONTENT_MAP_CODES.tooLarge, `A region carries at most ${CONTENT_MAP_REGION_POLYGONS_MAX_ADAPTATION} polygons.`, `${at}.polygons`, String(own.length));
+      return null;
+    }
+    polygons += own.length;
     if (polygons > CONTENT_MAP_POLYGONS_MAX_ADAPTATION) { r.add(CONTENT_MAP_CODES.tooLarge, `A map's regions carry at most ${CONTENT_MAP_POLYGONS_MAX_ADAPTATION} polygons.`, "regions"); return null; }
+    for (const poly of own) if (Array.isArray(poly)) points += poly.length;
+    if (points > CONTENT_MAP_POINTS_MAX_ADAPTATION) { r.add(CONTENT_MAP_CODES.tooLarge, `A map's regions carry at most ${CONTENT_MAP_POINTS_MAX_ADAPTATION} points in all.`, "regions"); return null; }
+  }
+  const out: ContentMapRegion[] = [];
+  for (const [i, g] of (v as Record<string, unknown>[]).entries()) {
+    const at = `regions[${i}]`;
+    const id = g["id"] as string, role = g["role"] as ContentMapRegion["role"];
     const polys: MapVec3[][] = [];
     for (const [j, poly] of (g["polygons"] as unknown[]).entries()) {
       const field = `${at}.polygons[${j}]`;
-      const why = polygonError(poly, g["role"]);
+      const why = polygonError(poly, role);
       if (why) { r.add(CONTENT_MAP_CODES.polygonInvalid, why, field); return null; }
       for (const p of poly as MapVec3[]) if (!inBounds(p)) { outside(p, field); return null; }
       polys.push((poly as MapVec3[]).map(v3));
     }
-    out.push({ id: g["id"], role: g["role"], polygons: polys, ...(g["label"] !== undefined ? { label: g["label"] as string } : {}) });
+    out.push({ id, role, polygons: polys, ...(g["label"] !== undefined ? { label: g["label"] as string } : {}) });
   }
   if (!out.some((g) => g.role === "walkable")) { r.add(CONTENT_MAP_CODES.regionsMissing, "A map has at least one walkable region.", "regions"); return null; }
   return out;
 }
 
-/** Why `poly` is not a convex planar polygon of 3-255 metre points (a walkable one facing up), or null. */
+/**
+ * Why `poly` is not a convex planar polygon of 3-255 metre points (a walkable one facing up), or null. Its size (the
+ * largest distance between two of its points: the scale of the area, planarity and convexity tolerances) is measured over
+ * every pair, quadratic in its points. Not made linear (FX-LIMITS): a bounding-box measure lies between that size and
+ * root 3 times it, which would make the area test stricter and the planarity and convexity tests looser, so the polygons
+ * taken would change both ways. Each pair is measured once (the same maximum, so the same polygons). The worst case under
+ * `CONTENT_MAP_POINTS_MAX_ADAPTATION`: 1,000,000 / 255 = 3,921 polygons of 255 points, 255 x 254 / 2 pairs each, about
+ * 127 million distances.
+ */
 function polygonError(poly: unknown, role: unknown): string | null {
   if (!Array.isArray(poly) || poly.length < 3 || poly.length > CONTENT_MAP_POLYGON_POINTS_MAX || !poly.every(vec3)) {
     return `A polygon is 3 to ${CONTENT_MAP_POLYGON_POINTS_MAX} finite metre points.`;
@@ -438,7 +530,10 @@ function polygonError(poly: unknown, role: unknown): string | null {
   }
   const length = Math.hypot(nx, ny, nz);
   let size = 0;
-  for (const p of ps) for (const q of ps) size = Math.max(size, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]));
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i]!;
+    for (let j = i + 1; j < ps.length; j++) { const q = ps[j]!; size = Math.max(size, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])); }
+  }
   if (!(length > size * size * 1e-9)) return "A polygon has no area.";
   const n = [nx / length, ny / length, nz / length] as const;
   const tolerance = size * CONTENT_MAP_PLANAR_TOLERANCE_ADAPTATION;

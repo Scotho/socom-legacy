@@ -43,11 +43,46 @@ function moreHtml(m: ReplaysMore | undefined): string {
   return `<button type="button" tabindex="-1" class="cx-empty" data-act="replays-more" data-more="${m.kind}">${body}</button>`;
 }
 
+/**
+ * REPLAY-STILLS (product track, a browser adaptation; the owner, 2026-11-12, seat 2f: "you can just use the ones we got
+ * for the leaderboards and cards"): the drawer's map picture is the map's still -- LCM.R6's owner stills
+ * (`shared/map-stills/`), at central's public, same-origin route `/api/maps/<STEM>/still.png` (LCM-9,
+ * `MAP_STILLS_API_PATH`), the picture the match page, the player page, the leaderboard and the public replay page already
+ * draw (`../../matchPage` `stillOf`) -- for a stem the route can answer (`MP<n>`) whose picture has not failed in this
+ * page. Not the disc's: no screen of the launcher decodes a map picture from the disc (a live room's `art` is never set).
+ */
+export const REPLAY_MAP_STILL_ADAPTATION = "the replay drawer shows LCM.R6's map still at /api/maps/<STEM>/still.png" as const;
+const STILL_STEM = /^MP\d{1,2}$/;
+/** The stems whose still failed to load in this page: drawn as the text from then on (no retry, no flicker). */
+const failedStills = new Set<string>();
+const stillOf = (map: string): string | null => (STILL_STEM.test(map) && !failedStills.has(map) ? `/api/maps/${map}/still.png` : null);
+
+/**
+ * REPLAY-STILLS: a still that fails to load (an unknown stem's 404, the server down) is remembered and `onFail` asked to
+ * draw again -- the slot then shows the text. An image's `error` does not bubble, so it is heard in the capture phase at
+ * the document; no inline handler. Returns the detach.
+ */
+export function attachMapStillFallback(doc: Document, onFail: (stem: string) => void): () => void {
+  const heard = (e: Event): void => {
+    const t = e.target;
+    if (!(t instanceof Element) || t.tagName !== 'IMG') return;
+    const stem = t.getAttribute('data-map-still');
+    if (stem === null || failedStills.has(stem)) return;
+    failedStills.add(stem);
+    onFail(stem);
+  };
+  doc.addEventListener('error', heard, true);
+  return () => { doc.removeEventListener('error', heard, true); };
+}
+
 function drawerHtml(r: ReplayRow, a: Adapters): string {
   const ready = a.disc.state() === 'ready';
   const map = mapLabel(r.map);                            // MN-1 (OT.R113): the map's name, never its stem
+  const still = stillOf(r.map);                           // REPLAY-STILLS: the map's still, else the text
   return `<aside class="cx-drawer" aria-label="Replay ${esc(map)}">
-    <div class="cx-drawer__map is-guide"><span>${ready ? 'Map picture from your disc' : 'Needs disc'}</span><span class="cx-drawer__name">${esc(map)}</span></div>
+    <div class="cx-drawer__map ${still ? '' : 'is-guide'}">${still
+      ? `<img src="${esc(still)}" alt="${esc(map)}" loading="lazy" decoding="async" data-map-still="${esc(r.map)}">`
+      : `<span>${ready ? 'Map picture from your disc' : 'Needs disc'}</span>`}<span class="cx-drawer__name">${esc(map)}</span></div>
     <div class="cx-drawer__body">
       <dl class="cx-facts"><dt>Map</dt><dd>${esc(map)}</dd><dt>Rules</dt><dd>${esc(r.rules)}</dd><dt>Recorded</dt><dd>${esc(r.when)} UTC</dd><dt>Length</dt><dd>${esc(r.length)}</dd><dt>Players</dt><dd>${esc(r.names)}</dd>${resultHtml(r)}</dl>
       <div class="cx-drawer__cta">${ready ? `${btn('cross')}Watch` : 'Needs disc to watch'}</div>

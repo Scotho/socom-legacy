@@ -67,7 +67,14 @@
             "ref": { "$ref": "#/$defs/packRef" }
           }
         },
-        "requires": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/packRef" } }
+        "requires": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/packRef" } },
+        "poses": {
+          "description": "A tilted or scaled piece's pose (FX-1), present only when the layout has one: rows [pieceIndex, pitch, roll, sx, sy, sz], each piece at most once and in piece order. Pitch is a whole degree in -90..90 and roll in 0..359, in the YXZ order beside the piece row's own yaw (at a pitch of 90 or -90 the roll is 0); each scale a multiple of 0.01 within 0.1..4; never a row for a piece neither tilted nor scaled. The bounds and the order are the record's reader's (layout.ts posesError).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2000,
+          "items": { "type": "array", "minItems": 6, "maxItems": 6, "items": { "type": "number" } }
+        }
       }
     }
   }

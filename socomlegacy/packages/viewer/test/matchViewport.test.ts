@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ADAPTIVE_V2_ADAPTATION, AdaptiveRatio, PIXEL_RATIO_CAP_ADAPTATION, PIXEL_RATIO_FLOOR_ADAPTATION, pixelRatioCap, TOUCH_PIXEL_RATIO_CAP_ADAPTATION,
@@ -494,7 +496,10 @@ describe('VS-3 (a browser adaptation): AdaptiveRatio v2 -- the 24 ms edge, the s
     expect(a.bound()).toBe('not-pixels');
   });
 
-  it('AQ-8 fold F3: a cap raised while the ratio is on its way down keeps the descent judged -- to the new floor, then back to the new cap', () => {
+  // AQ-19 (the release review of v0.4.20's batch, 2026-11-11; a browser adaptation, no original) restates this case: the
+  // descent is still judged, and the test returns to the ratio that descent LEFT -- it went back to the new cap, a
+  // ratio the page had never drawn at.
+  it('AQ-8 fold F3: a cap raised while the ratio is on its way down keeps the descent judged -- to the new floor, then back to the ratio it left (AQ-19: not the new cap)', () => {
     const a = new AdaptiveRatio(1), t = target();
     a.start(t);
     sim(a, t, 10_000, () => 1000 / 30);                                  // four steps down from the cap of 1
@@ -502,7 +507,50 @@ describe('VS-3 (a browser adaptation): AdaptiveRatio v2 -- the 24 ms edge, the s
     a.setCap(1.5);                                                        // the window moved to a denser display
     sim(a, t, 70_000, () => 1000 / 30);
     expect(Math.min(...ratios(t))).toBe(0.75);                            // the new floor, reached and judged
-    expect(t.pixelRatio()).toBe(1.5);
+    expect(t.pixelRatio()).toBe(1);
+    expect(a.bound()).toBe('not-pixels');
+    // Its re-test a minute on leaves a ratio UNDER the cap; it is a descent the floor judges all the same, back to where
+    // it left -- never a page left at its floor unjudged for the match.
+    sim(a, t, 200_000, () => 1000 / 30);
+    expect(t.pixelRatio()).toBe(1);
+    expect(ratios(t).filter((x) => x === 1)).toHaveLength(3);                 // the start and two returns
+    expect(Math.max(...ratios(t))).toBe(1);                               // never the new cap in one change
+    expect(a.bound()).toBe('not-pixels');
+  });
+
+  // AQ-19: the field row of 2026-11-11 (Microsoft Basic Render Driver; the context lost seconds after the ratio went
+  // 0.38 -> 1.5). A page the pixels bind stands at its floor with the trade found to help -- the right place, and a
+  // descent still marked. A cap raised by more than a step opened the test afresh, and its return went to the NEW cap:
+  // from the floor of 0.75, sixteen times the pixels in one change.
+  it('AQ-19: a cap raised over a page the pixels bind, at its floor with the trade found to help (0.375 under 0.75 -> 1.5), returns to the ratio it left -- never the new cap', () => {
+    const a = new AdaptiveRatio(0.75), t = target();
+    a.start(t);
+    const page = (_at: number, r: number): number => 60 + 160 * (r - 0.375) / 0.375;   // 60 ms at 0.375, 220 ms at 0.75, 540 ms at 1.5
+    sim(a, t, 60_000, page);
+    expect(t.pixelRatio()).toBeCloseTo(0.375, 9);
+    expect(a.bound()).toBe('pixels');
+    const n = t.set.length;
+    a.setCap(1.5);                                                        // the preset to Quality on a 150 % display
+    sim(a, t, t.at + 60_000, page);
+    const after = ratios(t).slice(n);
+    expect(after[0]).toBe(0.75);                                          // the ratio the descent left
+    expect(Math.max(...after)).toBe(0.75);
+    expect(t.pixelRatio()).toBe(0.75);                                    // and the new floor: the trade, judged again, holds it there
+    expect(a.bound()).toBe('pixels');
+  });
+
+  it.each([
+    ['lowered since (1 -> 0.9)', 0.9, 0.9],
+    ['raised by under a step (1 -> 1.04: a resize of a few pixels under a ceiling)', 1.04, 1.04],
+  ])('AQ-19: with the cap %s the test returns to the cap, as it did', (_what, cap, back) => {
+    const a = new AdaptiveRatio(1), t = target();
+    a.start(t);
+    sim(a, t, 10_000, () => 1000 / 30);                                  // four steps down from the cap of 1
+    expect(t.pixelRatio()).toBeCloseTo(0.8, 9);
+    a.setCap(cap);
+    sim(a, t, 70_000, () => 1000 / 30);
+    expect(Math.min(...ratios(t))).toBeCloseTo(cap / 2, 9);
+    expect(t.pixelRatio()).toBe(back);
     expect(a.bound()).toBe('not-pixels');
   });
 
@@ -583,6 +631,134 @@ describe('VS-3 (a browser adaptation): AdaptiveRatio v2 -- the 24 ms edge, the s
     expect(t.pixelRatio()).toBe(1);
     expect(a.bound()).toBe('not-pixels');
     expect(ratios(t).filter((x) => x === 1)).toHaveLength(4);             // the start and three returns
+  });
+
+  // AQ-17 (the Automatic quality plan; a browser adaptation, no original; found 2026-11-11). The pages handed this class
+  // the camera's step, clamped at 0.1 s, so every frame over 100 ms read as 100 ms: a page slower than 10 fps at its
+  // floor read the same at the floor and at the cap, and the side test ruled that the pixels buy nothing. The class is
+  // handed the frame's real time, and bounds it itself at a second (a stall -- a hidden tab, a load -- is no frame rate).
+  //
+  // The fold (the review of e476ad26f, 2026-11-11): the real time, up to a second, went into the SMOOTHED average too,
+  // so a healthy 60 fps page lost a step after one long frame -- a hold's last frames, a compile, a hidden tab's
+  // return -- which the 100 ms it read before never did. Only the side test's reading (the median of the last frames,
+  // at the floor and at the cap) takes the real time: that median's clamp was the defect. The smoothed time, the
+  // step's edge, the panic and the frame counter read a frame as v0.4.19 did, at most 100 ms.
+  it('AQ-17 fold: the smoothed time (the step\'s edge, the frame counter) reads a frame as v0.4.19 did -- at most 100 ms', () => {
+    const fed = (seconds: number): number => { const a = new AdaptiveRatio(1), t = target(); a.start(t); a.frame(seconds, 1, t, false); return a.smoothedMs(); };
+    expect(fed(0.05)).toBeLessThan(fed(0.1));
+    expect(fed(0.25)).toBe(fed(0.1));
+    expect(fed(1)).toBe(fed(0.1));
+    expect(fed(30)).toBe(fed(0.1));
+  });
+
+  it('AQ-17 fold: a healthy 60 fps page takes no step for one long frame -- a second\'s stall (a compile, a hidden tab\'s return)', () => {
+    for (const stallAt of [5000, 5050, 5100, 5150]) {                      // the 200 ms check's phase must not matter
+      const a = new AdaptiveRatio(1), t = target();
+      a.start(t);
+      let stalled = false;
+      sim(a, t, 20_000, (at) => { if (!stalled && at >= stallAt) { stalled = true; return 1000; } return 1000 / 60; });
+      expect(ratios(t), `the stall at ${stallAt} ms`).toEqual([1]);
+    }
+  });
+
+  it('AQ-17 fold: a hold that ends on 300 ms frames (a loading screen\'s last frames) takes no step once the page runs at 60 fps', () => {
+    for (const held of [5, 6, 7, 8]) {
+      const a = new AdaptiveRatio(1), t = target();
+      a.start(t);
+      sim(a, t, 3000, () => 1000 / 60);
+      for (let i = 0; i < held; i++) { t.at += 300; a.frame(0.3, t.at, t, true); }
+      sim(a, t, t.at + 10_000, () => 1000 / 60);
+      expect(ratios(t), `${held} held frames`).toEqual([1]);
+    }
+  });
+
+  // Pages slower than 10 fps, the time following the ratio from the cap's to the floor's: the bar is the floor at least
+  // 15 % of the cap's time under it (`sideGain`). Under the old clamp every row read 100 against 100 and went to the cap.
+  it.each([
+    ['CPU-bound: 250 ms a frame at the cap and at the floor', 250, 250, 1],
+    ['170 ms at the cap, 150 ms at the floor (under the bar: 144.5 is not over 150)', 170, 150, 1],
+    ['180 ms at the cap, 150 ms at the floor (over the bar: 153 is over 150)', 180, 150, 0.5],
+    ['120 ms at the cap, 100 ms at the floor (over the bar: 102 is over 100)', 120, 100, 0.5],
+  ])('AQ-17 fold, a page slower than 10 fps -- %s -- ends where the pixels say', (_what, capMs, floorMs, end) => {
+    const a = new AdaptiveRatio(1), t = target();
+    a.start(t);
+    sim(a, t, 120_000, (_at, r) => floorMs + (capMs - floorMs) * (r - 0.5) / 0.5);
+    expect(t.pixelRatio()).toBeCloseTo(end, 9);
+    expect(a.bound()).toBe(end === 1 ? 'not-pixels' : 'pixels');
+  });
+
+  // The side reading's own bound: 45 s after the floor was read the cap's check is long over; a page the reading saw
+  // as helped is on its way back down by then, one it saw as not helped stands at the cap.
+  it.each([
+    ['under a second (900 ms at the cap, 450 ms at the floor): read as they are, the trade helps', 900, 450, 'pixels'],
+    ['over a second (3 s at the cap, 1.5 s at the floor): each a second, a stall and no rate -- alike', 3000, 1500, 'not-pixels'],
+  ] as const)('AQ-17: the side test reads a frame up to a second -- %s', (_what, capMs, floorMs, bound) => {
+    const a = new AdaptiveRatio(1), t = target();
+    a.start(t);
+    const page = (_at: number, r: number): number => floorMs + (capMs - floorMs) * (r - 0.5) / 0.5;
+    sim(a, t, 600_000, page, () => a.bound() !== 'unknown');             // to the floor's reading
+    expect(t.pixelRatio()).toBe(1);                                       // back at the cap for its check
+    sim(a, t, t.at + 45_000, page);
+    expect(a.bound()).toBe(bound);
+    if (bound === 'pixels') expect(t.pixelRatio()).toBeLessThan(1);
+    else expect(t.pixelRatio()).toBe(1);
+  });
+
+  // AQ-18 (the release review of v0.4.20's batch, 2026-11-11; a browser adaptation, no original): no side test on a
+  // software rasteriser (`sideTest: false`; `./autoQuality` `CLASS_SIDE_TEST_ADAPTATION`). Its frame time follows the
+  // pixels, so the floor is where a slow page belongs; the test's return to the cap is a drawing buffer of four times
+  // the pixels -- sixteen after a raised cap, the field row of that day (Microsoft Basic Render Driver: the ratio went
+  // 0.38 -> 1.5 and the context was lost seconds later). Model pages through the class, not recorded frames: the
+  // replay's legs are CPU-bound, and a replay says nothing true of a page the pixels bind.
+  const NO_SIDE = { ...ADAPTIVE_V2_ADAPTATION, sideTest: false } as const;
+  /** A page the pixels bind: `floorMs` a frame at half of `cap`, `capMs` at it, linear in the ratio (and on past the cap). */
+  const pixelPage = (cap: number, capMs: number, floorMs: number) => (_at: number, r: number): number => floorMs + (capMs - floorMs) * (r - cap / 2) / (cap / 2);
+
+  it.each([
+    ['the rendered run\'s page (260 ms a frame at the cap, 115 ms at the floor)', 260, 115, 120_000],
+    ['a page faster than 10 fps (60 ms at the cap, 40 ms at the floor)', 60, 40, 120_000],
+    ['a page slower than 0.85 s at its floor (3 s at the cap, 900 ms at the floor: read as not helped, and re-tested at 60, 120, 240 s)', 3000, 900, 900_000],
+  ])('AQ-18: with the side test off %s goes to its floor and never returns to the cap', (_what, capMs, floorMs, until) => {
+    const a = new AdaptiveRatio(1, NO_SIDE), t = target();
+    a.start(t);
+    sim(a, t, until, pixelPage(1, capMs, floorMs));
+    expect(t.pixelRatio()).toBeCloseTo(0.5, 9);
+    expect(ratios(t).slice(1).every((r) => r < 1)).toBe(true);            // after `start`'s cap, never the cap again
+    expect(a.bound()).toBe('unknown');
+  });
+
+  it('AQ-18: with the side test off a cap raised over a page at its floor moves nothing -- 0.375 under a cap raised 0.75 -> 1.5 (the field row\'s ratios)', () => {
+    const a = new AdaptiveRatio(0.75, NO_SIDE), t = target();
+    a.start(t);
+    const page = pixelPage(0.75, 220, 60);
+    sim(a, t, 60_000, page);
+    expect(t.pixelRatio()).toBeCloseTo(0.375, 9);
+    const changes = t.set.length;
+    a.setCap(1.5);                                                        // the preset to Quality on a 150 % display
+    sim(a, t, t.at + 60_000, page);
+    expect(t.set.length).toBe(changes);
+    expect(t.pixelRatio()).toBeCloseTo(0.375, 9);
+  });
+
+  it('AQ-18: `sideTest: true` is the side test as it was -- the rendered run\'s page takes the same changes as under the default options', () => {
+    const changes = (opts?: ConstructorParameters<typeof AdaptiveRatio>[1]): [number, number][] => {
+      const a = new AdaptiveRatio(1, opts), t = target();
+      a.start(t);
+      sim(a, t, 120_000, pixelPage(1, 260, 115));
+      return t.set;
+    };
+    expect(changes({ ...ADAPTIVE_V2_ADAPTATION, sideTest: true })).toEqual(changes());
+    expect(changes().some(([at, r]) => at > 0 && r === 1)).toBe(true);    // and under them that page does visit the cap
+  });
+
+  it('AQ-17: the page of the rendered run (pixel-bound and slower than 10 fps at its floor: 260 ms a frame at the cap, 115 ms at the floor), handed its real frame times, ends at the floor with the trade found to help', () => {
+    const a = new AdaptiveRatio(1), t = target();
+    a.start(t);
+    let low = 0;
+    sim(a, t, 100_000, (_at, r) => { const ms = 115 + 145 * (r - 0.5) / 0.5; if (r <= 0.5 + 1e-9) low += ms; return ms; });
+    expect(t.pixelRatio()).toBeCloseTo(0.5, 9);
+    expect(a.bound()).toBe('pixels');
+    expect(low / t.at).toBeGreaterThan(0.5);
   });
 
   it('AQ-8 fold 4, its cost: a GPU-bound page (55 ms at the cap, 24 ms at the floor, linear between) still ends at the floor, with exactly one return to the cap for the comparison', () => {
@@ -724,5 +900,16 @@ describe("PAR-12: the contract's pixel ratio (./matchRenderer)", () => {
     expect(ratioTargetOf(withRatio)).toBe(withRatio);
     expect(ratioTargetOf(base)).toBeNull();
     expect(ratioTargetOf(null)).toBeNull();
+  });
+});
+
+// AQ-17: the three pages that run the scale (the test room, the match, the Forge) each hand it the frame's real seconds,
+// never the `dt` their camera steps by (clamped at 0.1 s: "a backgrounded tab must not teleport the camera").
+describe('AQ-17: every page hands the dynamic render scale the frame\'s real time', () => {
+  const src = (f: string): string => readFileSync(resolve(import.meta.dirname, '../src', f), 'utf8');
+  it.each(['main.ts', 'matchMount.ts', 'forge/page.ts'])('%s: `adaptiveRatio.frame` is given the real seconds, not the clamped `dt`', (f) => {
+    const calls = src(f).match(/adaptiveRatio\.frame\(([^,]+),/g) ?? [];
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatch(/^adaptiveRatio\.frame\((frameTime\.real\(\)|realDt),$/);
   });
 });

@@ -1,4 +1,4 @@
-import { DISCORD_INVITE, DISCORD_LABEL, discordMark } from '../discord';
+import { DISCORD_INVITE, DISCORD_LABEL, discordMark, GITHUB_LABEL, GITHUB_REPO, githubMark, isCommunityAct } from '../discord';
 import { esc, ico } from '../icons';
 import {
   CATS, COMING_WORD, themePicks, DISC_SOURCES, discSource, homeItems, overlayDiscUse, selectedRoom, type Adapters, type ConsoleState, type HomeItem,
@@ -176,6 +176,20 @@ function discordRowHtml(s: ConsoleState, x: HomeItem, i: number, focused: number
 }
 
 /**
+ * The owner, 2026-11-12: "Add a github link beside the discord one with the same icon set on the launcher main menu".
+ * Home's GitHub row, right after the Discord row and drawn as it is (`discordRowHtml`): the phone's item, hidden above
+ * the phone rule where the header's GitHub icon is the stop -- shown, and the stop, up to `../discord` GITHUB_ROW_PX
+ * (`githubRow`; the review's header measurement, 2026-11-12). A browser adaptation (OT.R28).
+ */
+function githubRowHtml(s: ConsoleState, x: HomeItem, i: number, focused: number, githubRow: boolean, view: number): string {
+  const lit = githubRow && i === focused;
+  return `<li class="cx-github-row"><a class="cx-item${lit ? ' is-focused' : ''}${above(i, view) ? ' is-above' : ''}" href="${GITHUB_REPO}" target="_blank" rel="noopener noreferrer" aria-label="${esc(GITHUB_LABEL)}" data-act="github" data-i="${i}" data-fk="home-${s.cat}-${i}">
+          <span class="cx-item__icon">${githubMark()}</span>
+          <span class="cx-item__text"><span class="cx-item__title">${esc(x.title)}</span><span class="cx-item__sub">${esc(x.sub)}</span></span>
+        </a></li>`;
+}
+
+/**
  * LR-23 (LR.R22; the mockup's list, S2 Launcher v2.dc.html line 946: `i < sel - 1 ? 0`): on the launcher page's Home a
  * row above the one before the focused one is hidden as the list moves up (`../console.css`, the `--cx-list-shift` the
  * list carries); since LR-39 (LR.R32) on the overlay's Home too (it is the page's).
@@ -187,8 +201,9 @@ const above = (i: number, focused: number): boolean => i < focused - 1;
  * box -- the action, a divider, the cog partition -- lit as a focused item is (`is-lit`, `../console.css`) while the
  * action has the focus, so the frame and the pad's ring enclose both; the action stays the row's one focus stop.
  */
-function itemHtml(s: ConsoleState, a: Adapters, x: HomeItem, i: number, focused: number, narrow: boolean, view: number): string {
+function itemHtml(s: ConsoleState, a: Adapters, x: HomeItem, i: number, focused: number, narrow: boolean, view: number, githubRow = narrow): string {
   if (x.act === 'discord') return discordRowHtml(s, x, i, focused, narrow, view);
+  if (x.act === 'github') return githubRowHtml(s, x, i, focused, githubRow, view);
   // CX-16: one focus -- while the source's dropdown is open its option has it, not the item (LR-23: on the launcher page the
   // dropdown hangs from the legend chip's cog, whichever item is focused; LR-39: the overlay's Home is the page's).
   // LR-36: while Play's launch check is open its row has the focus, not the item.
@@ -490,7 +505,7 @@ export function keepRailCentred(doc: Document): void {
  * `bump` (LR-1, LR.R3): a press past an end of the rail or of the list, drawn by the page's sheet as the artifact's bump
  * (`./frame` `edgeBump`); absent, none.
  */
-export function homeHtml(s: ConsoleState, a: Adapters, narrow = false, bump: { rail: string | null; list: string | null } = { rail: null, list: null }): string {
+export function homeHtml(s: ConsoleState, a: Adapters, narrow = false, bump: { rail: string | null; list: string | null } = { rail: null, list: null }, githubRow = narrow): string {
   const cat = CATS[s.cat]!;
   const items = homeItems(cat.id, s, a);
   const focused = s.item[s.cat] ?? 0;
@@ -517,7 +532,15 @@ export function homeHtml(s: ConsoleState, a: Adapters, narrow = false, bump: { r
   // LR-29 (matrix-8's follow-up; a browser adaptation): above the phone rule the Discord row is hidden and the header icon is
   // that stop (LATER 291, `./header` `discordPad`), so the list is held where it stood at the row before it -- it neither
   // slides up to a row nobody sees (hiding Play and Memory card) nor lights Server status: the icon carries the pad's ring.
-  const view = !narrow && items[focused]?.act === 'discord' ? Math.max(0, focused - 1) : focused;
+  // The GitHub row (the owner, 2026-11-12) is hidden there too, its stop the header's GitHub icon: at either stop the
+  // list holds at the row before the first of the two.
+  // Between the phone rule and GITHUB_ROW_PX (`githubRow`) the GitHub row is shown and is its stop: the list slides to it,
+  // counted without the hidden Discord row before it (it takes no height), so the row before it drawn stays in view.
+  const firstLink = items.findIndex((x) => isCommunityAct(x.act));
+  const at = items[focused]?.act;
+  const view = narrow ? focused
+    : at === 'github' && githubRow ? Math.max(0, focused - 1)
+      : isCommunityAct(at) ? Math.max(0, firstLink - 1) : focused;
   const shift = ` style="--cx-list-shift: ${Math.max(0, view - 1)}"`;
   // LR-36 (LR.R30): Play's launch check, open, over the page's Home (`is-check`: the rail and the list fade under it);
   // never in the overlay, which has no Play and no START (`../grammar` `openCheck`, `start`).
@@ -537,7 +560,7 @@ export function homeHtml(s: ConsoleState, a: Adapters, narrow = false, bump: { r
     </nav>
     <div class="cx-home__body">
       <ul class="cx-list" role="list" aria-label="${cat.label}" data-scroll data-key="list-${cat.id}"${shift}${bump.list ? ` data-bump="${bump.list}"` : ''}>
-        ${items.map((x, i) => itemHtml(s, a, x, i, focused, narrow, view)).join('')}
+        ${items.map((x, i) => itemHtml(s, a, x, i, focused, narrow, view, githubRow)).join('')}
       </ul>
     </div>
     ${check ? launchCheckHtml(s, a) : ''}

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { CHECK_REPORT_SCHEMA, CHECK_REPORT_VERSION, DIAGNOSTIC_SCHEMA, DIAGNOSTIC_VERSION,
-  ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, validatePack, type BufferedPackFile, type PackContext, type PackRef } from '@s2u/creator-contracts';
+  ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, validatePack, type BufferedPackFile, type PackContext, type PackRef } from '@s2u/creator-contracts';
 import { createPackRegistry, type PackRegistryOptions } from '../src/packs/registry';
 import { idbPackDatabase, PACKS_DB, PACKS_SCOPES } from '../src/packs/storage';
 import { idbModLibrary, memoryModLibrary } from '../src/mods/store';
@@ -9,7 +9,7 @@ import { memoryUploadBackend, UploadedPacks } from '../src/texturePackStore';
 import { validateLegacyPack } from '../src/packs/adapters';
 
 // Published build constants; no inferred engine version or application-provided handler claims.
-const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: [] };
+const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: [] };
 const bytes = (text: string) => new TextEncoder().encode(text);
 const legacyMod = (): BufferedPackFile[] => [{ path: 'mod.json', bytes: bytes(JSON.stringify({
   format: 's2u-mod', formatVersion: 1, id: 'native', name: 'Native', version: '1', author: 'Fixture', description: '',
@@ -214,7 +214,7 @@ describe('framework pack registry (product adaptation)', () => {
     const manifest = JSON.parse(new TextDecoder().decode(manifestFile.bytes));
     manifest.dependencies = [{ archive: 'RUN/MP51.ZDB', sha256: 'a'.repeat(64) }];
     pack.files[manifestIndex] = { path: manifestFile.path, bytes: bytes(JSON.stringify(manifest)) };
-    const noArchives: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+    const noArchives: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
     const checked = await validatePack(pack.files, noArchives);
     expect(checked).toMatchObject({ ok: false, report: { status: 'incomplete' } });
     const api = createPackRegistry({ ...config, context: noArchives });

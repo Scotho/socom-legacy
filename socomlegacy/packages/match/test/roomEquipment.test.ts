@@ -962,6 +962,71 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     expect(s.a.of('blast')).toHaveLength(1);
   });
 
+  /**
+   * MINES-ROOM (research 235 §8; H1 of the mines investigation of 2026-11-12): the PMN's trip is told to every
+   * page, as C4's going off is. The original has one authority per mine -- the owner's console tests it
+   * (`FUN_005bc730` D:L474105-474108, `FUN_00543930` D:L410281-410305) and sends the trip on the wire (`FUN_003c7170`
+   * D:L318487-318496) -- and here the room is that authority. Was: the room tripped and blasted, and broadcast nothing; a
+   * page then tripped its own copy only against a body its snapshot showed alive, so the others, a spectator and the
+   * replay mostly saw no explosion and a ghost mine stayed drawn.
+   */
+  describe('the PMN\'s trip is broadcast as `detonate` (research 235 §8)', () => {
+    /** Player 1's PMN at [8, 0, 0], armed (8 s) with both players away; a spectator (9) watching; player 2 then on it. */
+    const tripped = (tough: boolean) => {
+      const recorded: ServerEvent[] = [];                                     // the replay's recorder (`RoomRecorder.event`)
+      const recorder = { snapshot: () => undefined, players: () => undefined, event: (_tick: number, ev: ServerEvent) => { recorded.push(ev); } };
+      const s = setup(kit(62, 15, 153, 158, 255), kit(62, 15, 121, 126, 255), [0, 0, 0], [300, 0, 0], map(), { recorder } as never);
+      const w = new Client();
+      s.room.hello(9, w, { type: 'hello', version: PROTOCOL_VERSION, name: 'P9', map: 'MP99', watch: true }, '');
+      expect(w.of('welcome')[0]!.role).toBe('spectator');
+      s.send(1, 'PMN Mine', [8, 0, 0], [1, 0, 0]);
+      const pid = s.a.of('placed').find((e) => e.kind === 'PMN Mine')!.pid;
+      s.room.player(1)!.sim.walker.place(-300, 20, 0);
+      s.run(8.5);                                                             // armed, no one near
+      expect(s.b.of('blast')).toHaveLength(0);
+      if (tough) { const h = s.room.player(2)!.health; h.hp = h.hp.map(() => 1e6); h.max = h.hp.map(() => 1e6); }
+      s.room.player(2)!.sim.walker.place(8, 20, 0);                            // the SEAL walks onto it
+      s.run(1);
+      expect(s.b.of('blast')).toHaveLength(1);
+      return { s, w, pid, recorded };
+    };
+
+    it('a lethal walk-in: both players, the spectator and the replay record get `detonate {pid, by: null}` once, before the kill', () => {
+      const { s, w, pid, recorded } = tripped(false);
+      expect(s.room.player(2)!.alive).toBe(false);
+      for (const events of [s.a.events, s.b.events, w.events, recorded]) {
+        expect(events.filter((e) => e.type === 'detonate')).toEqual([{ type: 'detonate', pid, by: null }]);
+        const det = events.findIndex((e) => e.type === 'detonate');
+        const kill = events.findIndex((e) => e.type === 'kill' && e.victim === 2);
+        expect(det).toBeGreaterThanOrEqual(0);
+        expect(kill).toBeGreaterThan(det);
+      }
+    });
+
+    it('a trip that does not kill: the same `detonate`, to every page', () => {
+      const { s, w, pid } = tripped(true);
+      expect(s.room.player(2)!.alive).toBe(true);
+      for (const c of [s.a, s.b, w]) expect(c.of('detonate')).toEqual([{ type: 'detonate', pid, by: null }]);
+    });
+
+    it('a claymore is no proximity trip: walked over, nothing; set off by its Detonator, no `detonate` (the pages run the Detonator)', () => {
+      expect(CLAYMORE.proximity).toBeUndefined();
+      const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 153, 255), [300, 0, 0], [0, 0, 0]);
+      s.send(2, 'Claymore', [8, 0, 0], [1, 0, 0]);
+      s.room.player(1)!.sim.walker.place(8, 20, 5);                            // the Terrorist stands on it
+      s.run(10);
+      expect(s.a.of('blast')).toHaveLength(0);
+      s.room.player(1)!.sim.walker.place(150, 20, 0);
+      s.room.player(2)!.sim.walker.place(-100, 20, 0);                        // back off behind it, then fire the Detonator
+      s.run(0.5);
+      s.send(2, 'Detonator', s.eye(2), [0, 0, 0]);
+      s.run(0.5);
+      expect(s.a.of('blast')).toHaveLength(1);
+      expect(s.a.of('detonate')).toEqual([]);
+      expect(s.b.of('detonate')).toEqual([]);
+    });
+  });
+
   it('C4: refused away from a C4 target; at one, still, set down and gone off at its Timer1 (6 s), 18 in 5 m', () => {
     const away = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [0, 0, 0], [0, 0, -300], barrierMap());
     away.plant(2, [0, 0.1, -290], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });

@@ -55,6 +55,9 @@ never a pass.
 | `pack.CONTRACT_FLOOR` | A `rules` pack's `contract` admits an engine before `RULES_PACK_CONTRACT_FLOOR`. |
 | `pack.RULES_MEMBER_INVALID` | A `rules` member is not a UTF-8 JSON object, or its `capabilities` is not a list of `{slot, handler, actions?}`. |
 | `pack.CAPABILITY_MISMATCH` | A `rules` member's capabilities and the manifest's `handlers` claims disagree: a capability with no matching claim or action, or a claim on a `behaviour.` slot that no rules member names. |
+| `pack.CONTRACT_FIELD` | A contract `0.2.0` field (`license`, `authors`, `extensions` or a row's `provenance`) in a pack whose `contract` admits an engine before 0.2.0. State `^0.2.0`, or leave the field out. |
+| `pack.PROVENANCE_REFUSED` | A member whose `provenance` says `extracted`: game content read off a disc is never a pack member. |
+| `pack.KIND_NOT_APPLIED` | A warning, not an error: the pack holds the reserved `plugin` kind, which no page applies. The pack still passes and is stored; nothing in this build runs it. |
 | `pack.CHECK_SKIPPED` | A note, not an error: a check could not run because the build gave it nothing to check against (the available packs, your disc archives or the handler list). The report is then incomplete, never a pass. |
 
 ## The Thunderstore export and checker (`store.`)
@@ -68,6 +71,7 @@ never a pass.
 | `store.DESCRIPTION_TOO_LONG` | The store description is over 250 characters. |
 | `store.WEBSITE_INVALID` | The `website_url` given is neither empty nor an http or https address. |
 | `store.DEPENDENCY_UNRESOLVED` | No release of a dependency inside its range was given to pin. |
+| `store.DEPENDENCY_TEAM_UNKNOWN` | The export was not given the store team that published a dependency, so it cannot write the pin. The team is never guessed. |
 | `store.ARCHIVE_DEPENDENCY` | A note, not an error: a disc archive dependency has no store form and stays in `s2u-pack.json`. |
 | `store.FILE_MISSING` | A required root file is not at the package's root. |
 | `store.MANIFEST_INVALID` | The store `manifest.json` is not a UTF-8 JSON object within the manifest bound, or one of its keys breaks its rule. |

@@ -32,8 +32,8 @@ const play = (): HTMLElement => document.querySelector<HTMLElement>('#stage .cx-
 describe('LR-13 A: Home\'s list is Play / Memory card / Server status / Discord', () => {
   it('the launcher page\'s Home list', () => {
     const p = boot();
-    expect(titles()).toEqual(['Play SOCOM II', 'Server status', 'Discord']);   // LR-37 (4): the Memory card row gone from the page
-    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => x.act)).toEqual(['play', 'server', 'discord']);
+    expect(titles()).toEqual(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);   // LR-37 (4): the Memory card row gone from the page
+    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => x.act)).toEqual(['play', 'server', 'discord', 'github']);
   });
 
   it('the checks are Disc, Controller and Microphone, in that order (the old steps, their acts kept)', () => {
@@ -45,7 +45,7 @@ describe('LR-13 A: Home\'s list is Play / Memory card / Server status / Discord'
   it('over a game the overlay\'s Home is the page\'s list, Resume game in Play\'s place (was: its own list, LR.R18)', () => {
     const p = boot();
     p.ctl.S.mode = 'overlay';
-    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => x.title)).toEqual(['Resume game', 'Server status', 'Discord']);
+    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => x.title)).toEqual(['Resume game', 'Server status', 'Discord', 'GitHub']);
   });
 });
 

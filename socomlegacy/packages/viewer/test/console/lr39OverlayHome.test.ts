@@ -48,8 +48,8 @@ describe('LR-39 (LR.R32): the overlay\'s Home is the landing page\'s Home', () =
     page!.dispose(); page = null; mountShell(document);
     const o = boot('overlay');
     const items = homeItems('home', o.ctl.S, o.ctl.A);
-    expect(pageItems.map((x) => x.title)).toEqual([PLAY_LABEL, 'Server status', 'Discord']);
-    expect(items.map((x) => x.title)).toEqual([RESUME_LABEL, 'Server status', 'Discord']);
+    expect(pageItems.map((x) => x.title)).toEqual([PLAY_LABEL, 'Server status', 'Discord', 'GitHub']);
+    expect(items.map((x) => x.title)).toEqual([RESUME_LABEL, 'Server status', 'Discord', 'GitHub']);
     expect(items[0]).toMatchObject({ icon: 'play', act: 'resume' });
     expect(items.slice(1)).toEqual(pageItems.slice(1));
     expect(items.some((x) => x.title === 'Memory card' || x.act === 'play')).toBe(false);   // LR-37 (4): the page has none

@@ -656,6 +656,34 @@ export class UiGpuBackend {
   }
 
   /**
+   * UIGPU-SELFCHECK (review F2): one rectangle of the frame target, `x, y` its top-left corner in frame pixels (frame row
+   * `y` = GL row `y`, no flip, as `readPixels`), its bytes top row first, as the GPU holds them. A read-back stalls the
+   * pipeline; this one is the self-check's small probe only. A lost context reads nothing and leaves the bytes zero
+   * (WebGL 1.0 section 5.15.3): the caller asks `isContextLost` after it.
+   */
+  readPixelsIn(x: number, y: number, width: number, height: number): Rgba {
+    this.live();
+    const size = this.size;
+    if (!size) throw new Error('UiGpuBackend.readPixelsIn: no frame to read');
+    // Delta review nit: inside a self-check this throw would be counted as an `error` loss and rebuilt (up to the loss
+    // limit); it cannot happen with the fixed probe (`UI_GPU_SELF_CHECK_ADAPTATION.region`, inside every frame target).
+    if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > size.width || y + height > size.height) {
+      throw new Error(`UiGpuBackend.readPixelsIn: ${width}x${height} at (${x},${y}) is not inside the ${size.width}x${size.height} frame`);
+    }
+    const gl = this.gl;
+    const out = new Uint8Array(width * height * 4);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.framebuffer);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.PACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.PACK_SKIP_ROWS, 0);
+    gl.pixelStorei(gl.PACK_SKIP_PIXELS, 0);
+    gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, out);
+    return { width, height, data: new Uint8ClampedArray(out.buffer) };
+  }
+
+  /**
    * GM-16: the frame target's bytes read back asynchronously (`UiGpuReadback`): the read and its fence issued now, in
    * the command stream after the frame's draw, so a later frame's draw does not reach them; nothing waits.
    */

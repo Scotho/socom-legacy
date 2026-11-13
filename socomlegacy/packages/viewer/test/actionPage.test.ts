@@ -61,9 +61,13 @@ describe.skipIf(!MP72)(`Crossroads' switches on the page (XR-04)${MP72 ? '' : ` 
     expect(Math.hypot(t.surface.point[0] - 1089.5, t.surface.point[2] - 1851.6)).toBeCloseTo(20, 0);
     expect(t.record.bitmap).toBe('action_pull_lever.tif');
     expect(page.prompt()).toBe('lever');
+    // G1 (action-labels review; reading, pending review): its record carries no descriptor, so its caption is the SWITCH
+    // type's FLIP SWITCH (`FUN_002209c0` D:L74567-74582, `FUN_002b48e0` D:L156982-156984).
+    expect(page.shownCaption()).toBe('FLIP SWITCH');
     at([1089.5, 90.3, 1831.6 + 31]);
     expect(page.target()).toBeNull();
     expect(page.prompt()).toBeNull();
+    expect(page.shownCaption()).toBeNull();
     at([1089.5, 90.3, 1831.6 + 29.9]);
     expect(page.target()?.action).toBe(index);
   });

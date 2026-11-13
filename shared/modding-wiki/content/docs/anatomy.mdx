@@ -72,8 +72,9 @@ Two values come from the build, not from you:
 
 - `target` must be exactly the build's disc revision, `SCUS-97275` (the contract's `PACK_TARGET_US`). An older
   spelling is refused, and the refusal names the right one.
-- `contract` is a version range that must include the build's engine contract version, `0.1.2` today (the contract's
-  `ENGINE_CONTRACT_VERSION`). A pack of kind `rules` must not admit any version before `0.1.1`.
+- `contract` is a version range that must include one of the engine contract versions the build reads: the newest is
+  `0.2.0` today (the contract's `ENGINE_CONTRACT_VERSION`), and the whole list is `ENGINE_CONTRACT_VERSIONS`, so a
+  `^0.1.1` pack still reads. A pack of kind `rules` must not admit any version before `0.1.1`.
 
 `sides` is `client`, `server` or `both`. The check tests only that it is one of the three; nothing else reads it yet.
 

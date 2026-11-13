@@ -136,6 +136,64 @@ describe('mountActions: the action button and its pages, one part', () => {
     const none = rig().acts;
     expect(none.prompt(true)).toBeNull();
   });
+  // G1 of the action-labels review (`agent-mail/evidence/v0420/action-labels-review/REPORT.md` s3; reading, pending
+  // review): the door's entry carries its record's caption -- the descriptor, else OPEN DOOR, or CLOSE DOOR when its valve
+  // is non-zero (`FUN_002209c0` D:L74567-74582, `FUN_002b48e0` D:L156975-156979) -- set when the offered list's mask
+  // changes (`FUN_0021d9d0` D:L73389-73396 calls `FUN_0021f850`, which calls `FUN_002209c0` per offered bit), held while
+  // it stands: a door opening under the player's eyes keeps OPEN DOOR until the list changes.
+  it('G1: the door entry carries OPEN DOOR / CLOSE DOOR by its valve, or its descriptor, latched while the list stands', () => {
+    const record = (descriptor: string) => ({
+      node: 'bdoor_4', path: 'worldmodel/bdoor_4', at: [0, 0, 0], type: 'DOOR', typeCode: 0, valve: 'bdoor_4', anims: [], team: null,
+      range: 30, elevation: -1, points: 0, bitmap: 'action_door_open.tif', descriptor,
+    });
+    let valve = 0, target: number | null = 0;
+    const doorRig = (descriptor: string) => rig({
+      doors: { target: () => target, action: () => false, targetState: () => (target === null ? null : { node: 'bdoor_4', valve }) },
+      grenade: { c4Target: () => ({}), plantC4: () => false, cancelMenuHold: () => {} },
+      map: () => ({ meta: { actions: [record(descriptor)] } }) as never,
+    }).acts;
+    const acts = doorRig('');
+    expect(acts.prompt(true)).toEqual([{ prompt: 'door', caption: 'OPEN DOOR' }, { prompt: 'c4' }]);
+    valve = 1;                                                          // the door swings open under the reticle
+    expect(acts.prompt(true)).toEqual([{ prompt: 'door', caption: 'OPEN DOOR' }, { prompt: 'c4' }]);   // the mask stands
+    acts.lanes(cross(false), { ...cross(true), leanLeft: true }, 1 / 60);   // the d-pad's turn: the same mask
+    expect(acts.prompt(true)).toEqual([{ prompt: 'c4' }, { prompt: 'door', caption: 'OPEN DOOR' }]);
+    target = null;                                                      // the door leaves the list: the mask changes
+    expect(acts.prompt(true)).toEqual([{ prompt: 'c4' }]);
+    target = 0;                                                         // back in the list (the picker's order again)
+    expect(acts.prompt(true)).toEqual([{ prompt: 'door', caption: 'CLOSE DOOR' }, { prompt: 'c4' }]);
+    valve = 0;
+    expect(doorRig('BACK DOOR').prompt(true)).toEqual([{ prompt: 'door', caption: 'BACK DOOR' }, { prompt: 'c4' }]);
+    expect(acts.prompt(false)).toBeNull();
+  });
+  // G1: the switch's entry carries its latched record's caption -- the descriptor, else FLIP SWITCH (`FUN_002b48e0`
+  // D:L156982-156984). A switch whose bitmap is not a HUD icon stays the generic `action` with no caption (G3, not this).
+  it('G1: the switch entry carries FLIP SWITCH or its descriptor; the action-icon fallback carries none', () => {
+    const LEVER = 'worldmodel/lever';
+    const world = (o: { bitmap: string; descriptor: string }) => {
+      const wall: WorldPoly = {
+        modelName: 'worldmodel', path: `${LEVER}/q`, region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
+        points: Float32Array.from([-50, 0, 10, 50, 0, 10, 50, 50, 10, -50, 50, 10]),
+      };
+      const params: GridParams = { atomCount: 1024, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
+      const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: LEVER, first: 0, count: 1 }];
+      const grid = scene.buildGrid(params, [], [], [wall], owners);
+      const record = {
+        node: 'lever', path: LEVER, at: [0, 0, 10], type: 'SWITCH', typeCode: 2, valve: '', anims: [], team: null,
+        range: 1000, elevation: -1, points: 0, ...o,
+      };
+      return { grid, meta: { actions: [record] }, valve: () => 0, revision: 0 };
+    };
+    const offer = (o: { bitmap: string; descriptor: string }) => {
+      const r = rig({ world: () => world(o) as never });
+      (r.walk as { lookAim: () => unknown }).lookAim = () => ({ eye: [0, 20, 30], far: [0, 20, 0] });
+      (r.walk as { feet: () => unknown }).feet = () => [0, 0, 30];
+      return r.acts.prompt(true);
+    };
+    expect(offer({ bitmap: 'action_pull_lever.tif', descriptor: '' })).toEqual([{ prompt: 'lever', caption: 'FLIP SWITCH' }]);
+    expect(offer({ bitmap: 'action_pull_lever.tif', descriptor: 'GATE SWITCH' })).toEqual([{ prompt: 'lever', caption: 'GATE SWITCH' }]);
+    expect(offer({ bitmap: '', descriptor: 'GATE SWITCH' })).toEqual([{ prompt: 'action' }]);
+  });
   // LkPaioX5 part 2 (b): a hostage's order comes captioned with its record's text (`./hostagePage` ESCORTEE_PROMPTS).
   it('LkPaioX5 (b): the escortee entry carries its order\'s text for the caption', () => {
     const { acts } = rig({ hostages: { offer: () => ({ text: 'HOLD POSITION' }), fire: () => true } });

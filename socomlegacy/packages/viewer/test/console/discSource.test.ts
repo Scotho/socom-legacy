@@ -117,7 +117,7 @@ function live(deps: DiscDeps = {}, over: Partial<Adapters> = {}) {
 describe('CX-16: one Disc action, its source behind a settings icon', () => {
   it('Home lists one source action, Disc -- no "Choose disc folder" item -- and a settings icon beside it, in its row', () => {
     page = bootConsole(document, window, sampleAdapters(), { keymap: true });
-    expect(items().map((i) => i.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord']);   // LR-13
+    expect(items().map((i) => i.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);   // LR-13
     onDisc();
     expect(document.querySelectorAll('.cx-srcbtn')).toHaveLength(0);            // LR-24: no cog on the page (was: one)
     const g = gear()!;

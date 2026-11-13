@@ -1283,6 +1283,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (held || !flushed) {
       exchange.hold(new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]));   // `./main`'s: WEAPON EXCHANGE's edges against the pad as it is; MP-1 F2: the touch pad's too
       armoryPart.stick(polled, new Set(), false);    // AM-2's review F1: the stick armed through the hold, as the buttons' edges are -- no flick at the release
+      exchange.stick(polled);                        // EXCHANGE-STICK (the owner's ruling 2026-11-12, an adaptation): read through the hold, no push at the release
       ({ merged: padMerged, game: padGame } = flushedPad(touch.input, pad));
       // `./main`'s: a button a screen took before the hold is still owned -- the baseline holds it as released.
       padMerged = exchange.input.frame(padMerged, false);
@@ -1295,6 +1296,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     const down = new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]);   // MP-1 (FI.R3): the touch pad's buttons are a pad's
     o.settings?.frame(now, down, polled, touch.pad);
     const edges = exchange.edges(down);               // `./main`'s: the buttons pressed this frame; the menu's context kept current
+    exchange.stick(polled);                           // EXCHANGE-STICK (the owner's ruling 2026-11-12, an adaptation): open, the left stick a d-pad press
     // TAUNTS (`./matchTaunts`, research 301 §7): open, the Chat menu holds the pad -- the game's lanes take nothing.
     const start = startMenu.pad(down, mergeInput(touch.input, pad), dt);   // MATCH-01: the START menu first; up, the pad is its own
     matchAbort.frame(dt);
@@ -1456,7 +1458,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (import.meta.env.DEV && devStats) lastOverlays = frameOverlaysOf(firearm.effects.lights); if (import.meta.env.DEV && devStats) lastOverlaysCulled = frameOverlaysCulledOf(firearm.effects.lights);   // CPS H10: the overlays the frame drew from (a state: `./renderStats`); the overlay cull: of those, the ones its render left out
     if (import.meta.env.DEV && devStats && renderer) (gpuTimer ??= new GpuTimer(renderer.renderer as unknown as TimestampRendererLike)).frame();   // CPS GPU time: the frame's passes resolved, never awaited
     matchDiag.frame(now);                              // XBOX-DIAG: the ring's sample every 2 s, the input report at 45 s
-    if (adaptiveRatio.frame(dt, now, ratioTargetOf(renderer), (o.blocked?.() ?? false) || picture === 'ps2')) fpsReadout?.tick();   // PAR-12: `./main`'s frame tail; the PS2 frame's size is the point; cq41E0VR's readout on its tick
+    if (adaptiveRatio.frame(frameTime.real(), now, ratioTargetOf(renderer), (o.blocked?.() ?? false) || picture === 'ps2')) fpsReadout?.tick();   // PAR-12: `./main`'s frame tail; the PS2 frame's size is the point; cq41E0VR's readout on its tick
     pageFrameSampler().frame(frameTime.real() * 1000, 'match', renderer, canvas, map, net);   // CPS-5 (a browser adaptation): the performance line's sampler, the frame's real ms
     if (autoProbe && videoV2.get().preset !== 'auto') { autoProbe.dispose(); autoProbe = null; }   // VS-10 F2: Automatic left -- the probe fed nothing more
     if (autoProbe && firstDrawn && worldDrawn && picture !== 'ps2' && !(o.blocked?.() ?? false)) autoProbe.frame(frameTime.real() * 1000, (ratioTargetOf(renderer)?.pixelRatio() ?? 0) >= adaptiveRatio.ratioCap());   // VS-7: drawn frames only, after the first world frame -- `worldDrawn` waits for the scene's warm (`warmEffects`) only, not `warmThrows` / `warmShadow` (review F1)

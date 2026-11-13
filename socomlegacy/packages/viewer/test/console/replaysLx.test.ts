@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { replaysHtml } from '../../src/console/render/replays';
+import { attachMapStillFallback, replaysHtml } from '../../src/console/render/replays';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { createState, type Adapters, type ReplayRow, type ReplaysView } from '../../src/console/state';
 
@@ -69,5 +69,66 @@ describe('Profile: Replays (LR-4)', () => {
       expect(box.querySelector('.cx-item')).toBeNull();
       expect(box.querySelector('.cx-screenhead__desc')).not.toBeNull();
     }
+  });
+});
+
+/**
+ * REPLAY-STILLS (the owner, 2026-11-12, seat 2f: "replays in the "your matches" on live still say "Map picture from
+ * your disc" instead of showing the image from the disc (you can just use the ones we got for the leaderboards and
+ * cards if easy now)"): the focused replay's drawer shows its map's still -- LCM.R6's, at central's public route
+ * `/api/maps/<STEM>/still.png` (LCM-9), the same picture the match page, the player page, the leaderboard and the public
+ * replay page draw -- in the Rooms drawer's markup (`.cx-drawer__map` with an `<img>`, no `is-guide`), its `alt` the
+ * map's name. No still (a stem the route cannot answer, or one whose picture failed), the text as before, per the disc's
+ * state. A browser adaptation (product track).
+ */
+describe('Replays: the drawer\'s map still (REPLAY-STILLS)', () => {
+  const STEM_ROW = (map: string): ReplayRow => ({ ...ROW('s'), map });
+  function drawDisc(map: string, disc: 'ready' | 'empty') {
+    const A: Adapters = sampleAdapters();
+    A.replays = { ...A.replays, view: () => ({ kind: 'ok', entries: [STEM_ROW(map)] }) };
+    A.disc = { ...A.disc, state: () => disc };
+    const S = createState(A);
+    S.screen = 'replays';
+    const box = document.createElement('div');
+    box.innerHTML = replaysHtml(S, A);
+    return box.querySelector<HTMLElement>('.cx-drawer__map')!;
+  }
+
+  for (const disc of ['ready', 'empty'] as const) {
+    it(`a map with a still: the slot holds the still, alt the map's name, no guide text (disc ${disc})`, () => {
+      const slot = drawDisc('MP72', disc);
+      const img = slot.querySelector<HTMLImageElement>('img')!;
+      expect(img).not.toBeNull();
+      expect(img.getAttribute('src')).toBe('/api/maps/MP72/still.png');
+      expect(img.getAttribute('alt')).toBe('Crossroads');
+      expect([img.getAttribute('loading'), img.getAttribute('decoding')]).toEqual(['lazy', 'async']);
+      expect(slot.classList.contains('is-guide')).toBe(false);
+      expect(slot.textContent).not.toMatch(/Map picture from your disc|Needs disc/);
+      expect(slot.querySelector('.cx-drawer__name')!.textContent).toBe('Crossroads');
+    });
+  }
+
+  it('no still for the map (not a stem the route answers): the text as today, per the disc', () => {
+    for (const [disc, words] of [['ready', 'Map picture from your disc'], ['empty', 'Needs disc']] as const) {
+      const slot = drawDisc('Frostfire', disc);
+      expect(slot.querySelector('img')).toBeNull();
+      expect(slot.classList.contains('is-guide')).toBe(true);
+      expect(slot.querySelector('span')!.textContent).toBe(words);
+    }
+  });
+
+  it('a still that fails to load: the error is caught at the document, the map is remembered, the next draw is the text', () => {
+    const failed: string[] = [];
+    const detach = attachMapStillFallback(document, (stem) => { failed.push(stem); });
+    try {
+      const slot = drawDisc('MP73', 'ready');
+      document.body.append(slot);
+      slot.querySelector('img')!.dispatchEvent(new Event('error'));   // an image's error does not bubble: caught in capture
+      expect(failed).toEqual(['MP73']);
+      const again = drawDisc('MP73', 'ready');
+      expect(again.querySelector('img')).toBeNull();
+      expect(again.querySelector('span')!.textContent).toBe('Map picture from your disc');
+      slot.remove();
+    } finally { detach(); }
   });
 });

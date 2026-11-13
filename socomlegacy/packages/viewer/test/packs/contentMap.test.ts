@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { BOMB_SITE_REACH, CONTENT_MAP_CODES, CONTENT_MAP_METRES_PER_UNIT_ADAPTATION, gameplayDigest, readContentMapDefinition, type ContentMapDefinition, type ContentRef } from '@s2u/creator-contracts';
+import { BOMB_SITE_REACH, CONTENT_MAP_CODES, CONTENT_MAP_FEET_RANGE_UNITS, CONTENT_MAP_METRES_PER_UNIT_ADAPTATION, CONTENT_MAP_SPAN_METRES_ADAPTATION, gameplayDigest, readContentMapDefinition, type ContentMapDefinition, type ContentRef } from '@s2u/creator-contracts';
 import { aiCellIndex, castRay, isWallSurface, namedPoint, probeGround } from '@s2u/scene';
 import { MAP_PACK, MAP_REF, minimalMapJson, PROP_PACK } from '../../../creator-contracts/test/contentMapFixtures';
 import { groundGrid, groundPolygons } from '../../src/mover';
 import { loadAnyMap, type LoadedMap } from '../../src/loadMap';
+import { FEET_RANGE } from '../../src/net/codec';
 import { plantSite } from '../../src/net/objective';
 import { readAssetDefinition, type AssetDefinition } from '../../src/packs/content/assets';
 import { CONTENT_METRES_PER_UNIT_ADAPTATION } from '../../src/packs/content/collision';
@@ -169,6 +170,13 @@ describe('FCW-10 the committed courtyard fixture (tools/creator-import/fixtures/
 describe('FCW-10 loadMap.ts routes a content base beside the ZDB path', () => {
   it('the map and the pack prop share one scale', () => {
     expect(CONTENT_MAP_METRES_PER_UNIT_ADAPTATION).toBe(CONTENT_METRES_PER_UNIT_ADAPTATION);
+  });
+
+  it('FX-LIMITS: the content map width bound restates the wire feet range and stays inside it', () => {
+    // The feet reach FEET_RANGE units either side of the map hull centre (protocol 11): a map no wider than the span
+    // bound keeps every point of its hull, and so every standing body, inside that reach on every axis.
+    expect(CONTENT_MAP_FEET_RANGE_UNITS).toBe(FEET_RANGE);
+    expect(CONTENT_MAP_SPAN_METRES_ADAPTATION / 2).toBeLessThan(FEET_RANGE * CONTENT_MAP_METRES_PER_UNIT_ADAPTATION);
   });
 
   it('a content base reads its map member through the structured reference and loads it', async () => {

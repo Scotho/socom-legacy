@@ -98,7 +98,7 @@ const folderSource = (): void => { page!.ctl.A.disc.setSource!('folder'); onDisc
 describe('CX-10a: the folder chooser in the Disc place (since CX-16, the folder source of the one Disc action)', () => {
   it('Home lists one Disc action; with the folder source Cross is "Choose disc folder" in the legend', () => {
     boot();
-    expect(items().map((i) => i.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord']);   // LR-13 (LR.R17)
+    expect(items().map((i) => i.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);   // LR-13 (LR.R17)
     folderSource();
     expect(folderItem()).toEqual({ title: 'Disc', sub: 'A drive, a mounted image or a copy of your disc’s files', state: 'NEEDED' });
     expect(page!.ctl.S.item[HOME_CATEGORY]).toBe(0);
@@ -171,7 +171,7 @@ describe('CX-10a: the folder chooser in the Disc place (since CX-16, the folder 
     expect(folderItem()).toMatchObject({ sub: 'the disc folder SOCOM2', state: 'READY' });
     expect(page!.ctl.S.toast).toBe('Disc ready: SOCOM2');
     // CX-16: one action -- the Disc action is the folder's while the folder is the source, and names it.
-    expect(items().map((i) => i.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord']);   // LR-13 (LR.R17)
+    expect(items().map((i) => i.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);   // LR-13 (LR.R17)
   });
 
   it('a folder whose SYSTEM.CNF boots another game is refused in the reader\'s words: CHECK DISC, START blocked', async () => {

@@ -16,9 +16,9 @@ Experiments > Mods reads a store zip you downloaded yourself ([below](#the-earli
   but no command or tool calls them for a v2 pack. To make a store package of a v2 pack today you would assemble the
   zip yourself. The one tool that writes a store zip is the project's HD pack builder, for the HD texture pack
   (`tools/hdPackThunderstore.ts`).
-- **The team name is not decided yet.** Every store package belongs to a team. Until the project names ours, the
-  contract uses the stand-in `TEAM_PLACEHOLDER`. It is a valid store name, so the export's output is well formed, but it
-  is not a real team and nothing should be published under it.
+- **The team is named but not yet created.** Every store package belongs to a team. The project's is `SOCOM_Legacy`
+  (the contract's `THUNDERSTORE_TEAM`), named by the owner on 2026-11-11; it is not yet created on the store, so
+  nothing is published under it yet.
 - **The game loads nothing from Thunderstore.** It does not fetch from the store, list its packages or install from it,
   and there is no store page for the project. What it does read is a store zip you downloaded and dropped into Home >
   Experiments > Mods.
@@ -78,14 +78,14 @@ does not convert cleanly. It never truncates or renames anything to make it fit.
 | ours (`s2u-pack.json`) | the store's (`manifest.json`) | how it maps |
 |---|---|---|
 | `id` | `name` | `thunderstoreName`: every `.` and `-` becomes `_`. Our ids are lower case letters, digits, `.` and `-`, at most 64 characters; the store's names allow letters, digits and `_`, at most 128 characters. |
-| (none) | the team | The team is not in our manifest. The full store identity is `Team-Name`; today the team is `TEAM_PLACEHOLDER`. |
+| (none) | the team | The team is not in our manifest. The full store identity is `Team-Name`; the project's team is `SOCOM_Legacy`. |
 | `version` | `version_number` | `thunderstoreVersion`: our versions are SemVer, the store's strictly Major.Minor.Patch. A pre-release or build part (`1.0.0-beta.1`, `1.0.0+abc`) passes our check but cannot go to the store (`store.VERSION_INVALID`). |
 | `description` | `description` | Ours may be up to 400 characters (`PACK_DESCRIPTION_CHARS_ADAPTATION`); the store's at most 250 characters. A longer one is refused (`store.DESCRIPTION_TOO_LONG`), never cut. The export can take a shorter store description as an option. |
 | (none) | `website_url` | Our manifest cannot hold an address at all (`pack.EXTERNAL_URI`), so the export takes the store's `website_url` as an option: empty, or an http or https address (`store.WEBSITE_INVALID`). |
 | `dependencies` | `dependencies` | Each `{id, range}` becomes one exact pin, `Team-Name-x.y.z`. See below. |
 
 An example, with a made-up id: `example.paint-rules` version `1.2.0` becomes the store name `example_paint_rules`,
-version `1.2.0`, identity `TEAM_PLACEHOLDER-example_paint_rules`.
+version `1.2.0`, identity `SOCOM_Legacy-example_paint_rules`.
 
 ### Name collisions
 
@@ -99,6 +99,10 @@ Our dependencies name a range (`^1.0.0`, `>=1.2.0 <2.0.0`); the store's name one
 `{id, range}` dependency to the highest release it is given that falls inside the range. Pre-releases are never pinned,
 because they are not store versions. If no release in the range is given, the export refuses with
 `store.DEPENDENCY_UNRESOLVED`.
+
+Each pin is under the team that published that dependency, which the export is given for each dependency; your own
+team is never assumed for another pack. If a dependency's team is not given, the export refuses with
+`store.DEPENDENCY_TEAM_UNKNOWN`.
 
 A dependency on your own disc archive (`{archive, sha256}`) has no store form. It stays in `s2u-pack.json` and the
 export notes it (`store.ARCHIVE_DEPENDENCY`, a note, not an error).

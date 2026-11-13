@@ -28,7 +28,7 @@ const entry = (id: string, startedAt: string, map = 'MP2'): Record<string, unkno
 const LISTING = { replays: [entry('00000000000000a1', '2026-10-01T10:00:00Z'), entry('00000000000000b2', '2026-10-03T21:30:00Z', 'MP51')] };
 
 function boot(answer: Parameters<typeof fakeFetch>[0][string], o: { signedIn?: boolean; disc?: DiscState } = {}) {
-  const f = fakeFetch({ '/replays': answer });
+  const f = fakeFetch({ '/replays?mine=1': answer });
   const session = fakeSession(o.signedIn ? 'signed-in' : 'signed-out');
   const replays = liveReplays(() => { page?.render(); }, { source: httpReplaySource(BASE, f.fetch), session });
   const sample = sampleAdapters();
@@ -129,8 +129,8 @@ describe('the replays adapter', () => {
 
   it('RV-4 on the release path: an answer with `next` pages through the route\'s `?before=` on the down press at the last row', async () => {
     const f = fakeFetch({
-      '/replays': { body: { replays: [entry('00000000000000b2', '2026-10-03T21:30:00Z', 'MP51')], next: 'c1' } },
-      '/replays?before=c1': { body: { replays: [entry('00000000000000a1', '2026-10-01T10:00:00Z')] } },
+      '/replays?mine=1': { body: { replays: [entry('00000000000000b2', '2026-10-03T21:30:00Z', 'MP51')], next: 'c1' } },
+      '/replays?mine=1&before=c1': { body: { replays: [entry('00000000000000a1', '2026-10-01T10:00:00Z')] } },
     });
     const session = fakeSession('signed-in');
     const replays = liveReplays(() => { page?.render(); }, { source: httpReplaySource(BASE, f.fetch), session });
@@ -141,7 +141,7 @@ describe('the replays adapter', () => {
     expect(document.querySelector<HTMLElement>('#stage [data-more]')!.textContent).toContain('More matches');
     page.ctl.press('down');
     await flush();
-    expect(f.calls.map((c) => c.url)).toEqual([`${BASE}/replays`, `${BASE}/replays?before=c1`]);
+    expect(f.calls.map((c) => c.url)).toEqual([`${BASE}/replays?mine=1`, `${BASE}/replays?mine=1&before=c1`]);
     expect(f.calls[1]).toMatchObject({ method: 'GET', auth: `Bearer ${TICKET}` });
     expect([...document.querySelectorAll('#stage .cx-room .cx-room__name')].map((n) => n.textContent)).toEqual(['Vigilance', 'Frostfire']);
     expect(document.querySelector('#stage [data-more]')).toBeNull();
@@ -163,7 +163,7 @@ describe('the replays adapter', () => {
     const { f, ctl } = boot('hang', { signedIn: true });
     expect(items()[0]!.title).toBe('Reading your replays…');
     expect(crossLabel()).toBe('Refresh');
-    f.set('/replays', { body: LISTING });
+    f.set('/replays?mine=1', { body: LISTING });
     ctl.press('cross'); await flush();
     expect(document.querySelectorAll('#stage .cx-room')).toHaveLength(2);
   });

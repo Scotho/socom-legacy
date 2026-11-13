@@ -20,7 +20,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * LATER 291 (#473's review, F1): the rows walked are the rows shown -- Home's Discord row is the phone's, hidden above
  * the phone rule, where the header's link is the pointer's instead. And no run reaches Discord (R293): its invite
  * address is answered here with an empty 204, so the phone's click on the row still lands on it and opens its tab,
- * and nothing leaves the host.
+ * and nothing leaves the host. The GitHub row beside it (the owner, 2026-11-12) the same: its repository address is
+ * answered with an empty 204 too.
  *
  * A browser adaptation with no original (the project's own launcher page, OT.R28): nothing of the game runs. A rendered
  * browser run: the host's lock rules apply, and it runs in the controller's slot.
@@ -127,6 +128,7 @@ for (const [w, h] of VIEWPORTS) {
       }, true);
     });
     await page.context().route('https://discord.gg/**', (r) => r.fulfill({ status: 204, body: '' }));   // LATER 291: never Discord
+    await page.context().route('https://github.com/**', (r) => r.fulfill({ status: 204, body: '' }));   // nor GitHub (2026-11-12)
     // RC1-CONSOLE-POPUP (a spec correction): Experiments' Forge and Test room rows open `/forge` and `/testroom` in a new
     // tab, which this spec closes within about 10 ms. Served, those pages cost the launcher: RC2's pw:api log at
     // e21ad65f6 has the launcher's next call stall 3-8 s after each Forge tab (0.7 s after Test room's), mostly after the

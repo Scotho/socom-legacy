@@ -18,9 +18,12 @@ game). A pack over one is refused with the code its description names.
 
 | constant | value | what it bounds |
 |---|---|---|
+| `PACK_AUTHORS_ADAPTATION` | 16 | Names in `authors` (`pack.FIELD_INVALID`). |
+| `PACK_AUTHOR_CHARS_ADAPTATION` | 48 | Characters in one name in `authors` (`pack.FIELD_INVALID`). |
 | `PACK_BYTES_ADAPTATION` | 536870912 (512 MiB) | All members together, by their sizes in the manifest (`pack.TOO_LARGE`). The stored files are first held to this plus the manifest's own bound. |
 | `PACK_DEPENDENCIES_ADAPTATION` | 64 | Entries in `dependencies` (`pack.LIMIT_EXCEEDED`). |
 | `PACK_DESCRIPTION_CHARS_ADAPTATION` | 400 | Characters in `description` (`pack.FIELD_INVALID`). |
+| `PACK_EXTENSIONS_BYTES_ADAPTATION` | 16384 (16 KiB) | Bytes of `extensions` written as canonical JSON (`pack.LIMIT_EXCEEDED`). |
 | `PACK_FILES_ADAPTATION` | 8192 | Files in the pack, and rows in `files` (`pack.TOO_MANY_FILES`). |
 | `PACK_HANDLERS_ADAPTATION` | 32 | Claims in `handlers` (`pack.LIMIT_EXCEEDED`). |
 | `PACK_HANDLER_ACTIONS_ADAPTATION` | 64 | Action names in one claim's `actions` (`pack.FIELD_INVALID`). |
@@ -28,6 +31,7 @@ game). A pack over one is refused with the code its description names.
 | `PACK_HANDLER_OPTIONS_DEPTH_ADAPTATION` | 2 | How deep one claim's `options` nest: the options object is level 1, an object or list inside it level 2 (`pack.FIELD_INVALID`). |
 | `PACK_ID_CHARS_ADAPTATION` | 64 | Characters in `id`, not counting an earlier format's prefix (`pack.FIELD_INVALID`). |
 | `PACK_INTENTS_ADAPTATION` | 64 | Entries in `intents` (`pack.LIMIT_EXCEEDED`). |
+| `PACK_LICENSE_CHARS_ADAPTATION` | 64 | Characters in `license` (`pack.FIELD_INVALID`). |
 | `PACK_MANIFEST_BYTES_ADAPTATION` | 1048576 (1 MiB) | The size of `s2u-pack.json` (`pack.MANIFEST_TOO_LARGE`), and of Thunderstore's `manifest.json` when the store checker reads it. |
 | `PACK_MEMBER_BYTES_ADAPTATION` | 524288000 (500 MiB) | One member, other than a `rules` member (`pack.MEMBER_TOO_LARGE`). |
 | `PACK_NAME_CHARS_ADAPTATION` | 48 | Characters in `name` (`pack.FIELD_INVALID`). |

@@ -159,11 +159,21 @@ export function voiceCount(channel: number | null, members: { channel: number; m
  *   aligned label with i'm not sure what exactly. The left label should be added it and tracks the number of seals alive. the right side tracks the numebr of terorists alive"
  * - told that the original's box shows one number (the voice channel's count) and no team counts: "alive count is a chosen feature addition deviating rom the original".
  *
+ * HUD-ALIVE-BOXES: the owner, Craig, 2026-11-11/12, in the main controller's seat 2f, verbatim:
+ * - "For the left and right seal/terrorsit alive count,
+ *   change the background color that's slightly reduced opacity to match the background color of seal and terrorist from the select screen.
+ *   Ensure both are centered in their square, the right one looks uncentered."
+ * - asked which screen:
+ *   "what i mean is the ingame scoreboard that has a comparable opacity but a red i think for terrorsist red for blue color".
+ *
  * The original draws one number here, `voice+0x5c`, the member count of the page's own voice channel (`FUN_00238ac0`
  * D:L85707-85716; `voiceCount`), and nothing in the right corner. Here the number is `aliveCounts`' SEALs and the right
- * corner its Terrorists (`./hud` `HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION`, the left box mirrored about the icon); the
- * speaker's right-aligned line, the icons and their timing are the original's, unchanged. `voice+0x5c` is still kept
- * (`HudVoiceElement.members`), not drawn.
+ * corner its Terrorists (`./hud` `HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION`, the left box mirrored about the icon); since
+ * 2026-11-12 the left box in the in-game scoreboard's SEALs bar colour and the right in its TERRORISTS bar colour, at
+ * the bar's alpha (`./hud` `HUD_ALIVE_BOX_COLOURS_ADAPTATION`), and each number centred on its own box by one rule
+ * (`HUD_ALIVE_LEFT_LAYOUT_ADAPTATION`, `HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION`). The speaker's right-aligned line, the icons
+ * and their timing are the original's, unchanged; with no alive counts (`right` unset) the box and the number are the
+ * original's. `voice+0x5c` is still kept (`HudVoiceElement.members`), not drawn.
  */
 export const HUD_ALIVE_COUNTS_ADAPTATION = 'seals alive left, terrorists alive right' as const;
 

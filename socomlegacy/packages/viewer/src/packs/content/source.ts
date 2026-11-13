@@ -1,4 +1,4 @@
-import { contentMapMemberPath, packRefKey, samePackRef, type ContentRef, type PackManifest, type PackRef } from '@s2u/creator-contracts';
+import { appliesOn, contentMapMemberPath, packRefKey, samePackRef, type ContentRef, type PackManifest, type PackRef } from '@s2u/creator-contracts';
 import type { ForgeContentSource } from '../../forge/page';
 import { pageIndexedDb } from '../../pageStore';
 import { idbPackDatabase, type PackDatabase } from '../storage';
@@ -26,7 +26,7 @@ import type { CustomMapData, CustomMapRecord } from '../customMaps';
  *   answers null -- `ready(packs)` awaits it, for a caller that knows a layout's packs before it opens it. `map(ref)` answers the parsed member (`loadContentBase`'s `readMap` input;
  *   the page reads the definition itself), `asset(ref)` the definition read by `readAssetDefinition`, or null.
  * - `member(pack, path)`: a read JSON member's bytes at once, any other member (a GLB, an image) read from the store on
- *   demand, one transaction.
+ *   demand, one transaction -- never a member of a pack a page does not apply (`appliesOn`, FX-5).
  * Every read finds its pack by reference inside its own transaction (the review's F1, `PackDatabase.readSelected`).
  * Every answer for a pack, asset or member not here is null, and nothing throws (the page's rule, `page.ts` at its
  * `contentSource` binding): a store that cannot open reads as holding nothing. `refresh()` reads the store again (an
@@ -55,6 +55,13 @@ export interface RegistryContentOptions { preloadMax?: number }
 interface StoredRecordMeta { ref: PackRef; manifest: PackManifest; files: { path: string }[] }
 const MAP_MEMBER = /^maps\/[^/]+\.json$/i;
 const JSON_MEMBER = /\.json$/i;
+/**
+ * FX-5 (the 0.2 spec section 3, `sides` read): a stored pack whose content this page offers -- a `content` pack the
+ * contract's `appliesOn(manifest, 'client')` says a page applies. A pack holding the reserved `plugin` kind, or a
+ * `server` pack, is stored and still listed by `availablePacks()` (a layout's `requires` may name it), but its maps are
+ * never listed or read, its assets never resolved and its members' bytes never served.
+ */
+const offered = (manifest: PackManifest): boolean => manifest.kinds.includes('content') && appliesOn(manifest, 'client');
 const isRef = (v: unknown): v is PackRef => !!v && typeof v === 'object' && ['id', 'version', 'hash'].every((k) => typeof (v as Record<string, unknown>)[k] === 'string');
 
 export async function registryContentSource(database: PackDatabase, options: RegistryContentOptions = {}): Promise<RegistryContentSource> {
@@ -120,7 +127,7 @@ export async function registryContentSource(database: PackDatabase, options: Reg
     const whole = new Set<string>();
     try {
       keep(nextJson, await readMembers((record) => {
-        if (!record.manifest.kinds.includes('content')) return [];
+        if (!offered(record.manifest)) return [];
         const all = record.files.map((f) => f.path).filter((p) => JSON_MEMBER.test(p));
         if (all.length <= budget) { budget -= all.length; whole.add(packRefKey(record.ref)); return all; }
         const maps = all.filter((p) => MAP_MEMBER.test(p)).slice(0, budget);
@@ -129,7 +136,7 @@ export async function registryContentSource(database: PackDatabase, options: Reg
       }, (seen) => { records = seen; }));
     } catch { records = []; whole.clear(); }
     packs = records.map((record) => ({ id: record.ref.id, version: record.ref.version, hash: record.ref.hash }));
-    contentPacks = records.filter((record) => record.manifest.kinds.includes('content')).map((record) => ({ ...record.ref }));
+    contentPacks = records.filter((record) => offered(record.manifest)).map((record) => ({ ...record.ref }));
     json = nextJson;
     assets = new Map();
     loads = new Map();
@@ -217,7 +224,7 @@ export async function registryContentSource(database: PackDatabase, options: Reg
       try {
         const found = kept(pack, path);
         if (found) return found.bytes.slice();
-        const [read] = await readMembers((record) => samePackRef(record.ref, pack) ? [path] : []);
+        const [read] = await readMembers((record) => samePackRef(record.ref, pack) && appliesOn(record.manifest, 'client') ? [path] : []);
         return read?.bytes ?? null;
       } catch { return null; }
     },

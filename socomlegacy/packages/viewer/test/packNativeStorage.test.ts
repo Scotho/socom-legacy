@@ -8,7 +8,7 @@ import { MODEL_PACK_LIMITS } from '../src/modelPack';
 import { idbUploadBackend, memoryUploadBackend, UploadedPacks, UPLOADED_PACKS_DB } from '../src/texturePackStore';
 import { PACKS_BYTES, PACKS_DB, PACKS_MIGRATIONS, PACKS_RECOVERY, PACKS_SCOPES } from '../src/packs/storage';
 import type { TexturePackIndexEntry } from '../src/texturePack';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
 import { createPackRegistry } from '../src/packs/registry';
 import { validateLegacyPack } from '../src/packs/adapters';
 import { buildTexturePack } from '../src/texturePackBuild';
@@ -57,7 +57,7 @@ async function seedMods(): Promise<void> {
 }
 const textureEntry = (id: string): TexturePackIndexEntry => ({ id, name: id, kind: 'textures', method: 'uploaded',
   scale: 2, roles: 'wide', generatedAt: '2026-10-25T00:00:00.000Z', textures: 1, bytes: 3, notes: '' });
-const packContext: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+const packContext: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
 const modelFiles = (): BufferedPackFile[] => [{ path: 'models.json', bytes: utf8(JSON.stringify({
   format: 's2u-model-pack', version: 1, models: [{ id: 'crate', file: 'crate.glb' }],
 })) }, { path: 'crate.glb', bytes: new Uint8Array([1, 2, 3]) }];

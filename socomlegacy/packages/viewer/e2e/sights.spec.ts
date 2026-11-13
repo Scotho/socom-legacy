@@ -58,6 +58,10 @@ test('the M40A1 with the thermal scope: 6x, 12x, the overlay with its black side
   await page.locator('#maps').selectOption('RUN/MP2.ZDB');
   await expect(status).toContainText('FROSTFIRE (MP2)');
   await expect(status).toContainText('triangles');
+  // `?devmode`'s playtest overlay (`../src/playtestReport.ts`, a developer's instrument: fixed at the bottom right, z-index
+  // 10000) is composited over the canvas in `#view`'s screenshot, inside the right-edge strip `probe` reads: a player
+  // never has it, so it is not drawn here (as `./mobileScreenFit.spec.ts` and `./touch.spec.ts` hide it).
+  await page.addStyleTag({ content: '#playtest-overlay { display: none !important; }' });
   expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
   await page.evaluate(([x, y, z]) => window.__viewer.setCamera({ x, y: y + 15.4, z, yaw: 0, pitch: 0 }), SPAWN_A);
   // The effect data (the lens's rows) arrives after the map: wait for it before the scope.

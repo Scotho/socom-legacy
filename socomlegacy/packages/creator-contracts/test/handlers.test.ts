@@ -5,6 +5,7 @@ import {
   behaviourCatalogue,
   checkHandlerClaim,
   ENGINE_CONTRACT_VERSION,
+  ENGINE_CONTRACT_VERSIONS,
   EXTENSION_ACTIONS,
   EXTENSION_CODES,
   EXTENSION_EVENTS,
@@ -55,8 +56,12 @@ describe("the engine handler catalogue (FCW-07b, frozen before 07c)", () => {
   // Changed deliberately by FP-4 (FP.R2): 0.1.1 -> 0.1.2, the patch again: the forge-map bundle (`bundle.ts`) and the
   // content map's version 2 (`maps.ts`) are additive -- nothing 0.1.1 published is removed or changed, and this
   // catalogue's vocabularies are as they were.
-  it("is the engine contract 0.1.2 (FP-4's bundle and content-map v2, additive)", () => {
-    expect(ENGINE_CONTRACT_VERSION).toBe("0.1.2");
+  // Changed deliberately by FX-5 (FX.R11, the pack format 0.2 spec's decision 8): 0.1.2 -> 0.2.0, the minor: a map pack's
+  // layout member and the manifest's 0.2 fields. The build still reads 0.1.2 (`ENGINE_CONTRACT_VERSIONS`), so a `^0.1.x`
+  // pack keeps loading; this catalogue's vocabularies are as they were.
+  it("is the engine contract 0.2.0 (FX-5), the build reading 0.1.2 beside it", () => {
+    expect(ENGINE_CONTRACT_VERSION).toBe("0.2.0");
+    expect([...ENGINE_CONTRACT_VERSIONS]).toEqual(["0.1.2", "0.2.0"]);
   });
 });
 

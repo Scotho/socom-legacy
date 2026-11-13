@@ -1534,9 +1534,12 @@ function serverStatus(t: ReturnType<Adapters['server']['totals']>, a: Adapters):
 function rawItems(catId: string, s: ConsoleState, a: Adapters): HomeItem[] {
   const t = a.server.totals();
   const signedIn = a.session.signedIn();
-  // LATER 291 (H290): the one community link, last, so the rows above keep their places. The mark is Discord's
+  // LATER 291 (H290): the Discord link, after the rows above so they keep their places. The mark is Discord's
   // official symbol (`./discord`), not this icon — a stroke icon would take the focus colour (MU.R22's exception).
   const discord: HomeItem = { icon: 'globe', title: 'Discord', sub: 'Opens in a new tab', verb: 'Open', act: 'discord' };
+  // The owner, 2026-11-12: "Add a github link beside the discord one with the same icon set on the launcher main menu".
+  // GitHub's row right after Discord's, the last (the rows above keep their places); its mark is GitHub's (`./discord`).
+  const github: HomeItem = { icon: 'globe', title: 'GitHub', sub: 'The public source of the client', verb: 'Open', act: 'github' };
   // LR-23's Memory card row (the mockup's `sd_card` mark) left the page's Home with LR-37 (4) and the overlay's with LR-39.
   switch (catId) {
     // LR-13 (LR.R17): the launcher page's Home is the artifact's (its home items `play`, `card`, `activity`): Play (LR-13's
@@ -1558,6 +1561,7 @@ function rawItems(catId: string, s: ConsoleState, a: Adapters): HomeItem[] {
         : { icon: 'play', title: PLAY_LABEL, sub: need ? PLAY_LINES[need] : 'Ready to deploy', verb: 'Play', act: 'play' },
       serverStatus(t, a),
       discord,
+      github,
       ];
     }
     // LR-37 (6, 7, 9; the owner, 2026-10-29: "Online tab should say Browse rooms, Custom matches, Server Information, Sign

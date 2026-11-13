@@ -454,7 +454,7 @@ export function attachInput(doc: Document, win: Window, ctl: ConsoleController, 
   });
   on(doc, 'mouseover', (e) => {
     if (S.input !== 'pointer') return;
-    const el = actOf(e.target, '[data-act="item"],[data-act="discord"],[data-act="room"],[data-act="optrow"],[data-act="remaprow"],[data-act="loside"],[data-act="lorow"],[data-act="loedit"],[data-act="pfrow"],[data-act="pfedit"],[data-act="pfnew"],[data-act="pfrec"],[data-act="lbrow"],[data-act="lbgame"],[data-act="lbcustom"]');
+    const el = actOf(e.target, '[data-act="item"],[data-act="discord"],[data-act="github"],[data-act="room"],[data-act="optrow"],[data-act="remaprow"],[data-act="loside"],[data-act="lorow"],[data-act="loedit"],[data-act="pfrow"],[data-act="pfedit"],[data-act="pfnew"],[data-act="pfrec"],[data-act="lbrow"],[data-act="lbgame"],[data-act="lbcustom"]');
     // LR-24 (the box's matrix-4 at 97f5822e3, consoleRows.spec: a visible Home row never took its click): above the phone
     // rule the page's Home list slides by the focused row (LR.R22, the mockup's `itemShift`), so a hover that moved the
     // focus slid the row from under the pointer, the next row took the hover, and the list chased it. The mockup's rows
@@ -464,7 +464,7 @@ export function attachInput(doc: Document, win: Window, ctl: ConsoleController, 
     // focus too, the draw of the new focus moved the rows under the pointer, and the first click opened another row. The page's Home list takes no hover at any size, as the wide one (a tap's own mouseover included: its
     // click focuses and opens the row it lands on). LR-39 (LR.R32): the overlay's Home is the page's (`is-page`), so it takes
     // no hover either (it kept CX-51's under LR.R18).
-    if (el && (el.dataset.act === 'item' || el.dataset.act === 'discord') && el.closest('.cx-home.is-page')) return;
+    if (el && (el.dataset.act === 'item' || el.dataset.act === 'discord' || el.dataset.act === 'github') && el.closest('.cx-home.is-page')) return;
     if (el) ctl.hover(el.dataset.act ?? '', Number(el.dataset.i));
   });
 

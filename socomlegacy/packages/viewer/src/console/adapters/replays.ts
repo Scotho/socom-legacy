@@ -18,7 +18,8 @@ import '../../modern/modern.css';
 
 /**
  * The console launcher's replays (slice 2, part h): the signed-in account's recorded matches from the match server's
- * `GET /replays` with the session's ticket as the bearer (`../../modern/replays/data` `httpReplaySource`, at the account
+ * `GET /replays?mine=1` with the session's ticket as the bearer -- the account's own, not central's public listing of
+ * every replay (REPLAYS-MINE, the owner 2026-11-12) -- (`../../modern/replays/data` `httpReplaySource`, at the account
  * requests' base, as the modern Replays section asks it; MU-10), newest first. Signed out nothing is asked and the
  * category says "Sign in to see your replays"; the three failures (no answer, no replays kept on this server, refused)
  * are said in the Replays section's words (`../../modern/replays/view` `REPLAY_LIST_FAILURE_WORDS`), each with a retry. A row is

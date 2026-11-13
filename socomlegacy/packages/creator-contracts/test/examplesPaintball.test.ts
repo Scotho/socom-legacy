@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  behaviourCatalogue, ENGINE_CONTRACT_VERSION, forgeModeChoices, layoutEntityIds, PACK_CODES, PACK_TARGET_US, packDigest,
+  behaviourCatalogue, ENGINE_CONTRACT_VERSIONS, forgeModeChoices, layoutEntityIds, PACK_CODES, PACK_TARGET_US, packDigest,
   RULE_ACTIONS, RULE_EVENTS, RULES_CODES, rulesCatalogue, rulesModeCatalogue, sha256Hex, validatePack, validateRules,
   type PackManifest, type RulesSpec,
 } from "../src/index.js";
@@ -35,7 +35,7 @@ const spec = (): RulesSpec => JSON.parse(textOf("rules/paintball.json")) as Rule
 const manifest = (): PackManifest => JSON.parse(textOf("s2u-pack.json")) as PackManifest;
 const packFiles = () => [{ path: "s2u-pack.json", bytes: bytesOf("s2u-pack.json") }, { path: "rules/paintball.json", bytes: bytesOf("rules/paintball.json") }];
 /** The build's whole context, so no check is skipped (a skipped check is never a pass). */
-const context = () => ({ target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: behaviourCatalogue() });
+const context = () => ({ target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: behaviourCatalogue() });
 /** Paintball names no layout entity: it plays on any floor (the blank floor, a retail map base). */
 const anyFloor = () => rulesCatalogue({ layout: layoutEntityIds({}) });
 

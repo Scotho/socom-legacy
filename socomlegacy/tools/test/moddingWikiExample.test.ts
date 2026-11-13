@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
-  behaviourCatalogue, checkThunderstorePackage, ENGINE_CONTRACT_VERSION, layoutEntityIds, PACK_CODES, PACK_TARGET_US,
+  behaviourCatalogue, checkThunderstorePackage, ENGINE_CONTRACT_VERSIONS, layoutEntityIds, PACK_CODES, PACK_TARGET_US,
   rulesCatalogue, sha256Hex, THUNDERSTORE_CODES, THUNDERSTORE_PACKAGE_RULES, thunderstoreManifest, validatePack,
   validateRules, type BufferedPackFile, type PackManifest,
 } from '../../packages/creator-contracts/src/index';
@@ -70,7 +70,7 @@ const files = (): BufferedPackFile[] => [...committed(), { path: 'icon.png', byt
 const manifest = (): PackManifest => JSON.parse(text(join(PACK, 's2u-pack.json'))) as PackManifest;
 const member = (path: string): Uint8Array => files().find((f) => f.path === path)!.bytes;
 /** The build's whole context, so no check is skipped (a skipped check is never a pass). */
-const context = () => ({ target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: behaviourCatalogue() });
+const context = () => ({ target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: behaviourCatalogue() });
 const codes = (d: readonly { code: string }[]): string[] => d.map((x) => x.code);
 
 describe('the modding wiki\'s first pack (MW-5): the files', () => {

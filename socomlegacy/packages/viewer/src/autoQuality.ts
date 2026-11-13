@@ -41,6 +41,18 @@ export const AUTO_FLOOR_SHARE_ADAPTATION: Readonly<Record<DeviceClass, number>> 
   xbox: 0.5, software: 0.5, touch: 0.5, lowMemory: 0.5, standard: 0.5, high: 0.5,
 });
 
+/**
+ * AQ-18 (a browser adaptation, no original): whether the dynamic scale's side test runs, per class -- whatever the
+ * preset. Not on a software rasteriser: its frame time follows the pixels by construction, so the floor is where a slow
+ * page belongs, and the test's return to the cap is a drawing buffer of four times the pixels (sixteen after a raised
+ * cap) on the adapter least able to make one -- the field row of 2026-11-11 (Microsoft Basic Render Driver: the context
+ * lost seconds after the ratio went 0.38 -> 1.5). The cost: a software page bound by our own code and not by its pixels
+ * stays at its floor, as every page did before the side test.
+ */
+export const CLASS_SIDE_TEST_ADAPTATION: Readonly<Record<DeviceClass, boolean>> = Object.freeze({
+  xbox: true, software: false, touch: true, lowMemory: true, standard: true, high: true,
+});
+
 /** The probe's length, seconds of drawn frames (a browser adaptation). */
 export const PROBE_SECONDS_ADAPTATION = 3;
 /** Above this mean frame time, ms, the start drops one preset (a browser adaptation). */
@@ -182,7 +194,11 @@ export function firstMatchProbe(preset: Preset, cls: DeviceClass = pageDeviceCla
   return new FirstMatchProbe(cls, renderer, o.write ?? savePreference, 'doc' in o ? o.doc : (globalThis.document ?? null), o.still);
 }
 
-/** The dynamic scale's options for a mount: under Automatic the class's floor (`AUTO_FLOOR_SHARE_ADAPTATION`), else VS-3's. */
+/**
+ * The dynamic scale's options for a mount: under Automatic the class's floor (`AUTO_FLOOR_SHARE_ADAPTATION`), else VS-3's;
+ * AQ-18: under every preset without the side test where the class's has none (`CLASS_SIDE_TEST_ADAPTATION`).
+ */
 export function autoAdaptiveOptions(preset: Preset, cls: DeviceClass = pageDeviceClass()): Readonly<AdaptiveOptions> {
-  return preset === 'auto' ? { ...ADAPTIVE_V2_ADAPTATION, floorShare: AUTO_FLOOR_SHARE_ADAPTATION[cls] } : ADAPTIVE_V2_ADAPTATION;
+  const options = preset === 'auto' ? { ...ADAPTIVE_V2_ADAPTATION, floorShare: AUTO_FLOOR_SHARE_ADAPTATION[cls] } : ADAPTIVE_V2_ADAPTATION;
+  return CLASS_SIDE_TEST_ADAPTATION[cls] ? options : { ...options, sideTest: false };
 }

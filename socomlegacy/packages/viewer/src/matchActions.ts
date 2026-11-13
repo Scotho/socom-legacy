@@ -10,8 +10,10 @@ import { BombPage, type BombPageView } from './bombPage';
 import { actionRayPick } from './equipment';
 import type { FlyCamera } from './camera';
 import type { Fire } from './fire';
+import type { DoorPage } from './doorPage';
 import type { Input } from './gamepad';
-import { ACTION_CAPTION_TEXT, type ActionEntry } from './hud';
+import { ACTION_CAPTION_TEXT, MAP_ACTION_PROMPTS, type ActionEntry } from './hud';
+import { ACTION_TYPE_CODES, mapActionCaption } from './mapActions';
 import type { LoadedMap } from './loadMap';
 import type { BoxMagazine } from './matchFirearm';
 import type { PageHands } from './matchThrow';
@@ -44,8 +46,11 @@ export interface MatchActionsDeps {
     | 'syncVictoryMotion' | 'stopVictoryMotionAfter' | 'victoryMotionActive'>
     & Partial<Pick<WalkMode, 'binoculars' | 'setTurretHold' | 'setTurretAim' | 'pickupClaimed' | 'mountTake' | 'mountUntake' | 'mountRekey' | 'mountRefused' | 'launcherSetOn' | 'traversal' | 'actionGateShut' | 'triggerHeld' | 'airAfter' | 'posture'>>;
   fly: Pick<FlyCamera, 'pose'>;
-  /** The doors (`./doorPage`): their target under the reticle, their action. */
-  doors: SourcePages['doors'] & { action(): boolean };
+  /**
+   * The doors (`./doorPage`): their target under the reticle, their action; G1, the target's node and valve for its
+   * caption (`DoorPage.targetState`; both pages hand the `DoorPage`; absent, a door's entry carries no caption).
+   */
+  doors: SourcePages['doors'] & { action(): boolean } & Partial<Pick<DoorPage, 'targetState'>>;
   /** The traversal (`./traversalPage`): its climb and ladder in the picker, its lanes, its hold let go at a cancel. */
   traversal: Pick<TraversalPage, 'cancelAction' | 'padLanes' | 'hudClimb' | 'traversal' | 'holdAllowed'> & Partial<Pick<TraversalPage, 'chaseAction'>>
     & Partial<Pick<TraversalPage, 'respawnInputActive' | 'pressRespawn'>>;
@@ -192,6 +197,17 @@ export function actionHands(of: () => Pick<MatchActions, 'pageHands'>): Required
     heldPulls: () => of().pageHands.heldPulls(),                                                                              // TRIGGER-SWAP fold
   };
 }
+
+/**
+ * G1, review S1: MAP_ACTION_LATCH_KEY_READING -- the door's and the switch's captions are latched (`prompt`) on the
+ * candidates' names (`door`, `switch`, ...); the original's `+0xed0` mask is one bit per kind of record (`FUN_00544ca0`
+ * D:L411195-411204), and every map action sets bit 13 but type 4 (bit 7) and type 6 (0x11) (`FUN_005937c0`
+ * D:L452414-452424): a door and a switch share it. So the reticle moved straight from a door to a switch with no empty
+ * frame keeps the door's text and icon in the original (`FUN_002209c0` latches `+0x28` too, D:L74567), where the port
+ * recomputes and shows the lever with FLIP SWITCH; the port's icon was never latched. What settles whether to match it:
+ * a capture of that exact move on the original.
+ */
+export const MAP_ACTION_LATCH_KEY_READING = 'keyed on the candidate names, not the per-kind bit' as const;
 
 export function mountActions(d: MatchActionsDeps): MatchActions {
   const { walk, traversal, doors } = d;
@@ -410,6 +426,22 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
    * `FUN_005a7de0`, holds the common actions off).
    */
   const selection = new ActionSelection();
+  /** G1: the offered set's captions, latched at its change (`prompt`). */
+  let captionLatch: { mask: string; door: string | null; switch: string | null } | null = null;
+  /**
+   * G1 (action-labels review; reading, pending review): the door under the reticle's caption -- its record's `descriptor`,
+   * else OPEN DOOR or CLOSE DOOR by its valve now (`./mapActions` `mapActionCaption`). The record is the map's DOOR record
+   * of the door's node; a door the map's records do not name (none on the disc: `readDoors` makes a door of each DOOR
+   * record) is a DOOR with no descriptor.
+   */
+  const doorCaption = (): string | null => {
+    const at = doors.targetState?.();
+    if (!at) return null;
+    const node = at.node.toLowerCase();
+    // The first DOOR record on the node: no fixture map has two on one node.
+    const record = (d.map()?.meta?.actions ?? []).find((a) => a.typeCode === ACTION_TYPE_CODES.DOOR && a.node.toLowerCase() === node);
+    return mapActionCaption(record ?? { typeCode: ACTION_TYPE_CODES['DOOR']! }, at.valve);
+  };
   const pick = (): ActionContext => selection.pick(victory.busy() ? {} : actionInputs(actionSources));
   const wiring = new ActionWiring({
     pick,
@@ -623,19 +655,32 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
     // entry is its own record's icon: the slide's on a ladder, else the climb's (the HUD's climb feed draws the same).
     prompt: (walking) => {
       actions.sample(walking);
-      if (!walking) return null;
+      if (!walking) { captionLatch = null; return null; }
       // CPS collision step 3: the pick below, and the list's entries, reuse this sample's cast while what it read is
       // unchanged (`switchArmed`).
       const world = castRead.world;
       promptCast = { key: castKey(castRead.aim, castRead.feet), world, revision: world?.revision ?? 0, armed: actions.shownPrompt() !== null };
       try {
-        if (pick() === null) return null;
+        if (pick() === null) { captionLatch = null; return null; }
         const pages = { switch: () => actions.shownPrompt(), turret: () => turrets.prompt() };
         const entries: ActionEntry[] = [];
-        for (const c of selection.list()) {
+        // G1 (action-labels review): the door's and the switch's captions, set when the offered set changes and held while
+        // it stands (`FUN_0021d9d0` D:L73388-73396 rebuilds the list's records through `FUN_0021f850`, which sets each
+        // record's text by `FUN_002209c0`, only when the offer mask changed or was empty) -- a door opening under the
+        // reticle keeps OPEN DOOR until the list changes. Not the original's key exactly (MAP_ACTION_LATCH_KEY_READING):
+        // this latch is keyed on the candidates' names, the original's mask on one bit per kind of record.
+        const list = selection.list(), mask = [...list].sort().join(' ');
+        const latched = captionLatch?.mask === mask ? captionLatch
+          : (captionLatch = { mask, door: list.includes('door') ? doorCaption() : null, switch: list.includes('switch') ? actions.shownCaption() : null });
+        for (const c of list) {
           const p = c === 'traversal' ? (traversal.traversal()?.state().kind === 'ladder' ? 'ladder_slide' : 'climb') : actionPromptOf(c, pages);
           if (!p) continue;
           const e: ActionEntry = { prompt: p };
+          // G1: a door's or a switch's entry carries its record's caption; the generic `action` fallback none (G3).
+          if (MAP_ACTION_PROMPTS.has(p)) {
+            const caption = c === 'door' ? latched.door : c === 'switch' ? latched.switch : null;
+            if (caption !== null) e.caption = caption;
+          }
           // LkPaioX5 (b): a hostage's order is captioned with its own record's text (FOLLOW!, HOLD POSITION: `./hostagePage`).
           if (c === 'escortee') { const t = (d.hostages?.offer() as { text?: string } | null | undefined)?.text; if (t !== undefined) e.caption = t; }
           // LkPaioX5 (c): each TAKE captioned with its own candidate's weapon (`FUN_00220870`).
@@ -643,6 +688,7 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
           if (name !== undefined) e.name = name;
           entries.push(e);
         }
+        if (!entries.length) captionLatch = null;
         return entries.length ? entries : null;
       } finally {
         promptCast = null;

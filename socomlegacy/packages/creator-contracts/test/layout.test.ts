@@ -23,6 +23,8 @@ import {
   withIds,
 } from "../src/index.js";
 import { FORGE_GAME_TYPES, forgeModeChoices, layoutEntityIds, RECORD_ENTITIES_MAX, RULES_SCHEMA, RULES_VOCABULARY_VERSION, rulesCatalogue, rulesModeCatalogue, validateRules } from "../src/index.js";
+import { RECORD_SCALE_DENOMINATOR, RECORD_SCALE_MAX_ADAPTATION, RECORD_SCALE_MIN_ADAPTATION, type PoseRow } from "../src/index.js";
+import { pieceMatrixError } from "../src/index.js";
 
 /**
  * FCW-07a: the layout record v3 -- stable authored ids, pack references, the inert legacy carry and the one reader.
@@ -619,5 +621,246 @@ describe("settings.night.lens in the disc's range, 0..1 (FP-1b; REVIEW-A 12, res
   it("refuses an rgb past 255 or an alpha past 1, as before", () => {
     expect(() => parseLayout(withLens([256, 0, 0, 0.5]))).toThrow(/settings\.night\.lens/);
     expect(() => parseLayout(withLens([0.2, 0.2, 0.2, 2]))).toThrow(/settings\.night\.lens/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// FX-1 (the FX plan's FX.R3 and FX.R11; the spec 2026-11-11 section 4, `poses`): a piece's tilt and scale in record v3,
+// additive as FCW-30's lists. A browser adaptation (the forge has no original); a layout with no tilted or scaled piece
+// writes the text it wrote before, and markers keep a yaw only.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const rad = (d: number): number => (d * Math.PI) / 180;
+type M3 = [number, number, number, number, number, number, number, number, number];
+/** The row-major product of two 3x3 matrices. */
+function mul3(a: M3, b: M3): M3 {
+  const out: M3 = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      let s = 0;
+      for (let k = 0; k < 3; k++) s += a[r * 3 + k]! * b[k * 3 + c]!;
+      out[r * 3 + c] = s;
+    }
+  }
+  return out;
+}
+/**
+ * A piece's column-major 4x4 at (x, y, z), built here by multiplication and not by the code under test: the turn
+ * R_y(yaw) * R_x(pitch) * R_z(roll) (three's `YXZ`, the order the Inspector reads, `page.ts` `fillStubFields`), then
+ * the scale per axis.
+ */
+function posed(x: number, y: number, z: number, yaw: number, pitch: number, roll: number, sx = 1, sy = 1, sz = 1): number[] {
+  const cy = Math.cos(rad(yaw)), sny = Math.sin(rad(yaw));
+  const cp = Math.cos(rad(pitch)), snp = Math.sin(rad(pitch));
+  const cr = Math.cos(rad(roll)), snr = Math.sin(rad(roll));
+  const ry: M3 = [cy, 0, sny, 0, 1, 0, -sny, 0, cy];
+  const rx: M3 = [1, 0, 0, 0, cp, -snp, 0, snp, cp];
+  const rz: M3 = [cr, -snr, 0, snr, cr, 0, 0, 0, 1];
+  const r = mul3(mul3(ry, rx), rz);
+  return [r[0] * sx, r[3] * sx, r[6] * sx, 0, r[1] * sy, r[4] * sy, r[7] * sy, 0, r[2] * sz, r[5] * sz, r[8] * sz, 0, x, y, z, 1];
+}
+/** The largest difference between two matrices' elements (the lengths must agree). */
+function farthest(a: readonly number[], b: readonly number[]): number {
+  expect(a.length).toBe(b.length);
+  return Math.max(...a.map((v, i) => Math.abs(v - b[i]!)));
+}
+const yardOf = (pieces: Layout["pieces"]): Layout => ({ forge: 1, base: { kind: "map", archive: "MP2" }, pieces, spawns: [{ team: "A", p: [1, 0, 2], yaw: 0 }] });
+
+describe("FX-1: record v3 keeps a piece's tilt and scale (poses)", () => {
+  it("names its scale bounds and lattice: 0.1 to 4 an axis (H442 b), in hundredths", () => {
+    expect([RECORD_SCALE_MIN_ADAPTATION, RECORD_SCALE_MAX_ADAPTATION, RECORD_SCALE_DENOMINATOR]).toEqual([0.1, 4, 100]);
+  });
+
+  it("a tilted piece round-trips: its pitch and roll in a pose row, its matrix back within 1e-6", () => {
+    const m = posed(1.5, 2, -3, 45, 15, 30);
+    const r = recordOfLayout(yardOf([{ asset: "MP2:crate", m }]), "Yard");
+    expect(r.pieces).toEqual([[0, 1.5, 2, -3, 45]]);
+    const want: PoseRow[] = [[0, 15, 30, 1, 1, 1]];
+    expect(r.poses).toEqual(want);
+    expect(checkCreatorRecord(r)).toBeNull();
+    expect(farthest(layoutOfRecord(r).pieces[0]!.m, m)).toBeLessThanOrEqual(1e-6);
+    // a pitch below zero and a roll past 180: the roll in whole degrees 0..359 as a yaw is, the pitch signed
+    const other = posed(0, 0, 0, 300, -40, 200);
+    const r2 = recordOfLayout(yardOf([{ asset: "MP2:crate", m: other }]), "Yard");
+    expect(r2.pieces).toEqual([[0, 0, 0, 0, 300]]);
+    expect(r2.poses).toEqual([[0, -40, 200, 1, 1, 1]]);
+    expect(farthest(layoutOfRecord(r2).pieces[0]!.m, other)).toBeLessThanOrEqual(1e-6);
+  });
+
+  it("a piece scaled per axis round-trips: the scale in a pose row, its yaw in the piece row as before", () => {
+    const m = posed(0, 0, 0, 90, 0, 0, 2, 1, 0.5);
+    const r = recordOfLayout(yardOf([{ asset: "MP2:crate", m }]), "Yard");
+    expect(r.pieces).toEqual([[0, 0, 0, 0, 90]]);
+    expect(r.poses).toEqual([[0, 0, 0, 2, 1, 0.5]]);
+    expect(checkCreatorRecord(r)).toBeNull();
+    expect(farthest(layoutOfRecord(r).pieces[0]!.m, m)).toBeLessThanOrEqual(1e-6);
+  });
+
+  it("yaw, pitch, roll and scale together round-trip, through the text, and a second trip changes nothing", () => {
+    const m = posed(10, 0.5, -7.2, 135, 15, 30, 2, 1, 0.5);
+    const layout = yardOf([
+      { asset: "MP2:crate", m: M(1, 2, 3) },
+      { asset: "MP2:barrel", m, locked: true },
+      { asset: "MP2:crate", m: posed(4, 5, 6, 0, 0, 0, 1.25, 1.25, 1.25) },
+    ]);
+    const r = recordOfLayout(layout, "Yard");
+    expect(r.pieces).toEqual([[0, 1, 2, 3, 0], [1, 10, 0.5, -7.2, 135, true], [0, 4, 5, 6, 0]]);
+    expect(r.poses).toEqual([[1, 15, 30, 2, 1, 0.5], [2, 0, 0, 1.25, 1.25, 1.25]]);
+    expect(checkCreatorRecord(r)).toBeNull();
+    const back = layoutOfRecord(readCreatorRecord(JSON.stringify(r)).record);
+    expect(back.pieces[1]!.locked).toBe(true);
+    for (const [i, p] of layout.pieces.entries()) expect(farthest(back.pieces[i]!.m, p.m), `piece ${i}`).toBeLessThanOrEqual(1e-6);
+    expect(recordOfLayout(back, "Yard")).toEqual(r);
+    expect(JSON.stringify(readCreatorRecord(JSON.stringify(r)).record)).toBe(JSON.stringify(r));
+    // a layout file's tilted piece reads into the same rows
+    const file = { forge: 1, base: { kind: "map", archive: "MP2" }, pieces: [{ asset: "MP2:barrel", m }], spawns: [] };
+    expect(readCreatorRecord(JSON.stringify(file), { name: "Yard" }).record.poses).toEqual([[0, 15, 30, 2, 1, 0.5]]);
+  });
+
+  it("a scale past its bounds is written at the bound, so the record it writes is one its check admits", () => {
+    const r = recordOfLayout(yardOf([{ asset: "MP2:crate", m: posed(0, 0, 0, 0, 0, 0, 9, 0.05, 1) }]), "Yard");
+    expect(r.poses).toEqual([[0, 0, 0, 4, 0.1, 1]]);
+    expect(checkCreatorRecord(r)).toBeNull();
+  });
+
+  it("an untilted, unscaled layout writes the text it wrote before FX-1: no poses key, the piece rows as they were", () => {
+    const layout = yardOf([
+      { asset: "MP2:crate", m: posed(1.26, 0, -2.34, 90, 0, 0) },
+      { asset: "MP2:barrel", m: [1.003, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.998, 0, 4, 5, 6, 1], locked: true },   // scale noise off the lattice
+      { asset: "MP2:crate", m: posed(7, 8, 9, 30, 0, 0) },
+      { asset: "MP2:barrel", m: posed(0, 0, 0, 0, 0.3, 0) },                                                // a tilt under half a degree
+    ]);
+    // the text this layout gave before FX-1 (the record's code at f2f17a1ad7), stored by hand
+    const before = '{"schema":"forge-layout","version":3,"name":"Yard","base":"MP2","assets":["MP2:crate","MP2:barrel"],'
+      + '"pieces":[[0,1.3,0,-2.3,90],[1,4,5,6,0,true],[0,7,8,9,30],[1,0,0,0,0]],"spawns":[["A",1,0,2,0]],'
+      + '"ids":{"pieces":["p0","p1","p2","p3"],"spawns":["s0"]}}';
+    const r = recordOfLayout(layout, "Yard");
+    expect("poses" in r).toBe(false);
+    expect(JSON.stringify(r)).toBe(before);
+    expect(JSON.stringify(readCreatorRecord(before).record)).toBe(before);
+    // the earlier fixtures' texts carry no poses either
+    expect("poses" in readCreatorRecord(JSON.stringify(v1), { name: "Yard" }).record).toBe(false);
+  });
+
+  it("the gimbal case is canonical: at a pitch of 90 or -90 the roll is 0 and its turn goes into the yaw", () => {
+    const up = posed(0, 0, 0, 30, 90, 20);
+    const r = recordOfLayout(yardOf([{ asset: "MP2:crate", m: up }]), "Yard");
+    expect(r.pieces).toEqual([[0, 0, 0, 0, 10]]);          // pitch +90: yaw - roll
+    expect(r.poses).toEqual([[0, 90, 0, 1, 1, 1]]);
+    expect(farthest(layoutOfRecord(r).pieces[0]!.m, up)).toBeLessThanOrEqual(1e-6);
+    expect(recordOfLayout(layoutOfRecord(r), "Yard")).toEqual(r);
+    const down = posed(0, 0, 0, 30, -90, 20);
+    const d = recordOfLayout(yardOf([{ asset: "MP2:crate", m: down }]), "Yard");
+    expect(d.pieces).toEqual([[0, 0, 0, 0, 50]]);          // pitch -90: yaw + roll
+    expect(d.poses).toEqual([[0, -90, 0, 1, 1, 1]]);
+    expect(farthest(layoutOfRecord(d).pieces[0]!.m, down)).toBeLessThanOrEqual(1e-6);
+    expect(recordOfLayout(layoutOfRecord(d), "Yard")).toEqual(d);
+    // a pitch that rounds to 90 is written by the same rule
+    const near = recordOfLayout(yardOf([{ asset: "MP2:crate", m: posed(0, 0, 0, 30, 89.6, 20) }]), "Yard");
+    expect([near.pieces[0]![4], near.poses]).toEqual([10, [[0, 90, 0, 1, 1, 1]]]);
+    // a hand-written roll at the gimbal is refused, never read as a second name for the same turn
+    expect(checkCreatorRecord({ ...r, poses: [[0, 90, 20, 1, 1, 1]] })).toMatch(/pose 0 is not canonical/);
+    expect(checkCreatorRecord({ ...r, poses: [[0, -90, 1, 1, 1, 1]] })).toMatch(/pose 0 is not canonical/);
+  });
+
+  it("refuses a malformed poses list by name, in a record and through the reader", () => {
+    const r = recordOfLayout(yardOf([
+      { asset: "MP2:crate", m: M(0, 0, 0) }, { asset: "MP2:crate", m: posed(1, 0, 0, 0, 15, 0) }, { asset: "MP2:crate", m: M(2, 0, 0) },
+    ]), "Yard");
+    expect(r.poses).toEqual([[1, 15, 0, 1, 1, 1]]);
+    const bad = (poses: unknown): string | null => checkCreatorRecord({ ...r, poses });
+    expect(bad([])).toMatch(/poses is not a list/);
+    expect(bad("x")).toMatch(/poses is not a list/);
+    expect(bad(Array.from({ length: 2001 }, (_, i) => [i, 15, 0, 1, 1, 1]))).toMatch(/poses is not a list/);
+    expect(bad([[1, 15, 0, 1, 1]])).toMatch(/pose 0 is not \[piece#, pitch, roll, sx, sy, sz\]/);
+    expect(bad([[1.5, 15, 0, 1, 1, 1]])).toMatch(/pose 0 is not \[piece#, pitch, roll, sx, sy, sz\]/);
+    expect(bad([["1", 15, 0, 1, 1, 1]])).toMatch(/pose 0 is not \[piece#, pitch, roll, sx, sy, sz\]/);
+    expect(bad([[3, 15, 0, 1, 1, 1]])).toMatch(/pose 0 names no piece/);
+    expect(bad([[-1, 15, 0, 1, 1, 1]])).toMatch(/pose 0 names no piece/);
+    expect(bad([[2, 15, 0, 1, 1, 1], [1, 15, 0, 1, 1, 1]])).toMatch(/poses are not in piece order, each piece once/);
+    expect(bad([[1, 15, 0, 1, 1, 1], [1, 20, 0, 1, 1, 1]])).toMatch(/poses are not in piece order, each piece once/);
+    expect(bad([[1, 15.5, 0, 1, 1, 1]])).toMatch(/pose 0 pitch is not a whole degree/);
+    expect(bad([[1, 91, 0, 1, 1, 1]])).toMatch(/pose 0 pitch is not a whole degree/);
+    expect(bad([[1, 15, 360, 1, 1, 1]])).toMatch(/pose 0 roll is not a whole degree/);
+    expect(bad([[1, 15, -10, 1, 1, 1]])).toMatch(/pose 0 roll is not a whole degree/);
+    expect(bad([[1, 0, 0, 1.005, 1, 1]])).toMatch(/pose 0 scale is not/);
+    expect(bad([[1, 0, 0, 0.09, 1, 1]])).toMatch(/pose 0 scale is not/);
+    expect(bad([[1, 0, 0, 1, 4.01, 1]])).toMatch(/pose 0 scale is not/);
+    expect(bad([[1, 0, 0, 1, 1, 0]])).toMatch(/pose 0 scale is not/);
+    expect(bad([[1, 0, 0, -1, 1, 1]])).toMatch(/pose 0 scale is not/);                // a mirror
+    expect(bad([[1, 0, 0, 1, 1, 1]])).toMatch(/pose 0 is no pose: its piece is neither tilted nor scaled/);
+    expect(() => readCreatorRecord(JSON.stringify({ ...r, poses: [[3, 15, 0, 1, 1, 1]] }))).toThrow(/not a forge layout: pose 0 names no piece/);
+    // admitted: each bound, and a pose on any piece in order
+    expect(bad([[0, 0, 0, 2, 2, 2], [1, 15, 0, 1, 1, 1]])).toBeNull();
+    expect(bad([[1, 0, 0, 0.1, 4, 1.23]])).toBeNull();
+    expect(bad([[1, 90, 0, 1, 1, 1]])).toBeNull();
+    expect(bad([[1, -90, 0, 1, 1, 1]])).toBeNull();
+    expect(bad([[1, 0, 359, 1, 1, 1]])).toBeNull();
+  });
+
+  it("is v3 only: a v2 record never carries poses (its own check, unchanged), and markers keep a yaw only", () => {
+    const v2 = { v: 2, name: "Yard", base: "MP2", assets: ["MP2:crate"], pieces: [[0, 1, 2, 3, 0]], spawns: [["A", 1, 0, 2, 0]] };
+    expect(checkCreatorRecord({ ...v2, poses: [[0, 15, 0, 1, 1, 1]] })).toBe("unknown field poses");
+    expect(readCreatorRecord(JSON.stringify(v2)).record.poses).toBeUndefined();
+    const r = recordOfLayout({ ...yardOf([{ asset: "MP2:crate", m: posed(0, 0, 0, 0, 15, 0) }]), spawns: [{ team: "B", p: [1, 0, 2], yaw: Math.PI / 2 }] }, "Yard");
+    expect(r.spawns).toEqual([["B", 1, 0, 2, 90]]);
+    expect(r.poses).toEqual([[0, 15, 0, 1, 1, 1]]);
+  });
+});
+
+// FX wave 1 fold (the fresh review's finding 5; product track, a browser adaptation): a matrix that is not `T * R * S` --
+// a mirror, a shear, an axis of no length -- is written as the nearest pose the record reads (`layout.ts` `poseOf`'s
+// comment), its scales within the bounds, and reads back to a matrix the lobby's piece check (`pieceMatrixError`) admits.
+describe("FX fold: a mirrored, sheared or zero-axis matrix is written as the nearest pose", () => {
+  /** Each scale of a pose row within the record's bounds. */
+  const inBounds = (row: PoseRow): boolean => [row[3], row[4], row[5]].every((x) => x >= RECORD_SCALE_MIN_ADAPTATION && x <= RECORD_SCALE_MAX_ADAPTATION);
+  /** Through the record: written without a throw, checked, every pose in bounds, and its matrix read back admitted. */
+  const through = (m: number[]): CreatorLayoutRecord => {
+    expect(() => recordOfLayout(yardOf([{ asset: "MP2:crate", m }]), "Yard")).not.toThrow();
+    const r = recordOfLayout(yardOf([{ asset: "MP2:crate", m }]), "Yard");
+    expect(checkCreatorRecord(r)).toBeNull();
+    for (const row of r.poses ?? []) expect(inBounds(row), JSON.stringify(row)).toBe(true);
+    expect(pieceMatrixError(layoutOfRecord(r).pieces[0]!.m)).toBeNull();
+    return r;
+  };
+
+  it("a mirror (x negated) is written as a turn of 180 degrees, no pose", () => {
+    const mirror = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    expect(pieceMatrixError(mirror)).toMatch(/mirrored/);
+    const r = through(mirror);
+    expect(r.pieces).toEqual([[0, 0, 0, 0, 180]]);
+    expect("poses" in r).toBe(false);
+  });
+
+  it("a shear (the y axis leaning along x) is written as its axis lengths on the lattice, no tilt", () => {
+    const shear = [1, 0, 0, 0, 0.5, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    expect(pieceMatrixError(shear)).toMatch(/perpendicular/);
+    const r = through(shear);
+    expect(r.pieces).toEqual([[0, 0, 0, 0, 0]]);
+    expect(r.poses).toEqual([[0, 0, 0, 1, 1.12, 1]]);
+  });
+
+  it("an axis of no length is written at the least scale, 0.1", () => {
+    const flat = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    expect(pieceMatrixError(flat)).toMatch(/under 0\.1/);
+    const r = through(flat);
+    expect(r.pieces).toEqual([[0, 0, 0, 0, 0]]);
+    expect(r.poses).toEqual([[0, 0, 0, 1, 1, RECORD_SCALE_MIN_ADAPTATION]]);
+  });
+
+  it("turned and scaled, each of the three still goes through the record and reads back admitted", () => {
+    for (const [yaw, pitch, roll] of [[30, 15, 45], [300, -40, 200], [10, 90, 0], [0, 0, 0]] as const) {
+      const base = posed(0, 0, 0, yaw, pitch, roll, 2, 0.5, 3);
+      const mirrored = [...base];
+      for (const i of [8, 9, 10]) mirrored[i] = -mirrored[i]!;
+      const sheared = [...base];
+      for (const i of [0, 1, 2]) sheared[4 + i] = sheared[4 + i]! + 0.3 * sheared[i]!;
+      const flat = [...base];
+      for (const i of [0, 1, 2]) flat[i] = 0;
+      for (const m of [mirrored, sheared, flat]) {
+        expect(pieceMatrixError(m), `${yaw},${pitch},${roll}`).not.toBeNull();
+        through(m);
+      }
+    }
   });
 });

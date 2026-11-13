@@ -176,7 +176,7 @@ test.describe('the console launcher (sample adapters)', () => {
     await open(page, SAMPLE);
     // LR-23 (LR.R22): Home's list is Play / Server status / Discord (LR-37 (4): the Memory card gone), no sub-lines drawn; the Disc step is the
     // legend's chip, its cog beside it (was LR-13: Play's panel's disc check and its cog, reached by Cross and three Ups).
-    await expect(titles(page)).toHaveText(['Play SOCOM II', 'Server status', 'Discord']);   // no second folder action; Discord is LATER 291
+    await expect(titles(page)).toHaveText(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);   // no second folder action; Discord is LATER 291
     const gear = chipCog(page);
     await expect(gear).toHaveCount(1);
     await expect(gear).toBeVisible();

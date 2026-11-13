@@ -1,13 +1,13 @@
 import type { Loadout, Side } from '@s2u/scene';
 import { ExchangeInput } from './exchangeInput';
-import type { PadButton } from './gamepad';
+import type { GamepadLike, PadButton } from './gamepad';
 import type { HudQuad, HudTri } from './hud';
 import type { LoadedMap } from './loadMap';
 import type { PlayerLoadout } from './loadout';
 import type { MatchNetHooks } from './matchNet';
 import type { NetPage } from './netPage';
 import { respawnHelpLines } from './respawnPrompt';
-import { compactPicks, WeaponExchange, type MatchGate } from './weaponExchange';
+import { compactPicks, ExchangeStick, WeaponExchange, type MatchGate } from './weaponExchange';
 import type { InputDevice, PromptInfo } from './weaponSelect';
 import type { MenuContext, MenuState } from './weaponSelectState';
 import { equipmentLimitValves } from './equipmentLimit';
@@ -87,6 +87,12 @@ export interface MatchExchange {
    * screens' and hands the result to `input.frame` (the ownership: `main.ts:1209`).
    */
   pad(edges: ReadonlySet<PadButton>): boolean;
+  /**
+   * EXCHANGE-STICK (a browser adaptation, the owner's ruling 2026-11-12; `./weaponExchange` `ExchangeStick`): the pad's
+   * left stick, read every frame before `pad` -- the loading hold's included, so a stick held through it is no push.
+   * Open at the read, a push is one d-pad press the next `pad` steps, on a frame no button is pressed; closed, nothing.
+   */
+  stick(pad: GamepadLike | null | undefined): void;
   /** The menu and the prompt on the HUD's overlay, layer 1 (`main.ts:256-257`). */
   overlay(frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>): { quads: HudQuad[]; tris: HudTri[] };
   /** A kit shown on the menu's rows: the room's answer, `/testroom`'s ARMORY's (`main.ts:406`). */
@@ -147,6 +153,9 @@ export function mountExchange(d: MatchExchangeDeps): MatchExchange {
   };
   // main.ts:1158: the pad's buttons down last frame, by name (the menu's edges: `menuInputOfPad`).
   let last: ReadonlySet<PadButton> = new Set<PadButton>();
+  // EXCHANGE-STICK (the owner's ruling 2026-11-12, a browser adaptation): the stick's press for the frame's step.
+  const stickEdge = new ExchangeStick();
+  let flick: PadButton | null = null;
   return {
     menu,
     input,
@@ -163,13 +172,22 @@ export function mountExchange(d: MatchExchangeDeps): MatchExchange {
       return out;
     },
     hold: (down) => { last = down; },
-    pad: (edges) => (edges.size ? menu.pad(edges, gate()) : menu.isOpen()),
+    pad: (edges) => {
+      const push = flick;
+      flick = null;
+      if (!edges.size && push) return menu.pad(new Set([push]), gate());   // EXCHANGE-STICK: the stick's press, a frame with no button's
+      return edges.size ? menu.pad(edges, gate()) : menu.isOpen();
+    },
+    stick: (pad) => {
+      const push = stickEdge.read(pad?.axes[0] ?? 0, pad?.axes[1] ?? 0);
+      flick = push && menu.isOpen() ? push : null;
+    },
     // LATER 118 (research 282 §8): the menu alone -- the dead's lines are the HUD's six help lines (`./hud`
     // `spectatorHudView`'s `help`), on its clock and its hides (the scoreboard, the Chat menu); `prompt()` and the
     // hook's read below keep their text.
     overlay: (frame, sizes) => menu.draw(frame, sizes, null),
     answer: (kit) => { menu.answer(kit); },
-    reset: () => { menu.reset(d.loadouts.loadout()); },
+    reset: () => { flick = null; menu.reset(d.loadouts.loadout()); },
     netHooks: () => ({ answered: (kit) => { menu.answer(kit); } }),
     state: () => {
       const st = menu.state(), p = prompt();

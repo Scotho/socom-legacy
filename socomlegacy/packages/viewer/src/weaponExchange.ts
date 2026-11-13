@@ -1,6 +1,8 @@
 import { applyPicks, EMPTY_ITEM, menuValves, pick as pickItem, selectable, slotLocked, type Loadout, type Pick } from '@s2u/scene';
+import { STICK_FIRE, STICK_REARM } from '@s2u/ui';
 import type { HudQuad, HudTri } from './hud';
 import { PAD_BUTTON, PAD_PRESS, type GamepadLike, type PadButton } from './gamepad';
+import { LEFT_DEAD_ZONE, moveStick } from './moveStick';
 import {
   drawWeaponSelect, LIST_LAYOUT, menuInputOfKey, menuInputOfPad, MenuPulses, PICKER_LAYOUT, promptLines, WEAPON_SELECT_KEY_READING, weaponSelectLayout,
   type PromptInfo, type WeaponSelectLayout,
@@ -53,6 +55,44 @@ export function padButtonsDown(pad: GamepadLike | null | undefined): Set<PadButt
     if (b && (b.pressed || b.value >= PAD_PRESS)) out.add(name);
   }
   return out;
+}
+
+/**
+ * EXCHANGE-STICK -- a browser adaptation on the owner's ruling (Craig, 2026-11-12, seat redotcom-b0, verbatim: "Quick
+ * QOL - make it so using the left analog stick navigates through menus in the weapon quick select screen (my ruling)",
+ * clarified the same minute: "sorry i meant the death weapon screen only, not weapon quick select"). The original's
+ * WEAPON EXCHANGE reads the d-pad only (§B3, `menuInputOfPad`); here, while it is open, the pad's left stick is also
+ * one d-pad press a push. Nothing else of the game changes: closed, the stick is the game's as before, and the in-match
+ * quick select (`./inventoryMenu`) never reads this. The values are borrowed, not the original's for this screen: the
+ * pad's own dead zone and rescale (`./moveStick`), then the front-end menus' push / rest hysteresis (`@s2u/ui`
+ * `STICK_FIRE` / `STICK_REARM`, research 116 §7).
+ */
+/** EXCHANGE_STICK_DEAD_ZONE_ADAPTATION: the left stick's dead zone before the push is read (the pad's `LEFT_DEAD_ZONE`). */
+export const EXCHANGE_STICK_DEAD_ZONE_ADAPTATION = LEFT_DEAD_ZONE;
+/** EXCHANGE_STICK_PUSH_ADAPTATION: an armed stick past this on either axis (after the dead zone) is one step. */
+export const EXCHANGE_STICK_PUSH_ADAPTATION = STICK_FIRE;
+/** EXCHANGE_STICK_REST_ADAPTATION: both axes back within this re-arm the stick for the next step. */
+export const EXCHANGE_STICK_REST_ADAPTATION = STICK_REARM;
+
+/**
+ * The left stick as d-pad presses (EXCHANGE-STICK, the owner's ruling 2026-11-12; a browser adaptation): one press a
+ * push past `EXCHANGE_STICK_PUSH_ADAPTATION`, re-armed only at rest (`EXCHANGE_STICK_REST_ADAPTATION`), never a held
+ * repeat. The dominant axis names the press; an exact diagonal is the vertical one. It starts spent, so a stick already
+ * pushed when it is first read waits for the rest. Pure: the W3C axes in (x right, y down).
+ */
+export class ExchangeStick {
+  private armed = false;
+
+  /** One read: the d-pad press a push stands for, or null. */
+  read(x: number, y: number): 'Up' | 'Down' | 'Left' | 'Right' | null {
+    const fin = (v: number): number => (Number.isFinite(v) ? v : 0);
+    const [sx, sy] = moveStick(fin(x), fin(y), EXCHANGE_STICK_DEAD_ZONE_ADAPTATION);
+    const m = Math.max(Math.abs(sx), Math.abs(sy));
+    if (m <= EXCHANGE_STICK_REST_ADAPTATION) { this.armed = true; return null; }
+    if (!this.armed || m <= EXCHANGE_STICK_PUSH_ADAPTATION) return null;
+    this.armed = false;
+    return Math.abs(sy) >= Math.abs(sx) ? (sy < 0 ? 'Up' : 'Down') : sx < 0 ? 'Left' : 'Right';
+  }
 }
 
 export class WeaponExchange {

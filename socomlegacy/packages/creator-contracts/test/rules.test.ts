@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   BEHAVIOUR_SLOTS,
   behaviourCatalogue,
+  contractAdmits,
   ENGINE_CONTRACT_VERSION,
+  ENGINE_CONTRACT_VERSIONS,
   PACK_CODES,
   PACK_MANIFEST_FILE,
   PACK_TARGET_US,
@@ -517,10 +519,12 @@ describe("validateRules: configuration (level 1)", () => {
 // Compatibility (step 5): ENGINE_CONTRACT_VERSION 0.1.1 is additive (the patch, under caret SemVer); a v2 pack without
 // rules validates as before. FP-4 (FP.R2) moved it to 0.1.2, the patch again (the forge-map bundle and the content map's
 // version 2, additive): every range below that admitted 0.1.1 by a floor still admits the build, and the rules floor
-// stays 0.1.1 (`RULES_PACK_CONTRACT_FLOOR`, a fixed fact, not the build's version).
+// stays 0.1.1 (`RULES_PACK_CONTRACT_FLOOR`, a fixed fact, not the build's version). FX-5 moved the build to 0.2.0 and
+// made it read a LIST (`ENGINE_CONTRACT_VERSIONS`: 0.1.2 and 0.2.0, any one admitting a pack), so each 0.1.x range below
+// still admits the build through 0.1.2; the context here is the build's list, as the registry's default is.
 // ---------------------------------------------------------------------------------------------------------------------
 
-describe("the engine contract 0.1.2 (additive over 0.1.1)", () => {
+describe("the engine contract 0.1.2 (additive over 0.1.1), still read by the 0.2.0 build", () => {
   const enc = new TextEncoder();
   const hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
   const pack = (contract: string, members: readonly { path: string; role: string; text: string }[], kinds: string[], intent: string) => {
@@ -532,14 +536,16 @@ describe("the engine contract 0.1.2 (additive over 0.1.1)", () => {
     };
     return [{ path: PACK_MANIFEST_FILE, bytes: enc.encode(JSON.stringify(manifest)) }, ...files];
   };
-  const context = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
-  it("is 0.1.2 (FP-4), the rules floor still 0.1.1", () => {
-    expect(ENGINE_CONTRACT_VERSION).toBe("0.1.2");
+  const context = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
+  it("is read by the 0.2.0 build (FX-5: the list 0.1.2, 0.2.0), the rules floor still 0.1.1", () => {
+    expect(ENGINE_CONTRACT_VERSION).toBe("0.2.0");
+    expect(ENGINE_CONTRACT_VERSIONS).toContain("0.1.2");
     expect(RULES_PACK_CONTRACT_FLOOR).toBe("0.1.1");
   });
   it("admits every 0.1.x range, the caret one included; a rules pack's ^0.1.1 refuses a 0.1.0 engine", () => {
     for (const range of ["^0.1.0", ">=0.1.0", ">=0.1.0 <1.0.0", "*", "^0.1.1", ">=0.1.1", "~0.1.1", ">=0.1.2 <0.2.0", "^0.1.2"]) {
-      expect(satisfiesRange(ENGINE_CONTRACT_VERSION, range), range).toBe(true);
+      expect(contractAdmits(range, ENGINE_CONTRACT_VERSIONS), range).toBe(true);
+      expect(satisfiesRange("0.1.2", range), range).toBe(true);
     }
     // a 0.1.1 build does not satisfy the sample yard's range (FP-4's fixture states >=0.1.2 <0.2.0)
     expect(satisfiesRange("0.1.1", ">=0.1.2 <0.2.0")).toBe(false);
@@ -585,7 +591,8 @@ describe("the engine contract 0.1.2 (additive over 0.1.1)", () => {
       expect(v.report.diagnostics, range).toEqual([]);
     }
     // The exact ranges hold the floor too; they name one engine, so they are checked on a 0.1.1 build (FP-4: the
-    // floor rule is unchanged, only the build moved to 0.1.2, which an exact 0.1.1 range does not admit -- SemVer).
+    // floor rule is unchanged, only the build moved to 0.1.2, which an exact 0.1.1 range does not admit -- SemVer; FX-5's
+    // list, 0.1.2 and 0.2.0, admits it no more).
     for (const range of ["0.1.1", "=0.1.1"]) {
       const v = await validatePack(pack(range, [{ path: "rules/paintball.json", role: "rules", text }], ["rules"], "new-behaviour"), { ...context, contract: RULES_PACK_CONTRACT_FLOOR });
       expect(v.report.diagnostics, range).toEqual([]);
@@ -606,7 +613,7 @@ describe("a rules pack's handler claims agree with its RulesSpec.capabilities", 
   const hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
   const SENTRY: PackHandlerCapability = { ...PATROL, id: "behaviour.npc.sentry" };
   const TINT: PackHandlerCapability = { id: "visual.post.tint", slot: "visual.post", actions: ["install", "enable", "disable", "dispose"] };
-  const context = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [PATROL, SENTRY, TINT] };
+  const context = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [PATROL, SENTRY, TINT] };
   const rulesPack = (handlers: readonly object[] | undefined, text: string = JSON.stringify(ZOMBIES)) => {
     const bytes = enc.encode(text);
     const manifest = {

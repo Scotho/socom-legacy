@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, validatePack } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, validatePack } from '@s2u/creator-contracts';
 import { withCallbackServer } from '../../../tools/forge-agent-probe/callback';
 import { e2ePort } from './ports';
 import { beginPair, pairBody, PROBE_PAIR_TIMEOUT_MS } from '../../../tools/forge-agent-probe/pairing';
@@ -188,7 +188,7 @@ test.describe(`FCW-13: the paintball example pack by the agent's path${MISSING.l
     };
     const run = pbRun();
     const input = packFiles();
-    const checked = await validatePack(PACK.map((path) => ({ path, bytes: new Uint8Array(packBytes(path)) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+    const checked = await validatePack(PACK.map((path) => ({ path, bytes: new Uint8Array(packBytes(path)) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS });
     expect(checked.ok, JSON.stringify(checked.report)).toBe(true);
     const ref = checked.ok ? checked.ref : null;
 

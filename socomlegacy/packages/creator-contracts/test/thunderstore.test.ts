@@ -8,10 +8,11 @@ import {
   THUNDERSTORE_CODES,
   THUNDERSTORE_PACKAGE_RULES,
   THUNDERSTORE_STORE_FILES,
-  THUNDERSTORE_TEAM_PLACEHOLDER,
+  THUNDERSTORE_TEAM,
   thunderstoreIdentity,
   thunderstoreManifest,
   thunderstoreName,
+  thunderstoreReadme,
   thunderstoreVersion,
   validatePack,
   type BufferedPackFile,
@@ -152,15 +153,17 @@ describe("the store files at the zip's root: a defined exception, not members (F
   });
 });
 
-describe("the export identity: our id -> Thunderstore Team-Name (the team H342's)", () => {
-  it("is a named placeholder until H342 is answered, and itself a valid store name", () => {
-    expect(THUNDERSTORE_TEAM_PLACEHOLDER).toMatch(new RegExp(THUNDERSTORE_PACKAGE_RULES.name.pattern));
+describe("the export identity: our id -> Thunderstore Team-Name (the team SOCOM_Legacy, FX.R2)", () => {
+  it("is the team the owner named, SOCOM_Legacy (FX.R2), a valid store team name", () => {
+    expect(THUNDERSTORE_TEAM).toBe("SOCOM_Legacy");
+    expect(THUNDERSTORE_TEAM).toMatch(new RegExp(THUNDERSTORE_PACKAGE_RULES.name.pattern));
+    expect(THUNDERSTORE_TEAM.length).toBeLessThanOrEqual(THUNDERSTORE_PACKAGE_RULES.name.maxChars);
   });
   it("maps . and - to _, within [A-Za-z0-9_] and 128 characters", () => {
     expect(thunderstoreName("example.yard")).toBe("example_yard");
     expect(thunderstoreName("acme-tag.v2")).toBe("acme_tag_v2");
     expect(thunderstoreName("texture.mp51")).toBe("texture_mp51");
-    expect(thunderstoreIdentity("example.yard")).toEqual({ team: THUNDERSTORE_TEAM_PLACEHOLDER, name: "example_yard", full: `${THUNDERSTORE_TEAM_PLACEHOLDER}-example_yard` });
+    expect(thunderstoreIdentity("example.yard")).toEqual({ team: "SOCOM_Legacy", name: "example_yard", full: "SOCOM_Legacy-example_yard" });
     expect(thunderstoreIdentity("example.yard", "Acme")?.full).toBe("Acme-example_yard");
   });
   it("gives no name for what is not a pack id, and no identity under a team outside the store's grammar", () => {
@@ -206,7 +209,7 @@ describe("the export: ranges as exact Team-Name-x.y.z pins", () => {
   const yard = (version: string) => ({ ref: { id: "example.yard", version, hash: "c".repeat(64) } });
   it("pins each range to the highest available release in it", async () => {
     const manifest = await manifestOf(withManifest(ours({ id: "example.paint", dependencies: [{ id: "example.yard", range: "^1.0.0" }] })));
-    const v = thunderstoreManifest(manifest, { packs: [yard("1.0.0"), yard("1.4.2"), yard("1.5.0-rc.1"), yard("2.0.0")] });
+    const v = thunderstoreManifest(manifest, { packs: [yard("1.0.0"), yard("1.4.2"), yard("1.5.0-rc.1"), yard("2.0.0")], teams: { "example.yard": "Yard_Works" } });
     expect(v.report.diagnostics).toEqual([]);
     expect(v.ok).toBe(true);
     if (!v.ok) return;
@@ -215,7 +218,7 @@ describe("the export: ranges as exact Team-Name-x.y.z pins", () => {
       version_number: "1.2.0",
       website_url: "",
       description: "A small yard.",
-      dependencies: [`${THUNDERSTORE_TEAM_PLACEHOLDER}-example_yard-1.4.2`],
+      dependencies: ["Yard_Works-example_yard-1.4.2"],
     });
     expect(Object.keys(v.manifest)).toEqual([...THUNDERSTORE_PACKAGE_RULES.manifestKeys]);
   });
@@ -237,6 +240,135 @@ describe("the export: ranges as exact Team-Name-x.y.z pins", () => {
     expect(thunderstoreManifest(manifest, { description: "Short." }).ok).toBe(true);
     const short = await manifestOf(withManifest(ours()));
     expect(codes(thunderstoreManifest(short, { websiteUrl: "javascript:alert(1)" }))).toEqual([THUNDERSTORE_CODES.websiteInvalid]);
+  });
+});
+
+describe("each dependency pinned under its own team, never the exporter's (FX-4; A3 E2)", () => {
+  const twoDeps = () => ours({ id: "example.paint", dependencies: [{ id: "example.yard", range: "^1.0.0" }, { id: "acme-tag", range: "^1.0.0" }] });
+  const oneDep = () => ours({ id: "example.paint", dependencies: [{ id: "example.yard", range: "^1.0.0" }] });
+  it("pins a dependency published by another team under that team", async () => {
+    const manifest = await manifestOf(withManifest(twoDeps()));
+    const v = thunderstoreManifest(manifest, { packs: DEVICE.packs, teams: { "example.yard": "Yard_Works", "acme-tag": "Acme" } });
+    expect(v.report.diagnostics).toEqual([]);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.manifest.dependencies).toEqual(["Yard_Works-example_yard-1.4.2", "Acme-acme_tag-1.0.0"]);
+    expect(v.manifest.dependencies.some((d) => d.startsWith(`${THUNDERSTORE_TEAM}-`))).toBe(false);
+  });
+  it("pins a dependency under SOCOM_Legacy only when that is the team given for it", async () => {
+    const manifest = await manifestOf(withManifest(oneDep()));
+    const v = thunderstoreManifest(manifest, { packs: DEVICE.packs, teams: { "example.yard": THUNDERSTORE_TEAM } });
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.manifest.dependencies).toEqual(["SOCOM_Legacy-example_yard-1.4.2"]);
+  });
+  it("refuses a dependency whose team is not known, by the named code, never taking the exporter team", async () => {
+    const manifest = await manifestOf(withManifest(twoDeps()));
+    const v = thunderstoreManifest(manifest, { packs: DEVICE.packs, teams: { "example.yard": "Yard_Works" } });
+    expect(v.ok).toBe(false);
+    expect(v.report.diagnostics.map((d) => [d.code, d.field, d.actual])).toEqual([[THUNDERSTORE_CODES.dependencyTeamUnknown, "dependencies[1]", "acme-tag"]]);
+    const none = thunderstoreManifest(manifest, { packs: DEVICE.packs, team: "Acme" });
+    expect(none.ok).toBe(false);
+    expect(codes(none)).toEqual([THUNDERSTORE_CODES.dependencyTeamUnknown, THUNDERSTORE_CODES.dependencyTeamUnknown]);
+  });
+  it("refuses a dependency team outside the store grammar, and reads no team off the prototype", async () => {
+    const manifest = await manifestOf(withManifest(oneDep()));
+    const bad = thunderstoreManifest(manifest, { packs: DEVICE.packs, teams: { "example.yard": "Bad-Team" } });
+    expect(bad.report.diagnostics.map((d) => [d.code, d.field])).toEqual([[THUNDERSTORE_CODES.teamInvalid, "dependencies[0]"]]);
+    const inherited = thunderstoreManifest(manifest, { packs: DEVICE.packs, teams: Object.create({ "example.yard": "Acme" }) as Record<string, string> });
+    expect(codes(inherited)).toEqual([THUNDERSTORE_CODES.dependencyTeamUnknown]);
+  });
+});
+
+describe("the store README.md, generated (FX-4; A3 E3)", () => {
+  const base = async (): Promise<PackManifest> => manifestOf(withManifest(ours()));
+  it("writes a rules pack: its name, what it is, that it needs nothing, its licence and authors", async () => {
+    const manifest: PackManifest = { ...(await base()), id: "example.paint-rules", name: "Paint rules", description: "Paint the yard by team.", kinds: ["rules"], dependencies: [] };
+    const text = thunderstoreReadme({ manifest, license: "CC-BY-4.0", authors: ["Fuse", "Phil"] });
+    expect(text).toBe(
+      [
+        "# Paint rules",
+        "",
+        "Paint the yard by team.",
+        "",
+        "Pack `example.paint-rules`, version 1.2.0.",
+        "",
+        "## What it is",
+        "",
+        "- Rules: game-mode rules as data, never code.",
+        "",
+        "## What it needs",
+        "",
+        "Nothing else: this pack stands alone.",
+        "",
+        "## Licence",
+        "",
+        "CC-BY-4.0",
+        "",
+        "## Authors",
+        "",
+        "- Fuse",
+        "- Phil",
+        "",
+      ].join("\n"),
+    );
+    expect(thunderstoreReadme({ manifest, license: "CC-BY-4.0", authors: ["Fuse", "Phil"] })).toBe(text);
+  });
+  it("writes a pack with a map and two dependencies, with no licence or authors section when none is given", async () => {
+    const manifest: PackManifest = {
+      ...(await base()),
+      id: "example.paint",
+      dependencies: [{ id: "example.yard", range: "^1.0.0" }, { id: "acme-tag", range: "^1.0.0" }],
+    };
+    const text = thunderstoreReadme({ manifest, maps: [{ name: "Crossroads", path: "layouts/crossroads.json" }] });
+    expect(text).toBe(
+      [
+        "# Yard",
+        "",
+        "A small yard.",
+        "",
+        "Pack `example.paint`, version 1.2.0.",
+        "",
+        "## What it is",
+        "",
+        "- Content: models, textures, sounds or maps.",
+        "- A map: Crossroads (`layouts/crossroads.json`).",
+        "",
+        "## What it needs",
+        "",
+        "- The pack `example.yard`, a version in `^1.0.0`.",
+        "- The pack `acme-tag`, a version in `^1.0.0`.",
+        "",
+      ].join("\n"),
+    );
+  });
+  it("names a disc archive dependency as the player own copy, never carried", async () => {
+    const manifest: PackManifest = { ...(await base()), dependencies: [{ archive: "RUN/MP51.ZDB", sha256: "d".repeat(64) }] };
+    expect(thunderstoreReadme({ manifest })).toContain("- `RUN/MP51.ZDB` from your own copy of the game; it is not in this package.\n");
+  });
+});
+
+describe("one file list, both validators: the pack and the store files together (FX-4; A3 E3)", () => {
+  it("passes validatePack and checkThunderstorePackage, and the store files leave the pack hash unchanged", async () => {
+    const own = ours({ id: "example.paint", dependencies: [{ id: "example.yard", range: "^1.0.0" }] });
+    const bare = await validatePack(withManifest(own), DEVICE);
+    if (!bare.ok) throw Error(`the fixture must validate: ${codes(bare).join(", ")}`);
+    const exported = thunderstoreManifest(bare.manifest, { packs: DEVICE.packs, teams: { "example.yard": "Yard_Works" } });
+    if (!exported.ok) throw Error(`the export must pass: ${codes(exported).join(", ")}`);
+    const store: BufferedPackFile[] = [
+      { path: "manifest.json", bytes: enc.encode(JSON.stringify(exported.manifest)) },
+      { path: "icon.png", bytes: pngHeader(256, 256) },
+      { path: "README.md", bytes: enc.encode(thunderstoreReadme({ manifest: bare.manifest, license: "CC-BY-4.0" })) },
+    ];
+    const files = withManifest(own, store);
+    const whole = await validatePack(files, DEVICE);
+    expect(whole.report.diagnostics).toEqual([]);
+    expect(whole.ok).toBe(true);
+    if (!whole.ok) return;
+    expect(whole.ref).toEqual(bare.ref);
+    expect(whole.ref.hash).toBe(bare.ref.hash);
+    const report = checkThunderstorePackage(files, { pack: whole.manifest });
+    expect(report.diagnostics).toEqual([]);
+    expect(report.status).toBe("pass");
   });
 });
 

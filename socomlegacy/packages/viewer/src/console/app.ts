@@ -2,11 +2,13 @@ import { BACKDROP_URL } from './backdrop';
 import { openMobileLayoutEditor, type MobileLayoutEditor } from '../mobileLayoutEditor';
 import { UNSAVED_EDIT_MARK } from '../pwa/matchSignals';
 import { fit, NARROW_PX } from './fit';
+import { githubOnRow } from './discord';
 import { ConsoleController, type Host } from './grammar';
 import { attachInput, type InputFrame } from './input';
 import { pageRows, renderFrame } from './render/frame';
 import { keepRailCentred, retireRail } from './render/home';
 import { anchorSourceMenu } from './render/legend';
+import { attachMapStillFallback } from './render/replays';
 import { launcherNav, loadoutHistoryBlocked, type LauncherNav } from './history';
 import { createState, startReady, type Adapters, type ConsoleMode, type ConsolePageReads } from './state';
 
@@ -50,9 +52,14 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
   // depends on it -- the Discord link: the header's above the rule, Home's row at and below it -- follows the control
   // that is shown (a phone turned on its side), not only the next press. A browser adaptation (OT.R28).
   let narrowSide = win.innerWidth <= NARROW_PX;
+  // The GitHub link beside it (the owner, 2026-11-12) the same across `./discord` GITHUB_ROW_PX: Home's row up to it,
+  // the header's icon above it.
+  let githubSide = githubOnRow(win, win.innerWidth <= NARROW_PX);
   const onResize = () => {
     refit();
     const side = win.innerWidth <= NARROW_PX;
+    const gh = githubOnRow(win, side);
+    if (gh !== githubSide) { githubSide = gh; if (side === narrowSide) { ctl?.render(); return; } }
     // LR-40 (2; the close run's F2): inside the phone rule a resize (a rotation, a window) draws nothing, so the rail's
     // current category is brought back to its centre here, at once (`keepRailCentred`: a new size is never smooth).
     if (side === narrowSide) { if (side && !frozen) keepRailCentred(doc); return; }
@@ -131,6 +138,8 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
   let detach: (() => void) | null = attachInput(doc, win, c, opts);
   win.addEventListener('resize', onResize);
   const unsubscribe = adapters.onChange?.(() => { c.render(); });
+  // REPLAY-STILLS (a browser adaptation): a replay drawer's map still that fails to load is drawn as the text from then on.
+  const stillsOff = attachMapStillFallback(doc, () => { if (!stopped && !frozen) c.render(); });
   const stop = (): void => {
     stopped = true;
     editor?.dispose(); editor = null;
@@ -139,6 +148,7 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
     detach = null;
     win.removeEventListener('resize', onResize);
     unsubscribe?.();
+    stillsOff();
     c.dispose();
     retireRail(doc);                                                  // LR-45's fold: the rail's release held by the document no longer
     markUnsaved(false);

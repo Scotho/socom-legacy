@@ -499,6 +499,73 @@
   :root[data-console] .cx-discord-row { display: none; }
 }
 
+/* The GitHub link beside the Discord one. The owner, 2026-11-12 (the main controller's seat 2f, verbatim): "Add a github
+   link beside the discord one with the same icon set on the launcher main menu". The same treatment as the Discord rules
+   above, in parallel so those stay as they were: the header icon above 1100px (after Discord's, the status row's own
+   1.375rem gap between them), Home's row at and below it (under Discord's). Up to 1100px and above the phone rule Discord's
+   header icon stands alone and GitHub is Home's row: the review's rendered header measurement (2026-11-12,
+   `agent-mail/evidence/v0420/launcher-github-link/`) had a second icon slide the brand under the clock at 761px, signed in
+   with a 14-character name and the 12-hour clock; at 130% Interface size that reached ~1021px, so the edge is 1100px, a
+   margin over it, until a rem threshold replaces it (`../discord` GITHUB_ROW_PX holds the same width and says why). The mark is GitHub's
+   Invertocat (Octicons `mark-github`, 16x16; GitHub's logo page https://github.com/logos: used unmodified, in one colour),
+   white, CanvasText under forced colours, never currentColor -- no rule recolours it. Its box is the Discord mark's
+   height (1.5rem; square at 1 / 1, so the round mark weighs about as the wider Clyde does) with the same clear-space
+   padding, so the two pills are the same height on one line. The motion mirrors Discord's: the header pill lifts a pixel
+   and a press settles it; in the Home row the mark itself scales to 1.06 on hover and the pad's focus and to 0.94 on a
+   press, its shape and colour unchanged; under reduced motion none of it. A browser adaptation (OT.R28). */
+:root[data-console] .cx-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: content-box;
+  padding: calc(1.5rem * 31.5 / 72.8);
+  border-radius: var(--s2u-radius-pill);
+  text-decoration: none;
+  color: inherit;
+}
+:root[data-console] .cx-github-row > .cx-item { text-decoration: none; }
+:root[data-console] .cx-github__mark {
+  display: block;
+  height: 1.5rem;
+  width: auto;
+  aspect-ratio: 1 / 1;
+  forced-color-adjust: none;
+}
+:root[data-console] .cx-item__icon .cx-github__mark { height: 1.5rem; }
+:root[data-console] .cx-github__mark path { fill: white; }
+@media (forced-colors: active) {
+  :root[data-console] .cx-github__mark path { fill: CanvasText; }
+}
+:root[data-console] .cx-github:focus-visible {
+  outline: var(--s2u-focus-w) solid var(--s2u-focus);
+  outline-offset: var(--s2u-focus-offset);
+}
+:root[data-console] .cx-github {
+  transition: background var(--s2u-dur-fast) var(--s2u-ease), transform var(--s2u-dur-fast) var(--s2u-ease);
+}
+:root[data-console] .cx-github:hover,
+:root[data-console] .cx-github:focus-visible,
+:root[data-console] .cx-github.is-focused { background: var(--s2u-surface-hover); transform: translateY(-1px); }
+:root[data-console] .cx-github:active { transform: translateY(0) scale(0.94); }
+:root[data-console] .cx-github-row .cx-github__mark { transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
+:root[data-console] .cx-github-row > .cx-item:hover .cx-github__mark,
+:root[data-console] .cx-github-row > .cx-item.is-focused .cx-github__mark { transform: scale(1.06); }
+:root[data-console] .cx-github-row > .cx-item:active .cx-github__mark { transform: scale(0.94); }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-console] .cx-github, :root[data-console] .cx-github-row .cx-github__mark { transition: none; }
+  :root[data-console] .cx-github:hover, :root[data-console] .cx-github:focus-visible, :root[data-console] .cx-github.is-focused,
+  :root[data-console] .cx-github:active, :root[data-console] .cx-github-row > .cx-item:hover .cx-github__mark,
+  :root[data-console] .cx-github-row > .cx-item.is-focused .cx-github__mark,
+  :root[data-console] .cx-github-row > .cx-item:active .cx-github__mark { transform: none; }
+}
+@media (max-width: 1100px) {
+  :root[data-console] .cx-github { display: none; }
+}
+@media (width > 1100px) {
+  :root[data-console] .cx-github-row { display: none; }
+}
+
 /* ---------- LATER 380: the button mapping screen drawn round the controller, and its teach pass ----------
    The owner's word (2026-10-23): "more visual and cohesive ... a clean and pleasing ui". The drawing (`render/padArt.ts`,
    one swappable asset) is the screen's hero: its own column above the aside, on a panel lifted off the page, the body
@@ -1442,6 +1509,9 @@
   :root[data-console] .cx-home.is-page .cx-item--play .cx-item__icon .cx-ico { width: 62px; height: 62px; }
   /* Discord's own mark (LATER 291) in the 46px mark's drawn width (the symbol's 20 of its 24 units: 38px) */
   :root[data-console] .cx-home.is-page .cx-item__icon .cx-discord__mark { width: 38px; height: auto; }
+  /* GitHub's mark (the owner, 2026-11-12) at the Discord mark's height there (38px at 64/48: 28.5px), square. Unlike
+     Discord's row (hidden in this whole range), GitHub's row is drawn here from 761px to 1100px (GITHUB_ROW_PX). */
+  :root[data-console] .cx-home.is-page .cx-item__icon .cx-github__mark { height: 28.5px; width: auto; }
   :root[data-console] .cx-home.is-page .cx-item__title { font-size: calc(24px * var(--cx-text-scale)); }
   :root[data-console] .cx-home.is-page .cx-signout-row { margin-top: 0; padding-top: 0; }
 }

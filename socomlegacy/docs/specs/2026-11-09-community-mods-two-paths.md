@@ -261,6 +261,29 @@ instead of us, as far as his steps 2-4 need it (OT.R118: "steps 2-4 and what the
 Rows this spec does not add: SR's FS-1 (0.1.2 completed), FS-2 (conformance fixtures) and FS-3 (parity paths) stay
 SR's, waiting on the owner's reads (H-FP8-a, H-FS-1). CM-13 needs FS-1's forward-compatibility rule in place first.
 
+**For CM-9: carried from PR #587 at 9226138bc1** (`docs/specs/2026-10-28-fcw-15-zombies-rules-pack.md` on that commit,
+by Fuse, GitHub devoptic88; superseded as a decision document; to be closed unmerged (harvested first, 2026-11-11)). These are the
+contributor's design proposals, kept as input for CM-9, not rulings; `:n` is the note's line.
+- **The horde's sync shape** (`:45`): a zombie is not a player seat or a hostage; the page reads a body list (id,
+  feet, yaw, clip, alive). His crowd cap is 300 (`packages/viewer/src/zombies/crowd.ts:3`), where landed rules NPCs
+  are seats capped at 8 a side (`packages/creator-contracts/examples/zombie-waves/README.md:78`).
+- **Wave and live caps belong to the capability** (`:28`): a pack's configuration cannot raise them.
+- **The climbing gap** (`:87`, `:106`): `obstacle.ts` is tied to the page's Walker and Traversal, so a room-stepped
+  body cannot climb until the room can run that probe.
+- **What moves** (`:104`, `:112`): the pure modules (`melee.ts`, `navigation.ts`, `spawns.ts`, `traffic.ts`,
+  `crowd.ts`, the kind and pursuit math of `evolution.ts`, `zombieShotHit` and the bullet constants, `wavePace`,
+  `waveHealth`, `RESTOCK_SECONDS`) move to a module the room imports, with a guard test on wave size and melee reach
+  so F6's numbers do not change.
+- **No zip** (`:49`): the room steps without asking whether the asset zip loaded; the page draws nothing.
+- **The slice order for the rest of Phoenix** (`:91-95`, `:136`): the shop token first, perks through `hit.scale`,
+  barricades through a marker-health primitive, drops through lay-at-point, the weapon upgrade through the kit
+  primitive; which control sends `rulePurchase` is undecided.
+
+Decided otherwise on `main` since, not to be revived from the note: waves landed first on the patrol brain (CM-7's
+`zombie-waves` example), not after the capability; the figures are in the landed pack as defaults; plugin code is
+allowed on his community class (OT.R118), not "no pack code"; online is CM-15 and CM-17, not a slice behind H274. Its
+open questions are H447.
+
 ## 6. Who owns what
 
 - **ab** (the Forge seat): CM-1, CM-2, CM-3, CM-4, CM-5, CM-6, CM-8, CM-11, CM-16, every contract review of CM-7, CM-10,

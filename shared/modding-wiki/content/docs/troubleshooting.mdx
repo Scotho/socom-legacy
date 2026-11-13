@@ -28,6 +28,8 @@ An error refuses the pack. A note does not, but a report with a skipped check is
 | `pack.TARGET_MISMATCH` | Set `target` to the disc revision the build targets, `SCUS-97275`. A pack made for another revision cannot be used. |
 | `pack.CONTRACT_MISMATCH` | Your `contract` range must include the engine contract version of the build you are using. Widen the range, for example `^0.1.0`, which takes every `0.1.x`. The current version is on [Changelog](/changelog/). |
 | `pack.CONTRACT_FLOOR` | A `rules` pack's `contract` must not admit any engine before the first one with the rules vocabulary. Write `^0.1.1`, or a range where every alternative starts at 0.1.1 or above. `*`, `<0.2.0` and `^0.1.0` are all refused for a rules pack. |
+| `pack.CONTRACT_FIELD` | You used a field engine contract 0.2.0 added -- `license`, `authors`, `extensions` or a `files` row's `provenance` -- in a pack whose `contract` lets an older build read it. Write `^0.2.0` (or a range where every alternative starts at 0.2.0 or above), or leave the field out and keep your range. |
+| `pack.PROVENANCE_REFUSED` | A `files` row says its member is `extracted`: game content read off a disc. Such a member never goes in a pack. Remove the member and its row; your own work is `original`, and a member made from another pack is `derived`. |
 | `pack.EXTERNAL_URI` | Take every web address out of the manifest, including from `name` and `description`, and any path that looks like an address. Every byte a pack uses comes from the pack itself or from your own disc. A store's website address is given to the store export separately (see [Thunderstore](/publishing/thunderstore/)). |
 | `pack.STORE_FILE` | Remove the `files` row that names `manifest.json`, `icon.png`, `README.md` or `CHANGELOG.md`. Those are Thunderstore's root files and sit beside the pack outside its identity. The checker's hint: "Leave it out of files: the store files ride at the pack's root outside its identity." |
 
@@ -84,6 +86,7 @@ An error refuses the pack. A note does not, but a report with a skipped check is
 
 | code | what to do |
 |---|---|
+| `pack.KIND_NOT_APPLIED` | Nothing to fix: this is a warning, and the pack passes. A `plugin` pack is reserved for community servers; it is checked and stored, but no page applies it and nothing in this build runs it. Its `sides` must be `server`. |
 | `pack.CHECK_SKIPPED` | Nothing to fix in the pack. A check could not run because the place you imported it gave the checker nothing to compare with (the other installed packs, your disc archives, or the list of handlers). The report is incomplete rather than a pass; check again where that information is available. |
 
 ## Thunderstore export and package
@@ -100,6 +103,7 @@ These come from the store export and the store package check, which nothing in t
 | `store.DESCRIPTION_TOO_LONG` | The store description is at most 250 characters; ours may be longer. Shorten the pack's `description`, or give the export a shorter store description. It is never cut for you. |
 | `store.WEBSITE_INVALID` | Give `website_url` as an http or https address, or leave it empty. |
 | `store.DEPENDENCY_UNRESOLVED` | The export pins each dependency to one exact release and found none inside the range. Make a release of the dependency inside the range available to the export, or change the range. Pre-releases are never pinned. |
+| `store.DEPENDENCY_TEAM_UNKNOWN` | A store pin names the team that published the dependency, and the export was not told it. Give the export that pack's team, the `Team` of its store name `Team-Name`. The export never assumes your own team for another pack. |
 | `store.ARCHIVE_DEPENDENCY` | Nothing to fix: a note. A dependency on your own disc archive has no store form, so it stays in `s2u-pack.json` only. |
 | `store.FILE_MISSING` | Add the named file (`manifest.json`, `icon.png` or `README.md`) at the root of the zip, not inside a folder. |
 | `store.MANIFEST_INVALID` | Fix the store `manifest.json` at the key the finding names: it must be a UTF-8 JSON object with `name`, `version_number`, `website_url`, `description` and `dependencies`, each keeping the store's rule. |

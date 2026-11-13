@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { parseZdb } from '@s2u/archive';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
-import { actionAtPick, actionInReach, actionRecordsOf, readMapActions, type MapAction } from '../src/mapActions';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  actionAtPick, actionInReach, actionRecordsOf, MAP_ACTION_CAPTION_OTHER_TYPES_READING, MAP_ACTION_TCM_CAPTION_READING, MAP_ACTION_TYPE_CAPTIONS,
+  mapActionCaption, readActionRecords,
+  readMapActions, type MapAction,
+} from '../src/mapActions';
 
 /** The map's own context actions (socomlegacy/docs/research/87-hud.md §5): `READERM.ZAR/actions.rdr` on placed nodes. */
 
 /** A typed record as `readMapActions` makes it (research 209 §2): the defaults are `FUN_002b49f0`'s. */
 const action = (node: string, at: [number, number, number], o: Partial<MapAction> = {}): MapAction => ({
   node, path: `worldmodel/${node}`, type: 'DOOR', typeCode: 0, valve: node, anims: ['singleDoor_right'], team: null,
-  range: 30, elevation: -1, points: 0, bitmap: 'action_door_open.tif', at, ...o,
+  range: 30, elevation: -1, points: 0, bitmap: 'action_door_open.tif', descriptor: '', at, ...o,
 });
 
 describe('actionInReach', () => {
@@ -28,14 +34,17 @@ describe('actionRecordsOf', () => {
     const script = [['actions', [
       ['node', ['d'], 'valve', ['d'], 'anim', ['swing', 'kick'], 'type', ['DOOR'], 'range', ['30'], 'bitmap', ['Action_Door_Open.tif']],
       ['node', ['a'], 'valve', ['set_a'], 'anim', ['destroy_a'], 'points', ['2']],
-      ['node', ['r'], 'type', ['SWITCH'], 'team', ['0'], 'elevation', ['15']],
+      ['node', ['r'], 'type', ['SWITCH'], 'team', ['0'], 'elevation', ['15'], 'descriptor', ['GATE SWITCH'], 'tcm', ['1']],
       ['node', ['b'], 'type', ['ACT_BREACH']], ['node', ['w'], 'type', ['WINDOW']], ['node', ['x'], 'type', ['DEFUSE']],
       ['node', ['s'], 'type', ['SATCHEL']], ['node', ['i'], 'type', ['ITEM']], ['node', ['m'], 'type', ['MPBOMB']], ['node', ['q'], 'type', ['BREACH']],
     ]]];
     const records = actionRecordsOf(script);
-    expect(records[0]).toEqual({ node: 'd', type: 'DOOR', typeCode: 0, valve: 'd', anims: ['swing', 'kick'], team: null, range: 30, elevation: -1, points: 0, bitmap: 'action_door_open.tif' });
-    expect(records[1]).toEqual({ node: 'a', type: '', typeCode: 8, valve: 'set_a', anims: ['destroy_a'], team: null, range: 32, elevation: -1, points: 2, bitmap: '' });
-    expect(records[2]).toMatchObject({ node: 'r', typeCode: 2, team: 0, elevation: 15, range: 32 });
+    expect(records[0]).toEqual({ node: 'd', type: 'DOOR', typeCode: 0, valve: 'd', anims: ['swing', 'kick'], team: null, range: 30, elevation: -1, points: 0, bitmap: 'action_door_open.tif', descriptor: '', tcm: false });
+    expect(records[1]).toEqual({ node: 'a', type: '', typeCode: 8, valve: 'set_a', anims: ['destroy_a'], team: null, range: 32, elevation: -1, points: 2, bitmap: '', descriptor: '', tcm: false });
+    // G1 (action-labels review): the `descriptor` key (the loader's `FUN_0032ee10(.., 0x3f2118 "descriptor")`
+    // D:L157285, kept at the action's +0x2c D:L157318-157321) as written, '' when absent.
+    expect(records[2]).toMatchObject({ node: 'r', typeCode: 2, team: 0, elevation: 15, range: 32, descriptor: 'GATE SWITCH', tcm: true });
+    // Review S2: `tcm` is the key's presence (`FUN_0032f0d0(.., 0x3f21c8 "tcm")` sets `+0x3f` bit 2, D:L157420-157422).
     expect(records.slice(3).map((r) => [r.node, r.typeCode])).toEqual([['b', 5], ['w', 1], ['x', 3], ['s', 6], ['i', 7], ['m', 4], ['q', 8]]);
   });
 });
@@ -116,5 +125,77 @@ describe.skipIf(mp6 === null)(`Desert Glory's actions${mp6 === null ? ` (${FIXTU
     const a = actions.find((x) => x.node === 'access_action1');
     expect(a && [a.type, a.typeCode, a.valve, a.anims, a.range, a.elevation, a.points, a.bitmap]).toEqual(['', 8, 'set_access1', ['destroy_access1'], 32, -1, 2, '']);
     expect(actions.find((x) => x.node === 'cdoor1')?.typeCode).toBe(0);
+  });
+});
+
+/**
+ * G1 of the action-labels review (`agent-mail/evidence/v0420/action-labels-review/REPORT.md` s3; reading, pending review):
+ * a map action's caption. `FUN_002209c0` sets the record's text from the action's +0x2c (`descriptor`) when set, else
+ * from `FUN_002b48e0` by its type (D:L74567-74582); `FUN_002b48e0` gives OPEN DOOR, or CLOSE DOOR when the valve's short
+ * (+0x18's +4) is non-zero, for type 0 and FLIP SWITCH for type 2 (D:L156975-156984). Other types: not ported yet.
+ */
+describe('mapActionCaption (G1)', () => {
+  it('the descriptor when set; else OPEN DOOR / CLOSE DOOR by the valve for a DOOR, FLIP SWITCH for a SWITCH; other types none yet', () => {
+    expect(MAP_ACTION_TYPE_CAPTIONS).toEqual({
+      open: { at: 0x3de62c, text: 'OPEN DOOR' }, close: { at: 0x3de628, text: 'CLOSE DOOR' }, flip: { at: 0x3de630, text: 'FLIP SWITCH' },
+    });
+    const door = action('d', [0, 0, 0]);
+    expect(mapActionCaption(door, 0)).toBe('OPEN DOOR');
+    expect(mapActionCaption(door, 1)).toBe('CLOSE DOOR');
+    expect(mapActionCaption(door, -1)).toBe('CLOSE DOOR');                    // any non-zero short
+    const lever = action('l', [0, 0, 0], { type: 'SWITCH', typeCode: 2 });
+    expect(mapActionCaption(lever, 0)).toBe('FLIP SWITCH');
+    expect(mapActionCaption(lever, 1)).toBe('FLIP SWITCH');                   // the valve is read for type 0 only
+    expect(mapActionCaption({ ...lever, descriptor: 'GATE SWITCH' }, 0)).toBe('GATE SWITCH');
+    expect(mapActionCaption({ ...door, descriptor: 'BACK DOOR' }, 1)).toBe('BACK DOOR');
+    // Any type with a descriptor shows it (D:L74574-74580 asks no type); without one, the other types are unported.
+    expect(mapActionCaption(action('x', [0, 0, 0], { type: 'DEFUSE', typeCode: 3, descriptor: 'CUT WIRE' }), 0)).toBe('CUT WIRE');
+    for (const typeCode of [1, 3, 4, 5, 6, 7, 8]) expect(mapActionCaption(action('x', [0, 0, 0], { typeCode }), 0)).toBeNull();
+    expect(MAP_ACTION_CAPTION_OTHER_TYPES_READING).toMatch(/^none/);
+    // Review S2: a `tcm` action is drawn the text at 0x436500 or PLEASE ADD TO MISSION.RDR, never its descriptor or type
+    // text (`FUN_00220350` D:L74405-74416): unported, so none; one without `tcm` unchanged.
+    expect(mapActionCaption({ ...lever, descriptor: 'CALL AIRSTRIKE', tcm: true }, 0)).toBeNull();
+    expect(mapActionCaption({ ...door, tcm: true }, 0)).toBeNull();
+    expect(mapActionCaption({ ...lever, descriptor: 'CALL AIRSTRIKE', tcm: false }, 0)).toBe('CALL AIRSTRIKE');
+    expect(MAP_ACTION_TCM_CAPTION_READING).toMatch(/^none/);
+  });
+});
+
+/** G1: every fixture map that holds action records, through the repository's reader: what each record's descriptor is. */
+describe("the fixture maps' descriptors (G1)", () => {
+  for (const stem of ['MP2', 'MP6', 'MP71', 'MP72']) {
+    const b = fixture(`RUN/${stem}.ZDB`);
+    it.skipIf(b === null)(`${stem}: its records read, and none carries a descriptor${b === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+      const { records, error } = readActionRecords(b!, parseZdb(b!));
+      expect(error).toBeUndefined();
+      expect(records.length).toBeGreaterThan(0);
+      expect(records.filter((r) => r.descriptor !== '').map((r) => [r.node, r.descriptor])).toEqual([]);
+    });
+  }
+  it.skipIf(mp72 === null)("Crossroads' two levers (the Red Room's among them) caption FLIP SWITCH from their real records", () => {
+    const { actions } = readMapActions(mp72!, parseZdb(mp72!), 'MP72');
+    for (const node of ['seal_callstrike_1', 'terrorist_callstrike_1']) {
+      const a = actions.find((x) => x.node === node)!;
+      expect([a.typeCode, a.descriptor, mapActionCaption(a, 0)]).toEqual([2, '', 'FLIP SWITCH']);
+    }
+  });
+  it.skipIf(bytes === null)("Frostfire's doors caption OPEN DOOR shut and CLOSE DOOR open from their real records", () => {
+    const { actions } = readMapActions(bytes!, parseZdb(bytes!), 'MP2');
+    expect(actions.map((a) => [a.node, mapActionCaption(a, 0), mapActionCaption(a, 1)])).toEqual([
+      ['bdoor_4', 'OPEN DOOR', 'CLOSE DOOR'], ['wdoor_1', 'OPEN DOOR', 'CLOSE DOOR'], ['wdoor_2', 'OPEN DOOR', 'CLOSE DOOR'],
+    ]);
+  });
+});
+
+/** G1 on the disc (SOCOM_DISC, or SOCOM_PC_ROOT's game/disc; skips without it): each type text is the ELF's at its pointer. */
+const G1_DISC = process.env.SOCOM_DISC ?? (process.env.SOCOM_PC_ROOT ? resolve(process.env.SOCOM_PC_ROOT, 'game', 'disc') : undefined);
+const G1_ELF = G1_DISC ? resolve(G1_DISC, 'socom2_game.elf') : null;
+describe.skipIf(!G1_ELF || !existsSync(G1_ELF))("G1 on the disc: FUN_002b48e0's three texts and the loader's descriptor key", () => {
+  it('the pointers at 0x3de62c, 0x3de628 and 0x3de630 name OPEN DOOR, CLOSE DOOR and FLIP SWITCH; 0x3f2118 is "descriptor"', async () => {
+    const { ElfImage } = await import('../../../tools/elfImage');
+    const elf = new ElfImage(new Uint8Array(readFileSync(G1_ELF!)));
+    for (const c of Object.values(MAP_ACTION_TYPE_CAPTIONS)) expect(elf.cstr(elf.u32(c.at)), c.text).toBe(c.text);
+    expect(elf.cstr(0x3f2118)).toBe('descriptor');
+    expect([elf.cstr(0x3f21c8), elf.cstr(0x3e4f30)]).toEqual(['tcm', 'PLEASE ADD TO MISSION.RDR']);   // review S2
   });
 });

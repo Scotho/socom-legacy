@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import { History, recordEdit, decodeHistoryStep } from '../../src/forge/history';
 import { parseLayout, serializeLayout, withIds, type ForgeObjectives, type Layout } from '../../src/forge/layout';
 import { applyForgeObjectives, forgeBombActions, type ObjectiveMap } from '../../src/forge/objectives';
@@ -129,5 +130,35 @@ describe('S3b item 1: a content base through the viewer\'s record (readSaved, ch
     expect(checkRecord(record)).toBeNull();
     expect(layoutOfRecord(record).base).toEqual(onMap.base);
     expect(readSaved(JSON.stringify(record), 'x')).toEqual(record);
+  });
+});
+
+describe('FX-1: a piece tilted and scaled in the editor survives the viewer record (poses)', () => {
+  const d = (deg: number): number => (deg * Math.PI) / 180;
+
+  it('the Inspector order (three YXZ): pitch 15, yaw 45, roll 30, scale 2/1/0.5 round-trips through readSaved within 1e-6', () => {
+    const m = new Matrix4().compose(new Vector3(1.5, 2, -3), new Quaternion().setFromEuler(new Euler(d(15), d(45), d(30), 'YXZ')), new Vector3(2, 1, 0.5)).elements.slice();
+    const layout = parseLayout(JSON.stringify({ forge: 1, base: { kind: 'map', archive: 'MP2' }, pieces: [{ asset: 'MP2:crate', m }], spawns: [] }));
+    const record = recordOfLayout(layout, 'Yard');
+    expect(record.pieces).toEqual([[0, 1.5, 2, -3, 45]]);
+    expect(record.poses).toEqual([[0, 15, 30, 2, 1, 0.5]]);
+    expect(checkRecord(record)).toBeNull();
+    const back = layoutOfRecord(readSaved(JSON.stringify(record), 'x')).pieces[0]!.m;
+    expect(back).toHaveLength(16);
+    m.forEach((v, i) => expect(Math.abs(back[i]! - v), `m[${i}]`).toBeLessThanOrEqual(1e-6));
+    // the page reads the same angles and scale back off the rebuilt matrix (`page.ts` `fillStubFields`)
+    const at = new Vector3(), turn = new Quaternion(), scale = new Vector3();
+    new Matrix4().fromArray(back).decompose(at, turn, scale);
+    const e = new Euler().setFromQuaternion(turn, 'YXZ');
+    expect([e.x, e.y, e.z].map((r) => Math.round((r * 180) / Math.PI))).toEqual([15, 45, 30]);
+    expect([scale.x, scale.y, scale.z].map((s) => Math.round(s * 100) / 100)).toEqual([2, 1, 0.5]);
+  });
+
+  it('a layout with no tilted or scaled piece saves as before: no poses key in the record or its text', () => {
+    const record = readSaved(JSON.stringify(file), 'Yard');
+    expect('poses' in record).toBe(false);
+    expect(JSON.stringify(record)).not.toContain('poses');
+    expect(checkRecord({ ...record, poses: [[0, 15, 0, 1, 1, 1]] })).toBeNull();
+    expect(checkRecord({ ...record, poses: [[3, 15, 0, 1, 1, 1]] })).toMatch(/pose 0 names no piece/);
   });
 });

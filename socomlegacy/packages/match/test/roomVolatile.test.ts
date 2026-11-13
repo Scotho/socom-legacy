@@ -304,8 +304,47 @@ describe('PF-36: Volitile -- damage on a resting charge queues one detonation (r
     three.room.player(1)!.sim.walker.place(108, 0, 0);             // the Terrorist on it
     three.send(2, 'Detonator', three.eye(2), [0, 0, 0]);
     three.watch(1);
-    expect(a3.of('detonate')).toEqual([]);
+    // MINES-ROOM (research 235 §8): the trip is told, once, as the room's own (`by` null); the claymore's blast finds the
+    // PMN gone off already and queues nothing (no second `detonate`). Was: `[]` -- the room told no trip (H1).
+    expect(a3.of('detonate')).toEqual([{ type: 'detonate', pid: pmn3, by: null }]);
     expect([...n3()].sort((x, y) => x[0] - y[0])).toEqual([[pmn3, 1], [clay3, 1]].sort((x, y) => x[0]! - y[0]!));
+  });
+
+  it('MINES-ROOM (research 235 §8): a PMN queued by chargeHit and tripped by proximity in the same frame is told once -- chargeHit\'s, with its by -- the claymore laid first', () => {
+    // (a) The claymore laid FIRST, then the PMN: the claymore's blast (earlier in the frame's walk) queues the PMN, whose
+    // own frame then finds the Terrorist on it. One `detonate` for the PMN, the chargeHit's (by its owner, 2), one blast.
+    const a = setup([[-700, 0, 700], [0, 0, 0]]);
+    const [ca] = a.cs as [Client];
+    const na = a.blasts();
+    const clay = a.place(2, 'Claymore', [8, 0.1, 0]);
+    const pmn = a.place(2, 'PMN Mine', [108, 0.1, 0]);
+    a.move(2, [0, 0, -400]);
+    a.run(8.5);                                                    // the PMN armed (Timer1 8 s)
+    a.room.player(1)!.sim.walker.place(108, 0, 0);                 // the Terrorist on it
+    a.send(2, 'Detonator', a.eye(2), [0, 0, 0]);
+    a.watch(1);
+    expect(a.detonates(ca, pmn)).toEqual([{ type: 'detonate', pid: pmn, by: 2 }]);
+    expect(na().get(pmn)).toBe(1);
+    expect(na().get(clay)).toBe(1);
+  });
+
+  it('MINES-ROOM (research 235 §8): two armed PMNs tripped by one walk-in in one frame are told once each -- the first\'s trip (by null), the second\'s chargeHit (by its owner)', () => {
+    // (b) Two armed PMNs 6 apart, one body walking onto both: the first trips (by null), its blast queues the second
+    // (by its owner), which its own frame also finds tripped -- told once, the chargeHit's. One `detonate` per pid.
+    const b = setup([[-700, 0, 700], [0, 0, 0]]);
+    const [cb] = b.cs as [Client];
+    const nb = b.blasts();
+    const p0 = b.place(2, 'PMN Mine', [108, 0.1, 0]);
+    const p1 = b.place(2, 'PMN Mine', [114, 0.1, 0]);
+    b.move(2, [0, 0, -400]);
+    b.run(8.5);
+    b.room.player(1)!.sim.walker.place(111, 0, 0);                 // the Terrorist between them, inside both trips
+    b.watch(1);
+    expect(b.detonates(cb, p0)).toHaveLength(1);
+    expect(b.detonates(cb, p1)).toHaveLength(1);
+    expect(cb.of('detonate').map((e) => [e.pid, e.by])).toEqual([[p0, null], [p1, 2]]);
+    expect(nb().get(p0)).toBe(1);
+    expect(nb().get(p1)).toBe(1);
   });
 
   it('the placer alone is told placed with the room\'s pid for his throw and his charge (OWN_PID_READING); the grenade broadcast still skips him', () => {

@@ -45,14 +45,15 @@ describe('home: the crossbar and the action list', () => {
     c.press('down');
     expect(S.item[HOME_CATEGORY]).toBe(1);
     for (let i = 0; i < 5; i++) c.press('down');
-    // Home has three since LR-37 (4): Play, Server status, Discord (LATER 291); was LR-13's four, with Memory card
-    expect(S.item[HOME_CATEGORY]).toBe(2);
+    // Home has four since 2026-11-12: Play, Server status, Discord (LATER 291), GitHub (the owner); LR-37 (4)'s three before
+    // it, LR-13's four with Memory card before that
+    expect(S.item[HOME_CATEGORY]).toBe(3);
     c.press('left');
     expect(S.item[CATS.findIndex((x) => x.id === 'options')]).toBe(0);
     c.press('right');
-    expect(S.item[HOME_CATEGORY]).toBe(2);
+    expect(S.item[HOME_CATEGORY]).toBe(3);
     c.press('up');
-    expect(S.item[HOME_CATEGORY]).toBe(1);
+    expect(S.item[HOME_CATEGORY]).toBe(2);
   });
 
   it('Cross does the focused item\'s verb: Browse rooms pushes the rooms screen; an Options item opens its category', () => {
