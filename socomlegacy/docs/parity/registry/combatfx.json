@@ -593,7 +593,7 @@
     },
     {
      "file": "packages/central/test/roomKnock.test.ts",
-     "name": "a blast that kills a laddered SEAL: unchanged -- the corpse falls from the rungs (kill releases it)",
+     "name": "a blast that kills a laddered SEAL knocks the corpse off the rungs: the knock's fall, then a death landing held (KNOCK_LETHAL_IN_MOVE_READING)",
      "data": "none"
     },
     {

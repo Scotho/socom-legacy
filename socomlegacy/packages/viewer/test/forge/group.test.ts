@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  centreOf, inRect, moved, Selection, turnedAbout, yawOf, yawQuat, yOnly, type Pose, type Quat, type Vec3,
+  centreOf, clampedFactor, inRect, moved, scaledAbout, scaleFactorBounds, Selection, turnedAbout, uniformFactor, yawOf, yawQuat, yOnly,
+  type Pose, type Quat, type Vec3,
 } from '../../src/forge/group';
 
 /**
@@ -99,6 +100,43 @@ describe('FORGE: the selection of several (FG-47)', () => {
   it('reads a quaternion’s turn about y (the twist), and makes one back', () => {
     for (const a of [0, 0.5, -1.2, 3]) expect(yawOf(yawQuat(a))).toBeCloseTo(a, 6);
     expect(yawOf(TIP_X)).toBeCloseTo(0, 6);
+  });
+
+  it('FX-9: a group of two pieces scaled 2 about its centre doubles their offsets and their scales, turns kept', () => {
+    const out = scaledAbout([{ ...piece([0, 0, 0], TIP_X), s: [1, 2, 0.5] }, piece([10, 4, 0])], [5, 2, 0], 2);
+    close(out[0]!.p, [-5, -2, 0]);
+    close(out[1]!.p, [15, 6, 0]);
+    close(out[0]!.s!, [2, 4, 1]);
+    close(out[1]!.s!, [2, 2, 2]);                                                    // no scale given is 1, 1, 1
+    close(out[0]!.q, TIP_X);
+  });
+
+  it('FX-9: a marker in a scaled group moves but keeps its size; a group with a marker still turns about y only', () => {
+    const out = scaledAbout([piece([0, 0, 0]), marker([10, 0, 0], 0.5)], [5, 0, 0], 3);
+    close(out[1]!.p, [20, 0, 0]);
+    expect(out[1]!.s).toBeUndefined();
+    expect(yawOf(out[1]!.q)).toBeCloseTo(0.5, 6);
+    expect(yOnly(out)).toBe(true);
+  });
+
+  it('FX-9: the factor a group may scale by keeps every piece within 0.1..4 an axis, the whole group stopping at the first bound', () => {
+    const poses: Pose[] = [{ ...piece([0, 0, 0]), s: [2, 1, 1] }, { ...piece([5, 0, 0]), s: [0.5, 0.25, 1] }, marker([9, 0, 0], 0)];
+    const [least, most] = scaleFactorBounds(poses, 0.1, 4);
+    expect(least).toBeCloseTo(0.4, 9);                                               // 0.25 down to 0.1
+    expect(most).toBeCloseTo(2, 9);                                                  // 2 up to 4
+    expect(clampedFactor(poses, 3, 0.1, 4)).toBeCloseTo(2, 9);
+    expect(clampedFactor(poses, 0.1, 0.1, 4)).toBeCloseTo(0.4, 9);
+    expect(clampedFactor(poses, 1.5, 0.1, 4)).toBe(1.5);
+    expect(clampedFactor(poses, -2, 0.1, 4), 'no mirror: a factor at or below 0 is none').toBe(1);
+    expect(scaleFactorBounds([marker([0, 0, 0], 0)], 0.1, 4)).toEqual([0, Infinity]);
+  });
+
+  it('FX-9: the three axes of the gizmo give one factor, the axis dragged furthest from 1 by ratio, never 0 or below', () => {
+    expect(uniformFactor([1, 1, 1])).toBe(1);
+    expect(uniformFactor([2, 1, 1])).toBe(2);
+    expect(uniformFactor([1, 0.4, 1.5])).toBe(0.4);
+    expect(uniformFactor([1.5, 1, 1.5])).toBe(1.5);
+    expect(uniformFactor([1, -1, 1])).toBe(1e-6);
   });
 
   it('box-picks the members whose projected places lie in the rectangle, either corner first, never one behind the eye', () => {

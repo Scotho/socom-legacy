@@ -4,15 +4,17 @@ import { PART } from './damage';
 import type { Rules } from './protocol';
 
 /**
- * The death clip (web sprint 3, M6; research 91 section 3, `FUN_005a0700` L458831 / `FUN_005a0950` L458898): a head
- * hit plays a random clip of `damanim.rdr`'s HEAD list for the stance, a body hit one of the BODY list, a limb the
- * BODY list's first; a fall or a blast plays no death clip (their own landing and knock clips run, L461384). The
- * lists name `motion.rdr` entries by their display names; `MOTION_P.ZAR` holds them snake-cased
- * ("Death stand head01" -> `death_stand_head01`). Four names have no clip of their own name and resolve through
- * `animset.rdr`'s `GLOBAL` set (the Seal anim set includes it): "Die" -> `death_stand_chest01`, "Death02" ->
- * `death_stand_chest02`, "Crawl death01" -> `death_stand_groin02`, "Crawl death02" -> `death_stand_groin01` (research
- * 179 s11.2; PF-21, research 217 s4: the two crawls were swapped here, BODY STAND's 7th and 8th entries; the name the
- * port read them by is retired). The pistol variants ("Pistol death ...") are not in the SEAL's pack and are not used.
+ * The death clip (web sprint 3, M6; research 91 section 3, `FUN_005a0700` L458831 / `FUN_005a0950` L458898): a head hit
+ * plays a random clip of `damanim.rdr`'s HEAD list for the stance, a body hit one of the BODY list, a limb BODY STAND's
+ * first, `Die`, in every stance (LIMB-DEATH, 2026-11-12: the player branch finds no list for a limb, D:L458942-458943,
+ * and the tail returns `*DAT_0044cee4`, D:L458957-458959; research 421 s11); a fall or a blast plays no death clip
+ * (their own landing and knock clips run, L461384). The lists name `motion.rdr` entries by their display names;
+ * `MOTION_P.ZAR` holds them snake-cased ("Death stand head01" -> `death_stand_head01`). Four names have no clip of
+ * their own name and resolve through `animset.rdr`'s `GLOBAL` set (the Seal anim set includes it): "Die" ->
+ * `death_stand_chest01`, "Death02" -> `death_stand_chest02`, "Crawl death01" -> `death_stand_groin02`, "Crawl death02"
+ * -> `death_stand_groin01` (research 179 s11.2; PF-21, research 217 s4: the two crawls were swapped here, BODY STAND's
+ * 7th and 8th entries; the name the port read them by is retired). The pistol variants ("Pistol death ...") are not in
+ * the SEAL's pack and are not used.
  */
 
 const HEAD: Readonly<Record<Stance, readonly string[]>> = {
@@ -26,7 +28,8 @@ const BODY: Readonly<Record<Stance, readonly string[]>> = {
     'death_stand_chest01', 'death_stand_chest02', 'death_stand_chest03', 'death_stand_rarm01', 'death_stand_larm01',
     'death_stand_larm02', 'death_stand_groin02', 'death_stand_groin01',   // "Crawl death01", "Crawl death02" (GLOBAL)
   ],
-  crouch: ['death_crouch_back01', 'death_crouch_chest02'],
+  // CROUCH-BODY-LIST (2026-11-13): the disc's three, in its order (`deathListsDisc.test.ts`); was back01 and chest02 only.
+  crouch: ['death_crouch_back01', 'death_crouch_chest01', 'death_crouch_chest02'],
   prone: ['death_prone_chest01'],
 };
 
@@ -40,6 +43,15 @@ const TEAMMATE: Readonly<Record<Stance, readonly string[]>> = {
   stand: ['death_buddy_stand01', 'death_buddy_stand02', 'death_buddy_stand03'],
   crouch: ['death_buddy_crouch01'],
   prone: ['death_buddy_prone01'],
+};
+
+/**
+ * The death lists as the port holds them, read-only, for the disc pin (`test/deathListsDisc.test.ts`: every list against
+ * `damanim.rdr`'s `<FAMILY>_DEATH_ANIMATIONS[STAND/CROUCH/PRONE]`, entry for entry). TEAMMATE_HEAD and TEAMMATE_BODY are
+ * the one TEAMMATE table (HX-2). Changes nothing `deathClip` draws.
+ */
+export const DEATH_LISTS: Readonly<Record<'HEAD' | 'BODY' | 'TEAMMATE_HEAD' | 'TEAMMATE_BODY', Readonly<Record<Stance, readonly string[]>>>> = {
+  HEAD, BODY, TEAMMATE_HEAD: TEAMMATE, TEAMMATE_BODY: TEAMMATE,
 };
 
 /**
@@ -112,9 +124,8 @@ export function deathClip(cause: 'bullet' | 'blast' | 'fall', part: number, stan
   if (cause === 'blast') return stance === 'prone' ? pick(BODY.prone, random) : null;
   if (cause !== 'bullet') return null;
   if (part === PART.HEAD) return pick(HEAD[stance], random);
-  const list = BODY[stance];
-  if (part !== PART.BODY) return list[0]!;
-  return pick(list, random);
+  if (part !== PART.BODY) return BODY.stand[0]!;   // a limb: no list; the tail's BODY STAND first (D:L458959)
+  return pick(BODY[stance], random);
 }
 
 /**
@@ -135,6 +146,9 @@ const FLINCH: readonly Readonly<Record<Stance, readonly string[]>>[] = (() => {
     { stand: ['seal_flinch_lleg'], ...low },                                                                   // LLEG
   ];
 })();
+
+/** The flinch lists as the port holds them, by part in `PART` order, read-only, for the disc pin (`deathListsDisc.test.ts`). */
+export const FLINCH_LISTS: readonly Readonly<Record<Stance, readonly string[]>>[] = FLINCH;
 
 /**
  * The three long hit clips (2.9-4.3 s, `motion.rdr`) a networked game never flinches in (`FUN_005a0270`

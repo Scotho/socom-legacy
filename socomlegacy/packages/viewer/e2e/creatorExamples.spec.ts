@@ -1,13 +1,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { recordOfLayout } from '../src/forge/record';
-import { expectBase } from './forgeBase';
+import { expectBase, openMenu, openSaves } from './forgeBase';
 
-/** The existing START menu: menuView.ts section/row hooks, as exercised by forgeMenuPointer.spec.ts. */
+/**
+ * The existing START menu: menuView.ts section/row hooks, as exercised by forgeMenuPointer.spec.ts. FC2-4 (EDITOR-MAP
+ * T1): his toolbar has no menu button; the pointer's way in is Controls > "Forge menu (M)" (`./forgeBase` `openMenu`).
+ */
 async function openStarters(page: Page): Promise<void> {
-  await page.locator('header.fx-top button[data-forge="menu"]').click();
-  const menu = page.locator('.fx-menu');
-  await expect(menu).toBeVisible();
+  const menu = await openMenu(page);
   await menu.locator('[data-forge-menu-section="panels"]').click();
   await menu.locator('[data-forge-menu-row="panel-starters"]').click();
   await expect(menu).toBeHidden();
@@ -58,14 +59,14 @@ test('a static starter previews, imports once, undoes, and survives download/reo
   await expect(name).toHaveValue('Before starter');
   await page.locator('header.fx-top').getByRole('button', { name: /^Redo\b/ }).click();
   await expect(name).toHaveValue('Static dusk settings');
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   const download = page.waitForEvent('download');
   await page.locator('.fx-modal').getByRole('button', { name: 'Download', exact: true }).click();
   const file = await (await download).path();
   if (!file) throw new Error('Layout download did not produce a file.');
   await page.locator('.fx-modal').getByRole('button', { name: 'Close', exact: true }).click();
   // Renamed by Saves > Save as (the field is read-only), so the file's open below has a name to put back.
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
   await page.locator('.fx-modal form.fx-card input').fill('After export');
   await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();

@@ -154,6 +154,11 @@ which the port's table lookup does not find: UNKNOWN, a shelter either way).
 | MP83 | SNOW | 15605 -> 15613 | 28 | 427 | 0 | 0 |
 | all 22 | | | 308 (r0001 308) | 6326 (r0001 6226) | 1544 (r0001 1544) | 78 (r0001 78) |
 
+*(2026-11-13, CLT-2, research 422: the room's hull now carries the clutter after the worldmodel. The polygon totals
+above are the worldmodel's; with the clutter MP1 9291, MP5 7477, MP10 10742, MP61 5590 (its INVISIBLE_DI 174: + `table_wood`'s
+9) and MP82 19452 (INVISIBLE_DI 311: + `birch_near` 60, `gate_barricade_pole` 10, `_up` 3), so the room's INVISIBLE_DI
+total is 6408; no other see-through count moves. The r0001 column is the worldmodel's alone and stands.)*
+
 What the faces are (the owners carrying the most, from the same read): INVISIBLE_DI is the hull's invisible collision --
 map-edge and ramp walls (MP2's `bigtank/di_invis`, `rmp*`), rails (`raildi`), tents (MP72's `tent_beige`, `tent_gray`),
 railcars (MP52), furniture and shelves (MP6), the open-state bars (`okhostagerescue`), parts of destructibles

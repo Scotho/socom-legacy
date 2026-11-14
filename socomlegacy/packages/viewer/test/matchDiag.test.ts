@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  contextDiagMessage, DIAG_MESSAGE_MAX, DIAG_PAD_ID_CHARS_ADAPTATION, DIAG_RING_ADAPTATION, DIAG_SAMPLE_MS_ADAPTATION, DiagRing, gameInputActive,
-  INPUT_DIAG_AT_MS_ADAPTATION, inputDiagMessage, inputSummary, InputTrack, MatchDiag, xboxMarks, type DiagInfo, type DiagKind, type GameInputLike, type XboxMarks,
+  contextDiagMessage, DIAG_MESSAGE_MAX, DIAG_PAD_ID_CHARS_ADAPTATION, DIAG_RING_ADAPTATION, DIAG_SAMPLE_MS_ADAPTATION, DIAG_STAGE_LANE_ADAPTATION, DIAG_STAGES,
+  DiagRing, gameInputActive, INPUT_DIAG_AT_MS_ADAPTATION, inputDiagMessage, inputSummary, InputTrack, MatchDiag, sampleNow, StageLane, xboxMarks, type DiagInfo,
+  type DiagKind, type DiagStage, type GameInputLike, type XboxMarks,
 } from '../src/matchDiag';
-import { readPageState } from '../src/matchDiagPage';
+import { followLoad, noteLoadReply, readPageState } from '../src/matchDiagPage';
 import { inputPhase, inputSources, installInputSources, noteInput, padHasInput, resetInputSourcesForTest, setInputPhase, type SourcesSnapshot } from '../src/inputSources';
 import { BEACON_DIAGS_PER_LOAD_ADAPTATION, ClientErrorBeacon, installClientErrorBeacon, resetPageClientErrorBeaconForTest, setBeaconLossDiag } from '../src/clientErrorBeacon';
 import { resetGraphicsRecordForTest, watchGraphicsLost } from '../src/graphicsLost';
-import { LOAD_PHASES, loadPhaseReached, markLoad } from '../src/loadMarks';
+import { LOAD_PHASES, loadPhaseReached, markLoad, setLoadMarkListener } from '../src/loadMarks';
 import { noInput } from '../src/gamepad';
 import type { DeviceSignals } from '../src/deviceClass';
 
@@ -71,6 +72,32 @@ describe('XBOX-DIAG: the ring', () => {
     expect(loadPhaseReached()).toBe(LOAD_PHASES.indexOf('renderer'));
     markLoad('load-start', null);
     expect(loadPhaseReached()).toBe(0);
+  });
+});
+
+/** A stage's id in the lane (`DIAG_STAGES`). */
+const sid = (s: DiagStage): number => DIAG_STAGES.indexOf(s);
+
+describe('XBOX-790-LOADDIAG (PR #790 piece 3): the load\'s stage lane beside the ring', () => {
+  it('the ids: the load phases first, in LOAD_PHASES\' order (a phase\'s id is its loadPhaseReached), then the loader\'s', () => {
+    expect(DIAG_STAGES.slice(0, LOAD_PHASES.length)).toEqual([...LOAD_PHASES]);
+    expect(DIAG_STAGES.slice(LOAD_PHASES.length)).toEqual(['decode', 'map', 'play', 'effects', 'sound', 'soundLoops', 'error', 'crash', 'cancelled']);
+    expect(DIAG_STAGES.length).toBeLessThan(100);                       // two digits at most in the report
+  });
+
+  it('keeps the latest DIAG_STAGE_LANE_ADAPTATION stages, oldest first, each [id, ms, heap MB, KiB, truncated]: a field not read is left off the end, never guessed', () => {
+    const l = new StageLane();
+    l.write(0, 0, 210.4, -1, false);                                   // the heap alone (Chromium's performance.memory)
+    l.write(sid('map'), 9800.4, -1, 81_234.2, true);                   // a reply's KiB, no heap (another browser), the walk capped
+    l.write(sid('decode'), 12, -1, -1, false);                         // neither
+    expect(l.rows()).toEqual([[0, 0, 210], [sid('map'), 9800, null, 81_234, 1], [sid('decode'), 12]]);
+    for (let i = 0; i < 20; i++) l.write(1, 100 + i, 300, -1, false);
+    const rows = l.rows();
+    expect(rows).toHaveLength(DIAG_STAGE_LANE_ADAPTATION);
+    expect([rows[0], rows.at(-1)]).toEqual([[1, 100 + 20 - DIAG_STAGE_LANE_ADAPTATION, 300], [1, 119, 300]]);
+    expect(l.dropped).toBe(23 - DIAG_STAGE_LANE_ADAPTATION);
+    l.clear();
+    expect([l.rows(), l.dropped]).toEqual([[], 0]);
   });
 });
 
@@ -183,6 +210,15 @@ describe('XBOX-DIAG: every report under the beacon\'s 1024-character message cap
     expect([d.in.emu.length, d.in.map.length, d.in.vis.length]).toEqual([12, 12, 9]);
   });
 
+  it('MATCH-RENDERER-RETRY A: contextdiag carries the extra fields under x, and at its worst still fits and parses', () => {
+    const extra = { err: 'e'.repeat(120), err2: 'f'.repeat(120), cce: 'g'.repeat(120), retry: 'fail' };
+    const s = contextDiagMessage('no-backend', common, worstRing(), worstRing().rows()[0]!, { w: BIG, h: BIG }, BIG, worstInput(), null, extra);
+    expect(s.length).toBeLessThanOrEqual(DIAG_MESSAGE_MAX);
+    expect((JSON.parse(s) as { x: unknown }).x).toEqual(extra);
+    const plain = JSON.parse(contextDiagMessage('gpudevicelost', common, new DiagRing(), [], null, null, null)) as Record<string, unknown>;
+    expect('x' in plain).toBe(false);                                    // no extra, no key: today's rows unchanged
+  });
+
   it('review F3: a pad id of quotes, backslashes and control characters is put as ? -- its JSON length its length, all eight rows kept', () => {
     const t = new InputTrack();
     t.padId = '"\\\u0001\u001f'.repeat(200); t.mapping = '"'.repeat(50);
@@ -193,6 +229,41 @@ describe('XBOX-DIAG: every report under the beacon\'s 1024-character message cap
     expect(d.r).toHaveLength(DIAG_RING_ADAPTATION);
     expect(d.in.id).toBe('?'.repeat(DIAG_PAD_ID_CHARS_ADAPTATION));
     expect([d.in.map, d.in.emu, d.in.vis, d.bk]).toEqual(['?'.repeat(12), '?'.repeat(12), '?'.repeat(9), '?'.repeat(12)]);
+  });
+
+  it('XBOX-790-LOADDIAG: no load open, no load fields -- the report as before, all eight samples kept', () => {
+    const d = JSON.parse(contextDiagMessage('gpudevicelost'.repeat(5), common, worstRing(), worstRing().rows()[0]!, { w: BIG, h: BIG }, BIG, worstInput(), null)) as Record<string, unknown>;
+    expect(['s', 'sx', 'lt'].filter((k) => k in d)).toEqual([]);
+    expect(d['r']).toHaveLength(DIAG_RING_ADAPTATION);
+  });
+
+  it('XBOX-790-LOADDIAG review L1: contextdiag at its TRUE worst -- exactly 1024 characters: all eight ring samples shed, every stage kept, sx 99', () => {
+    // The widest each field can be: every number at its bound; every string at its cut; the input's focus, activation and
+    // pointer lock null (4 characters, wider than 0 or 1); every ring row's and the now row's phase null (4, wider than
+    // its bound 9); the menus' last source 'ptr' (5 with its quotes, wider than null); the lane full of the widest stage
+    // rows and dropped to sx's two-digit bound. Counted by hand: 621 characters beside the ring and the stages, the empty
+    // ring 7, the 15 stages 396 -- 1024; one ring sample more (61) would not fit, so the cap sheds all eight and no stage.
+    const lane = new StageLane();
+    for (let k = 0; k < DIAG_STAGE_LANE_ADAPTATION + 99; k++) lane.write(BIG, BIG, BIG, BIG, true);
+    const ring = new DiagRing();
+    for (let k = 0; k < DIAG_RING_ADAPTATION; k++) ring.write(BIG, worstInfo, BIG, -1);
+    const nowRow = sampleNow(BIG, worstInfo, BIG, -1);
+    expect(nowRow).toEqual([99_999.9, 999_999, 999_999, 999_999, 999_999, 999_999, 9.99, null]);
+    expect(ring.rows()).toEqual(Array.from({ length: DIAG_RING_ADAPTATION }, () => nowRow));
+    const t = new InputTrack();
+    t.pads = BIG; t.padId = 'P'.repeat(500); t.mapping = 'M'.repeat(500);
+    t.firstButton = BIG; t.firstButtonT = BIG; t.firstStickT = BIG; t.held = BIG; t.frames = BIG; t.framesWithInput = BIG;
+    const src: SourcesSnapshot = { menu: { pad: BIG, key: BIG, ptr: BIG }, match: { pad: BIG, key: BIG, ptr: BIG }, last: 'ptr', connected: BIG, disconnected: BIG };
+    const input = inputSummary(t, { emulation: 'E'.repeat(500), visibility: 'V'.repeat(500) }, src);
+    expect([input['foc'], input['act'], input['lock']]).toEqual([null, null, null]);
+    const s = contextDiagMessage('gpudevicelost'.repeat(5), common, ring, nowRow, { w: BIG, h: BIG }, BIG, input, { lt: BIG, lane });
+    expect(s.length).toBe(DIAG_MESSAGE_MAX);
+    const d = JSON.parse(s) as { r: unknown[]; now: unknown[]; s: number[][]; sx: number; lt: number; in: { id: string } };
+    expect(d.r).toEqual([]);                                            // shed: all eight ring samples
+    expect(d.s).toEqual(Array.from({ length: DIAG_STAGE_LANE_ADAPTATION }, () => [99, 999_999, 9_999, 999_999, 1]));   // shed: no stage
+    expect([d.lt, d.sx]).toEqual([999_999, 99]);                        // the lane's own 99 dropped, at sx's bound
+    expect(d.now).toEqual(nowRow);
+    expect(d.in.id).toHaveLength(DIAG_PAD_ID_CHARS_ADAPTATION);
   });
 
   it('inputdiag at its worst: parses', () => {
@@ -239,7 +310,7 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
     d.end(61_000);
     expect(sent.map(([k]) => k)).toEqual(['inputdiag']);
     const [, m] = sent[0]!;
-    expect(m).toMatchObject({ v: 1, bk: 'webgl2', m: { ua: 0, sk: 1, cl: 1 },
+    expect(m).toMatchObject({ v: 2, bk: 'webgl2', m: { ua: 0, sk: 1, cl: 1 },   // review M2: v2, one version per build
       in: { emu: 'mouse', pads: 1, map: 'standard', hld: 1, gf: 1, gfIn: 0, menu: { ptr: 14, pad: 0, last: 'ptr' }, match: { ptr: 3, pad: 0 } } });
     expect(m['t']).toBeGreaterThanOrEqual(INPUT_DIAG_AT_MS_ADAPTATION / 1000);
   });
@@ -264,6 +335,7 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
     expect(sent.map(([k]) => k)).toEqual(['contextdiag']);
     const m = sent[0]![1] as { why: string; r: number[][]; now: number[]; buf: number[]; lk: number; heap: number; dm: number; in?: unknown };
     expect(m.why).toBe('webglcontextlost');
+    expect(sent[0]![1]['v']).toBe(2);                                    // review M2: the ring's clock changed with v2
     expect(m.r.map((row) => row[0])).toEqual([0, 2, 4, 6, 8, 10, 12]);
     expect(m.r[0]![7]).toBe(6);                                          // the load phase at each sample
     expect([m.now[0], m.now[7]]).toEqual([12.1, 6]);
@@ -289,7 +361,193 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
     expect(pc.sent[0]![1]['in']).toBeUndefined();
     const early = rig(XBOX);
     early.d.lost('gpudevicelost', 500);
-    expect(early.sent[0]![1]).toMatchObject({ why: 'gpudevicelost', r: [], now: [], m: { sk: 1 } });
+    expect(early.sent[0]![1]).toMatchObject({ v: 2, why: 'gpudevicelost', r: [], now: [], m: { sk: 1 } });   // review M2: v2 with no load open too
+  });
+
+  type LoadReport = { r: number[][]; now: number[]; s: number[][]; sx: number; lt: number; in?: unknown };
+
+  it('XBOX-790-LOADDIAG: a loss during the load, before any mount -- the stages reached, ms after load-start, the heap, each reply\'s KiB', () => {
+    const { d, sent } = rig(XBOX);
+    d.loadBegin(1000);
+    d.loadStage('decode', 1004);
+    d.loadStage('map', 9000, { bytes: 50 * 1_048_576, truncated: false });
+    d.loadStage('play', 11_000, { bytes: 3 * 1_048_576, truncated: true });
+    for (let t = 9000; t <= 11_500; t += 16) d.frame(t);               // no match mounted: frames still read nothing
+    d.lost('webglcontextlost', 12_000);
+    expect(sent.map(([k]) => k)).toEqual(['contextdiag']);
+    const m = sent[0]![1] as LoadReport;
+    expect(m.s).toEqual([[0, 0, 900], [sid('decode'), 4, 900], [sid('map'), 8000, 900, 51_200], [sid('play'), 10_000, 900, 3072, 1]]);
+    expect([m.lt, m.sx, m.r, m.now]).toEqual([11_000, 0, [], []]);
+    expect(m.in).toMatchObject({ emu: 'mouse' });
+  });
+
+  it('XBOX-790-LOADDIAG: the mount keeps what the load recorded; the ring counts from load-start; the input report still 45 s after the mount', () => {
+    const { d, sent, source } = rig(XBOX);
+    d.loadBegin(0);
+    d.loadStage('decode-done', 30_000);
+    d.begin(40_000, source);
+    d.loadStage('first-frame', 41_000);
+    for (let t = 40_000; t <= 46_000; t += 16) d.frame(t);
+    d.lost('gpudevicelost', 46_100);
+    const m = sent[0]![1] as LoadReport;
+    expect(m.s.map((row) => row.slice(0, 2))).toEqual([[0, 0], [sid('decode-done'), 30_000], [sid('first-frame'), 41_000]]);
+    expect(m.r.map((row) => row[0])).toEqual([40, 42, 44, 46]);
+    expect([m.now[0], m.lt]).toEqual([46.1, 46_100]);
+    d.frame(84_984);
+    expect(sent.map(([k]) => k)).toEqual(['contextdiag']);
+    d.frame(85_000);
+    expect(sent.map(([k]) => k)).toEqual(['contextdiag', 'inputdiag']);
+    expect(sent[1]![1]['t']).toBe(45);
+  });
+
+  it('XBOX-790-LOADDIAG: a whole load and 26 s of match on an Xbox page -- every stage kept, the ring\'s newest sample kept, under the cap', () => {
+    const { d, sent, source } = rig(XBOX);
+    d.loadBegin(0);
+    const at: [DiagStage, number, number?][] = [['decode', 5], ['map', 8000, 40], ['play', 9000, 2], ['effects', 12_000, 6], ['sound', 14_000, 1], ['soundLoops', 15_000, 8],
+      ['decode-done', 15_010], ['start', 15_020], ['mounted', 15_100]];
+    for (const [s, t, mb] of at) d.loadStage(s, t, mb === undefined ? null : { bytes: mb * 1_048_576, truncated: false });
+    d.begin(15_100, source);
+    for (const [s, t] of [['world-built', 18_000], ['renderer', 18_500], ['warm-settled', 25_000], ['first-frame', 25_100], ['loaded-sent', 25_200]] as [DiagStage, number][]) d.loadStage(s, t);
+    for (let t = 15_100; t <= 41_100; t += 16) d.frame(t);
+    d.lost('webglcontextlost', 41_200);
+    const m = sent.find(([k]) => k === 'contextdiag')![1] as LoadReport;
+    expect(m.s).toHaveLength(15);
+    expect(m.s.map((row) => row[0])).toEqual([0, ...at.map(([s]) => sid(s)), sid('world-built'), sid('renderer'), sid('warm-settled'), sid('first-frame'), sid('loaded-sent')]);
+    expect(m.s[2]).toEqual([sid('map'), 8000, 900, 40_960]);
+    expect(m.r.at(-1)![0]).toBe(41.1);
+    expect(m.sx).toBe(0);
+  });
+
+  it('XBOX-790-LOADDIAG: a stage before any load-start opens the lane (the lobby\'s prepare); a load-start starts it again; the match\'s end lets it go', () => {
+    const { d, sent, source } = rig(PC);
+    d.loadStage('decode', 500);
+    d.loadStage('map', 2500, { bytes: 1024, truncated: false });
+    d.lost('webglcontextlost', 3000);
+    expect((sent[0]![1] as LoadReport).s).toEqual([[sid('decode'), 0, 900], [sid('map'), 2000, 900, 1]]);
+    d.loadBegin(10_000);
+    d.loadStage('decode-done', 10_200);
+    d.lost('webglcontextlost', 10_300);
+    expect((sent[1]![1] as LoadReport).s).toEqual([[0, 0, 900], [sid('decode-done'), 200, 900]]);
+    expect((sent[1]![1] as LoadReport).lt).toBe(300);
+    d.begin(11_000, source); d.end(12_000);
+    d.lost('webglcontextlost', 13_000);
+    expect(['s', 'sx', 'lt'].filter((k) => k in sent[2]![1])).toEqual([]);
+  });
+
+  it('XBOX-790-LOADDIAG review M1: a load closed with no mount lets its lane go -- a loss during it reports the lane, a loss after it none; a close while a match is attached keeps the match\'s until its end', () => {
+    const { d, sent, source } = rig(PC);
+    d.loadStage('decode', 500);                                         // the lobby's prepare
+    expect(d.loadOpen).toBe(true);
+    d.lost('webglcontextlost', 600);
+    expect((sent[0]![1] as LoadReport).s).toEqual([[sid('decode'), 0, 900]]);
+    d.loadClose();                                                      // let go: no match came of it
+    expect(d.loadOpen).toBe(false);
+    d.lost('webglcontextlost', 700);
+    expect(['s', 'sx', 'lt'].filter((k) => k in sent[1]![1])).toEqual([]);
+    d.loadBegin(1000);
+    d.begin(2000, source);
+    d.loadClose();                                                      // the mounted match's load: its end lets it go, not this
+    expect(d.loadOpen).toBe(true);
+    d.lost('webglcontextlost', 3000);
+    expect((sent[2]![1] as LoadReport).lt).toBe(2000);
+    d.end(4000);
+    expect(d.loadOpen).toBe(false);
+  });
+
+  it("LATER 987: of the loader's stages only a decode opens a lane -- a closed load's late reply, crash or cancel opens none; a load phase still does", () => {
+    const { d, sent } = rig(PC);
+    d.loadStage('decode', 500);                                         // the lobby's prepare
+    d.loadClose();                                                      // the lobby left: the prepare let go
+    d.loadStage('map', 4000, { bytes: 1024, truncated: false });        // its late worker reply
+    d.loadStage('play', 4100, { bytes: 1024, truncated: false });
+    d.loadStage('crash', 4200);
+    d.loadStage('cancelled', 4300);
+    expect(d.loadOpen).toBe(false);
+    d.lost('webglcontextlost', 9000);                                   // a loss later, in the menus
+    expect(['s', 'sx', 'lt'].filter((k) => k in sent[0]![1])).toEqual([]);
+    d.loadStage('decode', 10_000);                                      // an explicit new decode does open one
+    d.loadStage('map', 12_000, { bytes: 1024, truncated: false });
+    d.lost('webglcontextlost', 12_500);
+    expect((sent[1]![1] as LoadReport).s).toEqual([[sid('decode'), 0, 900], [sid('map'), 2000, 900, 1]]);
+    expect((sent[1]![1] as LoadReport).lt).toBe(2500);
+    d.loadClose();
+    d.loadStage('world-built', 20_000);                                 // a load phase (a match built with no load-start: the Forge's)
+    expect(d.loadOpen).toBe(true);
+  });
+
+  it('XBOX-790-LOADDIAG: never throws -- a heap read that throws is left off, a payload not finite carries no KiB', () => {
+    const sent: Record<string, unknown>[] = [];
+    const d = new MatchDiag({ marks: () => PC, backend: () => null, sources: () => NO_SOURCES, page: () => ({}),
+      heapMB: () => { throw new Error('no'); }, send: (_k, message) => { sent.push(JSON.parse(message) as Record<string, unknown>); } });
+    expect(() => { d.loadBegin(0); d.loadStage('map', 10, { bytes: Number.NaN, truncated: false }); }).not.toThrow();
+    d.lost('gpudevicelost', 20);
+    expect(sent[0]!['s']).toEqual([[0, 0], [sid('map'), 10]]);
+  });
+});
+
+describe('XBOX-790-LOADDIAG: the page follows the load -- loadMarks\' listener seam, the loader\'s replies', () => {
+  afterEach(() => { setLoadMarkListener(null); });
+  const rig = () => {
+    const sent: Record<string, unknown>[] = [];
+    const d = new MatchDiag({ marks: () => ({ ua: false, sraKmd: false, cls: false }), backend: () => 'webgl2', heapMB: () => 900, sources: () => NO_SOURCES, page: () => ({}),
+      send: (_k, message) => { sent.push(JSON.parse(message) as Record<string, unknown>); } });
+    return { d, sent };
+  };
+
+  it('a load started before the diagnostic was made is caught up (its start, the heap not read then); the phases after it follow', () => {
+    markLoad('load-start', null);                                       // the front end's, before the match's chunk is in
+    const { d, sent } = rig();
+    const now = (): number => globalThis.performance.now();
+    followLoad(d, now);
+    markLoad('decode-done', null);
+    markLoad('start', null);
+    d.lost('webglcontextlost', now());
+    const s = sent[0]!['s'] as number[][];
+    expect(s[0]).toEqual([0, 0]);
+    expect(s.slice(1).map((row) => [row[0], row[2]])).toEqual([[sid('decode-done'), 900], [sid('start'), 900]]);
+    markLoad('load-start', null);
+    d.lost('webglcontextlost', now());
+    expect((sent[1]!['s'] as number[][]).map((row) => row[0])).toEqual([0]);
+  });
+
+  it('a reply\'s bytes walked (each backing buffer once); progress and loading not stages; an error reply carries no bytes and none of its text', () => {
+    const { d, sent } = rig();
+    d.loadBegin(0);
+    const buf = new ArrayBuffer(4096);
+    noteLoadReply({ kind: 'map', id: 1, map: { a: new Uint8Array(buf), b: new Float32Array(buf), c: new Uint8Array(1024) } }, d, () => 10);
+    noteLoadReply({ kind: 'progress', id: 1, stage: 'geometry', done: 1, total: 2 }, d, () => 11);
+    noteLoadReply({ kind: 'loading', id: 1 }, d, () => 12);
+    noteLoadReply({ kind: 'error', id: 2, doing: 'decoding play', message: 'a private path' }, d, () => 13);
+    noteLoadReply({ kind: 'index', id: 3 }, d, () => 14);                // not the loader's: not a stage
+    d.lost('webglcontextlost', 20);
+    expect(sent[0]!['s']).toEqual([[0, 0, 900], [sid('map'), 10, 900, 5], [sid('error'), 13, 900]]);
+    expect(JSON.stringify(sent[0])).not.toContain('private');
+  });
+
+  it('wired: the page\'s diagnostic follows the load; loadMarks imports none of it (OT.R12); the loader notes its stages and is made with the diagnostic', () => {
+    expect(read('../src/matchDiagPage.ts')).toMatch(/followLoad\(made\);/);
+    expect(read('../src/loadMarks.ts')).not.toMatch(/from '\.\/matchDiag/);
+    const m = read('../src/matchMount.ts');
+    const loader = m.slice(m.indexOf('export function matchLoader('));
+    expect(loader).toMatch(/pageMatchDiag\(\);/);
+    expect(loader).toMatch(/if \(m\.kind === 'progress' \|\| m\.kind === 'loading'\) return;\r?\n\s+noteLoadReply\(m\);/);
+    expect(loader.match(/noteLoadStage\('crash'\); stopWorker\(\);/g) ?? []).toHaveLength(2);
+    expect(loader).toMatch(/if \(kept\) noteLoadStage\('cancelled'\);\r?\n\s+kept = null;/);
+    expect(loader).toMatch(/noteLoadStage\('decode'\);\r?\n\s+const path = missionMapPath\(mission\);/);
+  });
+
+  it("LATER 987 review F1: a torn-down mount's late scene warm marks no warm-settled -- the phase would reopen a closed load's lane", () => {
+    // A lobby prepare's hidden mount, dropped (`dropPrepared` -> teardown, `gone`; the lane closed) while its warm is in
+    // flight: the warm settles later (or fails: both call `settled`) and must not mark the phase `followLoad` reads.
+    const m = read('../src/matchMount.ts');
+    expect(m).toMatch(/if \(map === m && !gone\) markLoad\('warm-settled'\);/);
+  });
+
+  it('review L2: no note call looks the page\'s diagnostic up outside its try -- no default parameter makes it, the loader\'s own making is wrapped', () => {
+    expect(read('../src/matchDiagPage.ts')).not.toMatch(/=\s*pageMatchDiag\(\)/);
+    const m = read('../src/matchMount.ts');
+    const loader = m.slice(m.indexOf('export function matchLoader('));
+    expect(loader).toMatch(/try \{ pageMatchDiag\(\); \} catch \{/);
   });
 });
 

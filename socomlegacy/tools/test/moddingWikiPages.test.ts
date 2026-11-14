@@ -100,7 +100,7 @@ const PROSE: Record<string, string[]> = {
     `whose role can change play -- ${[...packs.PACK_GAMEPLAY_ROLES].slice(0, -1).map((r) => `\`${r}\``).join(', ')} or \`${[...packs.PACK_GAMEPLAY_ROLES].at(-1)}\` -- cannot be covered by \`cosmetic\` alone`,
   ],
   'kinds/index.mdx': [
-    // FX-5 added the reserved `plugin`, a fourth kind: the sentence counts no kinds any more.
+    // FX-5 added `plugin`, a fourth kind: the sentence counts no kinds any more.
     `one or more of ${packs.PACK_KINDS.slice(0, -1).map((k) => `\`${k}\``).join(', ')} and \`${packs.PACK_KINDS.at(-1)}\``,
     `must not admit any engine contract before \`${packs.RULES_PACK_CONTRACT_FLOOR}\``,
     `Write \`^${packs.RULES_PACK_CONTRACT_FLOOR}\` or \`>=${packs.RULES_PACK_CONTRACT_FLOOR}\``,
@@ -117,8 +117,8 @@ const PROSE: Record<string, string[]> = {
 };
 /** Engine-contract versions a page may name: the code's, and on a page that warns against it, the one before the floor. */
 const PROSE_VERSIONS: Record<string, string[]> = {
-  'anatomy.mdx': [packs.ENGINE_CONTRACT_VERSION, packs.RULES_PACK_CONTRACT_FLOOR],
-  'kinds/index.mdx': [packs.ENGINE_CONTRACT_VERSION, packs.RULES_PACK_CONTRACT_FLOOR, '0.1.0'],
+  'anatomy.mdx': [packs.ENGINE_CONTRACT_VERSION, packs.RULES_PACK_CONTRACT_FLOOR, packs.PACK_CONTRACT_0_2_FLOOR],
+  'kinds/index.mdx': [packs.ENGINE_CONTRACT_VERSION, packs.RULES_PACK_CONTRACT_FLOOR, packs.PACK_CONTRACT_0_2_FLOOR, '0.1.0'],
   'guides/first-pack.mdx': [packs.ENGINE_CONTRACT_VERSION, packs.RULES_PACK_CONTRACT_FLOOR],
 };
 /** A restated number another test holds: the example member's size, `moddingWikiExample.test.ts`. */

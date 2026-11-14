@@ -214,6 +214,14 @@ export function hudZoom(state: number, zoomModes: readonly number[]): number {
   return 0;
 }
 
+/**
+ * Whether a view state is a view from the head (`Zoom.lens`: first person, the night vision, the binoculars, a scope;
+ * the eye, the body hidden). Pure, for a state read off the wire (PV-5b: the player's view's rig, `./povCamera`).
+ */
+export function lensOf(state: number): boolean {
+  return state > 0;
+}
+
 export class Zoom {
   private s = 0;
   /** `+0x204`: the magnification the last set wrote (`target`). */
@@ -336,7 +344,7 @@ export class Zoom {
   }
 
   /** Any view from the head (first person, the night vision, the binoculars, the scope): the eye, the body hidden. */
-  lens(): boolean { return this.s > 0; }
+  lens(): boolean { return lensOf(this.s); }
 
   /** First person proper (state 1, or 2 in a turret). */
   firstPerson(): boolean { return this.s === 1 || this.s === 2; }

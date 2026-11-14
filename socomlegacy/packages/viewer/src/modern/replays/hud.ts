@@ -32,7 +32,8 @@ import { SEEK_TOAST_MS, seekToastText } from './transportStrings';
  *   the room's `score.timeLeft` and `roundTime`, held by `clockHeld`, stopped at its `roundOver` -- never the design's
  *   fixed 360; gold under `REPLAY_HUD_CLOCK_LOW_SECONDS_ADAPTATION`.
  * - *The camera badge* (bottom left, `D:308-313`): the spectator mode's mark and "PLAYER CAMERA" / "FREE CAMERA" /
- *   "SCENIC CAMERA". The followed player's name under it is RB-35's to add (the follow by id, `./worldStage`).
+ *   "SCENIC CAMERA" (PV-13b: and "PLAYER'S VIEW" for the player's view, the viewer's own). No followed player's name is drawn under it: the follow by id is RVK-A's (`./worldStage` `follow`,
+ *   `followed`), and the name followed is the roster's pressed row (`./view`), not this badge's.
  * - *The paused centre button* (`D:303-307`): shown while the recording is paused (not held), its mark the replay arrow
  *   at the end; a click asks the caller's toggle (the transport's own, `act('toggle')`). Not a native button: the
  *   transport's play is the control the pad walks and the reader names, so this is the pointer's shortcut only.
@@ -169,8 +170,13 @@ export function roundClock(records: readonly ReplayRecord[], tick: number, tickH
   return Math.max(0, anchor.held ? anchor.left : anchor.left - (end - anchor.tick) / hz);
 }
 
-/** RB-34: the camera badge's words for the spectator's modes (`D:1039`); a mode not named here says its label. */
-const CAMERA_BADGE: Readonly<Record<string, string>> = { follow: 'PLAYER CAMERA', free: 'FREE CAMERA', scenic: 'SCENIC CAMERA' };
+/**
+ * RB-34: the camera badge's words for the spectator's modes (`D:1039`); a mode not named here says its label. PV-13b: the
+ * player's view (`'pov'`, PV-8's fourth camera) is named here in its siblings' form and length -- its mode's label is the
+ * strip button's full sentence (`./worldStage` CAMERA_MODES, the button's aria-label and title), which as a badge spanned
+ * the phone's world and ran under the seek toast. A browser adaptation's words (no original).
+ */
+const CAMERA_BADGE: Readonly<Record<string, string>> = { follow: 'PLAYER CAMERA', pov: "PLAYER'S VIEW", free: 'FREE CAMERA', scenic: 'SCENIC CAMERA' };
 
 /** Seconds as `mm:ss` (the export's `two(m):two(s)`, `D:1041`). */
 const clock = (s: number): string => {

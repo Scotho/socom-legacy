@@ -189,12 +189,12 @@ describe('SA-9b: the door branch of loadSegment', () => {
   });
 
   it('review F1: a door\'s real other version reads version in a fixed sentence, never the header\'s values', async () => {
-    for (const over of [{ protocol: 999 }, { format: 77 }]) {
+    for (const over of [{ protocol: 9 }, { format: 0 }]) {      // FL-2b: older; a newer one says reload (./replay/newerVersion)
       const bytes = concat([encodeRecord({ kind: 'header', header: header(over) })]);
       const e = await refusal(loadSegment(PROD, { door: door(), fetch: spy(() => new Response(bytes as BodyInit)).fetch }));
       expect(e.kind).toBe('version');
       expect(e.message).toBe(REPLAY_DOOR_OTHER_VERSION);
-      expect(e.message).not.toMatch(/999|77/);
+      expect(e.message).not.toMatch(/\d/);
     }
   });
 

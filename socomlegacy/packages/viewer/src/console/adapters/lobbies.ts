@@ -208,6 +208,8 @@ export function liveCustomMatches(doc: Document, notify: () => void, deps: Custo
   const rows = (): CustomRow[] => (list ?? []).map((m) => ({
     id: m.id, name: m.name, map: customMatchMap(m.base, deps.missions()), players: m.players, max: m.max, inMatch: m.inMatch, locked: m.locked,
     href: customMatchAddress(m.id, server()), ...(m.community === true ? { community: true as const } : {}),
+    // CMV-6: a modded host's lobby -- its flag, its provider and its packs (id and version: the drawer's words)
+    ...(m.modded === true ? { modded: true as const, ...(m.provider !== undefined ? { provider: m.provider } : {}), ...(m.packs ? { packs: m.packs.map((p) => ({ id: p.id, version: p.version })) } : {}) } : {}),
   }));
 
   return {

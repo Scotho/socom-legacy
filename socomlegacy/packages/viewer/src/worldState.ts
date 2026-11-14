@@ -66,9 +66,10 @@ export interface WorldHooks {
    */
   call?(name: string, path: string | null): void;
   /**
-   * A program's `MESSAGE` with its own text (a Forge switch's script, `../forge/placedAccess` `scriptPrograms`; the owner,
-   * 2026-11-08): the message window's post. A located message (`locId`) is not posted: its table is not read here. A
-   * joiner's replay (`silent`) posts none.
+   * A Forge switch's script's `MESSAGE` (`EffectOp.forge`, `../forge/placedAccess` `scriptPrograms`; the owner,
+   * 2026-11-08; a browser adaptation): the message window's post. A disc program's MESSAGE is not posted -- a raw-text one
+   * has the same shape and only the marker tells them apart; a located one (`locId`) has its table unread here. A joiner's
+   * replay (`silent`) posts none.
    */
   message?(text: string, colour?: number): void;
   /**
@@ -987,8 +988,9 @@ export class WorldState {
           for (const h of [...this.hooks]) h.particles?.(op.source, ctx.root);
           return;
         case 'destruction': for (const h of [...this.hooks]) h.destruction?.(at(op.node) ?? ctx.root); return;
+        // Only a Forge script's own (`op.forge`); a disc program's MESSAGE is dropped here, as before the Forge's.
         case 'message':
-          if (ctx.silent || op.text === null) return;
+          if (!op.forge || ctx.silent || op.text === null) return;
           for (const h of [...this.hooks]) h.message?.(op.text, op.colour);
           return;
         // A disc program's FIRE_WEAPON (research 386 §3.2, LATER 63): the room's round (`WorldHooks.fire`); a presentation or

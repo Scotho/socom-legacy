@@ -171,6 +171,50 @@ describe('Custom matches: the data (FG-46)', () => {
     expect(customMatchesOf({ lobbies: [] })).toEqual([]);
   });
 
+  // CMV-6 (the community-mods plan's row CMV-6; product track): the CONTROLS, green before CMV-6's reader and after it
+  it('CONTROL (CMV-6): an old body -- no modded, provider or packs -- reads as today; a community lobby keeps its flag alone', () => {
+    const community = { ...forgeLobby('L6', 'Night op', 'MP72', 2, 8), community: true };
+    expect(customMatchesOf({ lobbies: [forgeLobby('L5', 'Old', 'MP72', 2, 8), community] })).toEqual([
+      { id: 'L5', name: 'Old', base: 'MP72', players: 2, max: 8, inMatch: false, locked: false },
+      { id: 'L6', name: 'Night op', base: 'MP72', players: 2, max: 8, inMatch: false, locked: false, community: true },
+    ]);
+  });
+
+  it('CONTROL (CMV-6): a lobby not marked modded -- its provider and packs are never read (the community tier keeps today\'s words)', () => {
+    const odd = { ...forgeLobby('L7', 'Night op', 'MP72', 2, 8), community: true, provider: 'Somebody', packs: [{ id: 'alpha.props', version: '1.2.0', hash: 'a'.repeat(64) }] };
+    expect(customMatchesOf({ lobbies: [odd] })).toEqual([{ id: 'L7', name: 'Night op', base: 'MP72', players: 2, max: 8, inMatch: false, locked: false, community: true }]);
+  });
+
+  it('CMV-6: a modded host\'s lobby -- modded, its provider and its packs (full references, fresh copies) read', () => {
+    const ALPHA = { id: 'alpha.props', version: '1.2.0', hash: 'a'.repeat(64) };
+    const raw = { ...forgeLobby('L8', 'Mods night', 'MP72', 2, 8), community: true, modded: true, provider: 'Acme Hosting', packs: [ALPHA] };
+    const [m] = customMatchesOf({ lobbies: [raw] });
+    expect(m).toEqual({ id: 'L8', name: 'Mods night', base: 'MP72', players: 2, max: 8, inMatch: false, locked: false, community: true, modded: true, provider: 'Acme Hosting', packs: [ALPHA] });
+    expect(m!.packs![0]).not.toBe(ALPHA);
+  });
+
+  it('CMV-6: a malformed member is dropped and the lobby kept -- packs not references or past the bound, a provider not text, empty or with a control character', () => {
+    const ALPHA = { id: 'alpha.props', version: '1.2.0', hash: 'a'.repeat(64) };
+    const base = { ...forgeLobby('L8', 'Mods night', 'MP72', 2, 8), community: true, modded: true };
+    for (const packs of ['alpha', [{ id: 'alpha.props', version: '1.2.0' }], [{ ...ALPHA, sides: 'client' }], [{ ...ALPHA, hash: 'nothex' }], Array.from({ length: 65 }, () => ALPHA)]) {
+      const [m] = customMatchesOf({ lobbies: [{ ...base, provider: 'Acme', packs }] });
+      expect(m, JSON.stringify(packs).slice(0, 80)).toMatchObject({ id: 'L8', modded: true, provider: 'Acme' });
+      expect(m).not.toHaveProperty('packs');
+    }
+    for (const provider of [7, '', '   ', 'Acme\nHosting', 'Acme\u0000']) {
+      const [m] = customMatchesOf({ lobbies: [{ ...base, provider, packs: [ALPHA] }] });
+      expect(m, JSON.stringify(provider)).toMatchObject({ modded: true, packs: [ALPHA] });
+      expect(m).not.toHaveProperty('provider');
+    }
+    const [notTrue] = customMatchesOf({ lobbies: [{ ...base, modded: 'yes', provider: 'Acme', packs: [ALPHA] }] });
+    expect(notTrue).toEqual({ id: 'L8', name: 'Mods night', base: 'MP72', players: 2, max: 8, inMatch: false, locked: false, community: true });
+  });
+
+  it('CMV-6: a provider past 64 characters is cut to 64 (the record\'s own bound)', () => {
+    const raw = { ...forgeLobby('L8', 'Mods night', 'MP72', 2, 8), modded: true, provider: 'P'.repeat(70) };
+    expect(customMatchesOf({ lobbies: [raw] })[0]!.provider).toBe('P'.repeat(64));
+  });
+
   it('the answer is checked field by field: anything else is refused', () => {
     const one = forgeLobby('L1', 'x', 'MP2', 1, 16);
     for (const bad of [

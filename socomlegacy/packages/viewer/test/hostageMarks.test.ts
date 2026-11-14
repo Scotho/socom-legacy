@@ -21,6 +21,7 @@ const PS2 = { width: 640, height: 448 };
 const SIZES = {
   'compass_lo.tif': { width: 128, height: 128 }, 'ret_triangle.tif': { width: 16, height: 16 },
   'ret_hostage.tif': { width: 16, height: 16 }, 'ret_extraction.tif': { width: 16, height: 16 },
+  'ret_bomb.tif': { width: 16, height: 16 },
 };
 const model = (over: Partial<HudModel>): HudModel => ({ ...DEFAULT_MODEL, ...over });
 
@@ -44,10 +45,13 @@ describe(`HX-5: the hostages on the compass${MP6 ? '' : ` (MP6: ${FIXTURES_ABSEN
       { bitmap: 'ret_hostage.tif', x: 1750.26, z: 1179.72, pulse: true },
       { bitmap: 'ret_extraction.tif', x: points[0]![0], z: points[0]![2], pulse: true },
     ]);
-    // The colours, per type (FUN_002126f0's table, GS 0-128): the bomb's row as it was; the base's type 2's (BOMB-MARKS).
+    // The colours, per type (FUN_002126f0's table, GS 0-128): the bomb's type 1's (62, 62, 32) -- the table's second row,
+    // `+0xac` (D:L68677-68679), the bomb's ground mark made type 1 (FUN_0059dab0 D:L457521-457523: the word's type
+    // field 0x10 >> 4) with no colour of its own (FUN_002a28f0's `+0x18` -1, so FUN_002a2c70 answers 0 and FUN_00211510
+    // takes the table's, D:L68188-68198); was the nav marks' green (32, 62, 32). The base's type 2's (BOMB-MARKS).
     expect(OBJECTIVE_MARK_RGB_READING['ret_hostage.tif']).toEqual([62, 49, 36]);
     expect(OBJECTIVE_MARK_RGB_READING['ret_extraction.tif']).toEqual([36, 40, 62]);
-    expect(OBJECTIVE_MARK_RGB_READING['ret_bomb.tif']).toEqual([32, 62, 32]);
+    expect(OBJECTIVE_MARK_RGB_READING['ret_bomb.tif']).toEqual([62, 62, 32]);
     expect(OBJECTIVE_MARK_RGB_READING['ret_base.tif']).toEqual([40, 62, 36]);   // BOMB-MARKS: type 2's row (D:L68684-68687)
     // Always shown: 1500 u away, pinned at the ring's edge in its colour, at the pulse's alpha.
     const far = model({ position: [0, 0], yaw: 0, extraMarks: [], hostageMarks: marks });
@@ -56,6 +60,11 @@ describe(`HX-5: the hostages on the compass${MP6 ? '' : ` (MP6: ${FIXTURES_ABSEN
     expect(hostage.rgba).toEqual([62 / 128, 49 / 128, 36 / 128, 0.5]);
     expect(zone.rgba).toEqual([36 / 128, 40 / 128, 62 / 128, 0.5]);
     expect(hostage.w).toBeCloseTo(16 * 1.2, 9);                                 // beyond 200: pinned at 1.2x
+    // The bomb's mark as the bomb page hands it (`./bombPage` `marks()`: type 1, pulsing like types 1-13,
+    // FUN_00211510 D:L68125-68130): drawn in type 1's yellow at the pulse's alpha.
+    const withBomb = model({ position: [0, 0], yaw: 0, extraMarks: [{ bitmap: 'ret_bomb.tif', x: 0, z: -100, pulse: true }] });
+    const bomb = hudLayout(PS2, withBomb, SIZES, { fade: 1, stance: 0, pulse: 0, marks: 0.5 }).quads.find((q) => q.texture === 'ret_bomb.tif')!;
+    expect(bomb.rgba).toEqual([62 / 128, 62 / 128, 32 / 128, 0.5]);
     // The pulse (DAT_0040c070, D:L68043-68050): 64..128 of 128 at 250 a second, up and down.
     expect(OBJECTIVE_MARK_PULSE_READING).toEqual({ min: 64, max: 128, rate: 250 });
     const hud = new Hud();

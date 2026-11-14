@@ -1,9 +1,12 @@
-import { Skeleton, type MotionClip } from '@s2u/scene';
+import { itemClass, Skeleton, type MotionClip } from '@s2u/scene';
 import { Animator, PLAY_CLIPS, type MoverSnapshot } from '../animator';
+import type { HoldClip, PlaySnapshot } from '../mover';
 import type { MotionTable } from '../motionTable';
 import { leanClip, TRAVERSAL_CLIPS } from '../traversal';
 import { snapshotOf } from './body';
 import { quantiseBody } from './codec';
+import { FIRE_VERSIONS, WeaponPose } from '../weaponPose';
+import { RaiseFeed, WeaponRaise } from '../weaponRaise';
 import { boneTable, keepBounds, LEAN_HIT_POSE_READING, leanHeldKey, posedBoxes, type BoneBox } from './hitVolumes';
 import type { BodyState } from './protocol';
 
@@ -29,7 +32,8 @@ import type { BodyState } from './protocol';
  * What is not the page's (each named, research 217 s6):
  * - `HIT_POSE_CLOCK_READING`: the two clocks' phase.
  * - `HIT_POSE_RANDOM_READING`: the animator's draws (the crouch's three idles, the head look).
- * - `HIT_POSE_LAYERS_READING`: what the page's `Play` lays over the animator that the room does not feed.
+ * - `HIT_POSE_LAYERS_READING`: what the page's `Play` lays over the animator that the room does not feed (since FIRE-LAYER
+ *   FL-1 the room feeds the Fire set, the rest not).
  * - `HIT_POSE_MOUNT_READING`: a mounted gunner stays on the idle set, in the room and in the page's aim.
  * - `LEAN_HIT_POSE_READING` 'held' stands: under a peek the lean clip is posed at its held key from the press (the
  *   page draws its rise), as the idle sets' lean was.
@@ -40,11 +44,13 @@ export interface HitMotion { readonly clips: readonly MotionClip[]; readonly tab
 
 /**
  * The clips the room's animator is given: the page's plays (`../animator` `PLAY_CLIPS`, the locomotion, the actions,
- * their pistol versions) and the traversal moves' (`../traversal` `TRAVERSAL_CLIPS`: the ladders, the climbs, the
- * leans) -- what a remote copy's animator plays off the snapshot. The one-shots the page lays as pose layers (the Fire
- * set, the reloads, the throws, the binoculars, the flinches, the deaths) are not among them (`HIT_POSE_LAYERS_READING`).
+ * their pistol versions), the traversal moves' (`../traversal` `TRAVERSAL_CLIPS`: the ladders, the climbs, the
+ * leans) -- what a remote copy's animator plays off the snapshot -- and (FIRE-LAYER FL-1) the rifle's Fire versions
+ * (`../weaponPose` `FIRE_VERSIONS`' clips, out of the page's `WEAPON_CLIPS`), which the poser's `WeaponPose.fireLayer`
+ * lays. The other one-shots the page lays as pose layers (the pistol's Fire versions, the reloads, the throws, the
+ * binoculars, the flinches, the deaths) are not among them (`HIT_POSE_LAYERS_READING`).
  */
-export const HIT_POSE_CLIPS: readonly string[] = [...new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS])];
+export const HIT_POSE_CLIPS: readonly string[] = [...new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS, ...Object.values(FIRE_VERSIONS)])];
 
 /**
  * HIT-POSE: the clock the room's animator runs on [reading]. 'tick': once a room tick (`TICK_HZ`), by `1 / TICK_HZ`,
@@ -67,15 +73,49 @@ export const HIT_POSE_CLOCK_READING: 'tick' | 'shown' = 'tick';
 export const HIT_POSE_RANDOM_READING = 0;
 
 /**
- * HIT-POSE: what the page's `Play` lays over its copy's animator that the room does not feed [reading]. 'none': the
- * room's animator takes the snapshot alone -- no pose layer (the Fire set and the reloads, `../weaponPose`; the
- * binoculars, `../binocularPose`; the throw's hands, `../throwPose`; the flinch; the victory dance), no pistol version
- * (`Animator.setWeapon`: the rifle's clips), no launcher set (`setLauncherSet`), no `aimWeight` (the animator's
- * `AIM_WEIGHT_PLACEHOLDER`, where the page passes its raise's weight). Each moves the arms and the spine more than the
- * head; a reload or a throw can move the head too. Settles with each layer fed from what the room already holds (the
- * reload's lock, the hold code, the raise), one at a time, each against its capture.
+ * HIT-POSE: what the page's `Play` lays over its copy's animator that the room does not feed [reading]. 'fire'
+ * (FIRE-LAYER FL-1, 2026-11-14; FL.R1, FL.R3; LATER 1025; research 217 s3.6a): the room feeds the **Fire set** as the
+ * page lays it on a remote copy, by the page's own code -- a `WeaponRaise` fed each tick the body's `raised`
+ * (`BodyFlag.Raised`, ER-2) through `RaiseFeed.input`, at the copy's times (a remote copy never calls `setRaiseTimes`:
+ * `RAISE_TIMES`, `FUN_005dffc0`), its EASED weight (`FUN_00286b80`) on `WeaponPose.fireLayer` over the poser's
+ * `Animator`, 0 while a rocket launcher is in the hand (`launcherInHand`: the copy stows its rifle and `play.ts` lays no
+ * Fire set under the launcher set, `FUN_0057a330` D:L438829). Only a play whose type has a Fire version blends
+ * (`WeaponPose.sampleFire` over `FIRE_VERSIONS`: `FUN_0057a330` D:L438828-438860, `FUN_005551a0(..., 0x40)` D:L438710).
+ * Not fed (each its own task against its own capture, FL.R3): the pistol's set -- the pistol's slot (the snapshot's
+ * `weapon` 1) lays nothing, where the page lays `PISTOL_FIRE_VERSIONS` over the pistol's plays (`Animator.setWeapon`),
+ * and through a swap clip the room keeps the slot's rifle where the page's copy already holds the pistol
+ * (`remotePlayers.ts` `remoteKitOf`); the reloads (`WeaponPose.reloadLayer` is laid as the page lays it, but no reload is
+ * started); the binoculars, `../binocularPose`; the throw's hands, `../throwPose`; the flinch; the victory dance; the
+ * launcher set's own rows (`setLauncherSet`); `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`, where the page passes
+ * its raise's weight). Each moves the arms and the spine more than the head; a reload or a throw can move the head too.
+ * The poser equals the page's copy only at `aimWeight`'s placeholder 1 (a steadily raised body): the page passes the
+ * raise's weight (`play.ts` `frame`), so through the raise and the lower a pitched body's spine twist is whole here and
+ * scaled on the page, and a lowered body's head look runs on the page at weight 0 and not here. Every body eases on
+ * `RAISE_TIMES`, as a remote copy does (only the own body calls `setRaiseTimes`, `ZERO_RAISE_TIMES` under a mount or with
+ * an item up; how the original's copy times its raise there is unread). Settles with each fed from what the room
+ * already holds (the reload's lock, the hold code), one at a time, each against its capture. Was 'none' (HIT-POSE to
+ * FL-1): no layer at all.
  */
-export const HIT_POSE_LAYERS_READING: 'none' | 'fed' = 'none';
+export const HIT_POSE_LAYERS_READING: 'none' | 'fire' | 'fed' = 'fire';
+
+/** No item (`./body`'s `NO_ITEM`, `EQUIP_NONE`): the body's `weapon` when its kit is not known. */
+const NO_ITEM = 255;
+
+/**
+ * FIRE-LAYER FL-1: the rocket launcher a remote copy holds in its hand this frame, or null -- `remotePlayers.ts`
+ * `remoteLauncherInHand`, transcribed (that module draws with three.js and imports this one, so the room cannot import
+ * it; `hitPoseFireLayer.test.ts` holds the two equal): the snapshot's item when it is a rocket launcher (`itemClass`
+ * 'rocketLauncher'), else, through the launcher's still lower (`rifleToLauncher` / `pistolToLauncher` reversed), the one
+ * already in the hand (`inHand`: the last frame's answer, as `placeLauncher` keeps it).
+ */
+export function launcherInHand(item: number, action: PlaySnapshot['action'], inHand: number | null): number | null {
+  if (item !== NO_ITEM && itemClass(item) === 'rocketLauncher') return item;
+  const lowering = action !== null && action.reversed && (action.name === 'rifleToLauncher' || action.name === 'pistolToLauncher');
+  return lowering ? inHand : null;
+}
+
+/** What the poser reads off a body's snapshot beside the mover (`./body` `snapshotOf`'s extras); absent, lowered and the rifle. */
+export type HitPoseSnapshot = MoverSnapshot & Partial<Pick<ReturnType<typeof snapshotOf>, 'raised' | 'trigger' | 'aiming' | 'weapon' | 'item' | 'holdSerial'>>;
 
 /** The six lean clips (`../traversal` `leanClip`): a traversal pose on one of them is a peek. */
 const LEAN_CLIPS: ReadonlySet<string> = new Set((['stand', 'crouch', 'prone'] as const).flatMap((k) => [leanClip(k, -1), leanClip(k, 1)]));
@@ -108,8 +148,8 @@ export function wireScratch(): BodyState {
  * research 217 s3.6a) and turns it (`./body` `snapshotOf`), with the root's tilt the room's walker wrote
  * (`Walker.rootTilt`; the page runs its own from its floor, `../remotePlayers` `remoteTilt`, on the same rule).
  */
-export function hitPoseSnapshot(body: BodyState, rootTilt: MoverSnapshot['rootTilt'], wire: BodyState = wireScratch()): MoverSnapshot {
-  const snap: MoverSnapshot = snapshotOf(quantiseBody(body, wire));
+export function hitPoseSnapshot(body: BodyState, rootTilt: MoverSnapshot['rootTilt'], wire: BodyState = wireScratch()): HitPoseSnapshot {
+  const snap: HitPoseSnapshot = snapshotOf(quantiseBody(body, wire));
   snap.rootTilt = rootTilt ?? null;
   return snap;
 }
@@ -125,10 +165,23 @@ export function hitPoseSnapshot(body: BodyState, rootTilt: MoverSnapshot['rootTi
 export class HitPoser {
   private readonly skeleton: Skeleton;
   private readonly animator: Animator;
+  /** FL-1 (`HIT_POSE_LAYERS_READING` 'fire'): the copy's Fire set and its raise, as `play.ts` builds them for a remote copy. */
+  private readonly weapon: WeaponPose;
+  private readonly raise = new WeaponRaise();
+  private readonly feed = new RaiseFeed();
+  /** FL-1: the rocket launcher in the hand at the last step (`launcherInHand`), or null. */
+  private launcher: number | null = null;
+  /** FL-1: the snapshot's hold code as `RaiseFeed.input` reads it (`PlaySnapshot.hold`), rewritten each step. */
+  private readonly held: { hold: HoldClip | null; holdSerial: number | undefined } = { hold: null, holdSerial: undefined };
   private readonly keys = new Map<string, MotionClip>();
   private readonly wire = wireScratch();
   private readonly ring: Float32Array;
   private readonly stamps: Float64Array;
+  /**
+   * FIRE-LAYER FL-2 (an instrument's read, `fireWeightAt`): each ring slot's Fire weight, the one laid on the pose kept
+   * there (`WeaponPose.fireWeight` at `keep`). Nothing the poser poses or the room judges reads it.
+   */
+  private readonly weights: Float64Array;
   /** Each ring slot's boxes, made once: their matrices are views on the slot's floats. */
   private readonly slots: readonly (readonly BoneBox[])[];
   /** Each ring slot's bounds (body frame, `./hitVolumes` `boxBounds`), rewritten as the slot is kept: the cull's widening. */
@@ -141,6 +194,11 @@ export class HitPoser {
   constructor(skeleton: Skeleton, motion: HitMotion, ticks = 1) {
     this.skeleton = new Skeleton(skeleton.model, skeleton.modelMatrix, skeleton.parts);
     this.animator = new Animator(this.skeleton, motion.clips, motion.table, { random: () => HIT_POSE_RANDOM_READING });
+    // FL-1: `play.ts` `rebuild`'s layers -- the Fire set and the reload over the clips, the rifle's item
+    this.weapon = new WeaponPose(new Map(motion.clips.map((c) => [c.name, c])), motion.table);
+    this.weapon.item = 'rifle';
+    this.animator.addPoseLayer(this.weapon.fireLayer);
+    this.animator.addPoseLayer(this.weapon.reloadLayer);
     for (const c of motion.clips) if (LEAN_CLIPS.has(c.name)) this.keys.set(c.name, c);
     const n = Math.max(1, Math.floor(ticks));
     const table = boneTable(this.skeleton.parts);
@@ -148,6 +206,7 @@ export class HitPoser {
     this.floats = table.index.length * 16;
     this.ring = new Float32Array(n * this.floats);
     this.stamps = new Float64Array(n);
+    this.weights = new Float64Array(n);
     this.slots = Array.from({ length: n }, (_, k) => Array.from(table.index, (bone, b): BoneBox => {
       const at = k * this.floats + b * 16;
       return { part: table.part[b]!, bone, box: table.box[b]!, w: this.ring.subarray(at, at + 16) };
@@ -164,8 +223,19 @@ export class HitPoser {
    * One tick of `dt` seconds on the body's snapshot. `LEAN_HIT_POSE_READING` 'held': a peek's clip is posed at its held
    * key (`./hitVolumes` `leanHeldKey`) from the press, as the idle sets' lean was -- the rise the page draws is not
    * judged; 'clip' would pass the traversal's own key.
+   *
+   * FL-1 (`HIT_POSE_LAYERS_READING` 'fire'): first the raise, as `play.ts` `frame` runs it for a remote copy -- `raise.frame`
+   * on `RaiseFeed.input` with the body's `raised` (ER-2: the copy requests the owner's state each game frame and runs the
+   * envelope), its eased weight the Fire layer's, 0 with a rocket launcher in the hand or the pistol's slot, and
+   * `WeaponPose.step` (the Fire clip's own clock) -- then the animator.
    */
-  step(dt: number, snap: MoverSnapshot): void {
+  step(dt: number, snap: HitPoseSnapshot): void {
+    this.held.hold = (snap.hold ?? null) as HoldClip | null;    // the wire's hold code and serial (`./body` `snapshotOf`)
+    this.held.holdSerial = snap.holdSerial;
+    const w = this.raise.frame(dt, this.feed.input(this.held, false, { trigger: snap.trigger ?? false, aiming: snap.aiming ?? false, raised: snap.raised ?? false }, null), dt);
+    this.launcher = launcherInHand(snap.item ?? NO_ITEM, snap.action ?? null, this.launcher);
+    this.weapon.fireWeight = this.launcher !== null || snap.weapon === 1 ? 0 : w;
+    this.weapon.step(dt);
     const t = snap.traversal;
     const lean = LEAN_HIT_POSE_READING === 'held' && t && !t.blend ? this.keys.get(t.clip) : undefined;
     this.animator.step(dt, lean && t ? { ...snap, traversal: { ...t, frame: leanHeldKey(lean) } } : snap);
@@ -193,7 +263,19 @@ export class HitPoser {
     for (let b = 0; b < this.bones.length; b++) this.ring.set(world[this.bones[b]!]!, base + b * 16);
     keepBounds(this.slots[slot]!, this.bounds[slot]!);   // BONE-BOXES' fold: the cull reads the pose's own bounds
     this.stamps[slot] = stamp;
+    this.weights[slot] = this.weapon.fireWeight;         // FL-2: the weight laid on this pose, for `fireWeightAt` only
     return stamp;
+  }
+
+  /**
+   * FIRE-LAYER FL-2 (the replay's `rewind` record; an instrument, read only): the Fire weight laid on the pose kept as
+   * `stamp` (`keep`) -- the raise's eased weight, 0 under a rocket launcher or the pistol's slot (`step`); null once the
+   * ring has written over it, as `boxesAt`.
+   */
+  fireWeightAt(stamp: number): number | null {
+    const slot = stamp % this.stamps.length;
+    if (stamp < 1 || this.stamps[slot] !== stamp) return null;
+    return this.weights[slot]!;
   }
 
   /**

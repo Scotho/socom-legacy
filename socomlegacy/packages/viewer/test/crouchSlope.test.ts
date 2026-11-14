@@ -62,11 +62,20 @@ describe('crouch locomotion selects its branch before slope scaling', () => {
     expect(w.ground.state).toBe('crouch');
     expect(Math.hypot(w.state.vx, w.state.vz)).toBeCloseTo(14 * 0.75, 2);
   });
-  it('an asymmetric diagonal keeps the raw forward class when uphill scaling changes the dominant axis', () => {
+  it('an asymmetric diagonal keeps the raw forward class when uphill scaling changes the dominant axis; the split follows the scaled stick', () => {
     const w = climb(0.4, 45, { right: 0.35 });
-    expect(w.ground.cls).toBe(1);
-    expect(w.state.vz).toBeLessThan(0);
-    expect(w.state.vx).toBeCloseTo(0, 6);
+    expect(w.ground.cls).toBe(1);                       // FUN_005858a0 on the saved (raw) axes, D:L444139: forward dominates
+    // H392 (MOVE-4 in every mode): the split's share w is taken from the axes FUN_00584c60 hands on after the 14 / 14.8
+    // normalization, FUN_005b56c0's uphill factor and FUN_00586c10 (D:L444160-444165; FUN_0057a330 copies them, D:L438704-
+    // 438705). Up the 45-degree ramp the forward axis is scaled by 1 - sin^2 45 = 0.5 and the lateral, across it, not at
+    // all, so the lateral dominates the split while the class stays forward. (COMBINED's old whole-speed-on-the-class-axis
+    // gave vx 0 here.)
+    const k = (14 / 14.8) / Math.hypot(0.4, 0.35), f = 0.4 * k * 0.5, r = 0.35 * k;
+    const len = Math.hypot(f, r), share = Math.asin(r / len) * (2 / Math.PI);
+    const v = (Math.min(1, len) * 14.8) / Math.hypot(share, 1 - share);
+    expect(share).toBeGreaterThan(0.5);
+    expect(w.state.vx).toBeCloseTo(share * v, 6);       // 9.5212 (the class axis's band 14.8, seal_crouchwalk's)
+    expect(w.state.vz).toBeCloseTo(-(1 - share) * v, 6);
   });
   it.each([[-0.5, 0], [0, 0.5]])('partial input (%s, %s) downhill or across the ramp retains flat crouch speed', (forward, right) => {
     const w = climb(forward, 30, { right });

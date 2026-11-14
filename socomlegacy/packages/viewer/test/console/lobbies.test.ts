@@ -585,6 +585,61 @@ describe('Custom matches (FG-46): the Online row, the list, JOIN', () => {
     expect(document.querySelector('#stage .cx-drawer')?.textContent).toContain('HyperNode');
   });
 
+  /**
+   * CMV-6 (CMV.R11, the owner's words "Community mods - unranked"; the main controller's calls 2 and 3 of 2026-11-13;
+   * product track): a lobby on a modded host reads "Community mods - unranked" and its provider on the row, and its drawer
+   * names the packs it needs by id and version. The provider is the host's own text: drawn as literal text, at most 64
+   * characters. The community case above is this one's CONTROL, unchanged.
+   */
+  const ALPHA = { id: 'alpha.props', version: '1.2.0', hash: 'a'.repeat(64) };
+  const ZULU = { id: 'zulu.rules', version: '0.3.1', hash: 'b'.repeat(64) };
+  const moddedLobby = (provider: string) => ({ ...forgeLobby('L9', 'Mods night', 2, { community: true }), modded: true, provider, packs: [ALPHA, ZULU] });
+  async function moddedRow(provider: string): Promise<HTMLElement> {
+    const { ctl } = boot({ custom: { body: { lobbies: [moddedLobby(provider)] } } });
+    online(ctl, 'Browse rooms');
+    ctl.press('cross');
+    await flush();
+    const row = document.querySelector<HTMLElement>('#stage .cx-room.is-custom')!;
+    ctl.S.rooms.row = Number(row.dataset['i']);
+    page!.render();
+    return document.querySelector<HTMLElement>('#stage .cx-room.is-custom')!;
+  }
+
+  it('CMV-6: a modded host\'s lobby reads "Community mods - unranked" and its provider on the row; the drawer names its packs', async () => {
+    const row = await moddedRow('Acme Hosting');
+    expect(row.textContent).toContain('Community mods - unranked');
+    expect(row.textContent).toContain('Acme Hosting');
+    expect(row.textContent).not.toContain('HyperNode');
+    expect(row.getAttribute('aria-label')).toContain('Community mods - unranked');
+    expect(row.getAttribute('aria-label')).toContain('Acme Hosting');
+    const drawer = document.querySelector('#stage .cx-drawer')!;
+    expect(drawer.textContent).toContain('Community mods - unranked');
+    expect(drawer.textContent).toContain('Acme Hosting');
+    expect(drawer.textContent).toContain('alpha.props 1.2.0');
+    expect(drawer.textContent).toContain('zulu.rules 0.3.1');
+    expect(drawer.textContent).not.toContain('HyperNode');
+    expect(drawer.textContent).not.toContain('a'.repeat(64));                     // the hash is a machine's word
+  });
+
+  it('CMV-6: a provider holding markup and quotes is drawn as literal text, never as markup', async () => {
+    const odd = '<b>"Mods" & \'co\'</b>';
+    const row = await moddedRow(odd);
+    expect(row.textContent).toContain(odd);
+    expect(row.querySelector('b')).toBeNull();
+    expect(row.getAttribute('aria-label')).toContain(odd);
+    const drawer = document.querySelector('#stage .cx-drawer')!;
+    expect(drawer.textContent).toContain(odd);
+    expect(drawer.querySelector('b')).toBeNull();
+  });
+
+  it('CMV-6: a provider of 70 characters is drawn cut to 64', async () => {
+    // 'Q', not 'P': the drawer's next label is "Packs needed", whose P would make 65 in the joined text.
+    const row = await moddedRow('Q'.repeat(70));
+    expect(row.textContent).toContain('Q'.repeat(64));
+    expect(row.textContent).not.toContain('Q'.repeat(65));
+    expect(document.querySelector('#stage .cx-drawer')!.textContent).not.toContain('Q'.repeat(65));
+  });
+
   // LR-37 (9): Browse rooms lists the custom matches after the classic rooms (ALL, at every open); was: their own Online row.
   it('Browse rooms lists them (ALL): read only while shown; each marked; Cross is JOIN, the forge at the lobby; CLASSIC stops the read', async () => {
     const { ctl, f, assigned } = boot();

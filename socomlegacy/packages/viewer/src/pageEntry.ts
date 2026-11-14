@@ -293,7 +293,7 @@ function offerDisc(doc: Document, page: HTMLElement, mount: (source: SourceReque
     let latest: DiscRequest | null = null;
     // DA-4: an image goes to `open` as before; a folder dropped on the window (`./discPrompt` `watchDiscPrompt`'s
     // `onFolder`; the visible folder chooser is the console launcher's, `folderRequestFromInput`) to `openFrontEndDisc`
-    // (DA-3: its SYSTEM.CNF checked first, DA.R8). Either is named by `./discSource` `discName` / `discLabel`: an image
+    // (DA-3). Either has its SYSTEM.CNF checked first (`./discSource` `openDisc`, DA.R8). Either is named by `./discSource` `discName` / `discLabel`: an image
     // by its file name as before, a folder by its own (a drive's, a volume's or a folder's) name.
     const take = (disc: DiscRequest): void => {
       latest = disc;

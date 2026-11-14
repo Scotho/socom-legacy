@@ -4,6 +4,7 @@ import { bootValves, restoreValveModule, valveModule, VALVE_MODULE } from '../..
 import { pageCard } from '../../pageStore';
 import { saveWithinCard } from '../cardSave';
 import { liveOptionValue, optionCommitted } from '../../nativeOptionsContext';
+import { COD_MODERN_VALUE, setCodModernChosen } from '../../controllerModern';
 
 /**
  * Where the settings page's values live (MU-5; MU.R2): the card's save file `BASCUS-97275SOCOMII`, as the original keeps
@@ -242,6 +243,16 @@ export function cardOptionStore(slots: CardSlots = pageCard): OptionStore {
       return saved;
     },
     setControllerLayout(value: number): boolean {
+      // V20.R4: COD Modern is this browser's own choice -- the card keeps its original layout, and its value is told
+      // again so the live configs read the choice (`../../controllerConfigs` `browserStoredControllerConfig`).
+      if (value === COD_MODERN_VALUE) {
+        setCodModernChosen(true);
+        const v = view();
+        const held = liveOptionValue(slots, 'valve', 'SelectedControllerConfig')
+          ?? (v && !v.malformed ? valves(v.card)?.find('SelectedControllerConfig')?.value : undefined) ?? 1;
+        optionCommitted(slots, 'valve', 'SelectedControllerConfig', held);
+        return true;
+      }
       if (!Number.isInteger(value) || value < 1 || value > 4) return false;
       const saved = write(card => {
         const held = card.part(VALVE_MODULE), store = valves(card);
@@ -252,6 +263,7 @@ export function cardOptionStore(slots: CardSlots = pageCard): OptionStore {
         return true;
       });
       if (saved) {
+        setCodModernChosen(false);                             // V20.R4: an original layout chosen ends COD Modern
         optionCommitted(slots, 'valve', 'ChosePresetOnce', 1);
         optionCommitted(slots, 'valve', 'SelectedControllerConfig', value);
       }

@@ -20,7 +20,7 @@ Unknown fields are refused.
 | `name`, `description?` | printable ASCII, 1-48 and 0-400 (the `s2u-mod` v1 bounds) |
 | `target` | the disc revision; must equal the build's (`PACK_TARGET_US`, `SCUS-97275`); an alias is refused (`FIELD_INVALID`, naming the canonical value) |
 | `contract` | a range the build's engine contract version must satisfy |
-| `kinds` | each of `content`, `rules`, `system` at most once (XT-1's "behaviour" is spelled `rules`: declarative only, H272) |
+| `kinds` | each of `content`, `rules`, `system`, `plugin` at most once (XT-1's "behaviour" is spelled `rules`: declarative only, H272). `plugin` is a community-server module, not a page pack |
 | `sides` | `client`, `server` or `both` |
 | `dependencies` | `{id, range}` (another pack) or `{archive, sha256}` (the user's own disc archive) |
 | `files` | `{path, sha256, size, role}`; the roles and payload types are below |
@@ -28,7 +28,9 @@ Unknown fields are refused.
 | `handlers?` | `{slot, handler, actions?, options?}` claims on engine-owned handlers; no pack code runs; `options` a plain JSON object the contract bounds in shape and the handler checks in content (LATER 458, `2026-10-25-extension-contracts.md`) |
 
 Roles and the payload types each carries: `mesh` (glb, gltf), `texture` (png, ktx2, rgba), `audio` (ogg, wav),
-`collision` (json, glb), `gameplay`, `rules`, `system` and `legacy-manifest` (json), `data` (any).
+`collision` (json, glb), `gameplay`, `rules`, `system` and `legacy-manifest` (json), `data` (any), `plugin` (`plugin/main.js` only).
+A plugin pack's `sides` is `server`, its contract admits no engine before `0.2.0` (`PACK_CONTRACT_0_2_FLOOR`), and
+every member except that one script is data JSON. No new manifest field.
 
 Ranges: `*`, `1.2.3` / `=`, `>`, `>=`, `<`, `<=`, `^` (left-most non-zero part fixed), `~` (minor fixed), sets
 separated by spaces, alternatives by `||`. Pre-release versions compare by SemVer precedence and are not excluded.

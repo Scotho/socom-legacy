@@ -74,9 +74,10 @@ Two values come from the build, not from you:
   spelling is refused, and the refusal names the right one.
 - `contract` is a version range that must include one of the engine contract versions the build reads: the newest is
   `0.2.0` today (the contract's `ENGINE_CONTRACT_VERSION`), and the whole list is `ENGINE_CONTRACT_VERSIONS`, so a
-  `^0.1.1` pack still reads. A pack of kind `rules` must not admit any version before `0.1.1`.
+  `^0.1.1` pack still reads. A pack of kind `rules` must not admit any version before `0.1.1`. A pack of kind
+  `plugin` must not admit any version before `0.2.0` (`PACK_CONTRACT_0_2_FLOOR`).
 
-`sides` is `client`, `server` or `both`. The check tests only that it is one of the three; nothing else reads it yet.
+`sides` is `client`, `server` or `both`. A plugin pack's `sides` is `server`.
 
 ## Members: paths, roles and file types
 
@@ -99,6 +100,7 @@ that differ only in letter case, or in Unicode form, collide. Any manifest text 
 | `collision` | `.json`, `.glb` |
 | `gameplay`, `rules`, `system`, `legacy-manifest` | `.json` |
 | `data` | any |
+| `plugin` | `.js` |
 
 [Manifest reference](/reference/manifest/) says what each role is for.
 
@@ -123,7 +125,7 @@ the change is:
 | `gameplay-value` | changes values the game already has |
 | `new-behaviour` | adds behaviour the game does not have |
 
-A member whose role can change play -- `collision`, `gameplay` or `rules` -- cannot be covered by `cosmetic` alone.
+A member whose role can change play -- `collision`, `gameplay`, `rules` or `plugin` -- cannot be covered by `cosmetic` alone.
 
 ## Identity: id, version and hash
 

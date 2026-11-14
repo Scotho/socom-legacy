@@ -14,9 +14,14 @@ import { ACTION_CODES, BodyFlag, bodyHoldBits, bodyHoldOf, LANDING_CODES, STANCE
 /**
  * What a body carries beside its mover: alive, the firearm slot in hand (`weapon`, the mover's 0 / 1), the aim and the
  * trigger, the sprint -- and (protocol 7) `item`, the id of the item in that slot (255, none, when not given); (protocol 14,
- * ENEMY-RAISE ER-2) `raised`, the owner's raise state (`BodyFlag.Raised`).
+ * ENEMY-RAISE ER-2) `raised`, the owner's raise state (`BodyFlag.Raised`); (protocol 16, WIRE-16) `view`, `clock`, `swayX`,
+ * `swayY`, the view's tail (`BodyState.view`), each 0 when not given (the room gives them from the seat's last live
+ * command, PV-2; a hostage and a dead body none).
  */
-export interface BodyExtras { alive: boolean; weapon: 0 | 1; item?: number; aiming: boolean; trigger: boolean; boost: boolean; binoculars?: boolean; raised?: boolean }
+export interface BodyExtras {
+  alive: boolean; weapon: 0 | 1; item?: number; aiming: boolean; trigger: boolean; boost: boolean; binoculars?: boolean; raised?: boolean;
+  view?: number; clock?: number; swayX?: number; swayY?: number;
+}
 
 /** No item (`EMPTY_ITEM`, `EQUIP_NONE`): a body's `weapon` when its kit is not known. */
 const NO_ITEM = 255;
@@ -57,6 +62,7 @@ export function bodyOf(id: number, s: PlaySnapshot, extras: BodyExtras): BodySta
     trav: t ? travCode(t.clip) : 0, travFrame: t?.frame ?? 0, travRootY: t?.rootY ?? Number.NaN,
     travBlend: t?.blend ? travCode(t.blend.clip) : 0, travBlendWeight: t?.blend?.weight ?? 0,
     peek: s.peek ?? 0, weapon: extras.item ?? NO_ITEM, slot: extras.weapon,
+    view: extras.view ?? 0, clock: extras.clock ?? 0, swayX: extras.swayX ?? 0, swayY: extras.swayY ?? 0,   // WIRE-16: carried, never simulated
   };
 }
 

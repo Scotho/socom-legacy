@@ -20,6 +20,11 @@
      on the root beat these. */
   :root[data-console] { --cx-tabs: 8; --cx-dropup-max: none; --cx-list-shift: 0; --cx-vv-h: 100dvh; --cx-vv-top: 0px; }
   :root[data-console], :root[data-console] body { height: 100%; }
+  /* V20.R15 (the owner, 2026-11-11; a browser adaptation, PR #783): no double-tap zoom on the launcher -- scrolling and
+     pinch kept. The overlay's document carries this mark too (`../modern/overlay/index.ts`), so Home and its settings
+     over the game take it; the reading pages (the leaderboard, a match, a player, the project pages) keep the
+     browser's double-tap zoom: the rule is here and in the game page's `../styles.css`, never in shared/ds's base. */
+  :root[data-console] { touch-action: manipulation; }
   :root[data-console] body { margin: 0; background: var(--s2u-ground); color: var(--s2u-text); font: 400 1.375rem/1.4 var(--s2u-font-body); overflow: hidden; -webkit-font-smoothing: antialiased; }
   :root[data-console] button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
   :root[data-console] .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

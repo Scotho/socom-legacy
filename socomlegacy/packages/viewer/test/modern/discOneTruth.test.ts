@@ -37,7 +37,7 @@ const choose = (selector: string, files: File[]): void => {
   Object.defineProperty(input, 'files', { configurable: true, value: files });
   input.dispatchEvent(new Event('change'));
 };
-const image = (): void => { choose('#disc-page-file', [new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso')]); };
+const image = (): void => { choose('#disc-page-file', [new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso')]); };
 
 /** What the console's START and Home read of the disc, beside what the modern UI reads of it. */
 function both(d: LiveDisc): { console: [string, boolean, string]; modern: [string, boolean, string] } {

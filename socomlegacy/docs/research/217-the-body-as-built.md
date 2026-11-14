@@ -205,8 +205,72 @@ crouched, 3.637 prone: **the lines at 19.394, 12.138 and 5.637** at rest. The ro
 2026-11-06 both ends took the idle for every state (as PF-15's `HEADROOM_HIPS_READING`), and the posed head moves with
 the clip (§2.3 gives the error). Since the crouch-run head line (2026-11-06, `WALL_HEAD_LINE_READING` `'posed'`;
 reading, pending review) a body moving on the ground takes the head the clip its ground state plays poses, at its
-greatest over the cycle (`POSED_HEAD_READING`, §2.3); at rest, in the air and under a one-shot it keeps the idle head.
-Owed a capture. The port gives the line the body's footprint (the disc, or prone the fan's), not one segment ahead.
+greatest over the cycle (`POSED_HEAD_READING`, §2.3); at rest and under a one-shot on the ground it keeps the idle head;
+in the air, since 2026-11-13, the jump clip's posed head at its key (below). Owed a capture. The port gives the line the
+body's footprint (the disc, or prone the fan's), not one segment ahead.
+
+**The airborne line (AIR-HEAD-LINE, 2026-11-13; reading, pending review).** Re-read at the source: `FUN_0054aa30`'s
+controlled-body branch builds the head line from the actor's root (`*(actor+0x28)` +0x30 to +0x38) plus
+`FUN_002869d0(actor+0x170, actor[0xc2])` -- the `head` node as posed -- + 2.0 (D:L415437-415446; the other arm, `+0x52f`
+set, the same at D:L415459-415461), and nothing there asks whether the body is in the air; the same routine casts the
+airborne segments (§2.10: D:L415157-415166, D:L415401-415410). So in the air the line is the jump clip's posed head + 2.
+The port had kept the idle head there (19.394 over the feet), an approximation this section stated. The report: players
+cannot jump through the windows of Desert Glory's (MP6) SEAL building, "an invisible wall". The window probe (agent-mail
+evidence window-probe, 2026-11-13, and this task's sweep) reads `building_wc2/mp6_window_wide` at (1234.5, 1768) as an
+open frame 4 deep (sill 11.5, lintel 24.5, over the floor at 0 on both sides) whose walls (`fl1_extwall1`,
+`fl1_intwall3`) leave the walk's level segments a clear band from y 11.25 to 24.75 (within 0.25). The two lines -- 6.5
+and 19.394 over the feet, 12.894 apart -- fit it only with the feet between 4.75 and 5.36, and no tick of the running
+jump's arc (the feet at 3.76, 5.64, 7.26 rising, 7.81, 6.29, 4.51 falling) puts them there as the body reaches the wall:
+no press distance from 6 to 44 passed, either way.
+
+Measured on the port's animator (`AIR_POSED_HEAD_READING`: each key held through the traversal seam on a fresh animator,
+`seal_A_scuba` from `MP2.ZDB`, `MOTION_P.ZAR`, `READERC.ZAR`, as `POSED_HEAD_READING` was; re-measured by
+`airHeadLineDisc.test.ts`): `seal_runningjump_launch` (25 keys, playback 2.4, its keys run in 2.212 s by
+`oneShotSeconds`) puts the head at 16.950 at key 0, 16.674 at key 4, 15.947 at key 11, 16.737 at key 17 and 16.328 at
+its last -- the line 17.95 to 18.95; `seal_runningjump_in_air`, the fall (14 keys, playback 5, 4.311 s), 14.567 (key 2)
+to 16.328 (key 6) -- the line 16.57 to 18.33. The standing jump `seal_jump` lifts the head to 22.191 (key 12), but it
+plays on the floor (the feet never leave it, research 80), so it is a one-shot on the ground and the port keeps the idle
+head under it -- a known deviation, older than this task: `FUN_0054aa30` reads the posed head of any body, so in the
+original the standing jump would lift the line to about 24.19 where the port's stands at 19.394. Against the animator's
+own play of each action, tick by tick past its cross-fade, the rule below bounds the drawn head within a tick of the
+clock (the same test).
+
+The rule: the walker knows the airborne clip's phase -- its action's clock, `launch` from the take-off and `fall` from
+its push, which the animator plays the clip by -- so the line follows the key: the clock x (n - 1) over
+`oneShotSeconds`, held at the last key, the greater of the two keys about it, as the ground table takes the greater of
+two stick samples (§2.3). The clip's greatest head over its whole run, the ground case's rule (the launch's 16.950 + 2 =
+18.95), was weighed and not taken: the walker tracks the phase, the original reads each frame's pose, and the greatest
+stands the take-off's key 0 over the whole flight -- at the window it passes no press distance from 6 to 44 (the sweep).
+Standing only (the fresh review's F1, 2026-11-13): a crouched or prone body in the air -- a crouch walk or a crawl off a
+ledge, `fall` pushing the action -- keeps its idle head (12.138, 5.637), as unread: whether the original plays the
+standing in-air clips for those stances is not read. A one-shot owning the body on the ground (the standing jump, a
+landing, a stance change) keeps the idle head, and so does a blast's `Fall forward` / `Fall backwards` in the air (not
+measured). The cross-fades into the clips are not followed: the launch's own keys stand over the run's lower head
+through its first 0.2 s (BlendTime), and the fall's first keys stand under the launch's last pose (16.15 to 16.33)
+through its 0.75 s, by up to 0.5.
+
+What it gives: pressed 44 out (the take-off 43.2 from the window's middle) the arc reaches the wall on its way down with
+the feet at 6.29 about the launch's key 6.7 (the line 18.32): both lines inside the band, the body steps onto the sill
+at 11.5 and drops inside -- both ways (`airHeadLineDisc.test.ts`). The sweep, kept as a pinned test: of the presses from
+8 to 54 in half units exactly 43.5 and 44 pass, from both sides, on the way down; the others still meet the wall over
+the lintel or below the sill. That is the port's own arithmetic, not the original running. The investigation had
+predicted presses 11 to 17 (the rising tick at feet 5.64 inside the band); there the head segment, reaching ahead of the
+body along the move, meets the wall over the lintel on the next tick (the feet 7.26) while the body is still about 3.3
+short of the face. So the window passes from one take-off tick of the run-up, not a range: the feet must stand between
+about 4.75 and 6.43 while the head segment crosses the frame's 4 of depth, one or two 60 Hz ticks. The per-key rule is
+not what narrows it (under 0.25 at the launch's keys 6-7); whether the original's head segment reaches that far ahead in
+the air is LATER 994. The control stays: pressed 28 out the body meets the wall near the arc's top and its head line
+stops it. Every standing airborne lintel and ceiling now has 0.44 to 2.83 more room; crouched and prone, none.
+
+The dead stop after an air hit is the original's rule, not a fault to fix: on an airborne hit the carried velocity loses
+only its part into the face (`mover.ts` `resolveSegments`, the carry's `into < 0` cut; the original `+0x1350`,
+D:L413588-413594, the v.n < 0 test; §2.9), and a square jump into a wall has all of its forward speed into the face, so
+it loses all of it, as the original's does. The walk hash `bridgeWedge.test.ts` pins (MP2, 144 walkers, jumps now and
+then) moved with this change: 4 of the 144 walkers meet walls differently in the air, the launches and stands unchanged
+(383, 116), and with the airborne line patched back to the idle head the walk gives the old digest exactly (measured
+headless on the seat box; the review re-checked it), so the hash was re-measured. Not in this change: the dive in the
+air (`canDive`) and Abandoned's (MP5) windows. Owed: a capture, a SEAL jumped through this window from a run (the rig's
+Q3, LATER 994).
 
 What it changes against the brief: H92's "yes" was asked as "a standing SEAL walks under an overhang lower than his
 head". In the original a standing SEAL passes anything between 6.5 and 19.394 that does not reach either line (the
@@ -1588,6 +1652,80 @@ halloc-verify), one host, separate runs: the animator's step alone 0.270 ms and 
 2.21 / 1.99 -> 2.68 / 2.37 ms, within the runs' spread (the idle sets' p99 and worst moved alike, 1.08 -> 1.24 and 1.44
 -> 1.85 ms, with nothing of theirs changed). Owed (the controller's): the two-room bench on the c7a.large at this head.
 
+**The Fire layer on the original (Q10-T, 2026-11-13; the feet's nodes and the rounds' impact points MEASURED by the
+rig, the rest a reading, pending review; LATER 1025).**
+
+The rig (r0004, two PCSX2 consoles, MP2; the shadow seat's Q10-T, the box store's
+`gate-runner/shadow/out/2026-11-13/q10-hitreg/`) stood al_gman01 still at two spots. At match 4's corridor spot his top
+play was type 1 (Stand) and his spinehi node matched the port's `seal_stand` at the same phase to about 0.002 (axes and
+height). At the open spot c1 the same type 1 in the DEFAULT mode (+0x1336 = 0 for 90 s, +0x43c 0) stood otherwise. Read
+live (his foot nodes): the left foot 6.21 u and the left toe 7.46 u forward of his root, the right foot 1.63 u behind
+and 1.64 out; his root height 10.80. Measured as the rounds' impact points (the crosshair's +0x3c0 at the trigger, not
+nodes): rounds aimed at 15.3 struck 7-9 u forward at about 13.5 up, about 2.35-2.85 to his right (3/3: RARM twice, then
+BODY), and rounds aimed at 16.2 struck about 10.7 u forward at 13.7 up, about 2.06 to his right (3 blood with no damage,
+1 RARM). Which bones those were is inferred from the six healths and the blood, not read.
+
+**The feet match the Fire stand; the arm and hand contacts do not, at key 0.** `FUN_005e3c20` takes (set, type, mode)
+and no weapon (D:L495800 on), so the c1 stance is not another Stand clip. The Fire version is a separate blend (reading,
+re-read by a fresh reviewer): `FUN_0057a330` maps the playing type to its base (`FUN_0058c820`) and on to its Fire
+version by the hand byte +0xf79 (`FUN_0058c970`, D:L438833-438834) and blends it in at the rifle's raise weight, EASED
+(`FUN_00286b80`, D:L438828; D:L130777-130811); only a play flagged 0x40 takes a Fire version (`FUN_005551a0(..., 0x40)`,
+D:L438710); the launcher set is excluded (D:L438829); its one caller is the per-actor update (D:L418454), with no
+player-or-AI test, so a human Terrorist is blended. The port's own `seal_fp_stand` on al_gman01 at key 0 (the pose dump,
+`tools/pose-dump.ts`, "terrorist stand Fire"; the boxes' extents in the body frame) holds lfoot 4.66-7.00 and ltoe
+5.60-8.36 forward and rfoot 1.17-3.33 behind and 0.48-2.97 out: the three foot reads fall inside. But its right arm
+stops short: rbicep 1.7-5.1 and rforearm 2.7-6.7 forward, rhand 5.2-8.0 -- the RARM contacts at 7-9 u lie in front of
+every right-arm box (a contact at 7-8 forward, 13.5 up and about 2.4 right would sit inside rhand, a no-part box, yet
+those rounds took RARM), and the 10.7 u contact in front of rhand. At key 0 the only boxes that far forward on his right
+are the LEFT arm's, which the Fire stand carries across under the fore-end: lforearm 6.6-9.9 and lbicep 4.6-8.9 forward
+(x to 1.9 and 0.6 right), lhand 8.2-11.1 forward at 14.0-15.8 up and 0.4-3.1 right -- the 10.7 u contact sits just below
+lhand, yet the four rounds there gave RARM once, not LARM. A weight below 1 pulls the arms back, not out. Unexplained:
+other keys of the Fire stand (the dump's ranges are key 0's), the depth offset between the rig's root and the port's
+feet (about 0.5 u, the original's skeleton nearer the shooter; its meaning not read), or another pose. The rig's rhand,
+lhand and rforearm box reads at c1 should say which hand. (The root's 10.80 and the hips box's top 11.76 are different
+quantities and are not compared.)
+
+So, as far as it is read: on the original a still Terrorist at c1 stood with his feet in the Fire stand and met rounds
+at his arm and a hand 7-11 u in front of him; the port's room lays no Fire set (`HIT_POSE_LAYERS_READING` 'none') and
+hit-tests him in `seal_stand`, his arms down, while the page draws the raised rifle. The box posing the hit walk meets
+is not traced at the source (`FUN_005abbc0` only matches the struck node against the actor's slots), so that the
+original's hit volumes stand in the Fire stand rests on the rig's measurement, not a reading of the walk. The raise's
+state (+0xf74) and envelope (+0x1160) at c1 were not read; why his rifle was up is not read.
+
+**The Fire set is proposed as the first layer the room feeds (v0.4.22).** Its weight is the raise's, eased
+(`FUN_00286b80`), from what the room already holds (the hold code, the trigger's countdown, `weaponRaise.ts`), on a play
+flagged 0x40, never the launcher set, its clip the playing type's Fire version (`FIRE_VERSIONS`). The test, RED first,
+holds the port to its own transcription, not to the rig's numbers: a standing body with its rifle raised and held (eased
+weight 1) in the room's `HitPoser`, its posed boxes against the same skeleton posed on `seal_fp_stand` at the same key
+(the page's pose) -- equal to the bit, where today the room's are `seal_stand`'s; a level round at 14 up along the
+body's facing line through the left hand's place in that pose -- today BODY (seal_stand's spinehi stands on that line:
+x -2.7..3.3, y 11.2-16.9), with the layer a `NO_PART` record at the left hand first; the
+same body with its rifle lowered (weight 0) keeping today's boxes to the bit. Whether the original's arm and hand stand
+where the port's Fire stand puts them waits on the rig's hand and forearm box reads. Each other layer (the reloads, the
+binoculars, the throw, the flinch) follows against its own capture.
+
+**FL-1, 2026-11-14: built** (FIRE-LAYER, `docs/plans/2026-11-14-fire-layer.md`, FL.R1-R3; reading, pending review). The
+room's `HitPoser` lays the Fire set as the page lays it on a remote copy, by the page's own code: `play.ts` `rebuild`'s
+layers (`WeaponPose.fireLayer` and `reloadLayer` on the poser's `Animator`, the rifle's item) and its frame's raise
+(`WeaponRaise.frame` on `RaiseFeed.input` with the body's `raised`, the room's `BodyFlag.Raised`; the copy's times
+`RAISE_TIMES`, as a remote copy never calls `setRaiseTimes`), the weight 0 with a rocket launcher in the hand
+(`launcherInHand`, `remotePlayers.ts` `remoteLauncherInHand` transcribed and held equal by the test, as the copy stows its
+rifle) and on the pistol's slot; `HIT_POSE_CLIPS` carries `FIRE_VERSIONS`' clips, so the server's motion does. The
+original's gates: the eased weight is `WeaponRaise`'s (`Envelope.weight`, `FUN_00286b80`); only a play with a Fire
+version blends (`WeaponPose.sampleFire` over `FIRE_VERSIONS`, per node, `FUN_0057a330` D:L438828-438860 -- the 0x40
+flag as the table's membership); the launcher's exclusion (D:L438829) is the page's `play.ts` `frame`, not `WeaponPose`'s,
+and is applied in the poser. The rewind reads the ring's kept pose for the rewound tick (`keep` / `boxesAt`), so the
+raise is that tick's (FL.R2). `room.ts` is unchanged: its `body` already carries `raised`, the slot and the item.
+The raise's times: every body eases on `RAISE_TIMES` (`FUN_005dffc0`), as a remote copy does -- only the own body calls `setRaiseTimes` (`matchFirearm.ts:1288`), with `ZERO_RAISE_TIMES` under a mount or with an item up; how the original's copy times its raise there is unread. `hitPoseFireLayer.test.ts` (unit-test evidence, the fixture disc's MP2, SEAL and
+terrorist): raised and held, the poser's boxes equal the page copy's with the layer to the bit -- A = B with the page's copy to the bit only against a copy at `aimWeight`'s placeholder 1 -- a steadily raised body (`hitPoseFireLayer.test.ts`); the real page passes `aimWeight` = the raise's weight (`play.ts:634`, `:644`), so two differences stand, both `aimWeight`'s, unfed under FL.R3: through the 0.1 s raise and the 0.5 s lower a pitched body's spine twist is whole in the room and scaled by the weight on the page (`animator.ts:1474`), and a lowered body's head look runs on the page at weight 0 (`animator.ts:1450`) and not in the poser; lowered, a launcher in the hand and a play with no Fire version
+keep the boxes without it to the bit; the ring gives the raised pose at t and the kept weight at t + 12. One difference
+against the design above: at 14 up on the facing line through the left hand's middle the first record is the left
+forearm (LARM), not a `NO_PART` record at the hand -- the hand's middle stands about 15 up (14.90 terrorist, 15.02 SEAL),
+and on the same line at that height the first record is the hand's (`NO_PART`); lowered, BODY (spinehi) at 14 as foreseen.
+Not built (FL.R3, `HIT_POSE_LAYERS_READING`): the pistol's Fire versions and plays (and a swap clip, where the copy
+already holds the pistol), the reloads, the binoculars, the throw's hands, the flinch, the victory dance, the launcher
+set's rows, `aimWeight`. Not measured: whether the original's arms stand where the port's Fire stand puts them.
+
 ### 3.6b The bone boxes (BONE-BOXES, 2026-11-10; reading, pending review)
 
 The owner's ruling OT.R119 (2026-11-10: "players are used to the original game ... follow the source"); the main
@@ -1615,7 +1753,10 @@ disc's MP2 `seal_A_scuba` (`match/test/boneBoxes.test.ts` logs all 26): `spinehi
 are the live boxes, the thirteen damage bones and the root's chain's others (feet, toes, hands, scapulas, shoulder
 weights).
 
-**`spinelo`'s band** (SPINELO-FALLBACK, 2026-11-11; a placeholder for an unmeasured outcome,
+**`spinelo`'s band** (SPINELO-FALLBACK, 2026-11-11; **retired 2026-11-12** by SPINELO-EMPTY, the reason "The
+shooting legs on the original" below: a round through the standing scuba SEAL's band takes the arm and no BODY on the
+original, so `boneTable` keeps an all-zero box all zero again and the band box is gone -- this paragraph and the next
+are the record of what stood in the code from v0.4.19; was a placeholder for an unmeasured outcome,
 `SPINELO_BAND_PLACEHOLDER`; the main controller's ruling, 2026-11-11: it ships in v0.4.19 as that). What is proven and
 what is not is "The scuba SEALs' belly band" below: the SEAL's live `spinelo` PERSON polygon keeps `node+0x40` with six
 zero floats (shadow's live node read of the original, PCSX2 r0004, PINE, 2026-11-11 -- near, and on the shooter's
@@ -1639,8 +1780,9 @@ construction: a page body whose parts arrive without boxes (viewer `play.ts` `bo
 `spinehi` (next joint `neck`) a band box too; today the worker sends the boxes, so that case does not arise, but nothing
 guarantees it.
 
-**The band's width** (the main controller, 2f, 2026-11-11: the +-2.0 square cross-section is kept; the shape is his to
-weigh). The band stands between two of the original's own boxes whose cross-sections are that size or larger --
+**The band's width** (retired with the band 2026-11-12, "The shooting legs on the original"; was: the main controller,
+2f, 2026-11-11: the +-2.0 square cross-section is kept; the shape is his to weigh). The band stands between two of the
+original's own boxes whose cross-sections are that size or larger --
 `hips` x -2.003..2.001, `spinehi` x -0.695..3.010 and z about +-2.07, by shadow's live read -- so a +-2.0 band continues
 the boxes around it, corners and all, where a narrower one would leave a waist the original's neighbours do not have.
 Of the two errors open to a placeholder for an unmeasured outcome, a body hit up to 0.8 u outside v0.4.18's round
@@ -1771,7 +1913,180 @@ strict tie, the memory rule, pure), `viewer/test/boneBox.test.ts` (the box's tes
 15 failed, 2 passed of 17 -- the point-blank case and the box list passed there, the old capsule also leaving the
 muzzle's own limb unmet); GREEN at this section's head (the jobs named in the pull request).
 
-**The scuba SEALs' belly band (2026-11-11; the box PROVEN, the shot's outcome reading).** `spinelo` is a BODY bone (`FUN_005abbc0` D:L464740-464766), and its box is its node's nparams bbox (`FUN_0058b960` D:L447559-447593 makes each bone's PERSON polygon through `FUN_0031aec0` (D:L218167-218192), which takes the node's own `+0x40` while `+0x5f` bit 6 (use-parent) is clear, else the parent's through `FUN_00262550` (D:L218184-218187); the loaders copy that bit from the disc (D:L212629, D:L216097) and `FUN_00314100` sets it on every bone only after, D:L419726 then D:L419728 -- so the box is the node's own wherever the disc leaves the bit clear, which the decode shows for every `spinelo` on MP2 and MP6 (flags bit 30 clear; the other maps' bits not printed); the loaders copy nparams verbatim, `FUN_00311520` D:L212622-212629, `FUN_00311880` D:L212689-212700, `FUN_00317060` D:L215970-215983; no recompute runs on the person's path). Where that box is all zero, the standing body has no trunk box between `hips`' top (about y 11.9) and `spinehi`'s bottom (about 13.1): a level round there meets an arm, or a no-damage record, and no BODY. **Proven by shadow's live node read of the original** (PCSX2, r0004, PINE, 2026-11-11; the gate-runner `shadow/out/2026-11-11/` evidence): the SEAL (`seal_A_scuba`) body's spinelo PERSON polygon keeps `node+0x40` with six zero floats -- its own body near, and the same node and polygon on the shooter's console for a remote SEAL at 59 u and at 300 u (no LOD swap for the hit test, though `seal_A_scuba_1`/`_2` carry real spinelo boxes); the terrorist (`al_gman01`) body's is a real box, `[-0.912, 0.000, -2.153, 2.122, 2.422, 2.157]`, equal to the port's decode of its nparams (so the live box is the disc's, on both sides). The room and the page test each body on its own model's boxes (`room.ts` `volumesOf`, `hitBodyOf`; viewer `teamBody.ts`), pinned by `match/test/perModelBoxes.test.ts` (al_gman01's box against the live read; seal_A_scuba's zero; RED when `volumesOf` hands every body the SEAL's). **Which models (the port's decode, reading; jobs belly-2 and belly-3 at agent/v0419 558e6d47f, every multiplayer map on the disc, 22 maps, the room's own stand-idle volumes, level rays through the axis at the bots' torso height, front, side and behind):** no BODY at that height ONLY on the scuba SEALs -- MP2's `seal_A_scuba`, `seal_E_scuba`, `seal_D_scuba` (spinelo box zero) and `seal_C_scuba` (a thin one), and MP81's `seal_A_scuba` and `seal_E_scuba`; every other SEAL (arctic, jungle, desert, woodland, tiger-jungle, `SAS_01`, `Spetsnaz`, `rus_specialist`, `seal_Marcela`) and every terrorist model (the `al_`, `alg_`, `afg_`, `alban_`, `braz_`, `con_`, `rus_`, `thai_` sets) is struck in the BODY there. **Not measured:** whether a round through the band takes trunk health on the original (the same-team shooting leg, a scuba SEAL the target and a terrorist the control), and whether the original's box test can strike a zero-extent box at all (the test itself is not in the decompilation). Until those legs are run, this head's `SPINELO_BAND_PLACEHOLDER` ("`spinelo`'s band" above) covers the band with a BODY box: a placeholder for the unmeasured outcome, not a reading that the original strikes the trunk there; the band itself, as the disc and the live node have it, has no trunk box.
+**The scuba SEALs' belly band (2026-11-11; the box PROVEN, the shot's outcome reading).** `spinelo` is a BODY bone (`FUN_005abbc0` D:L464740-464766), and its box is its node's nparams bbox (`FUN_0058b960` D:L447559-447593 makes each bone's PERSON polygon through `FUN_0031aec0` (D:L218167-218192), which takes the node's own `+0x40` while `+0x5f` bit 6 (use-parent) is clear, else the parent's through `FUN_00262550` (D:L218184-218187); the loaders copy that bit from the disc (D:L212629, D:L216097) and `FUN_00314100` sets it on every bone only after, D:L419726 then D:L419728 -- so the box is the node's own wherever the disc leaves the bit clear, which the decode shows for every `spinelo` on MP2 and MP6 (flags bit 30 clear; the other maps' bits not printed); the loaders copy nparams verbatim, `FUN_00311520` D:L212622-212629, `FUN_00311880` D:L212689-212700, `FUN_00317060` D:L215970-215983; no recompute runs on the person's path). Where that box is all zero, the standing body has no trunk box between `hips`' top (about y 11.9) and `spinehi`'s bottom (about 13.1): a level round there meets an arm, or a no-damage record, and no BODY. **Proven by shadow's live node read of the original** (PCSX2, r0004, PINE, 2026-11-11; the gate-runner `shadow/out/2026-11-11/` evidence): the SEAL (`seal_A_scuba`) body's spinelo PERSON polygon keeps `node+0x40` with six zero floats -- its own body near, and the same node and polygon on the shooter's console for a remote SEAL at 59 u and at 300 u (no LOD swap for the hit test, though `seal_A_scuba_1`/`_2` carry real spinelo boxes); the terrorist (`al_gman01`) body's is a real box, `[-0.912, 0.000, -2.153, 2.122, 2.422, 2.157]`, equal to the port's decode of its nparams (so the live box is the disc's, on both sides). The room and the page test each body on its own model's boxes (`room.ts` `volumesOf`, `hitBodyOf`; viewer `teamBody.ts`), pinned by `match/test/perModelBoxes.test.ts` (al_gman01's box against the live read; seal_A_scuba's zero; RED when `volumesOf` hands every body the SEAL's). **Which models (the port's decode, reading; jobs belly-2 and belly-3 at agent/v0419 558e6d47f, every multiplayer map on the disc, 22 maps, the room's own stand-idle volumes, level rays through the axis at the bots' torso height, front, side and behind):** no BODY at that height ONLY on the scuba SEALs -- MP2's `seal_A_scuba`, `seal_E_scuba`, `seal_D_scuba` (spinelo box zero) and `seal_C_scuba` (a thin one), and MP81's `seal_A_scuba` and `seal_E_scuba`; every other SEAL (arctic, jungle, desert, woodland, tiger-jungle, `SAS_01`, `Spetsnaz`, `rus_specialist`, `seal_Marcela`) and every terrorist model (the `al_`, `alg_`, `afg_`, `alban_`, `braz_`, `con_`, `rus_`, `thai_` sets) is struck in the BODY there. **Not measured** (on 2026-11-11; measured 2026-11-12, "The shooting legs on the original" below): whether a round through the band takes trunk health on the original (the same-team shooting leg, a scuba SEAL the target and a terrorist the control), and whether the original's box test can strike a zero-extent box at all (the test itself is not in the decompilation). Until those legs are run, this head's `SPINELO_BAND_PLACEHOLDER` ("`spinelo`'s band" above) covers the band with a BODY box: a placeholder for the unmeasured outcome, not a reading that the original strikes the trunk there; the band itself, as the disc and the live node have it, has no trunk box.
+(The legs ran 2026-11-12 and the placeholder is retired: "The shooting legs on the original" and "The port's replay"
+below.)
+
+**The shooting legs on the original (2026-11-12; the outcome measured, the port's replay owed).** The shadow seat's
+BELLY runs, relayed by seats 65 and cc: r0004, two PCSX2 consoles on our local Horizon, MP2, the shooter and the target
+at a known spot (the shooter at (838.02, 100, 613.36), the target 38.7-41.2 u along +x, standing at its idle, lateral
+within 0.18 of the axis), set-up writes only with read-backs -- positions, yaws, the zoom -- never a health or armour
+write, one round on a fresh round. `hB` is the crosshair's hit point (`A+0x3c0`) less the target's root y, the hit
+point's height on the target; the round is fired zoomed (first person), the shooter's eye read from the r0004 camera
+struct (`*(0x004429b0)+0x2c`, its target `+0x38`). Records on the Shadow PC (`D:/s2u/evidence/limb-trunk/capture/`:
+`limb-2026-11-12T075948439Z` .. `T082618235Z.csv`, `T103513374Z.csv`, `T122319997Z.csv`, `writes.log` with its
+read-backs, `view-*.png` from the shooter's view), not yet uploaded (the session's login expired at 08:27Z). Parts
+struck, from the moved healths and armours (each struck part -14.5 / -4.4 from the terrorist's rifle, -18.5 / -4.4 from
+the SEAL's; the rest of a body hit is the limbs' cap); "line logged" rows carry the eye, the camera's target and the hit
+point:
+
+| target | facing | hB | parts struck | n | line logged |
+|---|---|---|---|---|---|
+| scuba SEAL (MP2's) | front | 11.94, 12.02, 12.06, 12.15, 12.15, 12.31, 12.37 | **LARM only, no BODY** | 7 | 4 of 7 (12.02, 12.06, 12.31, 12.37) |
+| scuba SEAL | front | 12.65, 12.73, 12.73, 12.88 | LARM, BODY | 4 | no |
+| scuba SEAL, C0a (unplaced: its spawn position, its yaw written only) | front | 12.63 | LARM, BODY | 1 | yes |
+| scuba SEAL | right flank to the shooter | 12.11 | **RARM only, no BODY** | 1 | yes |
+| scuba SEAL | right flank to the shooter | 12.84, 12.88 | RARM, BODY | 2 | no |
+| scuba SEAL | left flank to the shooter | 13.10 | BODY | 1 | no |
+| scuba SEAL | front | 13.94; 10.92 | BODY; BODY (the hips) | 1 + 1 | no |
+| scuba SEAL, F1 (unplaced) | front | not read (12.4-12.5 on the pitch line, which runs 0.4-0.8 above `hB`) | BODY, no arm | 1 | no |
+| terrorist (the control) | front | 12.06, 12.12, 12.28 | LARM, BODY | 3 | yes |
+| terrorist | front | 12.29, 12.37, 12.41 | LARM, BODY | 3 | no |
+
+**What it shows.** At the same heights from the front -- 11.94-12.37 on the scuba SEAL, 12.06-12.28 on the terrorist --
+the round met the left arm on both, and only the terrorist's trunk behind it: a limb record does not remember the round
+(research 398), so on the scuba SEAL that line went through the trunk where no trunk box stands, and on the terrorist it
+met one. The control discriminates (same placement, the same shooter's eye, (840.519, 109.904, 613.28) on both, the same
+arm in the line), so the gap is the scuba SEAL's own and not the rig's; from the side the near arm alone takes the round
+at 12.11 too. That is the band "as the disc and the live node have it" above -- `spinelo`'s box empty -- and not
+`SPINELO_BAND_PLACEHOLDER`'s, which strikes BODY across the whole band; no round anywhere struck nothing. From the front
+the gap's top edge lies between `hB` 12.37 and 12.63 (C0a, the pad-placed round of research 398 s8.1 -- B never placed,
+its line logged -- struck LARM and BODY at 12.63; before it, 12.65), below the axis figure's 13.1, and from the side
+BODY is struck at 12.84-12.88 on the right flank and 13.10 on the left (`spinehi`'s box sits in its tilted bone's frame,
+so its lower edge lies below its 13.1 at the axis -- the port's replay is to show it); 12.4-12.6 is not shot. F1, the
+first run's round before the void fix, is the one row that does not fit: BODY with no arm. Its height was the pitch
+line's, not `hB`, and its line was not logged, so it is unplaced -- at an `hB` of 11.9 or below it would be the hips'
+box, which these rows do not contradict -- and it is not counted. Measured on the original (set-up capture): which parts
+each round struck, at these hit points. **Not yet** (when this was written; done 2026-11-12, "The port's replay" below):
+the port's replay of the logged lines with `spinelo`'s box empty, row for row (each line from the eye through the
+camera's target; e.g. TC1 (840.519, 109.904, 613.281) -> hit (872.127, 112.056, 612.275), a line rising about 2.2 over
+31.6 u). The terrorist's model is not read (its screenshot shows black cap, goggles, a black jacket with red trim, grey
+urban camouflage); every terrorist model's `spinelo` box is real (the decode above), so the control stands whichever it
+is.
+
+**The verdict** (seat f7, the hit-registration lane, under the delegation; the main controller accepted it 2026-11-12):
+the original leaves the band, so `SPINELO_BAND_PLACEHOLDER` goes and `spinelo`'s box is empty again, as "`spinelo`'s
+band" above provides -- with `agent/scuba-band`'s bot aim (21fca6b9f8) -- for v0.4.21 (task SPINELO-EMPTY), once the
+port replays the logged lines and matches every row above, and after the owner's read of H446. Until that lands the
+placeholder stands in the code and the ledger, now a placeholder the original is measured against. Built 2026-11-12 on
+`agent/spinelo-empty` (SPINELO-EMPTY, seat f7; reading, pending review): `SPINELO_BAND_PLACEHOLDER` and its band box are
+gone from `boneTable` (viewer `net/hitVolumes.ts`), an all-zero box stays empty (`entry`), the body's cull bounds are
+the disc boxes' own (viewer `test/spineloBand.test.ts`), and the replay below matches every logged front line at every
+phase and OS12, the logged flank line, at most phases; where it does not, and every unlogged row it does not match at
+every phase, is "The port's replay".
+
+**The port's replay** (2026-11-12, SPINELO-EMPTY; unit-test evidence on fixture data compared with the capture's rows,
+match `test/bellyBandReplay.test.ts`, seat box job spe-2 at 545638ab80). Each row's line is built in the target's body
+frame: the direction normalize(target - eye) of its logged line (the rows without one take O119a's from the front and
+the left, OS12's from the right), through the point where it first meets the target's boxes at the row's `hB` and its
+lateral offset `lat` across the line (the logged one, both signs, its sign not logged; 0 where not logged), solved on
+the port's own boxes, started 60 u in front; the target at its standing idle sampled at 24 phases across the clip (the
+original's phase at the shot is not logged), on the room's own hit body (`Room.hitBodyOf`), `posedBoxes`,
+`rayRecords` and the room's walk (`bodyWalk.ts` `walkOrder`, `bodyApplications`: research 398's rule), consecutive
+repeats of one part taken as one. The three zero-box scuba SEALs (`seal_A_scuba`, `seal_E_scuba`, `seal_D_scuba`) give
+the same results:
+
+| row (facing, `hB`) | the original | the port: phases that match (of 24), by `lat` sign | the port where it differs |
+|---|---|---|---|
+| O119b, O119a, O1235, O1225 (front, 12.02-12.37, logged) | LARM only | all 24, both signs | -- |
+| OS12 (right flank, 12.11, logged) | RARM only | + 11-22; - 0-2, 8-23 | RARM then the far LARM (lbicep): + 0-10, 23; - 3-7 |
+| F12.65 (front, not logged) | LARM, BODY | none | LARM only |
+| F12.73 (front, not logged) | LARM, BODY | 0-1, 9-23 | LARM only at 2-8 |
+| F12.88 (front, not logged) | LARM, BODY | all 24 | -- |
+| R12.84 (right flank, not logged) | RARM, BODY | 0-2, 22-23 | RARM then LARM at 3-11; RARM only at 12-21 |
+| R12.88 (right flank, not logged) | RARM, BODY | 0-11, 17-23 | RARM only at 12-16 |
+| L13.10 (left flank, not logged) | BODY | 0-1, 9-23 | LARM (lbicep) then BODY at 2-8 |
+| F13.94 (front, not logged) | BODY | all 24 (`spinehi`) | -- |
+| F10.92 (front, not logged) | BODY (the hips) | all 24 (`hips`) | -- |
+
+The control: `al_gman01` matches TC1, TC2 and TC3 (LARM then BODY) at all 24 phases for both signs, and so do
+`al_gman02` and `al_leader`; `al_captain` (its `spinelo` box a thin sliver, [-0.613, 2.445, 0.275, -0.610, 2.515,
+0.989]) gives BODY (`spinehi`) with no arm at nearly every phase (TC2 with `lat` negative at phases 14-15 only), so the
+port matches the control on three of MP2's four terrorist models and not on `al_captain`. `seal_C_scuba` (a thin
+`spinelo` box, reported, not asserted) matches the four front lines only for `lat` negative, and gives nothing at most
+phases for `lat` positive. So every logged front line is matched at every phase (OS12, the logged flank line, at most
+phases, for either sign: its five phases 3-7 match neither), and the port with `spinelo` empty leaves the band as the
+original does. What still disagrees, recorded and not tuned (pinned in the test's `KNOWN_DISAGREEMENTS`): from the front
+the port's trunk edge on that line lies between 12.65 and 12.88, phase-dependent, above the original's (between 12.37
+and 12.63: C0a struck BODY at 12.63, F12.65 at 12.65) -- though on C0a's own logged line the port strikes `lforearm`
+then `spinehi`, LARM then BODY, at every phase (research 398 s8.1, match `test/limbTrunkShot2Replay.test.ts`), so its
+higher edge shows on the unlogged lines; from the right flank the port's line at 12.84-12.88 misses `spinehi` at some
+phases and at others crosses the empty band to the far arm. Those rows' lines were not logged (their direction and `lat`
+are the neighbours'), so they are the weaker comparisons; a logged line at 12.4-12.9 from the front and the side, with
+the idle's phase read beside it, settles them.
+
+### 3.6c The Fire version per node, at its node's phase (FIRE-LAYER FL-0 and FL-0b, 2026-11-14; reading, pending review)
+
+Written 2026-11-14T02:48Z on `agent/fire-layer-0` (base `agent/fire-layer` f092749317). Seat 8a's findings 16 (the
+raised diagonal's hips) and 18 (the raised turn in place's jitter); the original's rows are AH-4's (b0's box run of the
+move harness at 67da2ffeb, `agent-mail/evidence/diag-slide/ah4-67da2ffeb/keep/out/q16/`).
+
+**Read (r0001).** `FUN_0057a330`, for a play flagged 0x40 (D:L438775-438868), chains on each node first its hand
+variant at weight 1.0 (`FUN_0058c9e0` with the hand byte, D:L438802-438826) and then, when the eased raise
+(`FUN_00286b80(actor+0x458)`, D:L438828) is over 0 and the launcher set is not on (D:L438829), its type's Fire version
+(`FUN_0058c820` -> `FUN_0058c970`, D:L438833-438835) at that weight. `FUN_0028bdd0` (D:L133955-133964) does no
+arithmetic: it hangs the sub-node on the node's `+0x10`, sets its weight `+0x8` and copies the node's `+0x18` and
+`+0x24`. The blend is `FUN_00577ea0` (D:L437436-437455): each node sampled (`FUN_005777d0`), then each sub-node on its
+chain sampled and folded into it by `FUN_00576bb0(weight)`, and only then the nodes merged (`FUN_00577000`). The fold,
+part by part (D:L436709-436783): only the parts the sub-node carries; at 0.999 or more the sub-node's turn and place,
+over 0.001 the engine's slerp of the turn and a lerp of the place, at 0.001 or less the node's own. The place is folded
+only where either slot's `+0x0e` is 0 (D:L436732-436733); that the set is the parts the port's `clipTranslation` takes
+from the clip (`SAMPLED_TRANSLATIONS` and the props) is the port's existing reading of `FUN_005777d0`, not re-read in
+this range. A part the node lacks (corrected 2026-11-14 at FL-0's review, F1; the first writing said it takes the
+sub-node's turn at any weight, from D:L436756-436763): the fold's first loop writes the node slot's bone index from the
+sub-node's for every part the sub-node carries, inside its condition and before the `+0x0e` test (D:L436732), so the
+second loop's "node lacks it" copy (D:L436756-436763) never runs. Such a part follows the ordinary rule from whatever
+its slot held before (`FUN_005777d0` marks it `+0x0c` -1 and `+0x0e` 1 and writes no turn): copied at 0.999 or more,
+slerped from that leftover between, the leftover kept at 0.001 or less; it counts as present in the merge either way.
+The clock: `FUN_0028c380` (D:L134196-134219) gives each node the play's phase plus its offset and every sub-node on its
+chain the same phase (D:L134213-134216); `FUN_0028d670` (D:L134881-134903) samples each at that phase times its own key
+count; the actor update calls it on every branch (D:L438875, D:L438891, D:L438909). The play's rate (`FUN_0028c4f0`
+D:L134242-134254) and its root travel (`FUN_0028c250` D:L134164-134176) walk the top nodes only: a sub-node moves
+neither.
+
+**What the port did.** `weaponPose.ts` `sampleFire` merged the nodes' Fire versions among themselves and laid them as
+one layer over the merged body at the raise weight times their nodes' share, after the merge -- which halves the lateral
+clip's share with the rifle raised (AH-4 `st-full45`, hips minus the actor's yaw: the original -54.7 (-59.2..-50.8),
+the port -31.0; `st-half45` -45.7 against -28.8); and it ran a still Fire clip (`seal_fp_stand`, `seal_fp_step`,
+`seal_fp_crouch_step`: `max_velocity` under 0 in motion.rdr) on its own clock at its own `playback` -- `seal_fp_step` at
+its full rate under a turn crawling at about 0.08 cycles a second (AH-4 `stand-turnL`, table (iii) medians: hips 31.5
+degrees a second against the original's 6.3, the feet 104 / 89 against 6.6 / 3.7; `crouch-turnL` hips 132 against 7.7).
+
+**What is built.** `PoseLayer.nodes` (`animator.ts`): a layer's sub-node per weighted play node, which the animator
+folds into its node (`foldSub`, `FUN_00576bb0`'s rules above) before the merge (`addNode`); `WeaponPose.fireLayer` lays
+its Fire versions that way and nothing over the merged body, each at its node's phase (`PHASE_SHARED`, now every Fire
+version's); the Fire clock is gone -- nothing in the original clocks the Fire version separately. A node with no Fire
+version (the strafes, the 90-degree runs) keeps its whole share. Still and raised the body stands in `seal_fp_stand`
+(hips -60.14), now at `seal_stand`'s phase rather than a clock of its own. The room's `HitPoser` takes it through the
+shared `WeaponPose.fireLayer` (FL-1). The hand variant's place in the chain is the pistol's (`pistolOf`, laid before
+the Fire fold, as the chain orders them). Not reproduced: a part the sub-node carries and its node lacks -- the port takes
+the sub-node's part whole, not the slot's leftover (`FIRE_SUB_MISSING_BONE_READING`, `'whole'`, §6). Measured on the
+disc (b0's box run of `fireSubNode.disc.test.ts`, fl0 at 5b99c2d3ce; corrected 2026-11-14 -- the first writing expected
+no such part): every one of the 46 `FIRE_VERSIONS` and `PISTOL_FIRE_VERSIONS` pairs is in MOTION_P.ZAR, and 39 of them
+have Fire clips with parts their node clips lack -- only two names, `pistol` and `do_not_use` (the held item's `weapon`
+read as `rifle`). What it changes: `do_not_use` (a prop track, research 77 §4) is no node of the play skeleton (the
+body's 26 parts and the two held items, `heldItem.ts` `heldSkeleton`), so neither the fold nor the pose meets it.
+`pistol` is the sidearm's held node: with the rifle in hand (`seal_fp_step` is the one rifle Fire clip carrying it) the
+node is posed by its mount (holster or spawn), not its track, and is no hit box (`BONE_BOX_GEAR_READING`); with the
+pistol drawn the node's clip is first the pistol's version (`PISTOL_ANIMS`, laid as the chain's hand variant at 1.0 is,
+D:L438802-438826), which carries `pistol` (the test holds it), so the fold is the ordinary one -- except under a base clip
+`PISTOL_ANIMS` gives no pistol version (the alert idles, `seal_walk`, `seal_walk_alert02`, `seal_jog`,
+`seal_alert_step`, `seal_crouch_alert01`/`02`, `seal_crouchwalk_bw`), where the Fire version's `pistol` is taken whole.
+At a weight of 0.999 or more the original copies it too, so the two differ only on that node, only while the raise
+eases. (Whether the original's hand variant, picked by anim type through `FUN_0058c9e0`, covers those base clips --
+which would make `PISTOL_ANIMS`'s gap the port's own, outside FL-0 -- is not read here.)
+
+**Tests.** `viewer/test/fireSubNode.disc.test.ts` (fixtures, else `SOCOM_DISC`): FL-0's hips at 45 degrees raised,
+full and half stick, against AH-4's original (`st-full45` -54.7, its range's swing 8.4; `st-half45` -45.7); the Fire
+clips' parts beyond their node clips' only `pistol` and `do_not_use` (the reading above); the lowered run's -49.8, the
+raised still -60.14 and a lowered crouch walk equal to the bare animator as guards; FL-0b's raised turns in place under 2
+x the original's + 5 degrees a second (the nodes' turns read in the actor's frame, not the world's). The move harness's
+two gaps (`moveParity.disc.test.ts`, findings 16 and 18) are plain tests since; finding 18's asserts the hips on every
+raised turn and the feet on the crouched ones, the standing turns' feet printed and owed to AH-5.2 (b0's box run at
+5b99c2d3ce: stand-turnL rfoot 16.2 over its 12.4 bound, stand-tapZ lfoot 19.6 over 17.1, stand-turnR within; the
+port's turn clip at about half the original's phase rate, table (vi), inferred the cause). b0's box run at 5b99c2d3ce
+(unit-test and dev-disc evidence, no capture of the port): full45 -54.61 (swing 8.70), half45 -44.20, raised still
+-60.14; the raised turns' hips 5.2 standing (original 6.3) and 5.6 crouched (7.7), the crouched feet 4.9 / 4.3.
 
 ## 4. The bodies (PF-21)
 
@@ -1954,8 +2269,9 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `CORPSE_TILT_READING` (`rootTilt.ts`) | `'by-span'`: a dead body runs the rule on its top play's window (the walker's `dead`); in the air its top is the dead's posture word 8 (0.8 / 0.99) | `FUN_00548090` D:L413207-413214; `FUN_005807d0` D:L442094-442102; `FUN_005a2490` D:L459804; `FUN_0059b440` D:L456563-456565 (§7.9) | a reading, pending review: `FUN_00550ef0` skips the pass and the rule for an actor in state 8 (D:L418070, D:L418112-418114, D:L418460; `FUN_005506a0` D:L417822) and where `+0x174` becomes 8 for the dead is not read; the page's death poses are not the walker's top and stay level (not built); `'level'` the alternative; settled by a PCSX2 read of the root and `+0x174` on a SEAL killed on M51's incline |
 | `HOSTAGE_PRONE_TILT_READING` (`remotePlayers.ts`) | `'unprone'`: a knocked hostage's tilt takes no prone ease on the page, as the room's `HostageFollow` walker (never prone) | `FUN_0058a4d0` D:L442089; `FUN_005807d0` D:L442094-442102; research 189 #13 (§7.10) | a reading, pending review (PRONE-TILT-2 review F1): whether the hostage's AI controller answers vtable +0x34 (`CRemoteCtrl::IsRemote`, research 193 §9) false where the room runs it, and whether `+0x174` follows the stack's top word, are not read; `'ai-stance'` the alternative (the AI's stance as the posture), not built for the room; settled by a PCSX2 read of a get-down hostage through a blast on a slope |
 | `TILT_HIT_TEST_READING` (`rootTilt.ts`) | `'posed'`: the room's capsules (and the page's copies of them) turn with the root's tilt about the posed root | `FUN_005abbc0` hits the skeleton's nodes (research 91 §1.3); whether after this rule's write is not read (§7.4) | a reading, pending review: `'level'` the alternative; settled by a capture of a shot along a prone body on a slope |
-| `WALL_HEAD_LINE_READING` (`mover.ts`) | `'posed'` (2026-11-06, the crouch-run head line): moving on the ground the line at the posed head + 2 of the clip the ground state plays (`POSED_HEAD_READING`); at rest, in the air and under a one-shot the stance's idle head + 2 (19.394, 12.138, 5.637); `'idle'` (the idle head for every state) the switch's other arm, as before | D:L415441-415459 (§2.2); `FUN_00584c60` (the crouch run plays the standing blend) | a reading, pending review: the cycle's phase and the blend's cross-fade are not followed (§2.3); MP72's warehouse doorway (a crouch run stopped under the 18.23 lintel) and the canopy band below now pass the run (dev-disc, `crouchRunHeadLineDisc.test.ts`); a partial push (0.84-0.9) still stops at the doorway (§2.3); the crouch-walk and crawl lines rose (15.0-15.3, 7.0) and only MP72's two spots were measured -- LATER 723, a dev-disc sweep of every map for wall faces whose underside sits in those bands over a walkable floor; owed a capture, a SEAL walked, run and crouch-run under a lintel. Before 2026-11-06 the idle head for every state. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 -- and since 2026-11-06 does (§2.3) |
+| `WALL_HEAD_LINE_READING` (`mover.ts`) | `'posed'` (2026-11-06, the crouch-run head line): moving on the ground the line at the posed head + 2 of the clip the ground state plays (`POSED_HEAD_READING`); at rest and under a one-shot on the ground the stance's idle head + 2 (19.394, 12.138, 5.637); in the air (since 2026-11-13, AIR-HEAD-LINE), standing, the launch's or the fall's posed head + 2 at the clip's key (`AIR_POSED_HEAD_READING`), a crouched or prone body in the air and a blast's fall the idle head; `'idle'` (the idle head for every state) the switch's other arm, as before | D:L415441-415459 (§2.2); D:L415437-415446 and the airborne segments D:L415157-415166, D:L415401-415410 (§2.2, §2.10); `FUN_00584c60` (the crouch run plays the standing blend) | a reading, pending review: in the air (2026-11-13) a running jump passes MP6's SEAL-building window (`mp6_window_wide`, (1234.5, 1768)) from one take-off tick, 43.2 out, where the idle head passed none (dev-disc, `airHeadLineDisc.test.ts`; §2.2; the port's own arithmetic, not the original running; LATER 994 the head segment's look-ahead); crouched and prone in the air the idle head, as unread (whether the original plays the standing in-air clips for those stances); a known deviation, older than 2026-11-13: the standing jump plays on the floor and the port keeps the idle head under it, where `FUN_0054aa30` reads any body's posed head (about 24.19 at its peak); the cycle's phase and the blend's cross-fade are not followed (§2.3); MP72's warehouse doorway (a crouch run stopped under the 18.23 lintel) and the canopy band below now pass the run (dev-disc, `crouchRunHeadLineDisc.test.ts`); a partial push (0.84-0.9) still stops at the doorway (§2.3); the crouch-walk and crawl lines rose (15.0-15.3, 7.0) and only MP72's two spots were measured -- LATER 723, a dev-disc sweep of every map for wall faces whose underside sits in those bands over a walkable floor; owed a capture, a SEAL walked, run and crouch-run under a lintel. Before 2026-11-06 the idle head for every state. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 -- and since 2026-11-06 does (§2.3) |
 | `POSED_HEAD_READING` (`mover.ts`) | the head node's greatest height over a held cycle: standing by the stick's class and length (0.1 to 1.0; forward the walk 16.705 to the run's 15.761), crouch-walking by class 12.990-13.274 (forward 13.122), crawling 4.996 | the port's `Animator` over `MOTION_P.ZAR` / `READERC.ZAR` on `seal_A_scuba` (§2.3), re-measured by `crouchRunHeadLineDisc.test.ts` | a reading, pending review: measured on the port's animator, not the original's; the 0.1 samples and the greater of two stand for the sticks between; owed with `WALL_HEAD_LINE_READING`'s capture |
+| `AIR_POSED_HEAD_READING` (`mover.ts`) | the head node's height over the feet at each key of the airborne clips: `seal_runningjump_launch` (the action `launch`; 25 keys, playback 2.4) 15.947 to 16.950, `seal_runningjump_in_air` (`fall`; 14 keys, playback 5) 14.567 to 16.328; the line takes the key at the action's clock, the greater of the two about it (`airPosedHead`); standing only -- a crouched or prone body in the air keeps its idle head | the port's `Animator` over `MOTION_P.ZAR` / `READERC.ZAR` on `seal_A_scuba`, each key held through the traversal seam (§2.2), re-measured by `airHeadLineDisc.test.ts`; the line `FUN_0054aa30` D:L415437-415446 | a reading, pending review (AIR-HEAD-LINE, 2026-11-13): measured on the port's animator, not the original's; the cross-fades into the clips are not followed (the fall's first 0.75 s under the launch's last pose by up to 0.5); whether the original plays these standing clips for a crouched or prone body in the air is unread (the review's F1); owed with `WALL_HEAD_LINE_READING`'s capture, a SEAL jumped through MP6's SEAL-building window |
 | `WALL_PROBE_ACTIONS_READING` | the actions that set `bVar5` standing or crouched (heights 9.55 / 7.5) | D:L415088-415111 (§2.1) | *note only*: none of 0x1a / 0x1b / `DAT_003dec58` / `DAT_003decc0..d0` is a port action yet; owed a read |
 | `WALL_DEEP_REVERT_READING` | when the deepest contact is over 1.0 and `bVar6 || 2 < iVar25`, the displacement is zeroed (the body where the tick began); otherwise `depth - 1` along the deepest normal | `FUN_005483d0` D:L413406-413614, saved D:L413959-413962 (§2.3, §2.8) | resolved 2026-11-02 (SEGMENT-BODY, §2.9): built on the original's segments (`SEGMENT_BODY_READING` `depth`, `jamHits`); was *note only* on the disc, where it stuck MP72's emb01 step-down and froze a body placed deep (§2.3) |
 | `CROUCH_TOP_READING` (`mover.ts`) | was 14 | §2 | retired 2026-10-05 (PF-16): no column; `WALL_PROBE_READING` and the head line |
@@ -1970,11 +2286,12 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `BULLET_BOUNCE_HANDOFF_READING` (`match/src/bodyWalk.ts`) | `'never'`: every firearm's body record goes through the range cut and the handler | `FUN_003c8920` D:L319439-319471, `FUN_003d2030` D:L324588-324593 (§3.6b; research 398 s13.2) | a reading, pending review: owed `+0x68` read off every firearm record of `ZWEAPON.ZAR`, and `FUN_003c8f50` read for a PERSON record |
 | `IMPACT_NO_PART_READING` (`match/src/room.ts`) | `'nothing'`: a launched round's first record on a no-damage bone gives no direct hit (it still goes off there) | `FUN_003c8920` D:L319477-319485, `FUN_005ab850` D:L464600-464620 -> `FUN_005ac070` (§3.6b; research 398 s13.1) | a reading, pending review: owed `FUN_005ac070` read for a record whose node is none of the thirteen |
 | `BODY_ONE_SURFACE_READING` (`room.ts`, retired 2026-11-10) | was `'per body'`: one PERSON surface a body at its nearest capsule, the range cut once, a body damaged once a round | research 398; §3.6b | retired by BONE-BOXES: a record a bone box, research 398's memory rule |
-| `SPINELO_BAND_PLACEHOLDER` (`net/hitVolumes.ts`) | 2.0: an all-zero disc box of a BODY bone with a next joint (the SEAL's `spinelo`) is a band box in the bone's frame, its joint to `spinehi`'s bind translation along the larger axis, the segment +-2.0 across (v0.4.18's spinelo capsule), BODY; every other box the disc's | `FUN_005abbc0` D:L464740-464766 (BODY), `FUN_0031aec0` D:L218167-218192 (the node's `+0x40` box), `FUN_0058b960` D:L447559-447593; shadow's live node read, 2026-11-11 (§3.6b, "`spinelo`'s band", "The scuba SEALs' belly band") | placeholder for an unmeasured outcome (the main controller's ruling, 2026-11-11): the box is PROVEN empty live -- `FUN_0031aec0` D:L218167-218192 takes `node+0x40` unless `node+0x5f` bit 6 is set, in which case the box is `FUN_00262550(*(node+100))`, the parent's; shadow's live read (2026-11-11) found the SEAL's polygon at `node+0x40` itself, six zeros, near and for a remote SEAL at 59 u and 300 u -- and whether a round there takes trunk health is NOT measured; owed: a rifle-round shooting leg with recorded aim points, near and far, a scuba SEAL the target and a terrorist the control (it settles the band and its +-2.0 width); if the original leaves the band, `spinelo`'s box is empty again |
+| `SPINELO_BAND_PLACEHOLDER` (`net/hitVolumes.ts`, retired 2026-11-12) | was 2.0: an all-zero disc box of a BODY bone with a next joint (the SEAL's `spinelo`) is a band box in the bone's frame, its joint to `spinehi`'s bind translation along the larger axis, the segment +-2.0 across (v0.4.18's spinelo capsule), BODY; every other box the disc's | `FUN_005abbc0` D:L464740-464766 (BODY), `FUN_0031aec0` D:L218167-218192 (the node's `+0x40` box), `FUN_0058b960` D:L447559-447593; shadow's live node read, 2026-11-11 (§3.6b, "`spinelo`'s band", "The scuba SEALs' belly band") | placeholder, the outcome measured against it (2026-11-12; the main controller's ruling of 2026-11-11 made it a placeholder for the then unmeasured outcome): the box is PROVEN empty live -- `FUN_0031aec0` D:L218167-218192 takes `node+0x40` unless `node+0x5f` bit 6 is set, in which case the box is `FUN_00262550(*(node+100))`, the parent's; shadow's live read (2026-11-11) found the SEAL's polygon at `node+0x40` itself, six zeros, near and for a remote SEAL at 59 u and 300 u -- and whether a round there takes trunk health was not measured until 2026-11-12; owed: a rifle-round shooting leg with recorded aim points, near and far, a scuba SEAL the target and a terrorist the control (it settles the band and its +-2.0 width); if the original leaves the band, `spinelo`'s box is empty again. **Measured 2026-11-12: the original leaves it** (the scuba SEAL from the front at hB 11.94-12.37 and the side at 12.11: the arm only, no BODY; the terrorist at 12.06-12.28: the arm and BODY; "The shooting legs on the original"); retired 2026-11-12 by SPINELO-EMPTY ("The shooting legs on the original", "The port's replay"): `spinelo`'s box empty again, nothing enters it, and the replay matches every logged front line (OS12, the flank's, at most phases) |
 | `SPINELO_RADIUS_PLACEHOLDER` (`net/hitVolumes.ts`, retired 2026-11-10) | was 2.0: `spinelo`'s capsule radius, its bbox empty | §3.6b | retired by BONE-BOXES: the volume is the bone's box, `spinelo`'s an empty one nothing enters |
 | `HIT_POSE_CLOCK_READING` (`net/hitPose.ts`) | `'tick'`: the room's animator steps once a room tick by `1 / TICK_HZ` on that tick's snapshot of the body; a shooter's page steps its copy each drawn frame on snapshots at `SNAPSHOT_HZ`, `INTERP_DELAY_MS` behind, its copy built at its first snapshot -- nothing aligns the two loops' phases | `FUN_005abbc0` D:L464672-464803 meets the shooter console's own copy (its phase that console's); one judge here (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): settles with a capture of the drawn body's phase on two consoles at once, or the room's phase sent to the pages (a wire change, not made) |
 | `HIT_POSE_RANDOM_READING` (`net/hitPose.ts`) | `0`: every random number the room's animator draws (the crouch's three idles, the first at 0; the head look's turns); a page's copy draws `Math.random` | each console's copy draws its own; nothing on the wire aligns them (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): a still crouched body's idle and a looking head can differ between the room and a page |
-| `HIT_POSE_LAYERS_READING` (`net/hitPose.ts`) | `'none'`: the room's animator takes the snapshot alone -- no pose layer (the Fire set and the reloads, the binoculars, the throw's hands, the flinch, the victory dance), no pistol version, no launcher set, no `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`) | the page's `Play` lays them over its copy's animator (`play.ts`, `remotePlayers.ts`) (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): each moves the arms and the spine more than the head; settles with each layer fed from what the room holds (the reload's lock, the hold code, the raise), one at a time, each against its capture |
+| `HIT_POSE_LAYERS_READING` (`net/hitPose.ts`) | `'fire'` (FL-1, 2026-11-14; was `'none'`): the room's poser lays the Fire set as the page lays it on a remote copy, by the page's own code -- a `WeaponRaise` fed the body's `raised` through `RaiseFeed` at the copy's `RAISE_TIMES`, its eased weight on `WeaponPose.fireLayer`, 0 with a rocket launcher in the hand (`launcherInHand`) or the pistol's slot; every body eases on `RAISE_TIMES` (`FUN_005dffc0`), as a remote copy does -- only the own body calls `setRaiseTimes` (`matchFirearm.ts:1288`), with `ZERO_RAISE_TIMES` under a mount or with an item up; how the original's copy times its raise there is unread; not fed: the pistol's Fire versions and plays, the reloads, the binoculars, the throw's hands, the flinch, the victory dance, the launcher set's rows, `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`) | the page's `Play` lays them over its copy's animator (`play.ts`, `remotePlayers.ts`) (§3.6a); the Fire set's blend `FUN_0057a330` D:L438828-438860, `FUN_005551a0(..., 0x40)` D:L438710, the launcher excluded D:L438829, the weight eased `FUN_00286b80` (FL.R1); MEASURED gap (2026-11-13, the rig's Q10-T, LATER 1025): a still Terrorist at c1 stands with his feet in the Fire stand on the original (INFERRED from the dump comparison; only the foot nodes are measured) and rounds met his arm and a hand 7-11 u in front of him (which hand unread; in front of the port's Fire-stand right arm at key 0) | a reading, pending review (HIT-POSE, 2026-11-10; FL-1, 2026-11-14): the Fire set A = B with the page's copy to the bit only against a copy at `aimWeight`'s placeholder 1 -- a steadily raised body (`hitPoseFireLayer.test.ts`); the real page passes `aimWeight` = the raise's weight (`play.ts:634`, `:644`), so two differences stand, both `aimWeight`'s, unfed under FL.R3: through the 0.1 s raise and the 0.5 s lower a pitched body's spine twist is whole in the room and scaled by the weight on the page (`animator.ts:1474`), and a lowered body's head look runs on the page at weight 0 (`animator.ts:1450`) and not in the poser; whether the original's arm and hand stand where the port's Fire stand puts them waits on the rig's hand and forearm box reads; each other layer settles fed from what the room holds (the reload's lock, the hold code), one at a time, each against its capture |
+| `FIRE_SUB_MISSING_BONE_READING` (`animator.ts`) | `'whole'`: a part a sub-node (the Fire version, FL-0) carries and its node's clip lacks is taken from the sub-node whole, at any weight; `'leftover'` (the original's fold from the pose slot's leftover) not built | `FUN_00576bb0` D:L436732 (the node slot's bone index set before the `+0x0e` test, so D:L436756-436763 never runs), `FUN_005777d0` (no turn written for an untracked part) (§3.6c) | a reading, pending review (FL-0's review F1, 2026-11-14; measured on the disc by b0's box run at 5b99c2d3ce): the case arises on the disc only for `do_not_use` (no node of the play skeleton: never posed) and `pistol` (the sidearm's held node: with the rifle posed by its mount; with the pistol drawn covered by the pistol's version laid first, but under the base clips `PISTOL_ANIMS` lacks, where it differs from the original only while the raise eases); `fireSubNode.disc.test.ts` holds that the extras are only those two; the leftover blend is owed only if a pose of the drawn pistol during the raise's ease is ever compared |
 | `HIT_POSE_MOUNT_READING` (`net/hitPose.ts`) | `'idle'`: a seat holding a turret (`Player.mounted`) is met on its stance's idle set in the room (`Room.hitPose` keeps no posed set) and in the page's aim (`remotePlayers.ts` `aimCapsules`), where the page draws the turret anim set's mount or hold clip; `'posed'` (the poser fed the turret clip at the seat's steer frame) not built | the page's mount pose, `turretPage.ts` `turretPose` (MAP-10b, research 215 s7); the live nodes `FUN_005abbc0` D:L464672-464803 (§3.6a) | a reading, pending review (HIT-POSE's fold, 2026-11-10): page and room agree (both idle), the drawn mount pose is not judged; settles with the turret clip fed to the poser and its A = B test against the page's mount pose |
 | `PRONE_POP_RISE_S_ADAPTATION` (`animator.ts`) | 0.26 s: the prone-pop's rise, the cross-fade from the prone pose into the standing play in place of the get-up clip the pop skips (`stanceButton.ts` `PRONE_POP_ADAPTATION`) | an adaptation, no original: OT.R67 (the owner's word, 2026-10-20), Benny's playtest's 0.26 s (`playtests/prone-pop/client.js`) | an adaptation (OT.R67); since HIT-POSE (§3.6a) the room's animator runs it too, so the room's hit body rises as the page draws it -- listed here since the animator joined the shared sim's closure (`simMap.ts` -> `net/hitPose.ts`) |
 | `AIM_FRAME_BODY_PEEK_READING` | (none) | `AimFrame.peek` is the camera's eased value (§3.3) | *note only*: owed a body-peek field on `AimFrame` (the peek held, the lean clip) so the room can refuse a throw from a prone peek or from state 3 without a lean clip at the command (PF.R36's area) |

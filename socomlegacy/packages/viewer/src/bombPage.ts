@@ -554,7 +554,10 @@ export class BombPage {
     if (!b) return [];
     const out: CompassMark[] = [];
     // OT.R99: no ret_bomb while carried, for any viewer (FUN_005bbf10 D:L473680-473685 frees BOMB_GROUND at the pickup).
-    if (b.state === BOMB_STATE.ground || b.state === BOMB_STATE.planted) out.push({ bitmap: 'ret_bomb.tif', x: b.pos[0]!, z: b.pos[2]! });
+    // Type 1 (FUN_0059dab0 D:L457521-457523): in its type's yellow (`OBJECTIVE_MARK_RGB_READING`) and pulsing, as types
+    // 1-13 do (FUN_00211510 D:L68125-68130). The planted bomb's mark is the port's (the original makes none once planted,
+    // D:L457516; research 214 s3 holds it open): still drawn, now in the same yellow and pulsing, as the one mark it is.
+    if (b.state === BOMB_STATE.ground || b.state === BOMB_STATE.planted) out.push({ bitmap: 'ret_bomb.tif', x: b.pos[0]!, z: b.pos[2]!, pulse: true });
     // BOMB-MARKS (COMPASS_BASE_MARK_READING): the carrier's side's site for every side, type 2 for his side, 3 for the
     // other (FUN_005bbf10 D:L473686-473700); none for a side-less viewer (BASE_MARK_SPECTATOR_PLACEHOLDER).
     const carrierTeam = b.state === BOMB_STATE.carried && b.carrier !== null ? this.teamOf(b.carrier) : null;

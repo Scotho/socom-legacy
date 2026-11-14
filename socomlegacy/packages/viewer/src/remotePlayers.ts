@@ -254,6 +254,11 @@ interface Remote {
    */
   fadeAge: number;
   /**
+   * LATER 939: built again from a dead copy's kept death (`remove` -> `add`): until its first frame, whose snapshot alive
+   * (a respawn while the copy was away) drops the kept clip, so it never plays on a living body.
+   */
+  restored?: boolean;
+  /**
    * A flinch playing (`flinch`): its clip and how long it has played, or null. `pushed`: a one-shot a map program pushed
    * (`pushMotion`, a door's `Open door`), which `FUN_005a2690`'s gate does not apply to (`stepFlinch`).
    */
@@ -291,6 +296,8 @@ interface Remote {
   neckTree?: number;
   /** CPS bodies: the walk its play reads each frame (`remoteWalk`), made once (was: a new one a body a frame). */
   walk?: RemoteWalk;
+  /** PV-5b: drawn but hidden by the player's view alone (`RemotePlayers.setPovHidden`): its weapon's node still answers. */
+  povHid?: boolean;
 }
 
 /** What a remote body's `Play.frame` reads: its snapshot as of the call, in the third person. */
@@ -676,6 +683,37 @@ export class RemotePlayers {
   /** WALL-CAM: FUN_0029a950 reads the followed actor's posed skeleton root (research 382 §2). */
   cameraRoot(id: number): number | null {
     return this.remotes.get(id)?.play.rootY() ?? null;
+  }
+
+  /**
+   * PV-5b (the player's view; product track, a browser adaptation with no original -- research 402 s2, plan PV.R6): the
+   * one body the player's view draws from its head, hidden as the owner's own body is in his first person; null none.
+   * Kept by id, as the ghosts are (a copy built later for the id is hidden too; `clear` forgets it); applied at once and
+   * on every `frame` after. What it hides is the body's group: the body, its held and carried weapons, its hands' clips.
+   * What it does not: its play still runs (its posed root, `cameraRoot`, is the rig's own input; its clips' sounds still
+   * fire), its weapon's node still answers `weaponFrame` (the owner's first person keeps his muzzle flash), and a round's
+   * tracer and report are the effects' and the sound's, not the body's. `headAt` (the name tag's anchor) goes with the
+   * body, as the owner sees no tag of his own; so does every other reader of a hidden group (`aimDistance`, `aimBodies`,
+   * `aimRecords`, `neckAt`: the watcher's own aim and sight, none for a dead or spectating page). A remote body casts no
+   * shadow to hide (`applyZoneGate`'s note).
+   */
+  setPovHidden(id: number | null): void {
+    if (id === this.povHidden) return;
+    const was = this.povHidden === null ? undefined : this.remotes.get(this.povHidden);
+    if (was?.povHid) { was.povHid = false; was.view.group.visible = true; }
+    this.povHidden = id;
+    const now = id === null ? undefined : this.remotes.get(id);
+    if (now && now.view.group.visible) { now.povHid = true; now.view.group.visible = false; }
+  }
+  private povHidden: number | null = null;
+
+  /**
+   * PV-5b (plan PV.R6, LATER 897): whether a body is on a turret, as this page draws it (`setMountPose`'s answer, the
+   * turrets' own state): the player's view falls back to the follow for a head view on one. The body's wire does not
+   * carry it.
+   */
+  mounted(id: number): boolean {
+    return (this.mountPose?.(id) ?? null) !== null;
   }
 
   /**
@@ -1113,6 +1151,7 @@ export class RemotePlayers {
     this.deathsHeard.delete(id);                                 // NU-11b H1: the seat left; a new seat of its id is first seen afresh
     this.characterKeys.delete(id);
     this.remove(id);
+    this.keptDeaths.delete(id);                                  // LATER 939: the seat gone for good, its kept death with it
   }
 
   /**
@@ -1202,6 +1241,7 @@ export class RemotePlayers {
       seen.add(b.id);
       const r = this.remotes.get(b.id) ?? this.add(b.id);
       if (!r) continue;
+      r.povHid = false;                                                 // PV-5b: set again at the frame's end, once drawn
       const pending = this.pendingVictories.get(b.id);
       if (pending) { r.play.startVictory(pending.serial, pending.clip, pending.elapsed); this.pendingVictories.delete(b.id); }
       const wasDead = r.snap?.alive === false;
@@ -1218,7 +1258,8 @@ export class RemotePlayers {
       // The `kill` event (reliable, no tick) arrives about INTERP_DELAY_MS (`./net/client`) before the body is drawn
       // dead, as the flinch's does (FLINCH_LAYER_PLACEHOLDER): an older alive snapshot keeps the clip `died()` set; only
       // a dead-to-alive change, a respawn, clears it (ported from Chris's browser-beta-v5, d578f347).
-      if (r.snap.alive) { r.deadFor = 0; r.fadeAge = 0; if (wasDead) r.deathClip = null; } else { r.deadFor += dt; r.fadeAge += real; }
+      if (r.snap.alive) { r.deadFor = 0; r.fadeAge = 0; if (wasDead || r.restored) r.deathClip = null; } else { r.deadFor += dt; r.fadeAge += real; }
+      r.restored = false;                                         // LATER 939: only the rebuilt copy's first frame drops a kept death
       // NU-12 B2 (research 328 R328.1, §4.3 D5; the build brief's F3, F4): the original rebuilds every copy at the round's
       // reload and at its owner's respawn (`REMOTE_RESPAWN_REBUILD_READING`), its first play `Stand` with no blend. The
       // copy is rebuilt on the first body drawn past its seat's `spawn` (a survivor at a round's start, a living seat
@@ -1264,6 +1305,7 @@ export class RemotePlayers {
       if (!r.snap.alive) r.play.stopVictory();
       if (!r.snap.alive && r.deathClip) r.snap.traversal = deathPose(r.deathClip, r.deadFor, this.clips);
       if (mount) r.snap.traversal = mount;                              // MAP-10b: drawn over the body's play
+      if (!r.snap.alive) r.snap.dead = true;   // DEAD-HEAD-LOOK: no head look on a corpse, clip or none (FUN_00587b40)
       if (hostage) {
         // HX-2: no kit, no hands, no binoculars (HOSTAGE_HANDS_PLACEHOLDER): its own play only
         r.play.frame(dt, r.walk ??= remoteWalk(r), camera, real);   // PAR-34 (F2): the rifle's lowering in real time
@@ -1311,9 +1353,11 @@ export class RemotePlayers {
       if (!r.snap.alive) for (const o of [r.weapon, r.sidearm]) if (o) o.visible = false;
       const launcher = r.launcher?.object;
       if (launcher) launcher.visible = r.snap.alive;
-      r.view.group.visible = true;
+      r.povHid = b.id === this.povHidden;                               // PV-5b: the player's view's head view (`setPovHidden`)
+      r.view.group.visible = !r.povHid;
     }
-    for (const id of [...this.remotes.keys()]) if (!seen.has(id)) this.remove(id);
+    for (const id of [...this.remotes.keys()]) if (!seen.has(id)) this.remove(id);   // LATER 939: a dead one's death kept (`remove`)
+    this.clock += dt; this.realClock += real;                     // LATER 939: the kept deaths' clocks, after the frame's bodies
   }
 
   /**
@@ -1384,6 +1428,7 @@ export class RemotePlayers {
   died(id: number, clip: string | null): void {
     this.ghosts.delete(id);
     this.deathsHeard.add(id);                                    // NU-11b H1: a death heard, so never a ghost at first sight
+    this.keptDeaths.delete(id);                                  // LATER 939: this death, not one kept from an earlier rebuild
     const r = this.remotes.get(id);
     if (r) {
       r.deathClip = clip; r.deadFor = 0; r.fadeAge = 0; r.flinch = null; r.under = null;
@@ -1391,6 +1436,27 @@ export class RemotePlayers {
     } else if (clip) this.pendingDeaths.set(id, clip);
   }
   private readonly pendingDeaths = new Map<number, string>();
+  /**
+   * LATER 939 (DEATH-PAGES; LATER 979's browser spec): a DEAD copy's death as `remove` took it away -- the room's clip
+   * (null for a death without one), the pose's clock (`deadFor`) and the corpse rule's (`fadeAge`), and the page's clocks
+   * then (`clock`, `realClock`) -- so the copy built again (`add`: a new side, type, hostage body or appearance, or a
+   * frame without the body) lies on the same clip at the same age as a copy never rebuilt, where it lay (a corpse's root
+   * travel is not applied, research 421 section 3: nothing moves it). No clip, list or timing changes: it restores what the
+   * room chose. Dropped by the seat's leaving (`forget`), another room (`clear`), a new death heard (`died`,
+   * `hydrateCorpse`) and, at the rebuilt copy's first frame, a snapshot alive (`restored`).
+   */
+  private readonly keptDeaths = new Map<number, { clip: string | null; deadFor: number; fadeAge: number; at: number; realAt: number }>();
+  /** LATER 939: the frames' clamped and real seconds summed (`frame`), the kept deaths' clocks. */
+  private clock = 0;
+  private realClock = 0;
+  /** LATER 939: a body's death as it is built (`add`, `addEscortee`): a kept one at its age now, else the pending pair. */
+  private deathAtBuild(id: number): { deathClip: string | null; deadFor: number; fadeAge: number; restored: boolean } {
+    const k = this.keptDeaths.get(id);
+    this.keptDeaths.delete(id);
+    if (k) return { deathClip: k.clip, deadFor: k.deadFor + (this.clock - k.at), fadeAge: k.fadeAge + (this.realClock - k.realAt), restored: true };
+    const age = this.pendingAges.get(id) ?? 0;
+    return { deathClip: this.pendingDeaths.get(id) ?? null, deadFor: age, fadeAge: age, restored: false };
+  }
   /** PF-28: a joiner's corpse's age (seconds), for a body not drawn yet (its first snapshot follows the welcome). */
   private readonly pendingAges = new Map<number, number>();
   /** PF-28: the seats drawn as nothing until alive (`markGhost`). */
@@ -1412,6 +1478,7 @@ export class RemotePlayers {
   hydrateCorpse(id: number, clip: string | null, ageS: number): void {
     this.ghosts.delete(id);
     this.deathsHeard.add(id);                                    // NU-11b H1 (condition 2): the welcome's corpse is a heard death
+    this.keptDeaths.delete(id);                                  // LATER 939: the envelope's corpse, not a kept one
     const r = this.remotes.get(id);
     if (r) { r.deathClip = clip; r.deadFor = ageS; r.fadeAge = ageS; r.flinch = null; return; }
     if (clip) this.pendingDeaths.set(id, clip); else this.pendingDeaths.delete(id);
@@ -1435,7 +1502,7 @@ export class RemotePlayers {
     const r = this.remotes.get(id);
     const pistol = r?.item === 'pistol';
     const object = pistol ? r?.sidearm : r?.weapon;
-    if (!r || !object || !r.view.group.visible) return null;
+    if (!r || !object || !(r.view.group.visible || r.povHid)) return null;   // PV-5b: a body hidden by the view alone keeps its flash
     const p = r.points[pistol ? 'pistol' : 'rifle'].find((q) => q.name === 'firepoint' || q.name === 'firepont');
     return { node: object, muzzle: p ? [p.at[0], p.at[1], p.at[2]] : null };
   }
@@ -1580,7 +1647,7 @@ export class RemotePlayers {
     play.setFlyToggle(true);
     play.setClips(this.clips);
     const r: Remote = {
-      id, team, type, view, play, weapon: null, sidearm: null, item: 'rifle', snap: null, deadFor: this.pendingAges.get(id) ?? 0, fadeAge: this.pendingAges.get(id) ?? 0, deathClip: this.pendingDeaths.get(id) ?? null, flinch: null,
+      id, team, type, view, play, weapon: null, sidearm: null, item: 'rifle', snap: null, ...this.deathAtBuild(id), flinch: null,
       appearance: { key: key ?? null, definition: loaded.character, model: loaded.model },
       points: { rifle: [], pistol: [] }, kit: null, binocs: new BinocularPose(() => play.motionSource()),
       hands: new ThrowPose(() => play.motionSource()),
@@ -1628,7 +1695,7 @@ export class RemotePlayers {
     play.setClips(this.clips);
     const r: Remote = {
       id, team: this.teams.get(id) ?? 'seal', type: 0, view, play, weapon: null, sidearm: null, item: 'rifle', snap: null,
-      deadFor: this.pendingAges.get(id) ?? 0, fadeAge: this.pendingAges.get(id) ?? 0, deathClip: this.pendingDeaths.get(id) ?? null, flinch: null,
+      ...this.deathAtBuild(id), flinch: null,
       appearance: { key: null, definition: loaded.character, model: loaded.model },
       points: { rifle: [], pistol: [] }, kit: null, binocs: new BinocularPose(() => null), hands: new ThrowPose(() => null),
       escortee: index, stanceWas: null, transition: null, opacityShown: 1, launcher: null,
@@ -1700,6 +1767,8 @@ export class RemotePlayers {
   private remove(id: number): void {
     const r = this.remotes.get(id);
     if (!r) return;
+    // LATER 939: a dead copy's death kept for the copy built again (`keptDeaths`); `forget` and `clear` drop it after.
+    if (r.snap && !r.snap.alive) this.keptDeaths.set(id, { clip: r.deathClip, deadFor: r.deadFor, fadeAge: r.fadeAge, at: this.clock, realAt: this.realClock });
     r.wake?.keeper.clear();                                       // its wake stopped and forgotten with it
     this.dropLauncher(r);
     this.scene.remove(r.view.group);
@@ -1717,9 +1786,11 @@ export class RemotePlayers {
     // PF-28 (the integration review of sprint 29): and what a join envelope or a kill left for ids never drawn -- the
     // joiner's own id is always among the ghosts -- so another room's id is not hidden, aged or posed by this one's.
     this.ghosts.clear();
+    this.povHidden = null;                                       // PV-5b: another room's id is not hidden by this one's view
     this.deathsHeard.clear();                                    // NU-11b H1: another room's deaths are not this one's
     this.pendingAges.clear();
     this.pendingDeaths.clear();
+    this.keptDeaths.clear();                                     // LATER 939: another room's kept deaths are not this one's
   }
 }
 

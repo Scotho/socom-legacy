@@ -19,6 +19,8 @@
   were read, and the port's code was read. No game, emulator, reader, test or browser was run (no node process at all).
   Where the port's behaviour is stated it is read off its source, not run. Nothing here is proven, and nothing counts
   as a reading until a reviewer who did not write this note re-reads it at the source.
+- Proven (2026-11-14): **R323.8 is measured on the original running** -- capture Q13 of the capture rig (section 3.1;
+  the capture NU5-3 of section 8). The other rows keep the status above.
 - Sources. `D:L<n>` is a line of `game/analysis/socom2_game.elf.decomp.c` (SHA256
   `B9E863762F08D55602C4310C9491286879CFCF2947683E723BC2905E1AAA42D4`, re-hashed for this note). The ELF
   `game/disc/socom2_game.elf` (read only, by its program headers, through a scratch script): the strings 0x65f138
@@ -54,7 +56,7 @@ original rules for keeping them into the next round or losing them upon death."
 | R323.5 | **A rocket launcher (class 0x91: the LAW 145, the RPG-7 146) is claimable by a player who carries no launcher**: it is offered only when the kit holds no item of `FUN_003c5d80`'s list (the M203 rifles 52 and 61, the OICW 63, the MGL 142, the M79 143, any rocket launcher) and has a slot 2-4 free or replaceable (`FUN_005bac30` D:L473023-473084; D:L463675, D:L409249-409253); it goes into that equipment slot, else a new one, its round (0xb9 LAW HEAT, 0xba for the RPG-7) added with one round (D:L458238-458292). *Was:* "family 4, into the kit's launcher slot, else a free equipment slot ...; offered only when the kit has a place for it" -- the launcher-slot exchange is not reachable from the prompt (the review, F1) | **differs**: refused `'family'` (`pickups.ts:157-158`, `LAUNCHER_DROP_READING`'s doc); the page offers it and the room refuses | §1.6 |
 | R323.6 | **A departed dropper's weapons cannot be taken online** (medium): the request goes to the drop's owner's console only if that player resolves (`FUN_002ba2c0` D:L159889-159893, `FUN_002bd4d0` D:L161795-161813); the claim of a gone owner's drop is sent nowhere and the drop lies on | **differs**: claimable under `DROP_OWNER_DEPARTURE_PLACEHOLDER` `'stays'` | §1.7 |
 | R323.7 | **At the carrier's death a picked-up weapon is dropped like the kit's own**, empty, its ring's rounds in the one bundle laid first: `FUN_005a0040` finds the primary, secondary and launcher by the class of whatever each slot holds (`FUN_005c7230` D:L480057-480069, `FUN_005c71a0` D:L480032-480044, `FUN_005c7110` D:L480007-480019) | the same (`dropsOf`, `pickups.ts:109-126`, reads the live `loadout` and rings) | §2 |
-| R323.8 | **At the next round the picked-up weapon is lost**: the round's reload rebuilds every player's actor, alive or dead (`FUN_00223680` D:L75925-75931 -> `FUN_00598b90` -> `FUN_00599b60` D:L455158), and the kit is refilled from the character's kit list (`FUN_00599f00` D:L455791-455830 reading `+0x540`'s `+0x2f0`, which the Weapon Exchange and the ARMORY write); a claim never writes that list | the same (`Room.spawn`, `room.ts:2728-2730`; `startRound` spawns every seat, `room.ts:5222-5225`) | §3 |
+| R323.8 | **At the next round the picked-up weapon is lost**: the round's reload rebuilds every player's actor, alive or dead (`FUN_00223680` D:L75925-75931 -> `FUN_00598b90` -> `FUN_00599b60` D:L455158), and the kit is refilled from the character's kit list (`FUN_00599f00` D:L455791-455830 reading `+0x540`'s `+0x2f0`, which the Weapon Exchange and the ARMORY write); a claim never writes that list. **Proven 2026-11-14**: capture Q13 (§3.1), the live kit `+0x5e0` back to its chosen value at round 2's start, exact | the same (`Room.spawn`, `room.ts:5299-5303`; `startRound` spawns every seat, `room.ts:9977`; at 9937c25e57, were `room.ts:2728-2730`, `5222-5225` at a2849b26f); held by `packages/match/test/roomPickups.test.ts:526` (a unit test of the port; no capture-scored test holds Q13, owed) | §3, §3.1 |
 | R323.9 | **A respawn game allows no pick-up by absence, not by a gate**: it drops nothing at a death (R317.5), online no weapon is placed by the level (`FUN_002a8140` D:L149837-150047 offline only), so nothing lies to take; the claim's path tests no respawn flag. A respawn also rebuilds the kit (D:L455158) | the same (drops classic-only, `room.ts:4800`) | §4 |
 | R323.10 | **The online byte gates the route, not the right**: offline a claim applies at once, online it is routed to the owner (D:L458315-458331); online only the owner's own console drops (D:L458376-458381, D:L458556-458563); the launcher drops online only (D:L458667-458672); the drops' lifetime and dedup are offline only (R317.6-R317.7); the bomb's candidate is online only (D:L463709, D:L452577) | the port is a network game throughout (`SOLO_IS_NETWORK_READING`) | §4 |
 | R323.11 | **The taken weapon's fire mode is zeroed and stepped up** (2026-11-03, reading pending review): `+0x6fc` is the slot's fire mode (stepped by the switch `FUN_005c4600` D:L478578-478579); `FUN_005bc410` zeroes it (D:L473830-473834), nothing else on `FUN_0059f0c0`'s path writes it, and the zero is stepped: the hand's slot by `FUN_005c0fd0` (D:L476658-476668) up to `MaxFireMode` (+0x24), the weapon's highest mode; a slot not in the hand once at the swap to it (`FUN_005c4b10` D:L478930-478931), its first mode. `+0x684` is not read. *Was:* "what they hold (the fire mode is a candidate) is not read" | **as built** (`accuracy.ts` `pickupFireMode`, `takeKit.ts`); was: the record's spawn default (burst where enabled) | §1.4, §8 |
@@ -242,8 +244,28 @@ claimed weapon is dropped in its slot with its ring's entries in the bundle. **N
 So **a picked-up weapon is kept for the rest of the round only, and lost at the next round's start** (and at a
 respawn, in a respawn game, where none can be taken anyway). A survivor who took a weapon starts the next round with
 his chosen kit. The port: `Room.spawn` sets `p.loadout = p.next ?? this.typeKit(p)` and fresh rings at every spawn
-(`room.ts:2728-2730`), `startRound` spawns every seat (`room.ts:5222-5225`), and the claim writes the live kit only
-(`worldDrops.ts:180-182`; `p.next` untouched). **No difference.**
+(`room.ts:5299-5303`), `startRound` spawns every seat (`room.ts:9977`), and the claim writes the live kit only
+(`worldDrops.ts:262-266`, `WorldDrops.take`; `p.next` untouched); the page takes the room's kit at the spawn
+(`matchNet.ts:239`, `respawned(kit)` -> `spawnKit`). Lines at 9937c25e57 (were `room.ts:2728-2730`, `5222-5225`,
+`worldDrops.ts:180-182` at a2849b26f). **No difference.**
+
+### 3.1 Measured: capture Q13 (2026-11-14) -- proven
+
+The capture rig (the r0004 build, three clients, MP2 Frostfire, a classic round) ran the case of NU5-3 overnight; its
+report is stamped 2026-11-14T06:58Z and its files are the bucket folder
+`gate-runner/shadow/out/2026-11-14/q10-hitreg/q13-pickup-3p-b/`. The reads below are the report's, as the main
+controller (seat 67) relayed them on 2026-11-14; this seat did not re-open the folder (the boxes' logins had lapsed).
+
+- In round 1 a SEAL took a dead SEAL's M4A1 by the Action button's held list (the prompt `TAKE M4A1`). The live kit
+  word `+0x5e0` went `00008000` -> `00008004`; the HUD showed the M4A1 at 0/30 with 4 magazines.
+- At round 2's start (06:55:42Z) `+0x5e0` read `00008000` again, and the HUD showed his own rifle at 30/30 with 5
+  magazines: the kit he chose, not the taken weapon.
+- Tolerance: exact -- the word compared bit for bit, the HUD's counts as drawn.
+
+So R323.8 is **proven**: a picked-up primary is lost at the next round and the player spawns with his chosen kit, as
+section 3 read it. The port does the same (section 3; `roomPickups.test.ts:526` holds the port's rule as a unit test).
+What the relay does not state: whether the taker was alive at round 1's end (section 3 reads the rebuild for the
+living and the dead alike, D:L75920-75933). No capture-scored test replays Q13 in the port; one is owed.
 
 ## 4. Online against offline, classic against respawn
 
@@ -402,7 +424,7 @@ Each row is RED first, room and page on the same command where both exist; every
 |---|---|---|
 | `PICKUP_ANY_SIDE_READING` (*note only*; candidate) | server `pickups.ts` (doc), held by P1 | `'any living player'`: no side test on the path (§1.1: D:L452538-452575, D:L462753-462775, D:L409226-409267, D:L458314-458334, D:L457899-457932, D:L458174-458297); owed: capture NU5-1 |
 | `PICKUP_HAND_READING` (built 2026-10-14, NU-5 H1: re-filed from `PICKUP_HAND_PLACEHOLDER`; was: candidate re-file) | server `pickups.ts` (`worldDrops.ts`) | `'the hand kept'`: `FUN_005bc410` writes no `+0x824` and refreshes the hand only for its slot (D:L473823-473868); a launcher into the hand's slot re-chooses it (D:L458273-458276); owed: capture NU5-1 (an exchange into the stowed slot) |
-| `PICKUP_KIT_LOST_AT_ROUND_READING` (*note only*; held by P1) | server `room.ts` `spawn` (doc) | `'lost at the next round'`: `FUN_00223680` D:L75925-75931, `FUN_00599b60` D:L455158, D:L455659-455674, `FUN_00599f00` D:L455791-455830; owed: capture NU5-3 |
+| `PICKUP_KIT_LOST_AT_ROUND_READING` (*note only*; held by P1) | server `room.ts` `spawn` (doc) | `'lost at the next round'`: `FUN_00223680` D:L75925-75931, `FUN_00599b60` D:L455158, D:L455659-455674, `FUN_00599f00` D:L455791-455830; **proven 2026-11-14 by capture Q13** (§3.1: `+0x5e0` `00008004` -> `00008000` at round 2's start, exact); was: "owed: capture NU5-3" |
 | `PICKUP_LAUNCHER_READING` (built 2026-10-14, NU-5 L1, both halves: the page's `net/pickupRules.ts`, `drops.ts`, `takeKit.ts`, and the room's `pickups.ts` `claimWeapon` and `worldDrops.ts` `take`; was: the page half first, "the room half waits on the reported `room.ts` and slot questions"; was: candidate, L1) | server `pickups.ts`; viewer `net/pickupRules.ts`, `drops.ts` | `'claimable with one round, by a kit carrying no launcher'`: offered only when `FUN_005bac30` answers -- no item of `FUN_003c5d80`'s list carried (D:L473027, D:L473033-473035, D:L317287-317299) and a slot 2-4 free or replaceable (D:L473035-473082) -- else `FUN_00541d40` refuses it (D:L409249-409253); installed by `FUN_0059f0c0` D:L458238-458292 into `FUN_005bae60`'s slot, one round (`FUN_005ba3d0` D:L472704-472773); was: "`'claimable with one round, when the kit has a place'`" (the review, F1); owed: capture NU5-5 |
 | `PICKUP_LAUNCHER_ROUNDS_READING` (built 2026-10-14, NU-5 L1) | viewer `net/pickupRules.ts` (the room and the page) | `1`: the claimed launcher's round installed at the kit's count (`FUN_005bdfb0` D:L474716-474731) with one round (`FUN_005ba3d0(kit, slot, 1)` D:L458285-458291); the accept carries no count of it -- `FUN_002ba1f0` (D:L159823-159836) sends 8 bytes: the pickup's id (u32), the taker's id (u16), the request's entry count (u8: 1 for a weapon, `FUN_0059f610` D:L458326, D:L458330) and the accepted mask (u8, bit 0 set when the pickup's weapon item matches, D:L457918); each console's `FUN_002ba1a0` (D:L159807-159817) -> `FUN_0059dfb0` (D:L457694-457706) -> `FUN_0059f0c0` installs the one round by rule; owed: capture NU5-5 |
 | `LAUNCHER_SLOT_KEPT_READING` (built 2026-10-14, NU-5 L1) | viewer `net/pickupRules.ts` | the ten ids an empty-ringed slot 2-4 keeps in `FUN_005bac30` / `FUN_005bae60` (D:L473062-473066, D:L473128-473132): 0xff, 0xfe, 0xc3, 0xc2, 0x91, 0x8d, 0x92, 0x0b, 0xc1, 0xbe; their meaning (which item a launcher displaces) stays `PICKUP_LAUNCHER_SLOT_PLACEHOLDER`'s; owed: capture NU5-5 |
@@ -414,6 +436,7 @@ Each row is RED first, room and page on the same command where both exist; every
 | `DROP_ITEM_ZANIM_PLACEHOLDER` (*note only*; candidate, X2) | viewer `drops.ts` | the `drop_item` zAnim (0x65f4e8; `FUN_00272bb0` D:L458212-458213, D:L458446-458447, D:L458615-458616) on each drop laid; what it plays is not read; settles: its script read off the map archives |
 | `DROP_OWNER_DEPARTURE_PLACEHOLDER` (existing; candidate value `'stays, not takeable'`, O1) | server `worldDrops.ts` | the request sent only to a resolved owner (`FUN_002ba2c0` D:L159889-159893, `FUN_002bd4d0` D:L161795-161813); the departure's id -1 (D:L455524); medium: `FUN_00622818` not read; stays a placeholder until the review or capture NU5-4 |
 | `PICKUP_FIRE_MODE_PLACEHOLDER` (*note only*; resolved 2026-11-03 as a reading, pending review: R323.11) | viewer `takeKit.ts` | the taken weapon's mode: `FUN_005bc410` zeroes `+0x6fc`, the slot's fire mode (D:L473830-473834); `FUN_005c0fd0` (D:L476658-476668) steps the hand's slot up to `MaxFireMode`, `FUN_005c4b10` (D:L478930-478931) a slot not in the hand once at the swap -- `accuracy.ts` `pickupFireMode`. The hand with an item or a launcher up (`+0x824` an equipment slot): neither firearm slot is the hand's, so the taken one steps once at the swap -- the page's `TakeKitDeps.inHand` (`matchFirearm.ts`'s `!itemUp && !launcherUp`) (closed 2026-11-03 at the review's F1; was: open, the page read `kitItem`, the last firearm). Capture NU5-1 would measure it running. *Was:* "whose meaning is not read; the port uses `defaultFireMode` (burst where enabled)" |
+| `PICKUP_SCOPE_CLAIM_READING` (built 2026-11-14, PICKUP-SCOPE, a v0.4.21 player report; the page's reading (reviewed 2026-11-14, PASS WITH FINDINGS, folded)) | viewer `matchFirearm.ts` (`kitTaker.renew` -> `Zoom.setWeapon`) | `'first-person'`: a claim into the hand's slot renews the zoom's record, so d-pad Up reads the claimed record's `NumZoomModes` (`FUN_005445b0` via `FUN_005c3780`; R323.3, §1.3) -- a claimed sniper scopes; a scope state (`+0x200` >= 5) left with a claimed record that has no scope drops to first person (`Zoom.setWeapon`, the page's reading of the switch). Unsourced for a pickup: `FUN_005bc410`'s hand refresh (D:L473852-473868) is not read for `+0x200`, the switch `FUN_005c4b10` keeps a scope state (research 201 §2, A31), and whether the original allows a claim while scoped is not read; settles: a rig capture -- scope a sniper, walk over an unscoped rifle, claim it, read `+0x200` |
 
 `WEAPON_DROP_AMMO_READING`, `PICKUP_FAMILY_READING` (its doc's "anything else ... is not claimed" changed with L1,
 2026-10-14, the old text kept), `LAUNCHER_DROP_READING` (its doc's "not claimable this sprint" changed with L1, likewise), `AMMO_TRANSFER_PLACEHOLDER`,
@@ -429,7 +452,8 @@ capture B):
 - **NU5-2, a death carrying a picked-up weapon:** what lies on the ground after (the bundle, the taken weapon, the
   remaining slot) and the rounds in the bundle (R323.7).
 - **NU5-3, the next round:** the carrier, alive at the round's end, at the next round's start
-  (`PICKUP_KIT_LOST_AT_ROUND`).
+  (`PICKUP_KIT_LOST_AT_ROUND`). **Taken 2026-11-14 as the rig's Q13** (§3.1); whether the carrier was alive at the
+  round's end is not in the relay.
 - **NU5-4, a quitter's drops:** a player dies, leaves the game; another presses on his rifle (`DROP_OWNER_DEPARTURE`).
 - **NU5-5, a launcher taken:** a LAW on the ground before a player with a free equipment slot (offered), one without
   (not offered) and one carrying an M203 rifle or a LAW (not offered) (`PICKUP_LAUNCHER`, `PICKUP_LAUNCHER_SLOT`;

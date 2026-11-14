@@ -4,6 +4,7 @@ import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import * as shellState from '../../src/forge/shell/state';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
+import { pressSaves } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * LATER 819 (product track, a browser adaptation with no original -- the game has no editor): a Saves card press (Save as,
@@ -93,7 +94,7 @@ describe('LATER 819: on the mounted page, Save as during an undo says the undo, 
     const calls = archiveLoad.mock.calls.length;
     document.querySelector<HTMLButtonElement>('[data-forge="undo"]')!.click();
     await vi.waitFor(() => expect(archiveLoad.mock.calls.length, 'the undo asks for its piece archive').toBeGreaterThan(calls), { timeout: 3000 });
-    document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     await vi.waitFor(() => expect(saveAsButton()).toBeDefined(), { timeout: 3000 });
     saveAsButton()!.click();
     await new Promise((r) => setTimeout(r, 50));

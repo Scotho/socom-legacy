@@ -6,6 +6,7 @@ import type { ForgePanel } from '../../src/forge/shell/panel';
 import type { ForgePanelContext } from '../../src/forge/shell/context';
 import { FORGE_REFUSALS } from '../../src/forge/shell/state';
 import type { LoadedMap } from '../../src/loadMap';
+import { pressForgeMenu } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * R3-B (1, 2; a browser adaptation, FG.R2 -- the game has no editor): the editor seam's viewport adapter (`viewport`,
@@ -80,9 +81,9 @@ describe('R3-B: the viewport adapter and the staged ghost on the mounted Forge',
     expect(editor.projectDrop(-20, 300)).toEqual({ reason: FORGE_REFUSALS.outsideView });
     expect(editor.projectDrop(400, 900)).toEqual({ reason: FORGE_REFUSALS.outsideView });
     // A placement not admitted (the START menu over the editor): the page's own words.
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     expect(editor.projectDrop(400, 300)).toEqual({ reason: FORGE_REFUSALS.card });
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     // The source: none before its archive is read; once read, one object, the same at each call.
     expect(editor.sourceIdentity('MP84:synthetic')).toBeNull();
     const staged = await editor.stagePiece('MP84:synthetic');

@@ -198,19 +198,28 @@ export function fallKills(h: Health, speed: number, speeds: readonly [number, nu
 export const KNOCK_LANDING_SPEED_FACTOR = 1.2;
 
 /**
- * The fragments a blast sends at a SEAL `distance` away (`FUN_005a18b0` L459394-459460): within 30 units 8 plus one of
- * 1/2/4/5/6/7 at 5/10/35/35/10/5 %, one fewer crouched and three fewer prone; beyond 30 that count x `900 / d^2`,
- * rounded up or down at random by its fraction.
+ * The fragments a blast sends at a SEAL whose feet are `distance` from the round's lifted point (`FUN_005a18b0`
+ * D:L459396-459474): a base of 8 only within 30 units (`d^2 < 900`, D:L459428-459431); one draw's 1/2/4/5/6/7 at
+ * 5/10/35/35/10/5 % (D:L459433-459451); one fewer crouched and three fewer prone -- `posture` the raw stance word
+ * `FUN_0058a720(actor, 0)` reads (D:L459455; FRAG-COUNT-STANCE: a crouch-runner's is crouched) -- unless the round's item is a shotgun's
+ * (`category` 0x51, `FUN_003d1a60`; D:L459452-459461); clamped at 0; and only past 30 (`d^2 > 900`) with a count over
+ * 0, x `900 / d^2` truncated toward zero, plus 1 if a second draw is at most the fraction (D:L459462-459472). FRAG-COUNT
+ * (LATER 996): was the base 8 at every distance -- past 30 u the port threw some three to nine times the original's
+ * fragments (at 60 u two to four, the original usually none or one).
  */
-export function fragmentCount(distance: number, posture: 'stand' | 'crouch' | 'prone', random: () => number): number {
+export function fragmentCount(distance: number, posture: 'stand' | 'crouch' | 'prone', random: () => number, category?: number): number {
+  const d2 = distance * distance;
+  let n = d2 < 900 ? 8 : 0;
   const roll = random();
-  const extra = roll < 0.05 ? 1 : roll < 0.15 ? 2 : roll < 0.5 ? 4 : roll < 0.85 ? 5 : roll < 0.95 ? 6 : 7;
-  let n = 8 + extra - (posture === 'crouch' ? 1 : posture === 'prone' ? 3 : 0);
-  if (distance > 30) {
-    const scaled = n * (900 / (distance * distance));
-    n = Math.floor(scaled) + (random() < scaled - Math.floor(scaled) ? 1 : 0);
+  n += roll < 0.05 ? 1 : roll < 0.15 ? 2 : roll < 0.5 ? 4 : roll < 0.85 ? 5 : roll < 0.95 ? 6 : 7;
+  if (category !== 0x51) n -= posture === 'crouch' ? 1 : posture === 'prone' ? 3 : 0;
+  if (n < 0) n = 0;
+  if (n > 0 && d2 > 900) {
+    const scaled = (n * 900) / d2;
+    n = Math.trunc(scaled);
+    if (random() <= scaled - n) n += 1;
   }
-  return Math.max(0, n);
+  return n;
 }
 
 /**

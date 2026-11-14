@@ -4,8 +4,8 @@ import type { CharacterCatalogue } from './characters/catalogue';
 import { victoryFromBytes } from './victoryData';
 import { parseRdr, parseZdb, rdrGet, Zar, zdbMember, type AssetSource, type RdrNode, type ZdbEntry } from '@s2u/archive';
 import {
-  aiCellCentre, applyR0004MapPatch, aiCellIndex, aiCellY, ARMORY_TYPES_PER_SIDE, characterModelNames, collisionOwners, DEFAULT_GRID_PARAMS, namedPoint, parseAiMaps, parseCharacterTable,
-  parseEscortees, parseGridParams, parseSceneGraph, parseWorldRoot, placeEscortees, placeSpawnSlots, readSkeleton, readTurrets, spawnsFor, teamCharacter, worldCollision,
+  aiCellCentre, applyR0004MapPatch, aiCellIndex, aiCellY, ARMORY_TYPES_PER_SIDE, characterModelNames, mapCollision, DEFAULT_GRID_PARAMS, namedPoint, parseAiMaps, parseCharacterTable,
+  parseEscortees, parseGridParams, parseSceneGraph, parseWorldRoot, placeEscortees, placeSpawnSlots, readSkeleton, readTurrets, spawnsFor, teamCharacter, parseClutter,
   type AiMaps, type EscorteeStart, type CharacterTable, type GameType, type SceneNode, type TurretPlacement, type Grid, type MotionClip, type Skeleton, type SpawnSlot, type Spawns, type CharacterTeam,
 } from '@s2u/scene';
 import { actionRoots, ACTION_CLIPS, groundGrid, HOLD_CODES, packGround, type GroundData, type Stance } from './mover';
@@ -120,7 +120,11 @@ export function simMapFromBytes(bytes: Uint8Array, path: string, kits: KitSource
   const stem = stemOf(path);
   const models = parseSceneGraph(Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`)));
   applyR0004MapPatch(models, stem);   // R4B-09 (research 383): r0004's per-map collision, as the page's `place` does
-  const polys = worldCollision(models, WORLD_MODEL);
+  const hulls = mapCollision(models, stem, () => parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), WORLD_MODEL);
+  // CLT-2 (research 422; CLT.R2): the worldmodel's hull, then CLUTTER.ZAR's instances' appended -- the page's own
+  // (`./loadMap` `hull`, `mapCollision`), so the two hulls stay one. A CLUTTER.ZAR that will not read costs a note.
+  const { polys, owners } = hulls;
+  notes.push(...hulls.notes);
   let params = DEFAULT_GRID_PARAMS;
   try {
     params = parseGridParams(Zar.parse(zdbMember(bytes, toc, `${stem}.ZED`)));
@@ -133,7 +137,6 @@ export function simMapFromBytes(bytes: Uint8Array, path: string, kits: KitSource
   } catch (e) {
     notes.push(`DefaultMaterial: ${say(e)} -- a polygon's material byte 0 reads UNKNOWN`);
   }
-  const owners = collisionOwners(models, WORLD_MODEL);
   const { doors, diagnostics } = readDoors(bytes, toc, models, owners, polys);   // marks the doors' owners: before the pack
   const gatesRead = readGates(bytes, toc, stem, models, owners, polys);          // MAP-07: the gates' owners, before the pack
   notes.push(...diagnostics, ...gatesRead.diagnostics);

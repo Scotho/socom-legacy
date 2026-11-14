@@ -67,11 +67,15 @@ describe('the fragments on the player (FUN_005a18b0, FUN_005a0e70 L459236-459256
     });
   }
 
-  it('an M67 50 units off (5 m): the close count x 900 / 2500, 3-6 fragments, each still the full 140 (inside 75)', () => {
-    const out = resolveBlast(freshHealth(), standing(50), [0, 0, 0], M67_BLAST, seeded(7), true)!;
-    expect(out.fragments).toBeGreaterThanOrEqual(3);
-    expect(out.fragments).toBeLessThanOrEqual(6);
+  it('an M67 50 units off (5 m): past 30 no base 8 -- the extra alone x 900 / 2500, 0-3 fragments, each still the full 140 (inside 75)', () => {
+    // FRAG-COUNT (FUN_005a18b0 D:L459428-459431): the extra 7 (a first draw of 0.99) x 0.36 = 2.52 -> 2, + 1 on a second
+    // draw <= 0.52. Was "the close count x 900 / 2500, 3-6" (the base 8 carried past 30).
+    const draws = [0.99, 0.4, 0.5, 0.5, 0.5];
+    const out = resolveBlast(freshHealth(), standing(50), [0, 0, 0], M67_BLAST, () => draws.shift() ?? 0.5, true)!;
+    expect(out.fragments).toBe(3);
     for (const hit of out.hits) expect(hit.damage).toBe(140);
+    const few = resolveBlast(freshHealth(), standing(50), [0, 0, 0], M67_BLAST, seeded(7), true);
+    expect(few === null || few.fragments <= 3).toBe(true);   // seed 7's first draw is the extra 1: 0.36 -> 0 or 1
   });
 
   it('an M67 100 units off: each fragment 140 x (1 - 25/75) = 93.3, and 900/d^2 of the count (at most 2)', () => {
@@ -136,7 +140,7 @@ describe('the knock (FUN_0057ed10 L441094, FUN_0057e770 L440940-441092, FUN_0058
   it('the resolve carries the knock of a survivor (a blast that struck but did not kill)', () => {
     // One fragment on an arm at 120 units: 140 x 0.4 = 56 -- the arm's 30 + armour take it, the SEAL lives.
     let calls = 0;
-    const draws = [0.5, 0.0, 0.65];                               // the extra roll (13), the rounding (0.81 -> 1), the part (LARM)
+    const draws = [0.5, 0.0, 0.65];                               // the extra roll (5; FRAG-COUNT: no base 8 past 30), the rounding (0.31 -> 1), the part (LARM)
     const out = resolveBlast(freshHealth(), standing(120), [0, 0, 0], M67_BLAST, () => draws[calls++] ?? 0.65, true)!;
     expect(out.fragments).toBe(1);
     expect(out.died).toBe(false);

@@ -7,6 +7,7 @@ import { FORGE_LAYOUT_KEY } from '../../src/pageStore';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
 import { vaultLayout } from './rulesFixture';
+import { dockOf, panelMounted, pressNew, pressForgeMenu, showTab, tabButton } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FCW-32 step 4 (FUI-18's rules half, FUI.R23 D1-D5; product track, a browser adaptation with no original): the Rules
@@ -73,7 +74,7 @@ const exec = async (api: ForgeAgentApi, operation: string, args: Record<string, 
   const r = await api.execute(operation, args, api.read().revision);
   expect(r, JSON.stringify(r)).toMatchObject({ ok: true });
 };
-const panel = (): HTMLDetailsElement => document.querySelector<HTMLDetailsElement>('.fx-right > details.fx-panel[data-forge-panel="rules"]')!;
+const panel = (): HTMLDetailsElement => panelMounted(document, 'rules') as HTMLDetailsElement;   // EDITOR-MAP D8: under his Map tab
 const control = <E extends HTMLElement = HTMLElement>(key: string): E | undefined =>
   [...panel().querySelectorAll<E>('[data-rules-key]')].find((e) => e.dataset['rulesKey'] === key);
 const must = <E extends HTMLElement = HTMLElement>(key: string): E => { const e = control<E>(key); if (!e) throw new Error(`no control ${key}`); return e; };
@@ -102,9 +103,11 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
 
   it('D1: Rules under Edit after the Outliner, folded, one section; empty, one line and New rules ›, which makes the layout\'s draft', async () => {
     const { api } = await mount();
-    const right = document.querySelector<HTMLElement>('.fx-right')!;
-    const drawn = [...right.querySelectorAll<HTMLElement>(':scope > details.fx-panel')].filter((d) => !d.hidden).map((d) => d.dataset['forgePanel']);
-    expect(drawn).toEqual(['outliner', 'inspector', 'rules']);   // the Object tab; Settings is under World
+    // FC2-4: his dock holds Rules under the Map tab after the environment (panels/rulesPanel.ts:179, order 36; EDITOR-MAP
+    // D6, D8), where the old right dock's Object tab held it after the Inspector.
+    showTab(document, 'map');
+    const drawn = [...dockOf(document, 'map').querySelectorAll<HTMLElement>(':scope > .fx-dg-body > details.fx-panel')].map((d) => d.dataset['forgePanel']);
+    expect(drawn.slice(drawn.indexOf('environment'), drawn.indexOf('environment') + 2)).toEqual(['environment', 'rules']);
     expect(panel().querySelector(':scope > summary')!.textContent).toBe('Rules');
     expect(panel().open).toBe(false);
     expect(panel().querySelectorAll(':scope > .fx-section')).toHaveLength(1);
@@ -149,15 +152,15 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
 
   it('D2: the Game type select lists the Custom group from forgeModeChoices and shows the layout\'s mode; a retail type is refused while it plays one', async () => {
     await mount(await storedVault());
-    const sel = document.querySelector<HTMLSelectElement>('.fx-right select.fx-game-type')!;
+    const sel = document.querySelector<HTMLSelectElement>('[data-forge-panel="settings"] select.fx-game-type')!;
     await vi.waitFor(() => expect(sel.querySelector('optgroup[label="Custom"]')).not.toBeNull());
     const custom = [...sel.querySelectorAll<HTMLOptionElement>('optgroup[label="Custom"] > option')];
     expect(custom.map((o) => [o.value, o.textContent, o.disabled])).toEqual([['mode:vault.run@1.0.0', 'Vault run', false]]);
     expect(sel.value).toBe('mode:vault.run@1.0.0');
     // The pad's row reads the same list (the Settings section's Game type row).
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     expect(document.querySelector('.fx-menu li[data-forge-menu-row="gametype"]')!.textContent).toContain('Vault run');
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     sel.value = '1';
     sel.dispatchEvent(new Event('change'));
     expect(sel.value).toBe('mode:vault.run@1.0.0');
@@ -166,7 +169,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
 
   it('D2: a layout without rules has no Custom group', async () => {
     await mount();
-    expect(document.querySelector('.fx-right select.fx-game-type optgroup')).toBeNull();
+    expect(document.querySelector('[data-forge-panel="settings"] select.fx-game-type optgroup')).toBeNull();
   }, 90_000);
 
   it('step-4 review F2: a rules mode naming a door the map lacks is a greyed Custom option with the host\'s reason; Check rules lists it too', async () => {
@@ -176,7 +179,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
       schema: 's2u-rules', vocabulary: 0, id: 'gate.run', name: 'Gate run', entities: { doors: ['bdoor_4'] },
       rules: [{ id: 'open', when: 'round.start', then: [{ do: 'door.open', door: 'bdoor_4' }] }],
     } });
-    const opt = (): HTMLOptionElement | null => document.querySelector<HTMLOptionElement>('.fx-right select.fx-game-type optgroup[label="Custom"] > option');
+    const opt = (): HTMLOptionElement | null => document.querySelector<HTMLOptionElement>('[data-forge-panel="settings"] select.fx-game-type optgroup[label="Custom"] > option');
     await vi.waitFor(() => expect(opt()?.disabled).toBe(true));
     expect(opt()!.title).toMatch(/rules\.ENTITY_MISSING at entities\.doors\[0\]: The layout has no door bdoor_4/);
     expect(opt()!.textContent).toBe('Gate run · can\'t play yet');
@@ -193,7 +196,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
       schema: 's2u-rules', vocabulary: 0, id: 'gate.run', name: 'Gate run', entities: { doors: ['bdoor_4'] },
       rules: [{ id: 'open', when: 'round.start', then: [{ do: 'door.open', door: 'bdoor_4' }] }],
     } });
-    const opt = (): HTMLOptionElement | null => document.querySelector<HTMLOptionElement>('.fx-right select.fx-game-type optgroup[label="Custom"] > option');
+    const opt = (): HTMLOptionElement | null => document.querySelector<HTMLOptionElement>('[data-forge-panel="settings"] select.fx-game-type optgroup[label="Custom"] > option');
     await vi.waitFor(() => expect(opt()?.disabled, 'the blank floor has no door').toBe(true));
     // The map loads late (a deferred answer); the one change is the base, whose map has the door the rules name.
     const { blankLibraryMap } = await import('../../src/forge/matchMap');
@@ -231,13 +234,14 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     expect((api.read().layout as { zones?: { id: string }[] }).zones!.map((z) => z.id)).toEqual(['vault', 'zone1']);
     // Selected from its row: the Inspector names it.
     row()!.click();
-    expect(document.querySelector('.fx-right .fx-inspect-name')!.textContent).toBe('Zone · zone1');
+    expect(document.querySelector('[data-forge-panel="inspector"] .fx-inspect-name')!.textContent).toBe('Zone · zone1');
     // Locked and unlocked by its row (the planner's piece.lock by its id), then deleted by its row.
     row()!.querySelector<HTMLButtonElement>('button.fx-lock')!.click();
     await vi.waitFor(() => expect((api.read().layout as { zones?: { id: string; locked?: boolean }[] }).zones!.find((z) => z.id === 'zone1')!.locked).toBe(true));
-    await vi.waitFor(() => expect(row()!.querySelector('button.fx-lock')!.textContent).toBe('Unlock'));
+    // FC2-4: his lock is an icon, its word on its aria-label (page.ts:7111-7115): 'Unlock <label>' / 'Lock <label>'.
+    await vi.waitFor(() => expect(row()!.querySelector('button.fx-lock')!.getAttribute('aria-label')).toBe('Unlock Zone · zone1'));
     row()!.querySelector<HTMLButtonElement>('button.fx-lock')!.click();
-    await vi.waitFor(() => expect(row()!.querySelector('button.fx-lock')!.textContent).toBe('Lock'));
+    await vi.waitFor(() => expect(row()!.querySelector('button.fx-lock')!.getAttribute('aria-label')).toBe('Lock Zone · zone1'));
     row()!.querySelector<HTMLButtonElement>('button[data-rules-entity-delete]')!.click();
     await vi.waitFor(() => expect(row()).toBeNull());
     expect(input.dataset['rulesGizmos']).toBe('zone:vault');
@@ -255,7 +259,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     input.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) });
     const row = (): HTMLElement | null => document.querySelector<HTMLElement>('ul.fx-outliner li[data-rules-entity="zone:vault"]');
     await vi.waitFor(() => expect(row()).not.toBeNull());
-    const inspected = (): string => document.querySelector('.fx-right .fx-inspect-name')?.textContent ?? '';
+    const inspected = (): string => document.querySelector('[data-forge-panel="inspector"] .fx-inspect-name')?.textContent ?? '';
     row()!.click();
     expect(row()!.classList.contains('is-on')).toBe(true);
     expect(inspected()).toBe('Zone · vault');
@@ -277,7 +281,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
   it('Start a new layout asks before dropping a layout holding only a zone (no piece, no rules), naming what goes; Cancel keeps it', async () => {
     const { api } = await mount();
     await exec(api, 'zone.place', { id: 'gate', shape: 'cylinder', at: [0, 0, 0], radius: 5, height: 3 });
-    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    pressNew(document);                                           // EDITOR-MAP T2: File > New...
     const cardOf = (heading: string): Element | null => [...document.querySelectorAll('.fx-card h2')].find((e) => e.textContent === heading)?.closest('.fx-card') ?? null;
     const choose = await vi.waitFor(() => { const c = cardOf('New layout'); expect(c, 'the base is asked first').toBeTruthy(); return c!; });
     choose.querySelector<HTMLButtonElement>('button.fx-primary')!.click();             // Next, on the current base
@@ -294,12 +298,12 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     await vi.waitFor(() => expect(lobby.title).toContain('names a creator mode'));
     lobby.click();
     await vi.waitFor(() => expect(statusLine()).toContain('names a creator mode'));
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     const hover = new MouseEvent('pointermove', { bubbles: true });
     Object.defineProperty(hover, 'pointerType', { value: 'mouse' });
     document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="lobby-create"]')!.dispatchEvent(hover);
     expect(document.querySelector('.fx-menu li[data-forge-menu-row="lobby-create"] .fx-menu-note')!.textContent).toContain('names a creator mode');
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     await exec(api, 'play.start', { allowIssues: true });
     await vi.waitFor(() => expect(started.options).toHaveLength(1));
     const chips = document.querySelector<HTMLElement>('[data-forge-chips="match"]')!;
@@ -346,7 +350,7 @@ describe('FCW-32 step 4: the pad reaches the Rules panel and walks it with no ke
     expect(row()!.classList.contains('is-on')).toBe(true);
     press(CIRCLE);
     expect(row()!.classList.contains('is-on'), 'Circle drops the picked entity').toBe(false);
-    expect(document.querySelector('.fx-right .fx-inspect-name')?.textContent ?? '').not.toBe('Zone · vault');
+    expect(document.querySelector('[data-forge-panel="inspector"] .fx-inspect-name')?.textContent ?? '').not.toBe('Zone · vault');
   }, 90_000);
 
   it('START > Panels > Rules opens it under Edit and hands it the pad; the d-pad walks every control; Cross presses; Circle gives the pad back', async () => {
@@ -354,13 +358,14 @@ describe('FCW-32 step 4: the pad reaches the Rules panel and walks it with no ke
     clock = performance.now() + 1000;
     tick(); tick();                                                    // the pad arms on a frame at rest
     await vi.waitFor(() => expect(control('rule-open:pay')).toBeTruthy());
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     const row = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="panel-rules"]')!;
     expect(row.textContent).toContain('Rules');
     row.click();
     await Promise.resolve();
     expect(panel().open).toBe(true);
-    expect(document.querySelector('.fx-right [data-forge-tab][aria-selected="true"]')!.textContent).toBe('Object'   /* the right dock's tab, once Edit */);
+    // FC2-4: his dock holds Rules under the Map tab (panels/rulesPanel.ts:179; EDITOR-MAP D6), where the old right dock's was Object.
+    expect(tabButton(document, 'map').getAttribute('aria-selected')).toBe('true');
     expect(shell.isShown('rules')).toBe(true);
     const ring = (): string => panel().querySelector<HTMLElement>('.is-pad-focused')?.dataset['rulesKey'] ?? '';
     await vi.waitFor(() => expect(ring()).toBe('config:reward'));

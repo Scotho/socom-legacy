@@ -595,6 +595,15 @@ moving or invoking correction. Airborne and active clip velocity remain body-own
 
 ## 14. Readings: the follower at an action cell (DF-10, 2026-11-08; reading, DF-10's review PASS WITH FINDINGS, medium)
 
+**CORRECTED 2026-11-12 (research 418; the binding MEASURED, research 404 s30, n = 1):** this section's conclusion that
+no marker binds an action on the EXTRACTION maps ("every marker id is 0xffff after the load",
+`FOLLOW_ACTION_BIND_PLACEHOLDER`) does not hold. The binder `FUN_002a8140` writes each door marker's action id AFTER
+the reset, in a block the decompiled text lists as unreachable (read twice from the bytes, research 418 s22.10), and
+on MP71 the six door markers were read on the running original holding ids 1, 3, 4, 0, 2, 5. So the placeholder
+settles as BOUND; what a following hostage does at a shut door is still a reading (research 418 s22.11, s22.13; LATER
+958). In r0004 the action object's id is at `+0x40`, where this section's `+0x3c` is r0001's (research 417 s20.8). The
+text below is kept as it was written.
+
 DF-10 asked what the original does when a FOLLOW hostage meets a shut door (DF-10's row; the readiness report's
 Fish Hook nav-ai line). Read in `FUN_00567900` and, where the decompilation lost the jump, the retail ELF
 (`game/disc/socom2_game.elf` under `SOCOM_PC_ROOT`) disassembled at the addresses below:

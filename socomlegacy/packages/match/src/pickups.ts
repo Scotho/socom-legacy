@@ -1,5 +1,5 @@
-import { EMPTY_ITEM, itemClass, slotKindOf, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
-import { kitRecords, type FirearmSlot } from '../../viewer/src/loadout';
+import { EMPTY_ITEM, FULL_SLOT, itemClass, slotKindOf, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
+import { firearmSlotPresent, kitRecords, type FirearmSlot } from '../../viewer/src/loadout';
 import { magazinesCarried, MagazineRing } from '../../viewer/src/magazines';
 import { rocketRoundOf } from '../../viewer/src/equipment';
 import type { BundleEntryWire, DropWire } from '../../viewer/src/net/protocol';
@@ -76,18 +76,40 @@ export const WEAPON_DROP_AMMO_READING = 'empty ring' as const;
  */
 export const PICKUP_MAGAZINE_CAP_READING = 'NumMags, 2X doubled, at most 10' as const;
 /**
- * How a bundle's rounds go into the taker's magazines below that cap (`PICKUP_MAGAZINE_CAP_READING`): the port moves
- * whole entries (one magazine's rounds) of a weapon the taker carries into its ring's free slots (0 rounds, not the one
- * in the weapon) under the cap, in order, and leaves the rest as a smaller bundle. Still owed of the original's
- * redistribution: `FUN_005ba3d0` D:L472750-472758 pours a round count, topping each slot under the cap up to
- * `Ammo_Capacity` -- the part-spent magazines and the one in the weapon among them -- where the port moves whole
- * entries into empty slots only; which records take which bundle (`FUN_003d2680` D:L473181, the ammo type, where the
- * port matches the record id; the fallback D:L473191+ and `FUN_005ba770` D:L472842+ not read); and what of the bundle
- * stays on the ground online after the pour (`FUN_005bb000` returns the remainder through `param_4`, its caller's use
- * not read) -- "do not implement ... full-mag transfer to fill those gaps" (194 L78). Settles: those reads, or capture
- * B's ammo-only pickup with a nearly full ring. [placeholder]
+ * Which of the taker's slots a bundle entry feeds (2026-11-13, finding 4b; research 234 s7): a firearm's entry carries no
+ * record (`FUN_005ba040` D:L472586-472589 zeroes it for the firearm and pistol classes, `FUN_003d1d10` /
+ * `FUN_003d1ce0`), so `FUN_005bb000` (D:L473176-473188) pours it into EVERY kit slot whose record's ammunition list
+ * holds the entry's ammunition -- compared by NAME (`FUN_003d2680` D:L325031-325048, `FUN_00198f18` a string compare)
+ * -- in slot order, what is left flowing on to the next such slot. Any side's: a 552's 5.56 x 45mm feeds an M4A1. The
+ * port's records keep one ammunition each (`AMMO_TYPES`' first NAME, `@s2u/scene` `weaponRecord`); every record on the
+ * dev disc lists at most one (72 one, 14 none: a byte read of `RUN/ZWEAPON.ZAR`, 2026-11-13), so the first is exact. An
+ * entry that carries a record (the equipment's: grenades, charges, launcher rounds) is not a firearm's and is left for
+ * its own task. Was (to 2026-11-13): the same record id only. [reading]
  */
-export const AMMO_TRANSFER_PLACEHOLDER = 'whole entries into free slots' as const;
+export const PICKUP_AMMO_MATCH_READING = 'by ammunition, every slot in order' as const;
+/**
+ * How a matched slot takes a bundle's rounds -- the pour (2026-11-13, finding 4b; `FUN_005ba3d0` D:L472718-472773,
+ * re-read by seat e4): magazines 0 to 9 in order, each BELOW the cap (`PICKUP_MAGAZINE_CAP_READING`) topped up toward
+ * `Ammo_Capacity` from the count -- it takes the capacity less what it holds, or what is left -- the part-spent ones among
+ * them; each one at or past the cap zeroed (D:L472760-472763); what is left returned (`FUN_005bb000` then flows it on).
+ * OT.R97: r0004 adds one test inside the under-the-cap branch (`0x5c0d80-0x5c0d9c`, the r0004 cluster's diff of
+ * `005ba3d0`): the magazine in the weapon (`kit+0x684+slot*4`) is skipped when the record's OWN `NumMags` (`FUN_003d2800`,
+ * never the 2X-doubled count) is 2 or more -- so a one-magazine weapon (the M40A1) has its only magazine, the one in the
+ * weapon, topped up. The room tells the page each magazine's AMOUNT poured (`kit`'s `added`), which the page adds to its own
+ * count (`../../viewer/src/fire` `Fire.setRing`): exact with shots or a reload in flight, where the room's count lags the
+ * page's. Was (to 2026-11-13): empty magazines only, the one in the weapon never (`AMMO_TRANSFER_PLACEHOLDER`'s old
+ * value). [reading]
+ */
+export const PICKUP_POUR_READING = 'topped up under the cap, the loaded one skipped from 2 magazines' as const;
+/**
+ * What of a walked-over bundle stays after the pour: the port leaves the remainder on the ground, offline and online alike.
+ * Owed: `FUN_005bb000` returns it through `param_4`; offline its caller writes it back (`FUN_003cfe40` D:L473554-473555),
+ * online the owner's grant clears each granted entry whole (`FUN_0059dfb0`, `FUN_003cfc40` D:L457702) -- the remainder is
+ * lost there, which reverses a test research 194 asked for ("do not implement ... full-mag transfer to fill those gaps",
+ * 194 L78): the owner's to rule with that task. Was (to 2026-11-13): the whole transfer's placeholder ('whole entries into
+ * free slots', then 'empty magazines under the cap, filled from the sum'). Settles: that task, or capture B. [placeholder]
+ */
+export const AMMO_TRANSFER_PLACEHOLDER = 'the remainder stays on the ground' as const;
 /**
  * Where a drop lies: at the feet it fell from, with the body's yaw -- the original's settling and rotation of the
  * replicated node (`FUN_0059ec60`, `FUN_0059e9e0`) are not read. Settles: capture B's death drop. [placeholder]
@@ -119,13 +141,32 @@ export interface DroppingBody {
   rounds: { ring(id: number): { total(): number } | null } | null;
   feet: V3;
   yaw: number;
+  /** The kit table, for `firearmsCarried`; absent or null, a slot's presence alone (the baked records' fallback). */
+  table?: KitTable | null;
 }
 
-/** A firearm slot's ring as a bundle entry (null when it holds no round), and the ring cleared. */
-function takeRing(record: WeaponRecord, ring: MagazineRing): BundleEntryWire | null {
-  const rounds = ring.entries();
+/**
+ * Which firearm slots hold a firearm: an item that is not an absent marker (`firearmSlotPresent`: FULL_SLOT and
+ * EQUIP_NONE are unusable, `FUN_005bdc30` D:L474642-474648) and that the kit table has a firearm record for. In the
+ * original such a slot holds no round: `FUN_005ba040` visits every slot with an object (D:L472583) and adds an entry
+ * only for a slot whose ammunition is set and a magazine holds a round (D:L472603-472614), and `FUN_005bb000`
+ * D:L473179-473181 pours only into a slot with an object whose record takes the ammunition. The port's such slot
+ * holds the baked record (`NO_FIREARM_RECORD_PLACEHOLDER`) and the room fills its ring at the spawn (`room.ts`'s
+ * `p.mags`), so the drop, the claim and the walk ask here. Reachable: the equipment limit's forced kits (research
+ * 362 s1) put FULL_SLOT in a firearm slot. Without a table, presence alone (the baked records are the kit's own).
+ */
+export function firearmsCarried(loadout: Loadout, table: KitTable | null | undefined): [boolean, boolean] {
+  return ([0, 1] as const).map((s) => firearmSlotPresent(loadout, s) && (table ? table.records.has(loadout[s]) : true)) as [boolean, boolean];
+}
+
+/**
+ * A firearm slot's ring as a bundle entry (`FUN_005ba040` D:L472580-472626): its ammunition by name and the sum of its ten
+ * magazines, no record (a firearm's: D:L472586-472589); null when it holds no round or no firearm (`carried`). The ring cleared.
+ */
+function takeRing(record: WeaponRecord, ring: MagazineRing, carried: boolean): BundleEntryWire | null {
+  const count = ring.total();
   ring.restore({ slots: [], current: ring.state().current });
-  return rounds.length ? { item: record.id, rounds } : null;
+  return carried && count > 0 ? { ammo: record.ammo, count } : null;
 }
 
 /**
@@ -138,7 +179,9 @@ export function dropsOf(body: DroppingBody): DropSpec[] {
   const at: V3 = [body.feet[0], body.feet[1], body.feet[2]];
   const lay = (d: Omit<DropSpec, 'at' | 'yaw' | 'from'>): DropSpec => ({ ...d, at: [...at] as V3, yaw: body.yaw, from: body.id });
   const out: DropSpec[] = [];
-  const entries = ([0, 1] as const).map((s) => takeRing(body.records[s], body.mags[s])).filter((e): e is BundleEntryWire => e !== null);
+  // A slot with no firearm (`firearmsCarried`) bundles nothing; its ring is cleared all the same -- the body keeps no round.
+  const carried = firearmsCarried(body.loadout, body.table);
+  const entries = ([0, 1] as const).map((s) => takeRing(body.records[s], body.mags[s], carried[s])).filter((e): e is BundleEntryWire => e !== null);
   if (entries.length) out.push(lay({ kind: 'ammo', entries }));
   for (const s of [0, 1] as const) {
     const item = body.loadout[s];
@@ -200,9 +243,13 @@ export function claimWeapon(drop: DropSpec | DropWire, taker: TakingBody, table:
   const at: V3 = [taker.feet[0], taker.feet[1], taker.feet[2]];
   const replaced: DropSpec[] = [];
   const old = taker.loadout[family];
-  const rounds = taker.mags[family].entries();
-  if (rounds.length) replaced.push({ kind: 'ammo', entries: [{ item: taker.records[family].id, rounds }], at: [...at] as V3, yaw: taker.yaw, from: taker.id });
-  if (old !== EMPTY_ITEM) replaced.push({ kind: 'weapon', item: old, at: [...at] as V3, yaw: taker.yaw, from: taker.id });
+  // The replaced slot's bundle (`FUN_0059fd50(actor, slot)` -> `FUN_005ba040` with the slot): its ammunition, summed --
+  // none from a slot with no firearm (`firearmsCarried`), and no weapon from an absent marker (FULL_SLOT, EQUIP_NONE):
+  // the original's slot search (`FUN_005b8630`) finds no slot for a 254 and runs neither (D:L458178-458184).
+  const carried = firearmsCarried(taker.loadout, table)[family];
+  const count = taker.mags[family].total();
+  if (carried && count > 0) replaced.push({ kind: 'ammo', entries: [{ ammo: taker.records[family].ammo, count }], at: [...at] as V3, yaw: taker.yaw, from: taker.id });
+  if (old !== EMPTY_ITEM && old !== FULL_SLOT) replaced.push({ kind: 'weapon', item: old, at: [...at] as V3, yaw: taker.yaw, from: taker.id });
   return { loadout, slot: family, records, ring: MagazineRing.from(records[family], []), replaced };
 }
 
@@ -228,35 +275,65 @@ function claimLauncher(item: number, taker: TakingBody): Claimed | { refused: 'f
 }
 
 /**
- * A bundle walked over (AMMO_TRANSFER_PLACEHOLDER): each entry of a weapon the taker carries (a firearm slot's record
- * id) goes whole into the first free slot of that ring below the record's magazines (PICKUP_MAGAZINE_CAP_READING:
- * `magazinesCarried(record.mags)`, the record already 2X-applied) -- 0 rounds and not the magazine in the weapon -- in
- * order; an entry with no free slot under the cap, or for a weapon not carried, stays. The rings are changed in place;
- * the bundle is not. No round is created, split or rounded: what the rings gain is what leaves the bundle. `filled`:
- * each ring's slots written, the only ones the taker's `kit` lets the page set (its magazine in the weapon falls as it
- * fires, ahead of the room's).
+ * `FUN_005ba3d0(kit, slot, rounds)` on one ring (PICKUP_POUR_READING): magazines 0-9 in order, each under `cap` topped up
+ * toward the capacity from `rounds` -- the one in the weapon skipped when `ownMags` (the record's own NumMags) is 2 or more
+ * (r0004) -- each at or past `cap` zeroed. Returns what is left and each magazine changed with the amount it changed by.
+ */
+export function pourMagazines(ring: MagazineRing, cap: number, ownMags: number, rounds: number): { left: number; changed: [number, number][] } {
+  const state = ring.state();
+  const changed: [number, number][] = [];
+  let left = rounds;
+  for (let i = 0; i < state.slots.length; i++) {
+    const had = state.slots[i]!;
+    if (i < cap) {
+      if (i === state.current && ownMags >= 2) continue;            // r0004 0x5c0d80-0x5c0d9c
+      const take = Math.min(Math.max(0, ring.capacity - had), left);
+      if (take > 0) { state.slots[i] = had + take; left -= take; changed.push([i, take]); }
+    } else if (had !== 0) {
+      state.slots[i] = 0;
+      changed.push([i, -had]);
+    }
+  }
+  ring.restore(state);
+  return { left, changed };
+}
+
+/**
+ * A bundle walked over (`FUN_005bb000` D:L473176-473188; PICKUP_AMMO_MATCH_READING, PICKUP_POUR_READING): each firearm
+ * entry (no record) is poured into every slot of the taker whose record takes its ammunition, by name, in slot order
+ * (`pourMagazines` under the record's magazines, PICKUP_MAGAZINE_CAP_READING: `magazinesCarried(record.mags)`, the record
+ * already 2X-applied; `ownMags`, the kit table's own NumMags of each slot's record, for r0004's skip -- absent, the
+ * record's), what is left flowing on; what no slot takes stays (AMMO_TRANSFER_PLACEHOLDER), as does an entry that carries a
+ * record (the equipment's). A slot with no firearm (`carried`: `firearmsCarried` of the taker's kit) takes nothing --
+ * the original skips a slot with no record (`*(slot+0xe4) != 0`, D:L473180), where the port's empty slot holds the baked
+ * record (`NO_FIREARM_RECORD_PLACEHOLDER`), whose ammunition is common. The rings are changed in place; the bundle is not.
+ * No round is created: what the rings gain is
+ * what leaves the bundle, less a magazine past the cap zeroed. `filled`: each ring's magazines changed, and `added` the
+ * amount each changed by -- the page adds it to its own (its magazines fall as it fires, ahead of the room's).
  */
 export function transferAmmo(
   bundle: readonly BundleEntryWire[], records: readonly [WeaponRecord, WeaponRecord], rings: readonly [MagazineRing, MagazineRing],
-): { moved: boolean; filled: [number[], number[]]; residual: BundleEntryWire[] } {
+  carried: readonly [boolean, boolean] = [true, true], ownMags?: readonly [number, number],
+): { moved: boolean; filled: [number[], number[]]; added: [number[], number[]]; residual: BundleEntryWire[] } {
   let moved = false;
   const filled: [number[], number[]] = [[], []];
+  const added: [number[], number[]] = [[], []];
   const residual: BundleEntryWire[] = [];
   for (const entry of bundle) {
-    const s = records[0].id === entry.item ? 0 : records[1].id === entry.item ? 1 : null;
-    const kept: number[] = [];
-    for (const n of entry.rounds) {
-      const ring = s === null ? null : rings[s];
-      const state = ring?.state();
-      const cap = s === null ? 0 : magazinesCarried(records[s].mags);
-      const free = state ? state.slots.findIndex((r, i) => i < cap && r === 0 && i !== state.current) : -1;
-      if (!ring || !state || free < 0 || n > ring.capacity) { kept.push(n); continue; }
-      state.slots[free] = n;
-      ring.restore(state);
-      filled[s!].push(free);
-      moved = true;
+    if (entry.item !== undefined) { residual.push({ ...entry }); continue; }
+    let left = entry.count;
+    for (const s of [0, 1] as const) {
+      if (!carried[s] || records[s].ammo === '' || records[s].ammo !== entry.ammo) continue;
+      const out = pourMagazines(rings[s], magazinesCarried(records[s].mags), ownMags?.[s] ?? records[s].mags, left);
+      left = out.left;
+      for (const [i, d] of out.changed) {
+        const at = filled[s].indexOf(i);
+        if (at >= 0) added[s][at]! += d;
+        else { filled[s].push(i); added[s].push(d); }
+        moved = true;
+      }
     }
-    if (kept.length) residual.push({ item: entry.item, rounds: kept });
+    if (left > 0) residual.push({ ammo: entry.ammo, count: left });
   }
-  return { moved, filled, residual };
+  return { moved, filled, added, residual };
 }

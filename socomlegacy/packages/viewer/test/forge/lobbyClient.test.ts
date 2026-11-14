@@ -131,6 +131,33 @@ describe('FORGE lobby client: the HTTP routes (forgeLobbyHttp.ts)', () => {
     expect((await fetchLobby(BASE, 'not/an id', fakeFetch([]).fetch)).ok).toBe(false);   // never asked
   });
 
+  // CMV-6/7 (the community-mods plan; product track): the detail's `declared` is kept as sent, for `joinPackRefusal` to read
+  // (`../../src/forge/lobby/packCheck`); the label's members are read defensively, a malformed one dropped.
+  it('CMV-6/7: fetchLobby keeps `declared` as sent and reads modded, provider and packs defensively', async () => {
+    const ALPHA = { id: 'alpha.props', version: '1.2.0', hash: 'a'.repeat(64) };
+    const claim = [{ ...ALPHA, sides: 'client', kinds: ['content'] }];
+    const detail = { ...summary, layout: JSON.parse(serializeLayout(layout())) as unknown, missing: 0, state: { seats: [], countdown: null, launched: false } };
+    const f = fakeFetch([
+      { status: 200, body: { ...detail, community: true, modded: true, provider: 'P'.repeat(70), packs: [ALPHA], declared: claim } },
+      { status: 200, body: { ...detail, modded: 'yes', provider: 'Acme', packs: 'alpha', declared: 'not a list' } },
+      { status: 200, body: detail },
+    ]);
+    const a = await fetchLobby(BASE, 'L1', f.fetch);
+    if (!a.ok) throw new Error(a.words);
+    expect(a.lobby.declared).toEqual(claim);
+    expect(a.lobby).toMatchObject({ modded: true, provider: 'P'.repeat(64), packs: [ALPHA] });
+    const b = await fetchLobby(BASE, 'L1', f.fetch);
+    if (!b.ok) throw new Error(b.words);
+    expect(b.lobby.declared).toBe('not a list');                                 // kept: the check refuses it, not the read
+    expect(b.lobby).not.toHaveProperty('modded');
+    expect(b.lobby).not.toHaveProperty('provider');
+    expect(b.lobby).not.toHaveProperty('packs');
+    const c = await fetchLobby(BASE, 'L1', f.fetch);
+    if (!c.ok) throw new Error(c.words);
+    expect(c.lobby).not.toHaveProperty('declared');
+    expect(c.lobby.name).toBe('BOXES');
+  });
+
   it('closes a lobby: DELETE with the host ticket in X-Forge-Host', async () => {
     const f = fakeFetch([{ status: 204 }, { status: 403 }]);
     expect(await closeLobby(BASE, 'L1', 'HT', null, f.fetch)).toBe(true);

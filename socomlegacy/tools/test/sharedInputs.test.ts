@@ -138,8 +138,10 @@ const ROWS: Row[] = [
   {
     what: 'the flashbang\'s white-out: the line of sight its level is gated by (`blastSeen`, FUN_005a0e70)',
     page: body(join(VIEWER, 'grenade.ts'), 'explode'),
+    // NADE-BLAST (V21-AA) moved the room's line test out of `blastPlayers` into `blastLines` (line 1, then `blastExposed`):
+    // the gate is a call of either, so the row still reads the room as gated and the page's explode as not (P2's known).
     room: body(ROOM, 'blastPlayers'),
-    kind: (t) => (t !== null && /\bblast(?:Seen|Exposed)\(|\.flash\b[^\n]*\bblast\b/.test(t) ? 'gated by the line of sight' : 'ungated'),
+    kind: (t) => (t !== null && /\bblast(?:Seen|Exposed|Lines)\(|\.flash\b[^\n]*\bblast\b/.test(t) ? 'gated by the line of sight' : 'ungated'),
     known: { task: 'P2', why: 'TB-1: the page\'s explode whites out by flashLevel with no line test; the room\'s blast carries no flash' },
   },
   {

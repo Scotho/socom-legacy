@@ -77,15 +77,17 @@ import { contentPropsGroup, forgeLoadingScreen, lobbyArmoryData, matchExtras, st
 import type { ForgeLobbyEnd, ForgeLobbyKick, ForgeLobbyPassword, ForgeLobbyVisibility } from './lobby/deps';
 import { mountForgeLobby, type ForgeLobby } from './lobby/lobby';
 import { armoryViewPaint } from './lobby/lobbyArmory';
+import { joinPackRefusal, type HeldPack } from './lobby/packCheck';        // CMV-7 (ours)
 import {
   addressWithLobby, askForgeSeat, askGuest, closeLobby, createLobby, enterLocked, fetchLobby, ForgeLobbySession, LOBBY_PASSWORD_MAX, lobbyEndWords, lobbyIdOf, missingArchives,
   handOnLobby, kickSeat, openLobbySocket, setListed, setPassword,
 } from './lobbyClient';
 import { defaultLobbyName, forgetStaleHost, joinLockedLobby, leaveLobbyInOrder, lobbyHostProof, lobbyMenuItems, lobbyPasswordField, lobbySocketOf, lobbyVisibilityToggle, typingTarget, type LobbyHostProof } from './lobbyPage';
-import { BLANK_LIBRARY, blankLibraryMap, composeMatchMap, floorMesh, withSettings } from './matchMap';
+import { BLANK_LIBRARY, blankLibraryMap, composeMatchMap, floorMesh } from './matchMap';
 import { mapWithArsenal } from './arsenalSetting';
-import { rosterChoices, rosterStems, withRoster, type RosterMap } from './rosterSetting';
-import { withExtrasSettings, withLoadingTitle, withWorldSettings } from './worldSettings';
+import { rosterChoices, rosterStems, type RosterMap } from './rosterSetting';
+import { withExtrasSettings, withLoadingTitle } from './worldSettings';
+import { composeLayoutFinish, composeLayoutObjects, layoutOwnSites } from './composeLayout';
 import { LoadingPanel } from '../loadingPanel';
 import { mapStill } from './mapStills';
 import { openingStand, randomStand, standFromHere, walkFeet } from './playFromHere';
@@ -98,7 +100,7 @@ import { DOOR_CLIPS } from '../doors';
 import { BINOCULAR_CLIPS } from '../binocularPose';
 import { TURRET_CLIPS } from '../net/emplacement';
 import { crossHoldsIn, FORGE_MATCH_EXIT_CHORD, ForgePad, type PadAction, type PadSnapshot } from './pad';
-import { centreOf, inRect, moved as movedBy, Selection, turnedAbout, yawOf, yawQuat, type Pose, type Quat, type Vec3 } from './group';
+import { centreOf, clampedFactor, inRect, moved as movedBy, scaledAbout, Selection, turnedAbout, uniformFactor, yawOf, yawQuat, yOnly, type Pose, type Quat, type Vec3 } from './group';
 import {
   createMenuSections, PAD_MENU_INPUT, PadMenu, pagedSections, sectioned, splitAtHeadings, type MenuItem, type MenuSections, type MenuSectionSpec,
 } from './padMenu';
@@ -112,12 +114,12 @@ import { blankFloorOf, bombMarkerPlaysIn, breachReady, forgeTypeUnplayable, type
 import { under as mapUnder } from '../mapMeta';
 import type { WeaponSoundEntry } from '../soundData';
 import { COMMON_SCRIPT_EFFECTS, commonScriptNames, lentAccessAssets, lentScriptAssets, mergeLent, scriptEffectsOf, scriptSoundsOf, scriptSteps, type LentScriptAssets } from './scriptAssets';
-import { ambientProgramsOf, audioOfProgram, audioScriptSounds, forgeAmbientEmitters, withForgeObjects, type AmbientProgram } from './forgeObjects';
+import { ambientProgramsOf, audioOfProgram, audioScriptSounds, forgeAmbientEmitters, type AmbientProgram } from './forgeObjects';
 import { ambientPreview, playAmbientSounds, previewSounds } from './previewAssets';
 import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
 import { turnFacade } from '../facade';
-import { flareModelMap, flareTemplates, withPlacedFlares, type FlareTemplate } from './placedFlares';
-import { SITE_OUTLINE_DONOR, withSiteOutlines } from './siteOutlines';
+import { flareModelMap, flareTemplates, type FlareTemplate } from './placedFlares';
+import { SITE_OUTLINE_DONOR } from './siteOutlines';
 import { skyDomeFor } from './skyDome';
 import { environmentOf } from './environmentCopy';
 import { hiddenDataKeyOf, withoutHiddenData } from './mapDataHide';
@@ -126,17 +128,17 @@ import { BLANK_PRESETS, blankPresetOf, presetLayout, type PresetHostage } from '
 import { hostageCharactersOf, hostagesLeftNotes, hostagesPlayIn, hostageDefault, nextHostageName, withLentHostageBodies } from './hostages';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
 import { floorAiMaps } from './floorAi';
-import { nextNavName, nextViewName, withPlacedPoints, withPlacedViews } from './placedPoints';
-import { turretModelMap, turretMove, turretTemplates, withPlacedTurrets, type TurretTemplate } from './turrets';
+import { nextNavName, nextViewName } from './placedPoints';
+import { turretModelMap, turretMove, turretTemplates, type TurretTemplate } from './turrets';
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from './agent/commands';
 import { RADIO_LOOK_SOURCES } from './copyDefaults';
 import { accessGizmo, accessModelMap, accessMove, accessTemplates, calledOf, withPlacedAccess, type AccessTemplate } from './placedAccess';
-import { doorModelMap, doorMove, doorTemplates, withPlacedDoors, type DoorTemplate } from './placedDoors';
+import { doorModelMap, doorMove, doorTemplates, type DoorTemplate } from './placedDoors';
 import { ACTION_LINK_COLOUR, sphereSegments, BARRIER_GUIDE_COLOUR, BOMB_SITE_GUIDE_COLOUR, SWITCH_REACH_COLOUR, DAMAGE_LINK_COLOUR, LINK_NEAR, overlayLines, SWITCH_LINK_LIFT, bombSiteShapes, DOOR_SWING_COLOUR, GATE_GUIDE_COLOUR, guideGroup, HOSTAGE_GUIDE_COLOUR, keepWorldTurn, VIEW_GUIDE_COLOUR, viewShapes, yawWay, LADDER_CLIMB_COLOUR, TURRET_GUIDE_COLOUR, turretShapes, ladderSegments, ladderTriangles, swingOf, swingSegments, swingTriangles } from './interactOverlay';
 import { playObjectives } from './playObjectives';
 import {
-  contentAssetKey, contentBaseRef, missingPackRefs, onlineRecordRefusal, withoutTree, readContentMapDefinition, TRIGGER_STAT_MAX, type ContentLayoutBase, type ContentMapDefinition,
-  type ContentRef, type InstalledRulesPack, type PackRef, type RecordMode,
+  contentAssetKey, contentBaseRef, heldSettingsOf, layoutPackNeeds, missingPackRefs, onlineRecordRefusal, withoutHeldSettings, withoutTree, readContentMapDefinition, TRIGGER_STAT_MAX, type ContentLayoutBase, type ContentMapDefinition,
+  type ContentRef, type InstalledRulesPack, type PackRef, type RecordMode, RECORD_SCALE_MAX_ADAPTATION, RECORD_SCALE_MIN_ADAPTATION,
 } from '@s2u/creator-contracts';
 import { createWorkspaceDock, ForgePanelError, type ForgePanel, type ForgeShell, type ForgeShellPage } from './shell/panel';
 import { createDockShell, type DockNode } from './shell/dockShell';
@@ -155,11 +157,13 @@ import { holdEarlyPresses } from './shell/earlyPress';
 import { agentModeOf, FORGE_REFUSALS, forgeBusyRefusal, forgeEditRefusal, forgeSurfaceState, type ForgeBusyCause, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
-import { scrubAllNumbers, wheelAllNumbers, type ScrubDetail } from './scrub';
+// FC2-7 (ours): `FOLLOWER_SIZE_REFUSAL`, `scaleWithinRecord` -- a carried piece kept within the record's size bounds.
+import { FOLLOWER_SIZE_REFUSAL, PACK_PIECE_POSE_REFUSAL, PIECE_PITCH_LIMIT, scaleOnLattice, scaleWithinRecord, signedDegrees, snappedScale, snappedTurn, turnOf, turnQuaternion, type PieceTurn } from './transformStubs';
+import { scrubAllNumbers, scrubLive, wheelAllNumbers, type ScrubDetail } from './scrub';
 import { buildOutliner, OUTLINER_KINDS, outlinerPanel, spawnSlotRows } from './panels/outlinerPanel';
 import { mapDataGroups, type MapDataSource } from './mapData';
 import { aimPointOf, linkSegments, linkTargets, programEffects } from './actionSummary';
-import { FORGE_SWITCH_REACH, leverLook, SCRIPT_BLAST_DAMAGE, SCRIPT_BLAST_RADIUS, lookModelMap, mapActionTargets, radioLook, withPieceInstances, type SwitchLook, type SwitchLookId } from './placedAccess';
+import { FORGE_SWITCH_REACH, leverLook, SCRIPT_BLAST_DAMAGE, SCRIPT_BLAST_RADIUS, lookModelMap, mapActionTargets, radioLook, type SwitchLook, type SwitchLookId } from './placedAccess';
 import type { AudioStep, SwitchScript, SwitchStep, SwitchTarget } from '@s2u/creator-contracts';
 import { AUDIO_LOOP_MAX, AUDIO_STEPS_MAX, AUDIO_VOLUME_MAX, AUDIO_WAIT_MAX, audioScriptOk } from '@s2u/creator-contracts';
 import { ACTION_ICONS } from '../hud';
@@ -671,6 +675,11 @@ export interface ForgeContentSource {
    * definition was not read yet. Absent: nothing to wait for.
    */
   ready?(packs: PackRef | readonly PackRef[]): Promise<void>;
+  /**
+   * CMV-7 (ours): the packs this device holds, each with its manifest (FP-5's `RegistryContentSource.heldPacks`), for the
+   * join's pack check (`./lobby/packCheck` `joinPackRefusal`). Absent: none held, so a pack lobby's join is refused.
+   */
+  heldPacks?(): readonly HeldPack[];
 }
 /**
  * R6: the page's content source until the registry publishes its members -- FCW-06's `LocalPackApi` (`../packs/registry`)
@@ -940,7 +949,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     'Off, a click looks through them to what is behind. A kind switched off in the Overlays dropdown (its billboards) is passed over too; props always follow these two. The Outliner selects any.'));
   const moveBtn = tool('move', 'Move', `Move with the gizmo${key('W')}`);
   const turnBtn = tool('turn', 'Rotate', `Rotate with the gizmo${key('E')}`);
-  const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo (not wired yet)${key('R')}`);
+  const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo${key('R')}`);   // FX-9: a piece's scale, an axis or whole
   scaleBtn.hidden = FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION;    // FC-1 (main): a stub, hidden (`./transformStubs`)
   // The snaps are the viewport's grid and rotation pills (`snapPill`, `drawPlacement`); G and the pad's L3 turn both on and off.
   const dupBtn = tool('copy', '', `Duplicate · pad □${key('Ctrl+D')}`);
@@ -2159,11 +2168,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * The early tap (product track, a browser adaptation with no original; shadow's GPU trace at 1da70bdac): the shell is on
    * the page from here while the renderer starts below (WebGPU's start, slow on a real GPU), its listeners wired only
    * after it. A press on the toolbar meanwhile is held and pressed once the page is wired (`./shell/earlyPress`; help and
-   * reset-layout are wired already), and the controls that act on the scene -- the placing tools, the viewport, the
-   * modes, the edits, Walk, Check, Create lobby, Save map and Play -- are inert until then. Open too: its press opens the
-   * file chooser, which a browser allows only within a user activation's few seconds, so a replay after a slow start
-   * could do nothing (its listener reads `refuseUnderCard` and `lobby`, made after the await, so it cannot be wired
-   * early). Nothing changes once wired.
+   * reset-layout are wired already), as is the help card's "Forge menu (M)" press of the menu's button (FC2-6: never on
+   * the page, its listener wired after the await; `earlyPresses.press` below), and the controls that act on the scene --
+   * the placing tools, the viewport, the modes, the edits, Walk, Check, Create lobby, Save map and Play -- are inert
+   * until then. Open too: its press opens the file chooser, which a browser allows only within a user activation's few
+   * seconds, so a replay after a slow start could do nothing (its listener reads `refuseUnderCard` and `lobby`, made
+   * after the await, so it cannot be wired early). Nothing changes once wired.
    */
   const earlyPresses = holdEarlyPresses(top, [helpBtn, resetLayoutBtn]);
   const untilWired: HTMLElement[] = [toolsRow, viewport, openBtn, modeBtns.select, modeBtns.place, dupBtn, delBtn, undoBtn, redoBtn, walkBtn, checkBtn, lobbyBtn, saveMapBtn, playBtn];
@@ -2295,6 +2305,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     ok.addEventListener('click', done);
     handle = cards.open(card, { onBack: done, initialFocus: ok, label: heading });          // FUI-2: on the card stack
   });
+  /**
+   * Walking the layout as a SEAL (`togglePlay`). Declared here, before the renderer's await, because `setHelp` reads it
+   * and Controls is wired before the await (FC2-6: an early press of Controls read it before its `let` and threw).
+   */
+  let playing = false;
   // Opened on the controls of what is going on: Walk / Play while walking or in a match, else the editor's.
   const setHelp = (on: boolean): void => { if (on) showHelpTab(playing ? 'play' : 'editor'); help.hidden = !on; leaseCheck(); };
   helpBtn.addEventListener('click', () => setHelp(true));
@@ -2302,7 +2317,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const button = (e.target as HTMLElement).closest('footer button');
     if (e.target !== help && !button) return;
     setHelp(false);
-    if (button?.hasAttribute('data-help-menu')) menuBtn.click();   // the forge menu, the ≡ button's way in
+    // The forge menu, the ≡ button's way in; held until the page is wired, then pressed (FC2-6: `earlyPresses`).
+    if (button?.hasAttribute('data-help-menu')) earlyPresses.press(menuBtn);
   });
   const showLoading = (heading: string | null): void => {
     loading.hidden = heading === null;
@@ -2718,6 +2734,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let gizmoSpace: 'world' | 'local' = 'world';
   /** The placements under the dragged ones (`followersOf`), carried along each step of a drag. */
   let dragFollow: { r: Object3D; a: Object3D; rel: Matrix4 }[] | null = null;
+  /** FC2-7 (ours): a scale drag's last scale that kept every carried piece within the record's bounds. */
+  let dragScaleKept: Vector3 | null = null;
+  /** FC2 (ours; the review's F2): a turn drag's last turn that kept every carried pack piece level (`followersWithin`). */
+  let dragTurnKept: Quaternion | null = null;
   let duplicateModifierOnPointerDown = false;
   /** A map prop's drag waiting on its first move: a copy (Ctrl, `take` false) or the prop taken over (a plain drag). */
   let pendingMapPropDrag: { source: BaseProp; before: string[]; take: boolean } | null = null;
@@ -2751,6 +2771,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   gizmo.addEventListener('objectChange', () => {
     surfaceSnapDrag();
+    // FX-9: a piece scaled by the gizmo stays within the record's bounds (0.1..4 an axis) while it is dragged: never
+    // mirrored, never flat; the release puts it on the lattice (`dragging-changed`).
+    if (gizmo.mode === 'scale' && gizmo.object && gizmo.object === selected) {
+      const sc = gizmo.object.scale;
+      sc.set(...([sc.x, sc.y, sc.z].map((v) => Math.min(RECORD_SCALE_MAX_ADAPTATION, Math.max(RECORD_SCALE_MIN_ADAPTATION, v))) as [number, number, number]));
+    }
+    // FX-9: a group scales uniformly -- the axis dragged furthest is the factor -- and stops, whole, where its first piece
+    // would leave the record's bounds (`./group` `uniformFactor`, `clampedFactor`).
+    if (gizmo.mode === 'scale' && gizmo.object === pivot && dragFrom) {
+      pivot.scale.setScalar(clampedFactor(dragFrom.poses, uniformFactor([pivot.scale.x, pivot.scale.y, pivot.scale.z]), RECORD_SCALE_MIN_ADAPTATION, RECORD_SCALE_MAX_ADAPTATION));
+    }
     if (gizmo.object === mapPropProxy && pendingMapPropDrag) {
       const pending = pendingMapPropDrag;
       pendingMapPropDrag = null;
@@ -2811,29 +2842,60 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         say(`Could not duplicate the selected user props: ${String(error)}`, true);
       });
     } else if (gizmo.object === pivot && dragFrom && !pendingGroupPropDrag) applyPivot(dragFrom);
+    // FC2-7 (ours): a scale drag stops where a piece it carries would leave the record's bounds (0.1..4), as a group's
+    // stops at its own pieces' (`clampedFactor`): the last scale that kept them all is put back. (No refusal said: the
+    // gizmo's drag has no clean point to refuse at, so it stops, as FX-9's bounds do.)
+    // FC2 (ours; the review's F2): a turn drag stops so too where it would tilt a pack piece it carries (`followersWithin`:
+    // a pack piece keeps a turn about the vertical at unit scale) -- the last turn that kept it level put back; a Y-ring
+    // turn never stops there (it keeps a carried piece's turn about the vertical).
+    if ((gizmo.mode === 'scale' || gizmo.mode === 'rotate') && dragFollow?.length && gizmo.object) {
+      if (followersWithin(dragFollow)) { dragScaleKept = gizmo.object.scale.clone(); dragTurnKept = gizmo.object.quaternion.clone(); }
+      else if (dragScaleKept) {
+        gizmo.object.scale.copy(dragScaleKept);
+        if (dragTurnKept) gizmo.object.quaternion.copy(dragTurnKept);
+        gizmo.object.updateMatrix();
+        if (gizmo.object === pivot && dragFrom) applyPivot(dragFrom);
+      }
+    }
+    // FC2 (ours; F1's check of the gizmo): the rotate gizmo writes a single marker's quaternion, and three re-derives its
+    // `rotation` in XYZ -- a Y-ring turn past 90 would save the wrong yaw (`rotation.y`); finished yaw-only (`yawOnly`).
+    if (gizmo.mode === 'rotate' && selected && gizmo.object === selected) yawOnly(selected);
     if (dragFollow?.length) carryFollowers(dragFollow);           // the children with their parent
     refreshBox(); refreshInspector(); changed();
   });
   /**
-   * STUB (a browser adaptation, FG.R2): the rotate gizmo's tilt rings -- X (pitch), Z (roll), the view ring (E) and the
-   * free turn (XYZE) -- are drawn but not wired. Record v3 keeps a piece's yaw alone (`creator-contracts`
-   * `recordOfLayout`), so a grab on one is stopped before the gizmo's own pointerdown and the page says so; Y turns.
+   * FX-9 (FX.R3; a browser adaptation, FG.R2): why the gizmo's object may not be tilted -- by the rotate gizmo's X
+   * (pitch), Z (roll), view (E) or free (XYZE) ring -- or scaled, or null when it may: a single piece (its record keeps
+   * its pitch, roll and scale, `creator-contracts` `PoseRow`). A marker turns about the vertical alone and keeps its
+   * size; a map prop stays as the disc placed it; a group turns about the vertical. Each refusal is "reason: remedy".
+   */
+  const transformRefusal = (what: 'tilt' | 'scale'): string | null => {
+    const o = gizmo.object;
+    if (!o) return null;
+    if (o === selected && kindOf(o) === 'Piece') return packPiece(o) ? PACK_PIECE_POSE_REFUSAL : null;
+    if (o === mapPropProxy) return 'Map props stay as the disc placed them: hide one and place the prop from Assets to tilt or scale it';
+    // FX-9: a group of pieces tilts and scales (uniformly) as a whole about its centre; one holding a marker turns about
+    // the vertical alone and keeps its size, as before (`./group` `yOnly`).
+    if (o === pivot) {
+      if (!yOnly(picks.items.map(poseOf))) return picks.items.some(packPiece) ? PACK_PIECE_POSE_REFUSAL : null;
+      return what === 'tilt' ? 'A group with a marker turns about the vertical only: select pieces alone to tilt them'
+        : 'A group with a marker keeps its size: select pieces alone to scale them';
+    }
+    return what === 'tilt' ? 'Markers turn about the vertical only: use the Y ring or Yaw' : 'Markers keep their size: select a piece to scale it';
+  };
+  /**
+   * FX-9: a grab of a ring or a handle the selection may not take (`transformRefusal`) is stopped before the gizmo's own
+   * pointerdown, and said; any other is the gizmo's (it was FC-1's stub, `tiltRingStub`, every tilt and scale refused).
    */
   const tiltRingStub = (e: PointerEvent): void => {
     if (e.button !== 0 || !gizmo.enabled || !gizmo.object) return;
     const axis = gizmo.axis;
     if (axis === null) return;
-    // STUB: the scale tool -- its gizmo drawn, every handle stopped (the record keeps no scale either).
-    if (gizmo.mode === 'scale') {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      say('Scale is not wired yet: a saved layout keeps no scale');
-      return;
-    }
-    if (gizmo.mode !== 'rotate' || axis === 'Y') return;
+    const why = gizmo.mode === 'scale' ? transformRefusal('scale') : gizmo.mode === 'rotate' && axis !== 'Y' ? transformRefusal('tilt') : null;
+    if (why === null) return;
     e.stopImmediatePropagation();
     e.preventDefault();
-    say(`${axis === 'X' ? 'Pitch' : axis === 'Z' ? 'Roll' : 'Free turn'} is not wired yet: a saved layout keeps a piece's yaw only`);
+    notifier.refused(why);
   };
   input.addEventListener('pointerdown', tiltRingStub, true);
   gizmo.addEventListener('dragging-changed', (e) => {
@@ -2841,6 +2903,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // The tree: what is under the dragged placements follows them (never a copy's drag).
       dragFollow = duplicateModifierOnPointerDown ? null
         : followersOf(gizmo.object === pivot ? picks.items : selected && gizmo.object === selected ? [selected] : []);
+      dragScaleKept = gizmo.object ? gizmo.object.scale.clone() : null;   // FC2-7 (ours): the drag's start, within bounds
+      dragTurnKept = gizmo.object ? gizmo.object.quaternion.clone() : null;   // FC2 (ours): its turn, every pack piece level
       if (gizmo.object === pivot) {
         const centre: Vec3 = [pivot.position.x, pivot.position.y, pivot.position.z];
         const poses = picks.items.map(poseOf);
@@ -2894,8 +2958,32 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     const group = dragFrom !== null;
     dragFrom = null;
-    // A drag is one step (FUI-6: the move's or the turn's entry; the drag already moved, so it is only recorded).
-    personEdit(gizmo.mode === 'rotate' ? 'piece.rotate' : 'piece.move', { refs: selectionIds() }, () => edit(), true);
+    // FX-9: a piece turned or scaled is put on the record's lattice at the release (`poseOn`), so the piece kept is the
+    // piece a save keeps. FC2-6 (ours): a turn about Y alone too -- the record keeps a whole degree of yaw, a piece's and
+    // a marker's (`creator-contracts` `wholeDeg`), and a typed Yaw is put there (FC2-7) -- and a marker turned is put on
+    // its whole degree of yaw (`yawTo`); before, a Y-ring turn was kept as it was let go, a fraction a save then dropped.
+    const posed = gizmo.mode === 'scale' || gizmo.mode === 'rotate';
+    const onLattice = !posed ? [] : group ? picks.items.filter((r) => !isMarker(r))
+      : selected && gizmo.object === selected && kindOf(selected) === 'Piece' ? [selected] : [];
+    const markersTurned = gizmo.mode !== 'rotate' ? [] : group ? picks.items.filter(isMarker)
+      : selected && gizmo.object === selected && isMarker(selected) ? [selected] : [];
+    // FC2-7 (ours): the release ends the drag's edit: what was dragged and the pieces under it carried by that last step
+    // and put on the lattice once (`carrying`'s commit) -- whatever the drag (a move, a Y turn), its previews unsnapped.
+    const dragged = group ? picks.items : selected && gizmo.object === selected ? [selected] : [];
+    carrying(dragged, () => {
+      for (const r of onLattice) {
+        const pose = poseOn(r);
+        r.quaternion.copy(pose.q);
+        r.scale.set(...pose.s);
+        r.updateMatrix();
+      }
+      for (const r of markersTurned) { yawTo(r, Math.round((r.rotation.y * 180) / Math.PI)); r.updateMatrix(); }
+    }, true);
+    if (onLattice.length > 0 || markersTurned.length > 0) { refreshBox(); refreshInspector(); }
+    // A drag is one step (FUI-6: the move's, the turn's or the scale's entry; the drag already moved, so it is only
+    // recorded). FX-9: a scale is `placement.set`'s `scale`, the Inspector's Scale fields' entry ("Set scale").
+    if (gizmo.mode === 'scale') personEdit('placement.set', { refs: selectionIds(), field: 'scale' }, () => edit(), true);
+    else personEdit(gizmo.mode === 'rotate' ? 'piece.rotate' : 'piece.move', { refs: selectionIds() }, () => edit(), true);
     if (group) placePivot();
   });
   /** The selection's boxes, one per member (FG-47); the first is the single selection's. */
@@ -3029,19 +3117,113 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     return out;
   };
+  /**
+   * FC2 (ours; the hand-merge review's F1 and F3, 2026-11-13): a placement that is not a piece -- a marker: a spawn, an
+   * NPC, a hostage, a door... -- left with a turn about the vertical alone, at the `YXZ` yaw of the quaternion just
+   * written (as `localPose` and `turnOf` read it). Why: a marker is SAVED as `yaw: r.rotation.y` (the layout's writer),
+   * and a quaternion written from a decomposed matrix (or copied) has three re-derive `rotation` in its default `XYZ`
+   * order, where a yaw past 90 degrees is not `rotation.y` (Ry(180) reads (180, 0, 180): saved 0) and a parent's tilt
+   * would be kept; finished here, `rotation.y` is its yaw again and a marker never carries a tilt (our branch's `yawTo`
+   * did this for the typed Yaw before the merge). A piece is left alone: its record is its matrix (FX-9's lattice).
+   */
+  const yawOnly = (r: Object3D): void => {
+    if (kindOf(r) === 'Piece') return;
+    r.rotation.set(0, new Euler().setFromQuaternion(r.quaternion, 'YXZ').y, 0);
+    // FC2-6 (ours): and at unit scale -- a marker's record keeps no scale (`isMarker`), so one carried under a scaled
+    // parent was drawn at the parent's scale until a reopen drew it at 1. Its place is the record's either way.
+    r.scale.set(1, 1, 1);
+    r.updateMatrix();
+  };
   /** The followers put back at their places relative to their moved ancestors (`followersOf`). */
-  const carryFollowers = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[]): void => {
+  const carryFollowers = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[], commit = false): void => {
     for (const { r, a, rel } of follow) {
       a.updateMatrix();
       a.matrix.clone().multiply(rel).decompose(r.position, r.quaternion, r.scale);
+      yawOnly(r);                                                // FC2 (ours): a carried marker turns about the vertical alone (F3)
+      // FC2-7 (ours): a carried piece put on the record's lattice (`poseOn`: whole degrees, scale steps of 0.01) when the
+      // carry ends an edit (`commit`), so the piece shown is the one a save, a reopen and a lobby give back. A preview (a
+      // scrub's step, a drag's, a cancel's put-back) is never snapped -- FX-9's rule: `carrying` takes the follower's place
+      // afresh each step, so a snap a step would add up -- and the release snaps once. Its bounds are kept before the edit
+      // (`followersFit`), never clamped here; a shear its parent's scale gave it is not held (the tree's design, FC2-7).
+      if (commit && kindOf(r) === 'Piece') { const pose = poseOn(r); r.quaternion.copy(pose.q); r.scale.set(...pose.s); }
       r.updateMatrix();
     }
   };
-  /** `move` run on `movers`, every placement under them carried along. */
-  const carrying = (movers: readonly Object3D[], move: () => void): void => {
+  /**
+   * FC2 (ours; the hand-merge review's F2): how far a carried pack piece's scale (from 1) and its quaternion's x and z
+   * (from 0) may be and still be a turn about the vertical at unit scale -- float noise only (a browser adaptation's own
+   * tolerance, no game value).
+   */
+  const PACK_FOLLOWER_POSE_EPSILON = 1e-6;
+  /**
+   * FC2 (ours; F2, factored for the batch review's B-3): whether a pack piece at the world matrix `m` would have more than
+   * a turn about the vertical at unit scale (`PACK_FOLLOWER_POSE_EPSILON`): what `PACK_PIECE_POSE_REFUSAL` refuses.
+   */
+  const offVertical = (m: Matrix4): boolean => {
+    const s = new Vector3().setFromMatrixScale(m);
+    const q = new Quaternion();
+    m.decompose(new Vector3(), q, new Vector3());
+    const e = PACK_FOLLOWER_POSE_EPSILON;
+    return [s.x, s.y, s.z].some((v) => Math.abs(v - 1) > e) || Math.abs(q.x) > e || Math.abs(q.z) > e;
+  };
+  /**
+   * FC2-7 (ours): why a piece under `follow`'s ancestors, as they stand now, may not be carried there, or null. FC2 (ours;
+   * the review's F2): a creator pack's piece (`packPiece`) keeps a turn about the vertical at unit scale -- FX-9's rule
+   * (`PACK_PIECE_POSE_REFUSAL`), which its own fields and the group gizmo keep, held for it when a parent carries it;
+   * any piece keeps the record's size bounds (`FOLLOWER_SIZE_REFUSAL`).
+   */
+  const followersWhy = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[]): string | null => {
+    for (const { r, a, rel } of follow) {
+      if (kindOf(r) !== 'Piece') continue;
+      a.updateMatrix();
+      const m = a.matrix.clone().multiply(rel);
+      const s = new Vector3().setFromMatrixScale(m);
+      if (packPiece(r) && offVertical(m)) return PACK_PIECE_POSE_REFUSAL;
+      if (!scaleWithinRecord([s.x, s.y, s.z])) return FOLLOWER_SIZE_REFUSAL;
+    }
+    return null;
+  };
+  /** FC2-7 (ours): whether each piece under `follow`'s ancestors may be carried where it stands now (`followersWhy`). */
+  const followersWithin = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[]): boolean => followersWhy(follow) === null;
+  /**
+   * FC2-7 (ours): why `move` on `movers` may not be made -- a piece under them past the record's size bounds, or (FC2,
+   * ours: F2) a pack piece under them tilted or scaled (`followersWhy`) -- or null. `move` is tried and the movers put
+   * back as they were, nothing carried: the caller applies the edit, or refuses it in these words.
+   */
+  const followersRefusal = (movers: readonly Object3D[], move: () => void): string | null => {
+    const follow = followersOf(movers);
+    if (follow.length === 0) return null;
+    const was = movers.map((r) => ({ r, p: r.position.clone(), q: r.quaternion.clone(), s: r.scale.clone() }));
+    move();
+    const why = followersWhy(follow);
+    // FC2 (ours): a marker put back yaw-only (`yawOnly`): the copied quaternion re-derives `rotation` in XYZ.
+    for (const { r, p, q, s } of was) { r.position.copy(p); r.quaternion.copy(q); r.scale.copy(s); r.updateMatrix(); yawOnly(r); }
+    return why;
+  };
+  /** FC2-7 (ours): whether `move` on `movers` may be made (`followersRefusal`). */
+  const followersFit = (movers: readonly Object3D[], move: () => void): boolean => followersRefusal(movers, move) === null;
+  /**
+   * FC2 (ours; the batch review's B-3): why the turn `move` of `s` may not be made, or null -- `s` itself a pack piece
+   * left with more than a turn about the vertical at unit scale (`offVertical`: a Yaw is local to the parent,
+   * `setLocalAxis`, about the parent's own Y, which under a tilted parent is no vertical), in `PACK_PIECE_POSE_REFUSAL`'s
+   * words; else what `followersRefusal` says of the pieces under it. `move` is tried and `s` put back as it was.
+   */
+  const turnRefusal = (s: Object3D, move: () => void): string | null => {
+    if (packPiece(s)) {                                          // a pack's reference: on a piece alone
+      const was = { p: s.position.clone(), q: s.quaternion.clone(), sc: s.scale.clone() };
+      move();
+      s.updateMatrix();
+      const off = offVertical(s.matrix);
+      s.position.copy(was.p); s.quaternion.copy(was.q); s.scale.copy(was.sc); s.updateMatrix();
+      if (off) return PACK_PIECE_POSE_REFUSAL;
+    }
+    return followersRefusal([s], move);
+  };
+  /** `move` run on `movers`, every placement under them carried along (FC2-7, ours: `commit` when it ends an edit). */
+  const carrying = (movers: readonly Object3D[], move: () => void, commit = false): void => {
     const follow = followersOf(movers);
     move();
-    carryFollowers(follow);
+    carryFollowers(follow, commit);
   };
   /** A placement's matrix local to its parent's (its world matrix at the top). */
   const localMatrixOf = (r: Object3D): Matrix4 => {
@@ -3057,6 +3239,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (p) p.updateMatrix();
     (p ? p.matrix.clone().multiply(local) : local).decompose(r.position, r.quaternion, r.scale);
     r.updateMatrix();
+    yawOnly(r);                                                  // FC2 (ours): a marker's typed or scrubbed Yaw saved as shown (F1)
   };
   /** A placement's local position and yaw (degrees), as the Inspector shows them. */
   const localPose = (r: Object3D): { position: Vector3; yaw: number } => {
@@ -3113,12 +3296,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let replacing: { r: Object3D; position: Vector3; quaternion: Quaternion; before: string[]; others: { r: Object3D; rel: Matrix4 }[];
     follow: { r: Object3D; a: Object3D; rel: Matrix4 }[]; starts: Map<Object3D, { position: Vector3; quaternion: Quaternion }>; moving: Set<Object3D> } | null = null;
   /** The re-placed ones after the lead: the rest of the selection at their places relative to it, what is under them along. */
-  const carryReplace = (): void => {
+  const carryReplace = (commit = false): void => {
     const was = replacing;
     if (!was) return;
     was.r.updateMatrix();
-    for (const { r: o, rel } of was.others) { was.r.matrix.clone().multiply(rel).decompose(o.position, o.quaternion, o.scale); o.updateMatrix(); }
-    carryFollowers(was.follow);
+    // FC2 (ours): a marker among them turns about the vertical alone (`yawOnly`), as a carried one does.
+    for (const { r: o, rel } of was.others) { was.r.matrix.clone().multiply(rel).decompose(o.position, o.quaternion, o.scale); o.updateMatrix(); yawOnly(o); }
+    carryFollowers(was.follow, commit);                         // FC2-7 (ours): snapped only at the put-down (`commitReplace`)
   };
   /**
    * The base map's own data selected (a browser adaptation, FG.R2): a spawn slot, a door, a view... picked from its
@@ -3281,8 +3465,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** R5-B (a browser adaptation): the agent's camera shot on this page's fly camera (`./camera/pageShot`), made below. */
   let pageShot: PageShot | null = null;
   const agentChanged = (): void => { agentRevisions.changed(); };
-  /** Walking the layout as a SEAL (`togglePlay`). */
-  let playing = false;
+  // Walking the layout as a SEAL: declared with `setHelp` above (FC2-6), which an early press of Controls reaches.
   /**
    * FG-26 (FG.R19-R22): the forge lobby this page is in (its host's or a joiner's), or null. While it is open the layout
    * is the server's copy -- the room was composed from it (`forgeSimMap.ts`) -- so it takes no edit and Play waits.
@@ -4451,10 +4634,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     p: [r.position.x, r.position.y, r.position.z],
     q: isMarker(r) ? yawQuat(r.rotation.y) : [r.quaternion.x, r.quaternion.y, r.quaternion.z, r.quaternion.w],
     marker: isMarker(r),
+    ...(isMarker(r) ? {} : { s: [r.scale.x, r.scale.y, r.scale.z] as Vec3 }),   // FX-9: a piece's scale, for a group's scale
   });
   const applyPose = (r: Object3D, m: Pose): void => {
     r.position.set(...m.p);
     if (m.marker) r.rotation.set(0, yawOf(m.q), 0); else r.quaternion.set(...m.q);
+    if (!m.marker && m.s) r.scale.set(...m.s);
   };
   /** FG-47: the placements picked, their poses replaced (the same order). */
   const applyPoses = (poses: readonly Pose[]): void => { picks.items.forEach((r, i) => { const m = poses[i]; if (m) applyPose(r, m); }); };
@@ -4468,11 +4653,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     pivot.scale.set(1, 1, 1);
     pivot.updateMatrixWorld();
   };
-  /** FG-47: the pivot's change since the drag's start, applied to every member: the turn about the centre, then the move. */
+  /**
+   * FG-47: the pivot's change since the drag's start, applied to every member: the turn about the centre, then the move.
+   * FX-9: and the pivot's scale, uniform (the gizmo's `objectChange` makes it one factor, held so no piece leaves the
+   * record's bounds), about the same centre first (`./group` `scaledAbout`).
+   */
   const applyPivot = (from: { centre: Vec3; poses: Pose[] }): void => {
     const q = pivot.quaternion;
     const d: Vec3 = [pivot.position.x - from.centre[0], pivot.position.y - from.centre[1], pivot.position.z - from.centre[2]];
-    applyPoses(movedBy(turnedAbout(from.poses, from.centre, [q.x, q.y, q.z, q.w]), d));
+    const factor = pivot.scale.x;
+    const scaled = factor === 1 ? from.poses : scaledAbout(from.poses, from.centre, factor);
+    applyPoses(movedBy(turnedAbout(scaled, from.centre, [q.x, q.y, q.z, q.w]), d));
   };
   /** FG-47: a move, turn or copy of a group with map props in it passes over them (they cannot move): said once. */
   const passOver = (what: string): void => {
@@ -5148,33 +5339,92 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** FUI-22 (D2): the Inspector head's kind word for a placement. */
   const kindOf = (r: Object3D): string => (objectOf(r) ? 'Ambient effect' : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
   /**
-   * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2): drawn, not yet wired. A single piece shows its
-   * own values (pitch and roll read in the `YXZ` order, so yaw stays the turn about Y); anything else -- a group, a map
-   * prop, a marker, a rules entity -- has them off, as its record keeps a yaw alone. An edit goes to `transformStub`.
+   * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2; FX-9, FX.R3: made real). A single piece shows its
+   * own values, read off its matrix in the `YXZ` order (`./transformStubs` `turnOf`, so yaw stays the turn about Y), the
+   * pitch and the roll signed (the record's roll is 0..359; the field converts, `signedDegrees`); anything else -- a
+   * group, a map prop, a marker, a rules entity -- has them off, as its record keeps a yaw alone. Each field holds the
+   * record's bounds (pitch -90..90, scale 0.1..4 an axis), so a scrub stops at them; an edit is `commitTurnField`'s.
    */
   const stubFields = [fpitch, froll, fsx, fsy, fsz];
-  const fillStubFields = (force = false): void => {
+  fpitch.min = String(-PIECE_PITCH_LIMIT); fpitch.max = String(PIECE_PITCH_LIMIT);
+  froll.min = '-180'; froll.max = '180';
+  for (const f of [fsx, fsy, fsz]) { f.min = String(RECORD_SCALE_MIN_ADAPTATION); f.max = String(RECORD_SCALE_MAX_ADAPTATION); }
+  /** FX-9: the one piece the Inspector's pitch, roll and scale edit (a single selection whose kind is Piece), or null. */
+  const turnedPiece = (): Object3D | null => {
     const s = selected;
-    const piece = s !== null && !isGroup() && !baseSelected && kindOf(s) === 'Piece' ? s : null;
-    for (const f of stubFields) f.disabled = !piece || editsLocked();
-    const turn = piece ? new Euler().setFromQuaternion(piece.quaternion, 'YXZ') : null;
+    return s !== null && !isGroup() && !baseSelected && kindOf(s) === 'Piece' ? s : null;
+  };
+  /** FX-9 (T10): a creator pack's piece, which keeps a turn about the vertical at its own size (`PACK_PIECE_POSE_REFUSAL`). */
+  const packPiece = (r: Object3D): boolean => r.userData['forgeContent'] !== undefined && r.userData['forgeContent'] !== null;
+  const stubTitles = stubFields.map((f) => f.title);
+  const fillStubFields = (force = false): void => {
+    const piece = turnedPiece();
+    const pack = piece !== null && packPiece(piece);
+    // Off for anything but a piece, under the lobby's lock, and for a pack's piece -- its reason in the title (the
+    // sheet's one disabled look, its reason said).
+    stubFields.forEach((f, i) => { f.disabled = !piece || pack || editsLocked(); f.title = pack ? PACK_PIECE_POSE_REFUSAL : stubTitles[i] ?? f.title; });
+    const turn = piece ? turnOf(piece.quaternion) : null;
     const scaled = (v: number): string => String(Math.round(v * 1000) / 1000);
     const show = (f: HTMLInputElement, v: string): void => { if (force || doc.activeElement !== f) f.value = v; };
-    show(fpitch, turn ? String(deg(turn.x)) : '');
-    show(froll, turn ? String(deg(turn.z)) : '');
+    show(fpitch, turn ? String(signedDegrees(turn.pitch)) : '');
+    show(froll, turn ? String(signedDegrees(turn.roll)) : '');
     show(fsx, piece ? scaled(piece.scale.x) : '');
     show(fsy, piece ? scaled(piece.scale.y) : '');
     show(fsz, piece ? scaled(piece.scale.z) : '');
   };
   /**
-   * STUB: pitch, roll and scale edits are not applied. Record v3 keeps a piece's yaw alone (`creator-contracts`
-   * `recordOfLayout`), so a tilt or a scale would be lost at the next save; the field is put back and the page says so.
+   * FX-9: a piece's turn and scale on the record's lattice (`./transformStubs` `snappedTurn`, `snappedScale`: whole
+   * degrees, the pitch within -90..90, the gimbal's one form, a scale of 0.01 within 0.1..4), so the piece in memory, in
+   * the undo history and in a lobby is the one a save and a reopen give back. `turn` and `scale` default to its own.
    */
-  const transformStub = (f: HTMLInputElement): void => {
-    fillStubFields(true);
-    say(`${f.dataset['label'] ?? 'This field'} is not wired yet: a saved layout keeps a piece's yaw only`);
+  const poseOn = (r: Object3D, turn: Partial<PieceTurn> = {}, scale: readonly number[] = [r.scale.x, r.scale.y, r.scale.z]): { q: Quaternion; s: [number, number, number] } =>
+    ({ q: turnQuaternion(snappedTurn({ ...turnOf(r.quaternion), ...turn })), s: snappedScale(scale) });
+  /** FX-9: whether `r` already is at that pose (a turn within float noise, the scale exactly): an edit to it is none. */
+  const poseKept = (r: Object3D, pose: { q: Quaternion; s: readonly number[] }): boolean =>
+    Math.abs(pose.q.dot(r.quaternion)) > 1 - 1e-12 && pose.s[0] === r.scale.x && pose.s[1] === r.scale.y && pose.s[2] === r.scale.z;
+  /** FX-9: a placement turned to `yaw` degrees: a piece keeps its pitch and roll (`YXZ`), any other kind turns about y alone. */
+  const yawTo = (r: Object3D, yaw: number, from: Quaternion = r.quaternion): void => {
+    if (kindOf(r) === 'Piece') turnQuaternion({ ...turnOf(from), yaw }, r.quaternion);
+    else r.rotation.set(0, (yaw * Math.PI) / 180, 0);
   };
-  for (const f of stubFields) f.addEventListener('change', () => transformStub(f));
+  /**
+   * FX-9: a Pitch, Roll or Scale field's value committed (its `change`: Enter, leaving the field, a scrub let go) as one
+   * step, as Yaw's is (FUI-6): a turn through `piece.rotate` ("Rotate"), a scale through `placement.set`'s `scale` ("Set
+   * scale"). The field then shows the value kept: a finer one rounded, one past the record's bounds held at them.
+   */
+  const commitTurnField = (f: HTMLInputElement): void => {
+    const piece = turnedPiece();
+    const v = Number(f.value);
+    if (piece && packPiece(piece)) { notifier.refused(PACK_PIECE_POSE_REFUSAL); fillStubFields(true); return; }
+    if (!piece || f.disabled || f.value.trim() === '' || !Number.isFinite(v)) { fillStubFields(true); return; }
+    const axis = f === fsx ? 0 : f === fsy ? 1 : f === fsz ? 2 : -1;
+    const scale = [piece.scale.x, piece.scale.y, piece.scale.z].map((s, i) => (i === axis ? v : s));
+    const pose = poseOn(piece, f === fpitch ? { pitch: v } : f === froll ? { roll: v } : {}, scale);
+    // The value it has, typed again: no step (a scrub's release is one: its preview moved the piece already).
+    if (scrubOrigin?.r !== piece && poseKept(piece, pose)) { fillStubFields(true); return; }
+    // FC2-7 (ours): refused, in words, when it would carry a piece under it past the record's size bounds -- the piece and
+    // what is under it left as they were (a scrub's preview, which stops short of that, put back with them). FC2 (ours;
+    // F2): or a pack piece under it tilted or scaled, in `PACK_PIECE_POSE_REFUSAL`'s words (`followersRefusal`).
+    const why = followersRefusal([piece], () => { piece.quaternion.copy(pose.q); piece.scale.set(...pose.s); });
+    if (why !== null) {
+      notifier.refused(why);
+      const o = scrubOrigin;
+      if (o?.r === piece) carrying([piece], () => { piece.position.copy(o.position); piece.quaternion.copy(o.quaternion); piece.scale.copy(o.scale); piece.updateMatrix(); });
+      refreshBox();
+      fillStubFields(true);
+      return;
+    }
+    const args: Record<string, unknown> = axis >= 0 ? { ref: selectionIds()[0], field: 'scale' } : { refs: selectionIds() };
+    personEdit(axis >= 0 ? 'placement.set' : 'piece.rotate', args, () => {
+      // FC2-7 (ours): the pieces under it carried (`carrying`), as a typed Yaw, a scrub and the gizmo carry them.
+      carrying([piece], () => { piece.quaternion.copy(pose.q); piece.scale.set(...pose.s); piece.updateMatrix(); }, true);
+      refreshBox();
+      refreshInspector();
+      edit();
+    }, true);
+    fillStubFields(true);
+  };
+  for (const f of stubFields) f.addEventListener('change', () => commitTurnField(f));
   // FC-1 (`./transformStubs`): while the switch is on, the stubs are hidden -- Pitch and Roll beside a real Yaw, and the
   // whole Scale row with its reset; Position, Yaw and the rotation's reset (a yaw reset) stay.
   if (FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION) {
@@ -5805,6 +6055,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     next.position.copy(old.position);
     next.quaternion.copy(old.quaternion);
     if (old.userData['forgePiece'] && next.userData['forgePiece']) next.scale.copy(old.scale);
+    yawOnly(next);                                               // FC2 (ours; FC2-6): a marker swapped in keeps its yaw (`rotation.y`, which the writer saves)
     if (old.userData['forgeLock']) next.userData['forgeLock'] = true;
     const at = roots.indexOf(old);
     if (at >= 0) roots[at] = next; else roots.push(next);
@@ -6041,6 +6292,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             if (onProp && link) switchLink.set(r, link);
             r.position.copy(s.position);
             r.quaternion.copy(s.quaternion);
+            yawOnly(r);                                          // FC2 (ours; FC2-6): the rebuilt switch keeps its yaw (`rotation.y`, which the writer saves)
             if (s.userData['forgeLock']) r.userData['forgeLock'] = true;
             const at = roots.indexOf(s);
             if (at >= 0) roots[at] = r; else roots.push(r);
@@ -6231,7 +6483,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!s) return;
     personEdit('piece.move', { refs: selectionIds() }, () => {
       // Its local position (its parent's place; the origin at the top), its children with it.
-      carrying([s], () => { const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); setLocalMatrix(s, new Matrix4().compose(new Vector3(), q, sc)); });
+      // FC2-7 (ours): `true` -- the reset ends an edit, so what it carries goes on the lattice.
+      carrying([s], () => { const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); setLocalMatrix(s, new Matrix4().compose(new Vector3(), q, sc)); }, true);
       refreshBox();
       refreshInspector();
       edit();
@@ -6242,33 +6495,88 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (entity) { if (entity.yaw !== null) entityEdit('piece.rotate', { refs: [entity.ref], yaw: -entity.yaw }); return; }
     const s = isGroup() ? null : selected;
     if (!s) return;
+    const home = (): void => { const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); setLocalMatrix(s, new Matrix4().compose(pos, new Quaternion(), sc)); };
+    // FC2 (ours; the review's F2): refused in words when it would tilt a pack piece under it (a tilted parent turned home
+    // takes the tilt out of what it carries); a turn cannot change a carried piece's size (`followersRefusal`).
+    const why = followersRefusal([s], home);
+    if (why !== null) { notifier.refused(why); return; }
     personEdit('piece.rotate', { refs: selectionIds() }, () => {
       // Its local turn (its parent's; none at the top), its children with it.
-      carrying([s], () => { const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); setLocalMatrix(s, new Matrix4().compose(pos, new Quaternion(), sc)); });
+      // FC2-7 (ours): `true` -- the reset ends an edit, so what it carries goes on the lattice.
+      carrying([s], home, true);
       refreshBox();
       refreshInspector();
       edit();
     }, true);
   });
-  // STUB, as the scale fields are: record v3 keeps no scale (`transformStub`).
-  resetScale.addEventListener('click', () => say('Scale is not wired yet: a saved layout keeps no scale'));
+  // FX-9: the Scale row's reset, one step as the scale fields' (`commitTurnField`): the piece back to 1, 1, 1.
+  resetScale.addEventListener('click', () => {
+    const s = turnedPiece();
+    if (!s) return;
+    // FC2-7 (ours): refused when it would carry a piece under it past the record's size bounds; else they go with it.
+    // FC2 (ours; F2): or a pack piece under it scaled, in `PACK_PIECE_POSE_REFUSAL`'s words (`followersRefusal`).
+    const why = followersRefusal([s], () => s.scale.set(1, 1, 1));
+    if (why !== null) { notifier.refused(why); return; }
+    personEdit('placement.set', { ref: selectionIds()[0], field: 'scale' }, () => {
+      carrying([s], () => { s.scale.set(1, 1, 1); s.updateMatrix(); }, true);
+      refreshBox();
+      refreshInspector();
+      edit();
+    }, true);
+  });
   /**
    * The scrub's live preview (`./scrub`; a browser adaptation): one placement follows its position or yaw field while it
    * is dragged, unrecorded; the release's `change` makes it one edit (the field handlers below), as a gizmo drag is.
-   * Escape puts the placement back exactly where it was (the field shows a rounded value). A group, a rules entity and
-   * the stub fields take the value at the release only.
+   * Escape puts the placement back exactly where it was (the field shows a rounded value). A group and a rules entity
+   * take the value at the release only. FX-9: a piece's Pitch, Roll and Scale fields preview so too, each turn from the
+   * piece's turn at the drag's start (`YXZ`), a scale held within the record's bounds.
    */
-  let scrubOrigin: { r: Object3D; position: Vector3; quaternion: Quaternion } | null = null;
-  for (const f of [fx, fy, fz, fyaw]) {
+  let scrubOrigin: { r: Object3D; position: Vector3; quaternion: Quaternion; scale: Vector3 } | null = null;
+  for (const f of [fx, fy, fz, fyaw, ...stubFields]) {
     f.addEventListener('fx-scrub', (e) => {
+      const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
+      // FX-9: a cancel puts back the placement the drag previewed, whatever is selected by then.
+      if (cancelled && scrubOrigin) {
+        const o = scrubOrigin;
+        scrubOrigin = null;
+        // The tree: what the scrub carried goes back with it (`carrying`). FC2-7 (ours): a put-back, never snapped -- the
+        // previews were not, so it is exact.
+        // FC2 (ours): a marker put back yaw-only (`yawOnly`): the copied quaternion re-derives `rotation` in XYZ.
+        carrying([o.r],() => { o.r.position.copy(o.position); o.r.quaternion.copy(o.quaternion); o.r.scale.copy(o.scale); o.r.updateMatrix(); yawOnly(o.r); });
+        refreshBox();
+        showResets();
+        return;
+      }
       const s = isGroup() || baseSelected ? null : selected;
       if (!s) return;
-      const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
-      if (scrubOrigin?.r !== s) scrubOrigin = { r: s, position: s.position.clone(), quaternion: s.quaternion.clone() };
+      if (scrubOrigin?.r !== s) scrubOrigin = { r: s, position: s.position.clone(), quaternion: s.quaternion.clone(), scale: s.scale.clone() };
       const origin = scrubOrigin;
+      // The tree: its children with it; a position or the yaw is local to its parent (`setLocalAxis`, the pitch and roll kept).
       carrying([s], () => {
-        if (cancelled) { s.position.copy(origin.position); s.quaternion.copy(origin.quaternion); s.updateMatrix(); }
-        else setLocalAxis(s, f === fx ? 'x' : f === fy ? 'y' : f === fz ? 'z' : 'yaw', value);   // local to its parent
+        if (cancelled) { s.position.copy(origin.position); s.quaternion.copy(origin.quaternion); s.scale.copy(origin.scale); s.updateMatrix(); yawOnly(s); }   // FC2 (ours): as above
+        else if (f === fx || f === fy || f === fz) setLocalAxis(s, f === fx ? 'x' : f === fy ? 'y' : 'z', value);
+        else if (f === fyaw) {
+          // FC2 (ours; the batch review's B-3): the preview stops where the Yaw would tilt a pack piece -- the selected one
+          // under a tilted parent, or one under it (`turnRefusal`) -- the field showing the last yaw that kept them level,
+          // which its release commits, as the Pitch and Roll previews stop (F2).
+          if (turnRefusal(s, () => setLocalAxis(s, 'yaw', value)) === null) setLocalAxis(s, 'yaw', value);
+          else f.value = String(deg(localPose(s).yaw));
+        } else if (s === turnedPiece()) {
+          const from = turnOf(origin.quaternion);
+          if (f === fpitch || f === froll) {
+            // FC2 (ours; the review's F2): the preview stops where it would tilt a pack piece under it -- the field shows the
+            // last turn that kept it level, which its release commits -- as the scale's preview stops at the size bounds.
+            const q = turnQuaternion(f === fpitch ? { ...from, pitch: value } : { ...from, roll: value });
+            if (followersFit([s], () => s.quaternion.copy(q))) s.quaternion.copy(q);
+            else { const t = turnOf(s.quaternion); f.value = String(signedDegrees(f === fpitch ? t.pitch : t.roll)); }
+          } else {
+            // FC2-7 (ours): the preview stops where a piece under it would leave the record's bounds -- the field shows the
+            // last scale that kept them, which its release commits (the gizmo's scale stops so too).
+            const axis = f === fsx ? 0 : f === fsy ? 1 : 2;
+            if (followersFit([s], () => s.scale.setComponent(axis, scaleOnLattice(value)))) s.scale.setComponent(axis, scaleOnLattice(value));
+            else f.value = String(s.scale.getComponent(axis));
+          }
+        }
       });
       if (cancelled) scrubOrigin = null;
       refreshBox();
@@ -6299,7 +6607,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           const axis = f === fx ? 0 : f === fy ? 1 : 2;
           const d: [number, number, number] = [0, 0, 0];
           d[axis] = v - c[axis];
-          carrying(picks.items, () => applyPoses(movedBy(picks.items.map(poseOf), d)));
+          carrying(picks.items, () => applyPoses(movedBy(picks.items.map(poseOf), d)), true);   // FC2-7 (ours): ends an edit
           passOver('moved');
           placePivot();
           refreshBox();
@@ -6310,10 +6618,30 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const s = selected;
       const v = Number(f.value);
       if (!s || !Number.isFinite(v)) return;
+      // FC2 (ours; the batch review's B-3): a Yaw is local to the parent (`setLocalAxis`), about its own Y -- under a tilted
+      // parent no vertical -- so it is refused in `PACK_PIECE_POSE_REFUSAL`'s words when it would tilt a pack piece, the
+      // selected one or one it carries (`turnRefusal`, tried before the commit's snap, as the scrub's preview is): nothing
+      // moved, the field showing the yaw kept, as the typed Pitch is refused (F2).
+      if (f === fyaw) {
+        const why = turnRefusal(s, () => setLocalAxis(s, 'yaw', v));
+        if (why !== null) { notifier.refused(why); f.value = String(deg(localPose(s).yaw)); refreshBox(); return; }
+      }
       // FUI-6: the move's or the turn's entry; the field takes no edit under a lobby's hold (it is closed), as before.
       personEdit(f === fyaw ? 'piece.rotate' : 'piece.move', { refs: selectionIds() }, () => {
         // Local to its parent (`setLocalAxis`), its children with it.
-        carrying([s], () => setLocalAxis(s, f === fx ? 'x' : f === fy ? 'y' : f === fz ? 'z' : 'yaw', v));
+        carrying([s], () => {
+          setLocalAxis(s, f === fx ? 'x' : f === fy ? 'y' : f === fz ? 'z' : 'yaw', v);
+          // FC2-7 (ours): a piece's world turn and scale put on the record's lattice (`poseOn`, as `commitTurnField`), so a
+          // Yaw typed or let go from a scrub -- fractional, or local to a tilted parent -- is the one a save, a reopen and a
+          // lobby give back; its children carried with the pose kept. A scrub's live preview is not snapped (FX-9's rule).
+          if (kindOf(s) === 'Piece') { const pose = poseOn(s); s.quaternion.copy(pose.q); s.scale.set(...pose.s); s.updateMatrix(); }
+        }, true);                                                // FC2-7 (ours): the commit -- what it carries snapped once
+        // FC2-7 (ours): the field typed into shows the value KEPT, whatever holds the focus (the Inspector's fill leaves the
+        // focused field alone), as `commitTurnField` does with `fillStubFields(true)` -- in the fill's own form (the local
+        // place rounded, the local yaw by `deg`): a Yaw of 45.5 kept as 46 shows 46. Not a scrub's live step (that is the
+        // `fx-scrub` listener); its release comes here.
+        const kept = localPose(s);
+        f.value = f === fyaw ? String(deg(kept.yaw)) : String(Math.round(kept.position[f === fx ? 'x' : f === fy ? 'y' : 'z']));
         refreshBox();
         edit();
       }, true);
@@ -7300,11 +7628,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (on) {
       if (on === pivot) placePivot();
       if (gizmo.object !== on) gizmo.attach(on);
-      // FG.R10: a piece turns about the vertical only. FC-1: the tilt rings off while the stubs are hidden
-      // (`./transformStubs`), as before the Overhaul; on, every ring is drawn and a grab of any but yaw is a stub
-      // (`tiltRingStub`), so a reload cannot drop a tilt the record does not keep.
-      gizmo.showX = !FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION || gizmo.mode !== 'rotate';
-      gizmo.showZ = !FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION || gizmo.mode !== 'rotate';
+      // FG.R10: a marker turns about the vertical only. FC-1: the tilt rings off while the controls are hidden
+      // (`./transformStubs`), as before the Overhaul. FX-9: on, the X and Z rings are drawn for what may tilt (a single
+      // piece, `transformRefusal`); anything else keeps the yaw ring, and a grab of the view ring is refused in words.
+      const tilts = !FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION && transformRefusal('tilt') === null;
+      gizmo.showX = tilts || gizmo.mode !== 'rotate';
+      gizmo.showZ = tilts || gizmo.mode !== 'rotate';
     } else gizmo.detach();
     dupBtn.disabled = picks.size === 0;
     // A locked placement is never deleted: Delete greyed while only locked ones are picked.
@@ -7458,7 +7787,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const was = replacing;
     if (!was) return;
     replacing = null;
-    if (restore) for (const [o, at] of was.starts) if (roots.includes(o)) { o.position.copy(at.position); o.quaternion.copy(at.quaternion); o.updateMatrix(); }
+    // FC2 (ours): a marker put back yaw-only (`yawOnly`): the copied quaternion re-derives `rotation` in XYZ.
+    if (restore) for (const [o, at] of was.starts) if (roots.includes(o)) { o.position.copy(at.position); o.quaternion.copy(at.quaternion); o.updateMatrix(); yawOnly(o); }
     refreshPlacementGround();
     refreshBox();
   };
@@ -7502,7 +7832,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const was = replacing;
     if (!was) return;
     if (at) seatOn(was.r, at);                                   // null: already put down (on a wall, `wallPose`)
-    carryReplace();
+    carryReplace(true);                                          // FC2-7 (ours): the put-down ends the edit
     endReplace(false);
     const asset = was.r.userData['forgePiece'] as string | undefined;
     const many = was.others.length > 0;
@@ -7654,7 +7984,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const turnQueued = (deg: number): void => {
     if (replacing) {
       // The re-placed prop turned about the vertical by `deg`, as the queued prop's ghost turns.
-      replacing.r.rotation.y += (deg * Math.PI) / 180;
+      yawTo(replacing.r, turnOf(replacing.r.quaternion).yaw + deg);   // FX-9's review: its tilt kept, as the turn step's
       carryReplace();
       refreshBox();
       say(`placing ${nameOf(replacing.r)} · the wheel turns it ${turnStep}°`);
@@ -8652,6 +8982,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // A placed object (a door, a switch, a spawn... -- `markerClone`): cloned whole and renamed.
     const copy = asset ? source.clone(true) : markerClone(source);
     if (!copy) return;
+    yawOnly(copy);                                               // FC2 (ours; FC2-6): a cloned marker's turn re-derives `rotation` in XYZ: its yaw saved as shown
     delete copy.userData['forgeId'];
     if (!asset) freshName(copy);
     const map = creatorPieceMaps.get(source);
@@ -8665,6 +8996,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       source.matrix.copy(originalMatrix);
       source.matrix.decompose(source.position, source.quaternion, source.scale);
       source.updateMatrix();
+      yawOnly(source);                                           // FC2 (ours; FC2-6): a marker put back keeps its yaw (`rotation.y`)
       source.updateMatrixWorld(true);
       picks.only(copy);
       basePicks.clear();
@@ -8675,6 +9007,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       source.matrix.copy(originalMatrix);
       source.matrix.decompose(source.position, source.quaternion, source.scale);
       source.updateMatrix();
+      yawOnly(source);                                           // FC2 (ours; FC2-6): as above
       source.updateMatrixWorld(true);
       showSelection();
     }
@@ -9179,6 +9512,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       },
     };
   }
+  // FC2-6 (a test instrument, a development build's only; no game behaviour): `test/forge/poseFrame.test.ts` reads a
+  // placement's scale in the scene by its reference (`placementIds`), which the agent's refs do not carry.
+  if (import.meta.env.DEV) {
+    (globalThis as { __forgeScaleOf?: unknown }).__forgeScaleOf = (ref: string): [number, number, number] | null => {
+      const r = placementIds().get(ref);
+      return r ? [r.scale.x, r.scale.y, r.scale.z] : null;
+    };
+  }
 
   /* ---------- picking ---------- */
   /** AX-13 (a browser adaptation): the agent facade's `notePoint`, set once the facade is built (`agentFacade` below). */
@@ -9287,6 +9628,30 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       (x, z, y) => restingPoint({ x, y, z }, probe, null).y);
     return true;
   };
+  /**
+   * FC2 (ours; the batch review's B-3): the re-placed lead `r` on the wall under `hit` (`wallPose`) and the rest carried
+   * (`carryReplace`) -- 'wall' -- unless that would tilt a pack piece among the rest of the selection or under them: a
+   * wall gives the lead a yaw alone (`mountOnWall`), so a lead that was pitched or rolled takes that tilt out of what it
+   * carries. Then the lead and the rest stay at their last place -- 'held', the refusal said (on the status line as it
+   * follows the cursor; through the notifier, `refuse`, at a click) -- as a Yaw is refused (`turnRefusal`). 'floor': no
+   * wall there, nothing moved.
+   */
+  const replaceOnto = (r: Object3D, hit: Intersection | null, refuse = false): 'wall' | 'floor' | 'held' => {
+    const was = { p: r.position.clone(), q: r.quaternion.clone(), s: r.scale.clone() };
+    if (!wallPose(r, hit, String(r.userData['forgePiece'] ?? ''))) return 'floor';
+    carryReplace();
+    const why = replacing ? replacingWhy(replacing) : null;
+    if (why === null) return 'wall';
+    r.position.copy(was.p); r.quaternion.copy(was.q); r.scale.copy(was.s); r.updateMatrix(); yawOnly(r);
+    carryReplace();
+    if (refuse) notifier.refused(why); else say(why, true);
+    return 'held';
+  };
+  /** FC2 (ours; B-3): a pack piece among the re-placed or under them left tilted where they stand now (`offVertical`), or null. */
+  const replacingWhy = (was: NonNullable<typeof replacing>): string | null => {
+    for (const { r: o } of was.others) if (packPiece(o)) { o.updateMatrix(); if (offVertical(o.matrix)) return PACK_PIECE_POSE_REFUSAL; }
+    return followersWhy(was.follow);
+  };
   /** The cursor's last place, in normalized device coordinates: a paste lands there. The centre until the pointer moves. */
   let lastNdc = new Vector2(0, 0);
   let ghost: Object3D | null = null;
@@ -9302,7 +9667,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // The prop being re-placed is its own ghost: on the surface under the cursor, its turn kept.
       if (!roots.includes(replacing.r)) { replacing = null; return; }   // gone meanwhile (an undo, a delete)
       const struck = pick(ndc);
-      if (!wallPose(replacing.r, struck, String(replacing.r.userData['forgePiece'] ?? ''))) seatOn(replacing.r, placeAt(struck));
+      // FC2 (ours; B-3): a wall that would tilt a pack piece among them holds them where they were (`replaceOnto`).
+      if (replaceOnto(replacing.r, struck) === 'floor') seatOn(replacing.r, placeAt(struck));
       carryReplace();                                          // the rest of the selection, and what is under them, along
       refreshBox();
       return;
@@ -9446,8 +9812,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (replacing) {
       if (toggle || refuseEdit()) return;
       // On a wall: put down as its ghost stands (`wallPose`), else seated on the floor under the click.
-      const r0 = replacing.r;
-      commitReplace(wallPose(r0, hit, String(r0.userData['forgePiece'] ?? '')) ? null : placeAt(hit));
+      // FC2 (ours; B-3): a wall that would tilt a pack piece among them: the click refused, in the pack rule's words, and
+      // the re-place goes on (`replaceOnto`).
+      const placed = replaceOnto(replacing.r, hit, true);
+      if (placed === 'held') return;
+      commitReplace(placed === 'wall' ? null : placeAt(hit));
       return;
     }
     if (entityTool !== null && !toggle) { placeEntity(entityTool, placeAt(hit)); return; }   // FCW-32 step 4 (D4)
@@ -10097,6 +10466,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   globalThis.addEventListener('keydown', (e) => {
     if (keysGone) return;
     if (typingTarget(e.target)) return;                       // FG.R23: the lobby chat's typing, the docks' fields: no shortcut
+    if (e.key === 'Escape' && scrubLive(doc)) return;         // FX-9: a scrub's Escape puts its field back (`./scrub`), no deselect
     // Capture, so P and Esc reach the forge before the match's own window listener. A lobby match keeps the pad chord.
     if (import.meta.env.DEV && match && !matchOfLobby && (e.code === 'KeyP' || e.code === 'Escape')) {
       endMatch();
@@ -10180,6 +10550,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     npc: { side: 'seal' | 'terrorist'; type: number } | null;
     offset: Vec3;
     q: Quat;
+    /** FX-9's review: a piece's scale (a marker has none), so a paste is the size its copy was, as a duplicate is. */
+    s: Vec3 | null;
     marker: boolean;
     /** The review of R3-B: a pack's piece's reference, and whether its pack is here (the stand-in pasted when not). */
     content: Piece['content'] | null;
@@ -10208,6 +10580,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       npc: npcOf(r) ?? null,
       offset: clip[i]!.offset,
       q: clip[i]!.q,
+      s: isMarker(r) ? null : [r.scale.x, r.scale.y, r.scale.z] as Vec3,
       marker: isMarker(r),
       content: (r.userData['forgeContent'] as Piece['content'] | undefined) ?? null,
       missing: r.userData['forgeMissing'] === true,
@@ -10245,8 +10618,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const p = places[i]!;
         r.position.set(p[0], p[1], p[2]);
         const q = clip[i]!.q;
+        const scale = clip[i]!.s;
         if (clip[i]!.marker) r.rotation.set(0, yawOf(q), 0);
-        else r.quaternion.set(q[0], q[1], q[2], q[3]);
+        else {
+          r.quaternion.set(q[0], q[1], q[2], q[3]);
+          if (scale) r.scale.set(scale[0], scale[1], scale[2]);
+        }
         freshName(r);
         addRoot(r);
         added.push(r);
@@ -10354,6 +10731,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         r.position.copy(s.position).add(new Vector3(gridStep * 2, 0, 0));
         r.quaternion.copy(s.quaternion);
         r.scale.copy(s.scale);
+        yawOnly(r);                                              // FC2 (ours; FC2-6): a copied marker's turn re-derives `rotation` in XYZ: its yaw saved as shown
         freshName(r);
         addPlacement(r);
         made.push(r);
@@ -10380,6 +10758,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         r.position.copy(s.position).add(new Vector3(gridStep * 2, 0, 0));
         r.quaternion.copy(s.quaternion);
         r.scale.copy(s.scale);
+        yawOnly(r);                                              // FC2 (ours; FC2-6): a copied marker's turn re-derives `rotation` in XYZ: its yaw saved as shown
         freshName(r);
         addPlacement(r);
         select(r);
@@ -10401,11 +10780,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const bakedCollisionOf = (keys: readonly string[]): string[] => {
     if (!baseMap?.ground) return [];
-    const ground = baseMap.ground;
+    // `held` (ours, FC2): the page's `baseMap` is reassigned elsewhere, so the closure below loses the guard's narrowing (TS2345).
+    const held = baseMap, ground = baseMap.ground;
     const models = new Set<string>();
     for (const key of keys) {
       const entries = [...placementsOf(baseMap, [key])];
-      if (!entries.length || entries.some((e) => placementOwners(baseMap, ground, e).length > 0)) continue;
+      if (!entries.length || entries.some((e) => placementOwners(held, ground, e).length > 0)) continue;
       models.add(key.split('@')[0]?.split(':')[0] ?? key);
     }
     return [...models];
@@ -10771,40 +11151,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const markers = npcs ? layout.npcs ?? [] : [];
     // The Play settings' side (Play's own: `npcs`), else the side the NPCs leave the player (`./npcs` `playerSideOf`).
     const playerSide = npcs && playSide !== 'auto' ? playSide : playerSideOf(markers);
-    const own = settingsOf(layout);
+    // FC2.R8 (ONLINE_HELD_SETTINGS_ADAPTATION, a hold of ours): the lobby's match (`npcs` false) plays none of the Map
+    // Settings the match server does not apply yet, the creator's as a joiner's (central's copy holds none); Play all.
+    const own = settingsOf(npcs ? layout : withoutHeldSettings(layout));
     const fit = npcsThatFit(markers, playerSide, own.players);
-    // R6 (3): the same resolver as the ground's, so a pack piece is solid in the match exactly when it is drawn here.
     // Each piece's name in the hull (`composeGround`'s `forge/piece_<its place among the roots>`): its drawn placements
-    // take it too, so a switch's script hides or shows both (`./matchMap`, `./placedAccess` `scriptPrograms`).
+    // take it too, so a switch's script hides or shows both (`./composeLayout`, `./matchMap`, `./placedAccess`).
     const pieceOwners = roots.flatMap((r, i) => (r.userData['forgePiece'] ? [`forge/piece_${i}`] : []));
-    const pieceOwner = (i: number): string => pieceOwners[i] ?? `forge/piece_${i}`;
-    const composed = composeMatchMap(baseMap, { ...layout, npcs: fit.kept }, libs, c.ground, playerSide, resolveContent, pieceOwner);
     const type = layout.objectives?.gameType;
-    // The placed hostages and zones on the map, then the game type, its test reading them (`./playObjectives`); a blank
-    // floor's hostages copy its library's character (`blankFloorOf` dropped its escortees).
-    // The bodies placed hostages borrow from other disc maps (`./hostages` `withLentHostageBodies`); one whose map or
-    // character is not here wears the default instead, as it would with none named.
+    // The pure chain (`./composeLayout`, its steps in their order; FP-1b, and the contributor's steps in his order, FC2-2):
+    // the page loads what it reads -- the hostages' lent bodies, the placed copies' templates, the switches' looks, the
+    // outline donor, the sky and the roster's donors -- and the chain composes the map.
     const lentLibs = new Map<string, LoadedMap>();
     for (const h of layout.hostages ?? []) if (h.source && !lentLibs.has(h.source)) { const lib = await hostageLibOf(h.source); if (lib) lentLibs.set(h.source, lib); }
-    const bodied = withLentHostageBodies(composed.map, layout.hostages, (s) => lentLibs.get(s) ?? null);
-    const worn = new Set(hostageCharactersOf(bodied.map));
-    const hostages = layout.hostages?.map((h) => (h.source && !worn.has(h.character ?? '') ? (({ source: _s, character: _c, ...rest }) => rest)(h) : h));
-    // The team and default character: the base's first hostage's (a blank floor's library's), else a lending map's.
-    const lent = (base.kind === 'blank' ? c.groundMap.escortees?.[0] : composed.map.escortees?.[0])
-      ?? [...lentLibs.values()].map((l) => l.escortees?.[0]).find((e) => !!e);
-    const played = playObjectives(bodied.map, { ...layout, ...(hostages ? { hostages } : {}) }, lent, type === undefined ? null : blankWhy(type));
-    // The layout's placed tactical points and spectator views beside the map's own (`./placedPoints`), in any type.
-    // The layout's Forge objects (`./forgeObjects`): each one's place by its path, the ambient effects to play.
-    const pointed = withForgeObjects(withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), layout.objects), why = played.why;
-    // The layout's placed turrets beside the map's own (`./turrets`): each its disc template's copy, in any type.
     const templates = new Map<string, TurretTemplate>();
     for (const t of layout.turrets ?? []) { const found = await turretTemplate(t.source, t.name); if (found) templates.set(`${t.source}:${t.name}`, found); }
-    const turreted = withPlacedTurrets(pointed, layout.turrets, (s, n) => templates.get(`${s}:${n}`) ?? null);
-    // The layout's placed doors beside the map's own (`./placedDoors`): each its disc template's copy, its leaf in the hull.
     const doorTemplatesNow = new Map<string, DoorTemplate>();
     for (const t of layout.doors ?? []) { const found = await doorTemplate(t.source, t.name); if (found) doorTemplatesNow.set(`${t.source}:${t.name}`, found); }
-    const doored = withPlacedDoors(turreted.map, layout.doors, (s, n) => doorTemplatesNow.get(`${s}:${n}`) ?? null);
-    // The layout's placed gates and C4 barriers (`./placedAccess`): each its disc access object's copy, whole.
     const accessNow = new Map<string, AccessTemplate>();
     // Each look the layout's switches wear (`switchLookOf`), read before the composition: a gate's switch asking for the
     // lever panel wears its gate's own (`withPlacedAccess`).
@@ -10814,9 +11177,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const [kind, list] of [['gate', layout.gates], ['barrier', layout.barriers]] as const) {
       for (const t of list ?? []) { const found = await accessTemplate(kind, t.source, t.name); if (found) accessNow.set(`${kind}:${t.source}:${t.name}`, found); }
     }
-    const accessed = withPlacedAccess(doored.map, [
-      ...(layout.gates ?? []).map((t) => ({ kind: 'gate' as const, ...t })), ...(layout.barriers ?? []).map((t) => ({ kind: 'barrier' as const, ...t })),
-    ], (m) => accessNow.get(`${m.kind}:${m.source}:${m.name}`) ?? null, layout.switches ?? [], switchLookNow, pieceOwner, layout.triggers ?? []);
+    const flaresNow = new Map<string, FlareTemplate>();
+    for (const f of layout.flares ?? []) { const found = await flareTemplate(f.source, f.name); if (found) flaresNow.set(`${f.source}:${f.name}`, found); }
+    const { composed, played, why, turreted, doored, flared } = composeLayoutObjects({
+      baseMap, layout, libs, ground: c.ground, playerSide, resolveContent, npcs: fit.kept, lentLibs,
+      blank: base.kind === 'blank', libraryEscortee: c.groundMap.escortees?.[0], blocked: type === undefined ? null : blankWhy(type), pieceOwners,
+      turretOf: (s, n) => templates.get(`${s}:${n}`) ?? null, doorOf: (s, n) => doorTemplatesNow.get(`${s}:${n}`) ?? null,
+      accessOf: (m) => accessNow.get(`${m.kind}:${m.source}:${m.name}`) ?? null, switchLookOf: switchLookNow, flareOf: (src, n) => flaresNow.get(`${src}:${n}`) ?? null,
+    });
     // What the match lends from other maps (`./scriptAssets`): the switches' scripts' sounds and effects, and each copied
     // gate's and damage trigger's own (its deaths', its actions' and their calls').
     // The ambient effects' programs (from another map's sets) and their sounds (from their map's banks), lent too.
@@ -10842,58 +11210,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // Their looping sounds the audio's emitters at their places, as the map's own ambient loops (`forgeAmbientEmitters`).
     const emitters = forgeAmbientEmitters(layout.objects, (src, n) => ambientPrograms.get(`${src}:${n}`) ?? null);
     const lentAssets = mergeLent(lentAssets0, { ...ambientLent, ...(emitters.length ? { emitters } : {}) });
-    // Each piece a placed node (`./placedAccess` `withPieceInstances`): a script's hide reaches every page on the wire.
-    if (layout.switches?.some((sw) => sw.script || sw.piece !== undefined) || layout.triggers?.length) accessed.map = withPieceInstances(accessed.map, pieceOwners);
-    // The layout's placed flares (`./placedFlares`): each its disc facade node, drawn and turned as the map's own.
-    const flaresNow = new Map<string, FlareTemplate>();
-    for (const f of layout.flares ?? []) { const found = await flareTemplate(f.source, f.name); if (found) flaresNow.set(`${f.source}:${f.name}`, found); }
-    const flared = withPlacedFlares(accessed.map, layout.flares, (src, n) => flaresNow.get(`${src}:${n}`) ?? null).map;
     // The layout's own Demolition sites wear the map's bases' outlines (`./siteOutlines`): the disc's pulse at the sites
     // that plant, none left at the tents that no longer do.
-    const ownSites = (type === 2 || (type === 1 && breachReady(layout.objectives?.bomb))) && why === null ? layout.objectives?.bomb?.sites ?? [] : [];
+    const ownSites = layoutOwnSites(layout, why);
     // A base with no outline of its own (a blank floor) borrows the donor's (`SITE_OUTLINE_DONOR`), when it is on this disc.
     const outlineDonor = ownSites.length && !absent.has(SITE_OUTLINE_DONOR) ? await hostageLibOf(SITE_OUTLINE_DONOR) : null;
-    const aimed = withSiteOutlines(flared, ownSites, outlineDonor);
     const unplayable = why === null ? undefined : `${why}; playing the base's mode`;
-    // FG-24: the layout's fog and light on the map's camera and rig (`./matchMap` `withSettings`, its limit said there).
-    // A new empty map's own light rig (`settings.lightRig`) over the one its library lends: the match lit as the editor is.
-    // Its sky: the chosen disc map's dome over the floor (`./skyDome`), its textures carried as a turret's are.
+    // FG-24: the layout's fog and light on the map's camera and rig, and its own environment over the base's on a new empty
+    // map and a disc map (`./ownEnvironment` `withLayoutEnvironment`; FC2.R2 (2)): the match lit as the editor is. Its
+    // sky: the chosen disc map's dome over a new empty map's floor (`./skyDome`), its textures carried as a turret's are.
     const skyLib = base.kind === 'blank' && own.skyFrom ? await hostageLibOf(own.skyFrom) : null;
-    const skyDome = skyLib ? skyDomeFor(skyLib, aimed.archive) : null;
-    /**
-     * Its fog's on, near distance and height band (the camera record's) and its night (`NightMission`, `LensFX_NVG`), over
-     * the fog distance's own near (`withSettings`) -- set last, so the near it names is the near played.
-     */
-    const ownAtmosphere = (m: LoadedMap): LoadedMap => {
-      if (base.kind !== 'blank' && base.kind !== 'map') return m;
-      const f = own.fog, cam = m.camera;
-      return {
-        ...m,
-        ...(f && cam ? { camera: { ...cam, fogEnabled: f.on, fogNear: Math.max(0, Math.min(f.near, cam.fogFar - 1)), fogAltitude: f.height !== null,
-          ...(f.height ? { fogTop: f.height.top, fogBottom: f.height.bottom } : {}) } } : {}),
-        ...(own.night ? { night: { mission: own.night.mission, lens: own.night.lens ? [...own.night.lens] as [number, number, number, number] : null } } : {}),
-      };
-    };
-    // Its fog colour (the camera record's) and drop-shadow direction likewise.
-    const lit = base.kind !== 'blank' && base.kind !== 'map' ? aimed : {
-      ...aimed,
-      ...(own.lightRig ? { lightRig: own.lightRig as GlobalLighting } : {}),
-      ...(skyDome ? { world: [...aimed.world, ...skyDome.world], textures: { ...aimed.textures, ...skyDome.textures },
-        textureFlags: { ...aimed.textureFlags, ...skyDome.textureFlags },
-        ...(aimed.textureMips || skyDome.textureMips ? { textureMips: { ...(aimed.textureMips ?? {}), ...(skyDome.textureMips ?? {}) } } : {}) } : {}),
-      ...(own.shadowVector ? { shadowVector: [...own.shadowVector] as [number, number, number] } : {}),
-      // A colour chosen is a fog to see: on, whatever the built-from map's camera had.
-      ...(own.fogColor && aimed.camera ? { camera: { ...aimed.camera, fogEnabled: true, fogColor: [...own.fogColor] as [number, number, number] } } : {}),
-    };
-    // The layout's roster (`./rosterSetting`): each side's types, bodies lent from their disc maps, with their kits; then
-    // its arsenal over that (`./arsenalSetting`): the room's kits, its pick replay and the bots' kits read both.
+    // The roster's donors (`./rosterSetting`): the disc maps its types are lent from.
     const donors = new Map<string, RosterMap>();
     for (const stem of rosterStems(own.characters)) { const lib = await hostageLibOf(stem); if (lib) donors.set(stem, lib); }
-    const rostered = withRoster(ownAtmosphere(withSettings(lit, own)), own.characters, (stem) => donors.get(stem) ?? null);
-    const armed = mapWithArsenal(rostered.map, own.arsenal);
-    // The map's own world values the layout writes over (`./worldSettings`): the default surface and the field of view.
-    const world = withWorldSettings(armed.map, own);
-    return { c, layout, lentAssets, own, fit, playerSide, composed, hostagesLeft: played.hostagesLeft, hostagesOffGrid: played.hostagesOffGrid, hostagesPastBound: played.hostagesPastBound, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, arsenalRefused: [...rostered.refused, ...armed.refused, ...world.refused], map: world.map, gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
+    // The finish (`./composeLayout`): the outlines, the environment, then the roster, the arsenal and the world settings.
+    const finished = composeLayoutFinish({
+      flared, ownSites, donor: outlineDonor, own, base: base.kind,
+      skyDome: (aimed) => (skyLib ? skyDomeFor(skyLib, aimed.archive) : null), rosterOf: (stem) => donors.get(stem) ?? null,
+    });
+    return { c, layout, lentAssets, own, fit, playerSide, composed, hostagesLeft: played.hostagesLeft, hostagesOffGrid: played.hostagesOffGrid, hostagesPastBound: played.hostagesPastBound, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, arsenalRefused: finished.refused, map: finished.map, gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
   };
   /** The map check (`./validate`) is running: Play and Create lobby wait, and a second click does not start another. */
   let checking = false;
@@ -11299,7 +11634,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const onlineWhy = (): string | null => {
     const l = layoutNow(false);
-    const online = l ? onlineRecordRefusal(recordOfLayout(l, l.name?.trim() || 'Layout')) : [];
+    // FC2.R8: of the layout as the lobby is sent it (its held Map Settings stripped, `withoutHeldSettings`).
+    const online = l ? onlineRecordRefusal(recordOfLayout(withoutHeldSettings(l), l.name?.trim() || 'Layout')) : [];
     return online.length ? online.map((d) => d.text).join(' ') : null;
   };
   lobbyTitle = () => {
@@ -11456,8 +11792,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       armoryData: () => {
         const own = baseMap ?? charMap;
         if (!own) return null;
-        // The ARMORY's valves the layout's over the map's (`./arsenalSetting`), as the lobby's match plays them.
-        const map = mapWithArsenal(own, settingsOf(o.layout).arsenal).map;
+        // The ARMORY's valves the layout's over the map's (`./arsenalSetting`), as the lobby's match plays them: the map's
+        // own while the arsenal is held from online lobbies (FC2.R8, `withoutHeldSettings`).
+        const map = mapWithArsenal(own, settingsOf(withoutHeldSettings(o.layout)).arsenal).map;
         armory ??= lobbyArmoryData(archives.sourceRequest(), map);
         return armory;
       },
@@ -11549,8 +11886,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (refuseMissingPacks('Create lobby')) return;
     // R3-B (item 6; H273, H274): a lobby plays the disc's own content -- a layout that needs a creator pack or names a
     // creator mode is refused before anything is asked or posted, in the policy's own words (central refuses it too).
-    const online = onlineRecordRefusal(recordOfLayout(l, l.name?.trim() || 'Layout'));
+    // FC2.R8: asked of the layout as it is sent (`withoutHeldSettings`), so held Map Settings strip, not refuse; told in a line.
+    const online = onlineRecordRefusal(recordOfLayout(withoutHeldSettings(l), l.name?.trim() || 'Layout'));
     if (online.length) { notifier.refused(online.map((d) => d.text).join(' ')); return; }
+    const held = heldSettingsOf(l);
+    if (held.length) pop(`Map Settings are not played in online lobbies yet: ${held.join(', ')}; this lobby plays the map's own`);
     if (!(await proceedIfClear('Create anyway'))) return;
     const session = pageSession(globalThis.window);
     const ticket = session.ticket();
@@ -11571,8 +11911,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     busyCause = 'lobby';
     say('making the lobby…');
     try {
-      // The tree is the editor's own (`withoutTree`): the lobby plays every placement at its own world place.
-      const made = await createLobby(lobbyBase(), name, withoutTree(l), ticket, undefined, { listed: visibilityToggle.listed(), password: passwordField.password() });
+      // The tree is the editor's own (`withoutTree`): the lobby plays every placement at its own world place. The held Map
+      // Settings stay here (FC2.R8, `withoutHeldSettings`): central takes none the match server does not apply.
+      const made = await createLobby(lobbyBase(), name, withoutHeldSettings(withoutTree(l)), ticket, undefined, { listed: visibilityToggle.listed(), password: passwordField.password() });
       if (!made.ok) { say(`the lobby was not made: ${made.words}`, true); return; }
       if (made.stale) pop('Your sign-in had ended: you host as a guest');
       await enterLobby({ id: made.id, name, role: 'host', hostTicket: made.hostTicket, ticket: made.guest ? made.pass?.ticket ?? null : ticket, guest: made.guest, listed: made.lobby.listed === true, locked: made.lobby.locked === true, layout: l, lateJoiner: false, seat: made.seat });
@@ -11593,6 +11934,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!got.ok) return stop(`The lobby could not be read: ${got.words}.`);
     const lacking = missingArchives(got.lobby.layout, new Set(entries.map((a) => a.stem)));
     if (lacking.length) return stop(`Its layout needs ${lacking.join(', ')}, which ${lacking.length === 1 ? 'is' : 'are'} not on ${sourceWhere(archives.sourceRequest())} (FG.R12).`);
+    // CMV-7 (ours; CMV.R14, strict): every pack the layout needs that this device does not hold, or one held whose
+    // server's declaration is not its manifest's, stops the join here -- before the layout opens and before any seat is asked
+    let heldNow: readonly HeldPack[] = [];
+    try { heldNow = contentSource.heldPacks?.() ?? []; } catch { /* a throwing source holds nothing */ }
+    const packRefusal = joinPackRefusal({ needs: layoutPackNeeds(got.lobby.layout), declared: got.lobby.declared, held: heldNow });
+    if (packRefusal) return stop(packRefusal.line);
     showLoading(null);
     autosaveOff = true;                                     // the host's layout is not written over this browser's own
     try {
@@ -12575,7 +12922,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       personEdit('piece.rotate', { refs: selectionIds() }, () => {
         passOver('turned');
         if (!c) return;
-        applyPoses(turnedAbout(picks.items.map(poseOf), c, yawQuat((deg * Math.PI) / 180)));
+        // FC2-6 (ours): what is under the group carried round with it (`carrying`), as the gizmo's turn carries it.
+        carrying(picks.items, () => applyPoses(turnedAbout(picks.items.map(poseOf), c, yawQuat((deg * Math.PI) / 180))), true);
         placePivot();
         refreshBox();
         refreshInspector();
@@ -12586,7 +12934,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const s = selected;
     if (!s) return;
     personEdit('piece.rotate', { refs: selectionIds() }, () => {
-      s.rotation.set(0, s.rotation.y + (deg * Math.PI) / 180, 0);
+      // FX-9's review: a piece turns about the vertical from its own yaw and keeps its pitch and roll, as the Yaw field
+      // does (`yawTo`): its quaternion is the truth since FX-9, and `rotation.y` is three's XYZ angle, which is not the
+      // yaw past 90 degrees or under a tilt. Any other kind turns about y alone, as before.
+      // FC2-6 (ours): what is under it carried round with it (`carrying`), as a typed Yaw and the gizmo carry it -- a turn
+      // about the vertical, so a piece under it stays level and keeps its size (no refusal to make).
+      const piece = turnedPiece();
+      carrying([s], () => {
+        if (piece) yawTo(piece, turnOf(piece.quaternion).yaw + deg);
+        else s.rotation.set(0, s.rotation.y + (deg * Math.PI) / 180, 0);
+        s.updateMatrix();
+      }, true);
       refreshBox();
       refreshInspector();
       edit();

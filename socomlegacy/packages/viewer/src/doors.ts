@@ -64,7 +64,8 @@ export { VALVE_LOCKED };
 
 /**
  * The `DOOR` actions of a map archive, each on its scene node with its polygons and animations; none on a map without
- * `actions.rdr`. `owners` are the hull's (`collisionOwners(models)`, indexing `polys`); the doors mark theirs with
+ * `actions.rdr`. `owners` are the hull's (`mapCollision`'s, indexing `polys`: the worldmodel's, then the clutter's, research 422; a door's
+ * path never meets a `clutter/...` owner); the doors mark theirs with
  * `sweep` as they are found, so pack the ground after this. Never throws: what does not read is a diagnostic.
  */
 export function readDoors(

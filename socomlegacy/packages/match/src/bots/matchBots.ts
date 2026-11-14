@@ -630,7 +630,8 @@ export class MatchBots {
     if (loadout) this.room.text(id, { type: 'loadout', char: held, picks: loadout.picks });
     const b = this.newActor(id, team, ordinal, role);
     this.actors.set(id, b); this.adopted.add(id);
-    const sim = this.room.player(id)!.sim;
+    const seat = this.room.player(id)!, sim = seat.sim;
+    seat.view = 0; seat.swayX = 0; seat.swayY = 0;               // PV-2: the departed page's view is not the bot's (as `handBack`)
     this.adoptedAi.set(id, sim.ai); sim.ai = true;               // COMBINED-CUT: IsAi while driven (a respawn's mover carries it)
     sim.walker.stanceCut = false; sim.walker.stanceSeparate = false;   // MOVE fold F3: the bots' words, not the human's last mode
     sim.walker.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY part 4: the AI casts no weapon line (+0x2c 0)

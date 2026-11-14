@@ -79,7 +79,7 @@ import type { RasterOptions, UiCanvasTarget, UiTextures } from './uiCompositorVi
 import { releasePageQuadCache } from './uiCompositorView';   // QUAD-CACHE-RELEASE (LATER 859): the menus' cache let go under a match
 import { CpuUiPresenter, isUiPresenter, type UiPresenter } from './uiPresenter';
 import { FrontEndGpu, uiGpuFrontFrameOptions } from './uiGpuFront';
-import { uiGpuSurfaceLoader, uiGpuSurfaceWiring } from './uiGpuSurfaceMount';
+import { frontGpuAllowed, uiGpuSurfaceLoader, uiGpuSurfaceWiring } from './uiGpuSurfaceMount';
 import { pageUiGpuSwitch, uiGpuDevBuild, type UiGpuSwitch } from './uiGpuSwitch';
 import { seedUiGpuTextureKey } from './uiGpuTextures';
 import { HD_MENU_SCALE_LIMIT } from './uiRasterRules';
@@ -545,6 +545,7 @@ export class FrontEndSession<P = BlackPicture> {
       built: (b) => {
         this.parts.built(b);
         syncLobbyBots(this.gameLobby.commands, this.parts.current);
+        this.gameLobby.commands.dialogBuilt(this.machine.shell()?.currentName ?? null);   // VERSION_ABORT_HELD_ADAPTATION
         // OT.R79: VIDEO's strip at the page's picture before its first tick checks the box (`selectVideoPicture`).
         if (o.picture && this.parts.current && isVideoPictureDesign(b.design)) selectVideoPicture(this.parts.current.widgets, o.picture.get());
         o.dialogBuilt?.(b.design);
@@ -1111,7 +1112,12 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     // never beside it (GM-XBOX1; a browser adaptation). Memoised a page load: the class's later reads (the loading panel's,
     // Settings', the return's) stay live -- the Xbox pick may change -- and make no context.
     pageRendererProbe();
-    gpuFront = FrontEndGpu.mount({
+    // LATER 983's experiment (the owner's pick, 2026-11-14; `./uiGpuSurfaceMount` `frontGpuAllowed`): no front surface on
+    // the Xbox class, so no WebGL context before the match; the menus draw on `#front-end`, as after a loss -- the front
+    // down from the start, so the menus' HD pack is neither loaded nor turned on (the batch review, 2026-11-14).
+    const frontWithheld = !frontGpuAllowed(pageDeviceClass());
+    if (frontWithheld) frontGpuDown = true;
+    gpuFront = frontWithheld ? null : FrontEndGpu.mount({
       doc, twin: canvas, sw: uiGpu, place: placeFrontEndCanvas, laid: () => screenOrigin.lay(),
       down: () => { frontGpuDown = true; applyHdMenus(); },                     // the flip's review F2: L4 or L3 lets the menus' HD pack go
       ladder: uiGpu.hostFor('front'),                                           // the flip's re-check 2: the page's software frames counted while down

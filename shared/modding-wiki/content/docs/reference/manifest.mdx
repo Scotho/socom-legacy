@@ -26,9 +26,9 @@ pack contract's code, so it is the checker's own list.
 | `name` | Required. The pack's display name: 1 to 48 printable ASCII characters. |
 | `description` | Optional. A short description: up to 400 printable ASCII characters. It is part of the pack's identity hash, so changing it changes the pack's hash. |
 | `target` | Required. The disc revision the pack is for. It must be exactly the build's target (see `PACK_TARGET_US` below); an earlier spelling is refused and the finding names the canonical one. |
-| `contract` | Required. A version range, such as `^0.1.1`, that at least one of the engine contract versions the build reads (`ENGINE_CONTRACT_VERSIONS`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `\|\|`. A pack of kind `rules` must not admit any engine before `0.1.1`. |
-| `kinds` | Required. A list naming each of `content`, `rules`, `system` and `plugin` at most once, and at least one of them: what the pack contains. `plugin` is reserved: `sides` `server` and a contract that admits no engine before `0.2.0`. |
-| `sides` | Required. One of `client`, `server` or `both`: which side applies the pack's members. A page never applies a `server` pack's members, nor a `plugin` pack's (the contract's `appliesOn`). The earlier formats are read as `client`. |
+| `contract` | Required. A version range, such as `^0.1.1`, that at least one of the engine contract versions the build reads (`ENGINE_CONTRACT_VERSIONS`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `\|\|`. A pack of kind `rules` must not admit any engine before `0.1.1`. A pack of kind `plugin` must not admit any engine before `0.2.0`. |
+| `kinds` | Required. A list naming each of `content`, `rules`, `system` and `plugin` at most once, and at least one of them: what the pack contains. `plugin` is a community server's module: `sides` `server`, one `plugin/main.js`, and a contract that admits no engine before `0.2.0`. |
+| `sides` | Required. One of `client`, `server` or `both`: which side applies the pack's members. A page never applies a `server` pack's members, nor a `plugin` pack's (the contract's `appliesOn`). A plugin pack must say `server`. The earlier formats are read as `client`. |
 | `dependencies` | Required, empty when there are none. A list of at most 64 entries, each either `{id, range}` (another pack, by its id and a version range) or `{archive, sha256}` (one of your own disc archives, by its path and SHA-256). The same id or archive may not appear twice, and a pack may not depend on itself. |
 | `files` | Required, at least one row. Every member of the pack except the manifest itself, one row each (see the `files` row below). A file in the zip that is not listed is refused, apart from Thunderstore's root files beside the manifest. |
 | `intents` | Required. A list of at most 64 entries, each `{kind, files}`: which members a change is declared to be, and what kind of change it is. Every member must be named by at least one intent. |
@@ -73,7 +73,7 @@ A `files` row's `provenance` (contract 0.2) is an object whose `kind` is one of 
 | `content` | Content: assets and maps (models, textures, sounds, collision, data, an authored map). The earlier formats are read as `content` packs. The check sets no rule of its own on this kind. |
 | `rules` | Declarative rules for a game mode, in `rules`-role JSON members: data only, never code. A `rules` pack's `contract` must start at `0.1.1` or above, and its members' capabilities must agree with its `handlers` claims. |
 | `system` | Engine systems: changes made through claims on engine-owned handler slots (the one such slot today is the full-screen picture pass `visual.post`). The check sets no rule of its own on this kind. |
-| `plugin` | Reserved for a community server's plugin: the pack states `sides` `server` and a contract that admits no engine before `0.2.0`. It passes the check with the warning `pack.KIND_NOT_APPLIED`: no page applies it, and nothing in this build runs it. |
+| `plugin` | A community server's module: exactly one `plugin/main.js`, other members data JSON, `sides` `server`, and a contract that admits no engine before `0.2.0`. The check warns `pack.KIND_NOT_APPLIED` because no page applies it. A community match child runs it only when the opt-in is on. |
 
 ### The earlier formats
 
@@ -90,7 +90,7 @@ An earlier loader's pack has no `s2u-pack.json`; the contract reads it through a
 | side | what it is |
 |---|---|
 | `client` | The value `client`: a page applies the pack's members, a server does not. |
-| `server` | The value `server`: a match's server applies the pack's members, a page never does. |
+| `server` | The value `server`: a match's server applies the pack's members, a page never does. A plugin pack must use it. |
 | `both` | The value `both`: a page and a server each apply the pack's members (a `plugin` pack's never on a page). |
 
 ## Roles and payload types
@@ -110,14 +110,15 @@ intent alone.
 | `system` | `.json` | no | A JSON member for a system claim. |
 | `data` | any | no | Any other data; any file type. |
 | `legacy-manifest` | `.json` | no | An earlier format's own manifest, kept as a member when the contract reads an earlier pack. |
+| `plugin` | `.js` | yes | The one script, path `plugin/main.js`. A `.js` file. A plugin pack has exactly one, under a `new-behaviour` intent. No second script. |
 
 ## Intents
 
 | intent | what it is |
 |---|---|
-| `cosmetic` | The members change only how the game looks or sounds. A `collision`, `gameplay` or `rules` member cannot be covered by `cosmetic` alone. |
+| `cosmetic` | The members change only how the game looks or sounds. A `collision`, `gameplay`, `rules` or `plugin` member cannot be covered by `cosmetic` alone. |
 | `gameplay-value` | The members change values the game already has. |
-| `new-behaviour` | The members add behaviour the game does not have. |
+| `new-behaviour` | The members add behaviour the game does not have. A plugin pack's `plugin/main.js` is this intent. |
 
 ## Published values
 
@@ -130,7 +131,7 @@ intent alone.
 | `ENGINE_CONTRACT_VERSIONS` | `0.1.2, 0.2.0` | Every engine contract version this build reads, oldest first. A pack is read when its `contract` range admits at least one of them, so a pack written for `^0.1.1` still reads on a 0.2 build. |
 | `PACK_TARGET_US` | `SCUS-97275` | The disc revision this build targets (the US disc's product code); a pack's `target` must be exactly this. |
 | `RULES_PACK_CONTRACT_FLOOR` | `0.1.1` | The first engine contract with the rules vocabulary. A `rules` pack's `contract` must start at it or above in every `\|\|` alternative; it stays the same when the build's contract moves on. |
-| `PACK_CONTRACT_0_2_FLOOR` | `0.2.0` | The first engine contract with the 0.2 additions: the manifest's `license`, `authors` and `extensions`, a `files` row's `provenance`, and a map pack's `layouts/` member. A pack that uses one states a range that admits no engine before it, such as `^0.2.0` (otherwise `pack.CONTRACT_FIELD`); a pack that uses none keeps its lower range. It stays the same when the build's contract moves on. |
+| `PACK_CONTRACT_0_2_FLOOR` | `0.2.0` | The first engine contract with the 0.2 additions: the manifest's `license`, `authors` and `extensions`, a `files` row's `provenance`, a map pack's `layouts/` member, and a `plugin` pack. A pack that uses one states a range that admits no engine before it, such as `^0.2.0` (otherwise `pack.CONTRACT_FIELD`); a pack that uses none keeps its lower range. It stays the same when the build's contract moves on. |
 | `THUNDERSTORE_TEAM` | `SOCOM_Legacy` | The Thunderstore team the project's own packs publish under (the owner named it on 2026-11-11). It is not yet created on the store. A dependency is pinned under its own team, never this one by default. |
 
 ### Target aliases

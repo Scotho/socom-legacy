@@ -5,8 +5,10 @@ import { SeatToldBoard } from '../net/seatTold';
 import { SeatClanBoard } from '../net/seatClans';
 import type { VoiceDown } from '../net/voiceWire';
 import {
-  epochNewer, type BodyState, type ClientEvent, type CombatReport, type CraneWire, type DoorWire, type EnvWire, type HostageWire, type Role, type ServerEvent, type Team,
+  BodyFlag, epochNewer, INTERP_DELAY_MS, TICK_HZ, VIEW_SINCE_PROTOCOL,
+  type BodyState, type ClientEvent, type CombatReport, type CraneWire, type DoorWire, type EnvWire, type HostageWire, type Role, type ServerEvent, type Team,
 } from '../net/protocol';
+import { COMMAND_CLOCK_HISTORY_TICKS_ADAPTATION, COMMAND_CLOCK_STALL_TICKS_ADAPTATION, CommandClock } from '../net/commandClock';
 import { MAX_ROUNDS } from '../net/rules';
 import type { WorldState } from '../worldState';
 import { shortTurn, wrapYaw } from '../yaw';
@@ -130,6 +132,47 @@ export interface ReplaySeek { from: number; to: number; folded: boolean }
 const tickOf = (r: ReplayRecord): number => (r.kind === 'header' ? -Infinity : r.tick);
 
 /**
+ * PV-4b (the player's-view lane; product track, a browser adaptation with no original -- LATER 735, research 402 s4): the
+ * replay's command clock is stateless over the file. The watched body's samples are the recording's snapshots, each heard
+ * on media time (its own tick at `TICK_HZ`) and the clock read at the replay's tick the same way -- never the page's
+ * clock, so a pause holds it and 2x runs it at twice the rate. At a seek, a change of body or the first read, a
+ * `CommandClock` is primed from the file around the playhead (the window, cached by its first snapshot's index): from
+ * `COMMAND_CLOCK_HISTORY_TICKS_ADAPTATION` plus `COMMAND_CLOCK_STALL_TICKS_ADAPTATION` before its end (the clock's kept
+ * history, the unwrapping's context) to `REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION` past the playhead. As the playhead
+ * moves on, the window's end moves with it: the snapshots it brings within that reach are heard from the file in order.
+ *
+ * Why the end moves rather than the window being primed again at each step: a freshly primed clock's playout clock
+ * (`../net/playoutClock`) starts on its target offset, while the one it would replace may still be slewing toward it, so
+ * each new window could step the drawn command time by up to a command; and a fresh clock numbers its commands from its
+ * own first sample, so the numbers would restart at each step. Moving the end keeps both continuous; a seek (the rig is
+ * rebuilt there, PV.R6) primes afresh.
+ *
+ * `REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION` is 20: the file holds every sample, so the clock never waits on one, and a
+ * stall shorter than that is played through as the owner's commands ran; the clock's kept history, 120 ticks behind its
+ * newest sample, then reaches 100 ticks behind the playhead -- past the rig's 90-command warm-up (`povCamera.ts`
+ * `POV_WARM_TICKS_ADAPTATION`) at about one command a tick, with room for the room's uneven cadence.
+ * [adaptation, no original; LATER 735, research 402 s4]
+ */
+export const REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION = 20;
+
+/**
+ * PV-4b: the watched body's primed command clock (`REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION`'s header). `first`: the
+ * index of the snapshot it was primed from (the cache's key); `next`: the index of the next snapshot to hear. The
+ * review's fold: `resetAt`, the tick of a reset of the clock heard ahead of the playhead (null: none waits) -- until the
+ * playhead reaches it the read answers null and the epoch is not raised; `spawns`, the seat's spawn count at each sample
+ * heard, handed to the clock as the sample's (a recording's bodies carry none): the room's recorded `spawn` events for the
+ * seat written before the sample's snapshot in the file (a spawn between the room's steps is stamped with a snapshot's
+ * tick but written after it), as `NetClient.spawnsAt` counts the spawns heard before a snapshot live -- so a spawn with no death (a survivor
+ * re-placed at a classic round's start) is a new life on a replay too (close review pass 2); for a recording holding no
+ * `spawn` event for the seat, the dead-to-alive changes over the samples heard. `alive`, whether the last sample heard
+ * was alive (null before one).
+ */
+interface CommandWindow {
+  first: number; next: number; clock: CommandClock<BodyState>;
+  resetAt: number | null; spawns: number; alive: boolean | null;
+}
+
+/**
  * The events the room broadcasts only while a round runs, so one before any `roundStart` says the recording opened
  * inside a round: its clock's minute taken off (`roundTime`), its time up (`timeExpired`), its side decided
  * (`eliminated`), its end (`roundOver`) -- `Room.penaltyMinute`, `clock`, `endRound` (`packages/match/src/room.ts`).
@@ -208,6 +251,9 @@ export class ReplayClient implements NetClientSurface {
   private records: ReplayRecord[] = [];
   private snaps: Snap[] = [];
   private snapTicks: number[] = [];
+  /** Close review passes 2 and 3: where the recorded `spawn` events stand in the file, by seat -- their records' indices,
+   * the order the room wrote them in (`CommandWindow.spawns`). */
+  private spawnAt = new Map<number, number[]>();
   private clock: ReplayClock | null = null;
   /** The next record `advance` reads. */
   private cursor = 0;
@@ -236,6 +282,13 @@ export class ReplayClient implements NetClientSurface {
   private figure: number | null = null;
   /** RV2-02: held from the construction (`autoplay: false`) until `release()`. */
   private holding: boolean;
+  /** PV-4b: the watched body's id (null: none), and whether `bodies()` draws it on its command clock. */
+  private ccId: number | null = null;
+  private ccDrawn = false;
+  /** PV-4b: the epoch the rig compares (`commandClock().epoch`): it rises at a change of body, a seek, or a reset of the clock as the playhead moves on. */
+  private ccEpoch = 0;
+  /** PV-4b: the primed window (the cache), else null: dropped at a seek and a change of body. */
+  private ccWin: CommandWindow | null = null;
 
   constructor(source: Promise<LoadedSegment>, private readonly opts: ReplayClientOptions) {
     this.now = opts.now ?? (() => performance.now());
@@ -269,6 +322,13 @@ export class ReplayClient implements NetClientSurface {
       if (r.kind === 'end') this.endRecord = true;
     });
     this.snapTicks = this.snaps.map((s) => s.tick);
+    this.spawnAt = new Map();
+    seg.records.forEach((r, index) => {
+      if (r.kind !== 'event' || r.event.type !== 'spawn') return;
+      const at = this.spawnAt.get(r.event.id) ?? [];
+      at.push(index);                                       // in file order, so each list is sorted
+      this.spawnAt.set(r.event.id, at);
+    });
     const first = seg.records.findIndex((r) => statefulRecord(r, this.throwable, this.opts.hull !== undefined));
     this.firstStateful = first < 0 ? seg.records.length : first;
     let start = Infinity, end = -Infinity;
@@ -442,6 +502,7 @@ export class ReplayClient implements NetClientSurface {
   private seekTo(tick: number, from: number = this.clock!.tick()): number {
     const clock = this.clock!;
     const target = clock.seek(tick);                       // RV-2: the landing, known before anything of the target
+    this.ccDrop();                                         // PV-4b: the command clock is primed again at the target
     const seek: ReplaySeek = { from, to: target, folded: true };
     for (const l of [...this.seekListeners]) l(seek);      // RE-4: the air at the old playhead, before the target is told
     const i = seekIndex(this.records, target);
@@ -596,8 +657,18 @@ export class ReplayClient implements NetClientSurface {
   /** NCW-17's displayed tick (`NetClient.shownTick`), inert: a replay fires no round. */
   shownTick(): number | null { return null; }
 
-  /** Every recorded body at the replay's tick, between the two snapshots around it (`NetClient.bodies`' law). */
+  /**
+   * Every recorded body at the replay's tick, between the two snapshots around it (`NetClient.bodies`' law). PV-4b: a
+   * body watched AND drawn (`setCommandClockBody(id, true)`) takes its pose from its command clock (`ccDraw`, the live
+   * client's rule); with none, or watched and not drawn, the list is the recorded one for every body.
+   */
   bodies(now: number = this.now()): BodyState[] {
+    const list = this.recordedBodies(now);
+    return this.ccDrawn ? this.ccDraw(list, now) : list;
+  }
+
+  /** `bodies(now)`'s list on the replay's tick: today's, for every body. */
+  private recordedBodies(now: number): BodyState[] {
     // NU-12 B2: no `spawns` here (not built) -- a replay's copy is rebuilt only at a dead-to-alive change (REMOTE_RESPAWN_REBUILD_READING, research 328 §6).
     const n = this.snaps.length;
     if (!n || this.state !== 'open') return [];
@@ -617,6 +688,144 @@ export class ReplayClient implements NetClientSurface {
         yaw: wrapYaw(o.yaw + turn * f), pitch: o.pitch + (x.pitch - o.pitch) * f,
       };
     });
+  }
+
+  // ---- PV-4b: the watched body's command clock (product track, a browser adaptation; LATER 735, research 402 s4) ----
+
+  /**
+   * PV-4b (`NetClient.setCommandClockBody`): the body whose owner's command clock is kept (`id`; null none) and whether
+   * `bodies()` draws it there (`drawn`). A change of id drops the primed window and raises the epoch; a change of `drawn`
+   * alone does not; the same pair again does nothing.
+   */
+  setCommandClockBody(id: number | null, drawn = false): void {
+    if (id !== this.ccId) { this.ccId = id; this.ccDrop(); }
+    this.ccDrawn = id !== null && drawn;
+  }
+
+  /**
+   * PV-4b (`NetClient.commandClock`): the watched body's command time at the replay's tick at `now` (fractional) and the
+   * epoch; null when no body is watched, the recording is below `VIEW_SINCE_PROTOCOL`, or the body has no usable clock there.
+   */
+  commandClock(now: number = this.now()): { cmd: number; epoch: number } | null {
+    const k = this.ccRead(now);
+    return k === null ? null : { cmd: k, epoch: this.ccEpoch };
+  }
+
+  /**
+   * PV-4b (`NetClient.bodyAtCommand`): the watched body after command `k` (a fraction is the lerp), the window brought to
+   * the playhead; null otherwise, and null while a reset heard ahead of the playhead waits for it (`ccWindow`).
+   */
+  bodyAtCommand(k: number): BodyState | null {
+    if (!this.ccOn()) return null;
+    const w = this.ccWindow(this.serverTick());
+    return w.resetAt === null ? w.clock.at(k) : null;
+  }
+
+  /**
+   * PV-15 (`NetClient.lifeAtCommand`): the watched seat's spawn count at command `k`, from the window AS THE LAST READ
+   * LEFT IT -- no second look at the playhead. The rig's source asks `bodyAtCommand(k)` and then this: were the window
+   * brought forward between the two (a snapshot's tick crossed), a stall's sample could have taken the spawned body and
+   * its count after the body was read, and the corpse would be handed on as the new life (the review's finding 5).
+   * Null with no window, as where `bodyAtCommand` answers null.
+   */
+  lifeAtCommand(k: number): number | null {
+    const w = this.ccOn() ? this.ccWin : null;
+    return w && w.resetAt === null ? w.clock.lifeAt(k) : null;
+  }
+
+  /** A seek or a change of body: the window dropped (primed afresh at the next read), the epoch raised. */
+  private ccDrop(): void { this.ccWin = null; this.ccEpoch++; }
+
+  /**
+   * PV-8 (a browser adaptation, no original): the open recording carries the player's view -- its header's protocol at or
+   * over `VIEW_SINCE_PROTOCOL`; false while none is open (connecting, refused, closed). One segment per client: a seek
+   * moves within it and leaves this as it was. The replay strip's gate on its fourth camera (`../modern/replays/worldStage`).
+   */
+  get viewCarried(): boolean {
+    return this.state === 'open' && (this.segment?.header.protocol ?? 0) >= VIEW_SINCE_PROTOCOL;
+  }
+
+  /** A body watched on an open recording whose protocol carries the nibble (`VIEW_SINCE_PROTOCOL`): below it none is primed. */
+  private ccOn(): boolean {
+    return this.ccId !== null && this.viewCarried;
+  }
+
+  /**
+   * The watched body's command time at `now`: the window's clock read at the replay's tick in media time, plus the clock's
+   * own `INTERP_DELAY_MS` -- the replay draws every other body at its tick with no delay (`viewTick`), and the window holds
+   * every sample `REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION` ahead, so the delay is not needed here and would draw the
+   * watched body a tenth of a second behind the rest of the recording. The review's fold 1: null while a reset heard
+   * ahead of the playhead waits for it (`ccWindow`) -- the clock is still read, so it keeps the frame's pace.
+   */
+  private ccRead(now: number): number | null {
+    if (!this.ccOn()) return null;
+    const t = this.serverTick(now);
+    const w = this.ccWindow(t);
+    const k = w.clock.cmd((t * 1000) / TICK_HZ + INTERP_DELAY_MS);
+    return w.resetAt === null ? k : null;
+  }
+
+  /**
+   * The window brought to replay tick `t` (`REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION`'s header): primed from the file
+   * when there is none, then each snapshot up to `t` plus the reach heard once, in the file's order. A reset of the clock
+   * as it moves on (the watched body absent past the clock's gap, a stall past its limit) raises the epoch, as the live
+   * clock's does; one in the priming does not (the seek or the change of body that dropped the window raised it).
+   *
+   * The review's fold 1: a reset heard at a sample AHEAD of the playhead (tick > `t`, within the reach) has already
+   * dropped the old samples, and the new clock's oldest is the body after the reset's sample -- read now, it would draw
+   * the body at a place the recording shows only at that tick (after a stall's burst, up to the reach early) and raise
+   * the epoch early. So the window keeps its tick (`resetAt`): before it the read answers null (the recorded entry, as
+   * with no clock) and the epoch holds; when the playhead reaches it the epoch rises and the reads resume on the new
+   * clock -- the live clock's reset seen at the moment the recording reaches it. A reset at or behind the playhead (a
+   * long frame) raises the epoch at once, as before.
+   *
+   * The review's fold 2, widened by the close's review pass 2: a recording's bodies carry no spawn count, so the window
+   * hands the clock, as each sample's `spawns`, the seat's recorded `spawn` events written before the sample's snapshot (a
+   * dead-to-alive change where the recording holds none, `CommandWindow`): the clock's own respawn rule (`at()` draws
+   * the newer whole across a change, research 402 s4) applies as it does live, a spawn with no death included.
+   */
+  private ccWindow(t: number): CommandWindow {
+    const end = t + REPLAY_COMMAND_CLOCK_AHEAD_TICKS_ADAPTATION;
+    let w = this.ccWin;
+    const primed = w === null;
+    if (!w) {
+      const first = firstAfter(this.snapTicks, end - COMMAND_CLOCK_HISTORY_TICKS_ADAPTATION - COMMAND_CLOCK_STALL_TICKS_ADAPTATION - 1);
+      w = this.ccWin = { first, next: first, clock: new CommandClock<BodyState>(), resetAt: null, spawns: 0, alive: null };
+    }
+    const id = this.ccId!, clock = w.clock;
+    const spawnAt = this.spawnAt.get(id);
+    let raise = false;
+    for (; w.next < this.snaps.length && this.snaps[w.next]!.tick <= end; w.next++) {
+      const s = this.snaps[w.next]!;
+      const b = s.bodies.find((x) => x.id === id);
+      if (!b) continue;
+      const alive = (b.flags & BodyFlag.Alive) !== 0;
+      // the recorded spawns written before this snapshot: by the file's order, not the tick -- a spawn made between the
+      // room's steps is stamped with a snapshot's tick but written after it, and that snapshot still shows the old body
+      if (spawnAt) w.spawns = firstAfter(spawnAt, s.index);
+      else if (alive && w.alive === false) w.spawns++;
+      w.alive = alive;
+      const epoch = clock.epoch;
+      clock.hear((s.tick * 1000) / TICK_HZ, s.tick, b.clock ?? 0, b, w.spawns);
+      if (clock.epoch === epoch) continue;
+      if (s.tick > t) w.resetAt = s.tick;                  // heard ahead: it waits for the playhead
+      else if (!primed) raise = true;
+    }
+    if (w.resetAt !== null && t >= w.resetAt) { w.resetAt = null; raise = true; }
+    if (raise) this.ccEpoch++;
+    return w;
+  }
+
+  /** `NetClient.bodies`' substitution (its `onCommandClock`) on the replay's list: a copy, the recorded array untouched. */
+  private ccDraw(list: BodyState[], now: number): BodyState[] {
+    const i = list.findIndex((x) => x.id === this.ccId);
+    if (i < 0 || !(list[i]!.flags & BodyFlag.Alive)) return list;
+    const k = this.ccRead(now);
+    const at = k === null ? null : this.ccWin!.clock.at(k);
+    if (!at || !(at.flags & BodyFlag.Alive)) return list;   // the review's fold 2: the clock's sample must be alive too
+    const out = list.slice();
+    out[i] = { ...list[i]!, feet: [at.feet[0], at.feet[1], at.feet[2]], yaw: at.yaw, pitch: at.pitch };
+    return out;
   }
 
   /** The doors as the snapshot at or before the replay's tick has them. */

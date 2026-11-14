@@ -4,7 +4,9 @@ import type { ReplayClient, ReplaySeek } from '../../replay/replayClient';
 import { roundSpans, roundsOf, type RoundSpan } from '../../replay/rounds';
 import { icon, type IconName } from '../icons';
 import '../../console/replay-transport.css';
+import { PAD_REPEAT_ATTR, PAD_REPEAT_EVENT, REPEAT_DELAY, REPEAT_EVERY } from '../../console/padRepeat';
 import { END_OF_RECORDING, HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE, roundText } from './transportStrings';
+import { rowOf, transportKeyMap, viewerCode } from './viewerKeys';
 
 /**
  * The replay viewer's transport bar (MU-10 of `docs/plans/2026-10-09-modern-ui-parallel.md`; MU.R9; the dialogue's D2.9
@@ -21,9 +23,16 @@ import { END_OF_RECORDING, HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_
  *
  * **The keys** (`TRANSPORT_KEYS`, on the viewer's own element, so the rest of the page keeps its keys): the test room's
  * replay keys kept as they are (`../../replay/controls` `REPLAY_KEYS`: Space, `,` `.`, `[` `]`, Home, End), plus the
- * video players' J/K/L (`MU_REPLAY_JUMP_SECONDS_ADAPTATION` back, play/pause, on), the arrows left and right a snapshot,
- * `-` and `=` the speed. A typed field, a key with Ctrl/Alt/Meta, and Space or Enter on a focused button keep their own
- * meaning; a held Space does not toggle again.
+ * video players' J/K/L (`MU_REPLAY_JUMP_SECONDS_ADAPTATION` back, play/pause, on), `-` and `=` the speed. A typed field, a
+ * key with Ctrl/Alt/Meta, and Space or Enter on a focused button keep their own meaning; a held Space does not toggle
+ * again. RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully navigable with keyboard and
+ * mouse. Every view."; a browser adaptation): the keys are the viewer's one table's (`./viewerKeys`, its transport rows --
+ * the listener, the tooltips and `aria-keyshortcuts` read it), and they act in every build wherever the caller's `keys`
+ * says (both callers' default: true): the bar's listeners sit on the viewer's own element, never the window, so the
+ * overlay over a game page and every match page gain none. The arrows left and right are no longer snapshot steps (they
+ * were never advertised; `,` and `.` are): the viewer gives them to the spectator's previous / next player, as the pad's
+ * D-pad. Its buttons take no focus from a mouse press (the band's rule), so Space stays play / pause after a click; Tab
+ * still reaches each.
  *
  * **The seek note, from the engine** (RV-2; research 276 §1). Every seek -- a step back, a jump, the bar, the ends, or
  * one this bar did not make -- is told by the client (`ReplayClient.onSeek`, its `ReplaySeek`), and the note is raised
@@ -109,6 +118,17 @@ import { END_OF_RECORDING, HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_
  * (the viewer gives it), the note is handed over at the moments above -- each seek the engine tells, a drag's once at
  * its release -- and the HUD draws it as a 3.2 s toast over the world (`./hud`); the bar then draws no note of its own.
  * Without it, the bar's own note stands as before. A browser adaptation, product track.
+ *
+ * **RVK-A: << and >> held** (LATER 966, V21.R7; the owner, 2026-11-12: "the << and >> buttons should be able to be held to
+ * page through"). The two jumps act on the press and repeat while held -- the first jump at once, the next after
+ * `REPEAT_DELAY`, then every `REPEAT_EVERY` (`../../console/padRepeat`, the console's own: the seek bar's D-pad cadence)
+ * -- by the pointer (`holdable`: a primary press; its release, cancel or leave, the button's blur, the window's blur and
+ * the page hidden end it), by J or L held and Enter or Space held on the focused button (one timer of the page's, the
+ * OS key repeat ignored), and by the pad's Cross held on the focused
+ * button (the poll's `PAD_REPEAT_EVENT`). One press is one jump: a click, a tap, a key press. **The seek note above
+ * holds a hold too**: a seek is the client's fold, so a hold seeks at most once an animation frame, as the drag does --
+ * a repeat that comes before the frame after the last jump is skipped, never queued -- and stops quietly at the
+ * recording's start or end. The snapshot steps and every other button keep their click alone.
  */
 
 /** What the bar reads and calls: `ReplayClient`'s own members, so a test's fake implements the same slice. */
@@ -133,6 +153,10 @@ const HELD_REFUSES: ReadonlySet<TransportAction> = new Set([
 ]);
 /** RV2-07: the round steps, refused with fewer than two spans. */
 const ROUND_STEPS: ReadonlySet<TransportAction> = new Set(['round-back', 'round-forward']);
+/** RVK-A: the actions a hold repeats -- the two jumps, << and >> (the owner named them); the snapshot steps do not. */
+const HOLDS: ReadonlySet<TransportAction> = new Set(['jump-back', 'jump-forward']);
+/** RVK-A: the keys whose hold repeats a jump (J, L): one timer of the page's, the OS key repeat ignored. */
+const HOLD_KEYS: Readonly<Record<string, TransportAction>> = { KeyJ: 'jump-back', KeyL: 'jump-forward' };
 
 /**
  * MU_REPLAY_ROUND_BACK_SECONDS_ADAPTATION (RV2-07): Previous round, pressed under this many seconds of the recording
@@ -141,12 +165,8 @@ const ROUND_STEPS: ReadonlySet<TransportAction> = new Set(['round-back', 'round-
  */
 export const MU_REPLAY_ROUND_BACK_SECONDS_ADAPTATION = 1;
 
-/** The keys (`KeyboardEvent.code`) and what each does. */
-export const TRANSPORT_KEYS: Readonly<Record<string, TransportAction>> = Object.freeze({
-  Space: 'toggle', KeyK: 'toggle', ArrowLeft: 'back', ArrowRight: 'forward', Comma: 'back', Period: 'forward',
-  KeyJ: 'jump-back', KeyL: 'jump-forward', BracketLeft: 'slower', BracketRight: 'faster', Minus: 'slower', Equal: 'faster',
-  Home: 'start', End: 'end', KeyB: 'round-back', KeyN: 'round-forward',
-});
+/** The keys (`KeyboardEvent.code`) and what each does: RVK-B, the viewer's one table's transport rows (`./viewerKeys`). */
+export const TRANSPORT_KEYS: Readonly<Record<string, TransportAction>> = transportKeyMap();
 
 type Span = { start: number; end: number };
 
@@ -209,31 +229,34 @@ const TYPED = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
 
 /**
  * A control: its action, icon and name; `keys` the key caps the tooltip shows (the `TRANSPORT_KEYS` that run it),
- * `shortcut` the same as `aria-keyshortcuts` names them (`KeyboardEvent.key` values). The step buttons name `,` and `.`
- * alone: the arrows also step, but not on the focused seek bar, where they jump (`SEEK_BAR_KEYS`), so only the keys
- * that step wherever the focus is are advertised.
+ * `shortcut` the same as `aria-keyshortcuts` names them (`KeyboardEvent.key` values) -- RVK-B: both the one table's row
+ * for the action (`./viewerKeys` `rowOf`), so the tooltip, the name and the listener cannot disagree.
  */
 interface Control { action: TransportAction; icon: IconName; label: string; keys: readonly string[]; shortcut: string }
+const control = (action: TransportAction, icon: IconName, label: string): Control => {
+  const row = rowOf({ kind: 'transport', action });
+  return { action, icon, label, keys: row?.caps ?? [], shortcut: row?.shortcut ?? '' };
+};
 /**
  * RB-33: the controls line in the design's order (`TX`, `D:785-790`): the seven with the round steps inline beside play
  * (their icons the design's previous/next track, ours `step-back` / `step-forward`), then, after a divider, the snapshot
  * steps (the design's chevrons).
  */
 const MAIN: readonly Control[] = [
-  { action: 'start', icon: 'skip-start', label: 'To the start', keys: ['Home'], shortcut: 'Home' },
-  { action: 'jump-back', icon: 'rewind', label: `Back ${MU_REPLAY_JUMP_SECONDS_ADAPTATION} seconds`, keys: ['J'], shortcut: 'J' },
-  { action: 'round-back', icon: 'step-back', label: 'Previous round', keys: ['B'], shortcut: 'B' },
-  { action: 'toggle', icon: 'pause', label: 'Pause', keys: ['Space', 'K'], shortcut: 'Space K' },
-  { action: 'round-forward', icon: 'step-forward', label: 'Next round', keys: ['N'], shortcut: 'N' },
-  { action: 'jump-forward', icon: 'fast-forward', label: `On ${MU_REPLAY_JUMP_SECONDS_ADAPTATION} seconds`, keys: ['L'], shortcut: 'L' },
-  { action: 'end', icon: 'skip-end', label: 'To the end', keys: ['End'], shortcut: 'End' },
+  control('start', 'skip-start', 'To the start'),
+  control('jump-back', 'rewind', `Back ${MU_REPLAY_JUMP_SECONDS_ADAPTATION} seconds`),
+  control('round-back', 'step-back', 'Previous round'),
+  control('toggle', 'pause', 'Pause'),
+  control('round-forward', 'step-forward', 'Next round'),
+  control('jump-forward', 'fast-forward', `On ${MU_REPLAY_JUMP_SECONDS_ADAPTATION} seconds`),
+  control('end', 'skip-end', 'To the end'),
 ];
 const STEPS: readonly Control[] = [
-  { action: 'back', icon: 'chevron-left', label: 'One snapshot back', keys: [','], shortcut: ',' },
-  { action: 'forward', icon: 'chevron-right', label: 'One snapshot on', keys: ['.'], shortcut: '.' },
+  control('back', 'chevron-left', 'One snapshot back'),
+  control('forward', 'chevron-right', 'One snapshot on'),
 ];
-const SLOWER: Control = { action: 'slower', icon: 'minus', label: 'Slower', keys: ['[', '-'], shortcut: '[ -' };
-const FASTER: Control = { action: 'faster', icon: 'plus', label: 'Faster', keys: [']', '='], shortcut: '] =' };
+const SLOWER: Control = control('slower', 'minus', 'Slower');
+const FASTER: Control = control('faster', 'plus', 'Faster');
 
 /** RB-33: a run action's button scales to .9 for this long (the design's `pressFlash`, `D:599`). A browser adaptation. */
 export const TRANSPORT_PRESS_MS = 140;
@@ -283,10 +306,10 @@ export interface TransportOptions {
    */
   circleBack?: boolean;
   /**
-   * RV-12 review (OT.R29, CX.R6): whether the bar reads keys. False -- the console launcher's release build -- and the
-   * bar listens to no key and names none: no `aria-keyshortcuts`, no key in a tooltip. The browser's own key defaults on
-   * its controls (a button's Space or Enter, the range's arrows) are not this bar's to stop: the console's layer prevents
-   * them (`../../console/adapters/replays`). Absent, true (the Replays section's, as before).
+   * RV-12 review (OT.R29, CX.R6): whether the bar reads keys. False and the bar listens to no key and names none: no
+   * `aria-keyshortcuts`, no key in a tooltip. The browser's own key defaults on its controls (a button's Space or Enter,
+   * the range's arrows) are not this bar's to stop: the console's layer prevents them (`../../console/adapters/replays`).
+   * Absent, true. RVK-B: in every build -- the viewer's keys are no longer a development build's only.
    */
   keys?: boolean;
   /**
@@ -333,6 +356,8 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   };
   const ico = (name: IconName): SVGSVGElement => icon(name, { className: 'cx-replay__icon' }, doc);
   const keys = opts.keys ?? true;
+  /** RVK-B: a button's mouse press takes no focus (as the band's), so Space stays the transport's play / pause. */
+  const noMouseFocus = (e: Event): void => { e.preventDefault(); };
   const button = (c: Control, cls = 'cx-replay-btn'): HTMLButtonElement => {
     const b = el('button', cls);
     b.type = 'button';
@@ -343,7 +368,9 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
       b.title = `${c.label} (${c.keys.join(' or ')})`;
     } else b.title = c.label;
     b.append(ico(c.icon));
-    b.addEventListener('click', () => { act(c.action); });
+    b.addEventListener('mousedown', noMouseFocus);            // RVK-B: a mouse press leaves the focus where it was
+    // RVK-A: the two jumps take their click where their hold is wired (`holdable`): a pointer's hold has stepped already
+    if (!HOLDS.has(c.action)) b.addEventListener('click', () => { act(c.action); });
     return b;
   };
 
@@ -593,22 +620,122 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   const onMouseDown = (e: Event): void => { e.preventDefault(); };
   slider.addEventListener('mousedown', onMouseDown);
 
+  /*
+   * RVK-A: << and >> held (the module's doc, "Held"). One hold at a time, its source (a pointer, a key) and the key's
+   * code; `inFlight` is a jump's seek made since the last animation frame -- a repeat that comes before that frame is
+   * skipped, never queued (the drag's once-a-frame rule).
+   */
+  let hold: { action: TransportAction; source: 'pointer' | 'key'; code: string | null; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  let inFlight = false;
+  const stepped = (): void => {
+    if (inFlight) return;
+    inFlight = true;
+    frame(() => { inFlight = false; });
+  };
+  /** The press itself -- a click's, a key's, a pointer's, the pad's first: one jump, as a click always made. */
+  const jumpOnce = (a: TransportAction): void => { act(a); stepped(); };
+  /** A repeat: false (the hold ends) when nothing may play or the recording's edge is reached; skipped while in flight. */
+  const repeatJump = (a: TransportAction): boolean => {
+    if (!open() || isHeld()) return false;
+    const span = client.span(), at = client.serverTick();
+    if (a === 'jump-back' ? at <= span.start : at >= span.end) return false;
+    if (inFlight) return true;
+    act(a);
+    stepped();
+    return true;
+  };
+  function endHold(): void {
+    if (hold?.timer != null) clearTimeout(hold.timer);
+    hold = null;
+  }
+  const tick = (): void => {
+    if (!hold) return;
+    if (!repeatJump(hold.action)) { endHold(); return; }
+    hold.timer = setTimeout(tick, REPEAT_EVERY);
+  };
+  function startHold(a: TransportAction, source: 'pointer' | 'key', code: string | null): void {
+    endHold();
+    jumpOnce(a);
+    hold = { action: a, source, code, timer: setTimeout(tick, REPEAT_DELAY) };
+  }
+  const onLost = (): void => { endHold(); };
+  const onVisibility = (): void => { if (doc.hidden) endHold(); };
+  /**
+   * RVK-A: a jump button's hold. The pointer's primary press starts it (the mouse, a touch) and its release, cancel or
+   * leave ends it, as the button's losing the focus does; the click that press makes is the press's (a click with a
+   * pointer's count, `detail` > 0, after this button's pointer press), so a click or a tap is one jump. A click with no
+   * pointer press before it -- the keyboard's activation, the pad's `click()` (`detail` 0) -- is one jump. Enter or Space
+   * held on it (RVK-B: every build's where `keys` says, as the bar's own): its default prevented, one timer of the page's. The pad's
+   * Cross held: each `PAD_REPEAT_EVENT` (`../../console/input`'s poll) one repeat.
+   */
+  function holdable(b: HTMLButtonElement, a: TransportAction): void {
+    let pointerPress = false;
+    b.setAttribute(PAD_REPEAT_ATTR, '');
+    b.addEventListener('pointerdown', (e) => {
+      if ((e as PointerEvent).button !== 0) return;
+      pointerPress = true;
+      startHold(a, 'pointer', null);
+    });
+    const release = (): void => { if (hold?.source === 'pointer' && hold.action === a) endHold(); };
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(type, release);
+    b.addEventListener('blur', () => { if (hold?.action === a) endHold(); });
+    b.addEventListener('click', (e) => {
+      const own = pointerPress && (e as MouseEvent).detail > 0;
+      pointerPress = false;
+      if (!own) jumpOnce(a);
+    });
+    b.addEventListener(PAD_REPEAT_EVENT, () => { if (!hold) repeatJump(a); });
+    const onButtonKey = (e: KeyboardEvent): void => {
+      if ((e.code !== 'Enter' && e.code !== 'NumpadEnter' && e.code !== 'Space') || e.ctrlKey || e.altKey || e.metaKey) return;
+      e.preventDefault();                                    // its native click (Enter's at keydown, Space's at keyup) is the hold's
+      if (e.type === 'keyup') { if (hold?.source === 'key' && hold.code === e.code) endHold(); }
+      else if (!e.repeat) startHold(a, 'key', e.code);
+    };
+    if (keys) {                                              // RVK-B: the viewer's keys, every build (`./viewerKeys`)
+      b.addEventListener('keydown', onButtonKey);
+      b.addEventListener('keyup', onButtonKey);
+    }
+  }
+
   const onKey = (e: KeyboardEvent): void => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const target = e.target as HTMLElement | null;
     const onBar = target === input;
     if (target && !onBar && TYPED.has(target.tagName)) return;
     if (target?.tagName === 'BUTTON' && (e.code === 'Space' || e.code === 'Enter')) return;
-    const a = onBar && Object.hasOwn(SEEK_BAR_KEYS, e.code) ? SEEK_BAR_KEYS[e.code]!
-      : Object.hasOwn(TRANSPORT_KEYS, e.code) ? TRANSPORT_KEYS[e.code]! : null;
+    const code = viewerCode(e);                              // RVK-B (finding 6): a numpad key as what it types
+    const a = onBar && Object.hasOwn(SEEK_BAR_KEYS, code) ? SEEK_BAR_KEYS[code]!
+      : Object.hasOwn(TRANSPORT_KEYS, code) ? TRANSPORT_KEYS[code]! : null;
     if (!a) return;
     e.preventDefault();
     if (a === 'toggle' && e.repeat) return;
+    if (HOLD_KEYS[code] === a) {                            // RVK-A: J / L held page; the OS repeat is no press
+      if (!e.repeat) startHold(a, 'key', code);
+      return;
+    }
     act(a);
   };
-  // LATER 86 (OT.R29; the owner, 2026-10-04: a controller only, the keyboard a local testing option): a development
-  // build's keys alone, at the site -- a release drops the listener whatever its caller's `keys` says.
-  if (import.meta.env.DEV && keys) host.addEventListener('keydown', onKey);
+  /** RVK-A: J or L let go ends its hold. */
+  const onKeyUp = (e: KeyboardEvent): void => { if (hold?.source === 'key' && hold.code === viewerCode(e)) endHold(); };
+  /**
+   * RVK-B's fold of the RVK-A review (F2): the focus gone from the viewer's box (Tab out, a click outside) -- its key up
+   * will never be heard here -- ends a key's hold (J / L, or Enter / Space held on a jump).
+   */
+  const onFocusOut = (e: FocusEvent): void => {
+    if (hold?.source === 'key' && !host.contains(e.relatedTarget as Node | null)) endHold();
+  };
+  host.addEventListener('focusout', onFocusOut);
+  // RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully navigable with keyboard and mouse.
+  // Every view."): the viewer's keys in every build, where its caller's `keys` says -- on the viewer's own element (`host`),
+  // never the window, so the overlay over a game page and every match page take none. (Was LATER 86's development fold.)
+  if (keys) host.addEventListener('keydown', onKey);
+  if (keys) host.addEventListener('keyup', onKeyUp);
+  for (const b of mainButtons) {
+    const a = b.dataset['action'] as TransportAction;
+    if (HOLDS.has(a)) holdable(b, a);
+  }
+  view?.addEventListener('blur', onLost);
+  doc.addEventListener('visibilitychange', onVisibility);
 
   let marksDrawn = '';
   let roundsDrawn = '';
@@ -729,6 +856,11 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     },
     dispose(): void {
       disposed = true;
+      endHold();                                             // RVK-A
+      view?.removeEventListener('blur', onLost);
+      doc.removeEventListener('visibilitychange', onVisibility);
+      host.removeEventListener('keyup', onKeyUp);
+      host.removeEventListener('focusout', onFocusOut);    // RVK-B (F2)
       for (const id of pressTimers.values()) clearTimeout(id);
       pressTimers.clear();
       off();

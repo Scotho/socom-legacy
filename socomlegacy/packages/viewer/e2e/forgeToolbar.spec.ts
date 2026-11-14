@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyLayout } from '../src/forge/layout';
-import { expectBase } from './forgeBase';
+import { dockOf, expectBase, pressNew, TOOLBAR_CONTROLS, TOOLBAR_CONTROLS_FLOOR } from './forgeBase';
 
 /**
  * LATER 226 (the merge controller's product-track call, 2026-10-21): the forge's toolbar is one row about 1112-1271 px
@@ -19,8 +19,8 @@ test.use({ storageState: { cookies: [], origins: [] } });
 const MAPS = fileURLToPath(new URL('../../../public/maps', import.meta.url));
 const HAVE_MAPS = existsSync(join(MAPS, 'index.json')) && existsSync(join(MAPS, 'RUN', 'MP2.ZDB'));
 
-/** Every shown control of the toolbar, by index. */
-const controls = (page: Page) => page.locator('header.fx-top').locator('a, button, select, input').filter({ visible: true });
+/** Every shown control of the toolbar, by index -- FC2-4 (EDITOR-MAP T12): his menu bar's titles among them (`./forgeBase`). */
+const controls = (page: Page) => page.locator('header.fx-top').locator(TOOLBAR_CONTROLS).filter({ visible: true });
 
 async function open(page: Page): Promise<void> {
   await page.goto('/forge');
@@ -31,7 +31,9 @@ async function open(page: Page): Promise<void> {
 /** Each control brought into view lies wholly on the screen. */
 async function everyReachable(page: Page, width: number): Promise<void> {
   const n = await controls(page).count();
-  expect(n, 'the toolbar\'s controls').toBeGreaterThan(15);
+  // FC2-4: his row's floor (`./forgeBase` `TOOLBAR_CONTROLS_FLOOR`: the old row's New, Open, Saves, Duplicate, Delete,
+  // menu button and Reset layout off it, EDITOR-MAP T1-T4, T7, D11; his File, Edit and Window titles on it, T12).
+  expect(n, 'the toolbar\'s controls').toBeGreaterThanOrEqual(TOOLBAR_CONTROLS_FLOOR);
   for (let i = 0; i < n; i++) {
     const c = controls(page).nth(i);
     await c.scrollIntoViewIfNeeded();
@@ -49,11 +51,12 @@ for (const size of [{ width: 390, height: 844 }, { width: 760, height: 900 }]) {
     test('every toolbar control can be scrolled to, and Docks tapped opens the docks', async ({ page }) => {
       await open(page);
       await everyReachable(page, size.width);
-      await expect(page.locator('.fx-left')).toBeHidden();
+      // FC2-4 (EDITOR-MAP D1, D10): the old left dock is his Assets group; the docks off, only the viewport is drawn.
+      await expect(dockOf(page, 'assets')).toBeHidden();
       const docks = page.locator('button.fx-tool[title^="Show or hide the docks"]');
       await docks.scrollIntoViewIfNeeded();
       await docks.tap({ timeout: 5_000 });
-      await expect(page.locator('.fx-left')).toBeVisible();
+      await expect(dockOf(page, 'assets')).toBeVisible();
     });
 
     // The review's F2 (the merge controller's word: folded into LATER 226): a base change asked on a phone has its
@@ -64,7 +67,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 760, height: 900 }]) {
       test.skip(!HAVE_MAPS, 'needs socomlegacy/public/maps/index.json and RUN/MP2.ZDB, the served maps as bases (not committed)');
       await page.goto('/forge?devmode');                                    // the served maps as bases (`./forgePlayFromHere.spec.ts`)
       await expectBase(page);
-      await page.locator('header.fx-top button[title^="Start a new layout"]').click();
+      await pressNew(page);                                                 // FC2-4 (EDITOR-MAP T2): File > New...
       const card = page.locator('.fx-modal .fx-card').filter({ has: page.locator('select[aria-label="New layout"]') });
       await expect(card).toBeVisible({ timeout: 30_000 });
       const next = card.getByRole('button', { name: 'Next' });
@@ -94,7 +97,7 @@ test.describe('a 1024 px window', () => {
     const tools = (await page.locator('nav.fx-tools-row').boundingBox())!;
     expect(tools.y, 'the tools row\'s top').toBeCloseTo(46, 0);
     expect(tools.height, 'the tools row\'s height').toBeCloseTo(40, 0);
-    const left = (await page.locator('.fx-left').boundingBox())!;
+    const left = (await dockOf(page, 'assets').boundingBox())!;           // FC2-4 (EDITOR-MAP D1): his Assets group
     expect(left.y, 'the docks\' top').toBeCloseTo(86, 0);
   });
 });
@@ -160,7 +163,8 @@ test.describe('a lobby\'s joiner at 1280x720 (LATER 470)', () => {
     const bar = (await top.boundingBox())!;
     expect(bar.height, 'one row, its 46 px: nothing wrapped').toBeCloseTo(46, 0);
     const n = await controls(page).count();
-    expect(n, 'the toolbar\'s controls').toBeGreaterThan(15);
+    // FC2-4: his row's floor and Save map beside it (`./forgeBase` `TOOLBAR_CONTROLS_FLOOR`; b5b37ed00's 13, his titles not counted).
+    expect(n, 'the toolbar\'s controls').toBeGreaterThan(TOOLBAR_CONTROLS_FLOOR);
     for (let i = 0; i < n; i++) {
       const c = controls(page).nth(i);
       const b = (await c.boundingBox())!;

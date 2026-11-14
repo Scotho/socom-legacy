@@ -193,6 +193,28 @@ describe('LATER 275: the lobby\'s socket (`lobbySocketOf`)', () => {
   });
 
   /**
+   * CMV-7 (the community-mods plan's row CMV-7; CMV.R14; the main controller's call 1 of 2026-11-13, STRICT R14; product
+   * track): the join checks the lobby's packs (`./lobby/packCheck` `joinPackRefusal`) right after the archives and BEFORE
+   * the layout opens, the guest pass, the password and the seat -- a refusal is said on the card and the join stops, so no
+   * seat is asked. A pack-free lobby's join is unchanged (`joinPackRefusal` answers null; `./packCheck.test.ts`). A source
+   * pin, as the cases around it: no mounted-page test drives `joinLobby` with a stubbed fetch.
+   */
+  it('CMV-7: joinLobby asks joinPackRefusal after the archives and before the layout, the guest pass, the password and the seat; a refusal stops', () => {
+    const page = readFileSync(resolve(FORGE, 'page.ts'), 'utf-8');
+    const join = page.slice(page.indexOf('const joinLobby = '), page.indexOf('lobbyBtn.addEventListener'));
+    const check = join.indexOf('joinPackRefusal(');
+    expect(check).toBeGreaterThan(join.indexOf('missingArchives('));
+    for (const later of ['openLayout(', 'askGuest(', 'joinLockedLobby(', 'askForgeSeat(', 'enterLobby({']) {
+      expect(join.indexOf(later), later).toBeGreaterThan(0);
+      expect(check, later).toBeLessThan(join.indexOf(later));
+    }
+    expect(join).toMatch(/joinPackRefusal\(\{ needs: layoutPackNeeds\(got\.lobby\.layout\), declared: got\.lobby\.declared, held: /);
+    expect(join).toMatch(/if \(packRefusal\) return stop\(packRefusal\.line\);/);
+    // the held packs come from the content source's `heldPacks` (their manifests), a throwing source holding none
+    expect(join).toMatch(/contentSource\.heldPacks\?\.\(\)/);
+  });
+
+  /**
    * LATER 306 (LATER 275's after-the-fact review, the forge seat's): the refusal branches pinned. A refused door closes
    * the creator's lobby by its host ticket alone, awaited -- a close refused or unanswered said in words, the entry still
    * false (else a signed-in host holds a lobby it cannot enter: its next Create is 409 until the idle sweep); the joiner's
@@ -247,7 +269,8 @@ describe('FG-45: the create card\'s visibility toggle', () => {
     const page = readFileSync(resolve(FORGE, 'page.ts'), 'utf-8');
     const create = page.slice(page.indexOf('const createLobbyNow = '), page.indexOf('const joinLobby = '));
     expect(create).toMatch(/lobbyVisibilityToggle\(doc\)/);
-    expect(create).toMatch(/createLobby\(lobbyBase\(\), name, l, ticket, undefined, \{ listed: [^}]+\}\)/);
+    // The layout as sent: the editor's tree left out (`withoutTree`, the contributor's) and the held Map Settings (FC2.R8).
+    expect(create).toMatch(/createLobby\(lobbyBase\(\), name, withoutHeldSettings\(withoutTree\(l\)\), ticket, undefined, \{ listed: [^}]+\}\)/);
   });
 });
 

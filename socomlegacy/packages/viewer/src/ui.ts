@@ -13,7 +13,7 @@ import { keyboardSite } from './keyboardTesting';
 import { mouseSite } from './mouseTesting';
 import { droppedFolder, type DirRequest } from './discSource';
 import { MapBar, reloadOnMap } from './testroomMapBar';
-import { documentFullscreen } from './mobileFullscreen';
+import { bindFullscreenButton } from './mobileFullscreen';
 
 /** The overlays a viewer can switch on, in the order the panel lists them. */
 export const TOGGLES = ['grid', 'collision', 'spawns', 'wireframe', 'untextured',
@@ -396,19 +396,8 @@ export class Ui {
    */
   onFullscreen(kbm: (() => boolean) | null = null): void {
     const button = find<HTMLButtonElement>('fullscreen');
-    // cq41E0VR: the shared helper (`./mobileFullscreen`) -- the request on the element, the exit on the document, each
-    // with its own prefixed fallback (the prefixed exit no longer stands in for a request).
-    const fullscreen = documentFullscreen(document);
-    const toggle = (): void => {
-      if (fullscreen.active()) {
-        try { fullscreen.exit()?.catch(() => undefined); } catch { /* not offered here */ }
-        return;
-      }
-      try { fullscreen.request()?.catch(() => undefined); } catch { /* not offered here */ }
-      const orientation = (screen as Screen & { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
-      try { orientation?.lock?.('landscape').catch(() => undefined); } catch { /* a desktop, or an iPhone */ }
-    };
-    button.addEventListener('click', toggle);
+    bindFullscreenButton(button);
+    const toggle = (): void => { button.click(); };
     // OT.R29: a development build's only; RB-8 (OT.R114, RB.R4): and a `kbm` page's, asked again at each press
     if (import.meta.env.DEV || kbm !== null) globalThis.addEventListener('keydown', (e) => {
       if (!import.meta.env.DEV && !kbm?.()) return;
@@ -417,9 +406,6 @@ export class Ui {
       if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
       e.preventDefault();
       toggle();
-    });
-    document.addEventListener('fullscreenchange', () => {
-      button.title = document.fullscreenElement ? 'leave fullscreen (F)' : 'fullscreen (F)';
     });
   }
 

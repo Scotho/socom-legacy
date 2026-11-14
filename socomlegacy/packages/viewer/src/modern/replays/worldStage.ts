@@ -1,13 +1,13 @@
 import { replayDiscRequest } from '../../discPrompt';
 import type { HandedDiscRequest } from '../../discSource';
-import type { ServerEvent } from '../../net/protocol';
+import { VIEW_SINCE_PROTOCOL, type ServerEvent } from '../../net/protocol';
 import type { LoadedSegment, ReplayClient, ReplaySeek } from '../../replay/replayClient';
 import { loadKindOf, replayMapRefusal, type ReplayLoadKind } from '../../replay/refusalKind';
-import { keepCameraChoice, readCameraChoice, type CameraChoiceStore } from './cameraChoice';
+import { keepCameraChoice, readCameraChoice, type CameraChoiceStore, type ReplayCamera } from './cameraChoice';
 import { askReplayGrant, publicReplayAddress, replayAddress, type ReplayEntry } from './data';
-import type { ReplayStage, ReplayStageContext, SpectatorControls, SpectatorMode } from './stage';
+import type { ReplayStage, ReplayStageContext, SpectatorControls, SpectatorMode, SpectatorPress } from './stage';
 import type { TransportClient } from './transport';
-import { installReplayWorld, REPLAY_WORLD_PARAM, uninstallReplayWorld, type ReplayWorldHost, type ReplayWorldPage } from './worldHost';
+import { installReplayWorld, REPLAY_WORLD_PARAM, replaySteerLane, uninstallReplayWorld, type ReplayWorldHost, type ReplayWorldPage, type ReplayWorldSpectator } from './worldHost';
 
 /**
  * The stage that draws the match's world (MU-11 of `docs/plans/2026-10-09-modern-ui-parallel.md`; MU.R9: the replay
@@ -49,6 +49,17 @@ import { installReplayWorld, REPLAY_WORLD_PARAM, uninstallReplayWorld, type Repl
  * button pressing the original's own control on the page's spectator view (`cameraPresses`): X, the next player, the
  * next scenic view. What the view's own keys change inside the frame, the buttons follow (`current`).
  *
+ * **The player's view** (PV-8 of the player's-view lane, PV.R6; a browser adaptation with no original, research 402): a
+ * fourth camera after PLAYER that is no spectator mode -- the follow with `SpectatorView`'s PV-6a sub-mode on. Wanting it
+ * is the follow's presses (`cameraPresses`, taught no key), then `setPov(true)` once the view follows, asked again at each
+ * read until it holds; PLAYER from it is `setPov(false)`; free and scenic press as before. `current` reads `'pov'` while
+ * the view follows with it on, so a hold of Cross in the world moves the lit mark too. A recording below
+ * `VIEW_SINCE_PROTOCOL` refuses it from the fetch's answer on (`refused`, REPLAY_POV_REFUSED_ADAPTATION) and turns off a
+ * view the world turned on over it, once a frame; a page spectator without `setPov` refuses it too
+ * (REPLAY_POV_ABSENT_ADAPTATION). A kept `'pov'` is shown as PLAYER for that watch, the kept value untouched; one chosen
+ * before both are known is saved only once they carry it. A seek keeps it (REPLAY-SEEK-KEEP); the rig and the lens reset on the clock's
+ * epoch and the view falls back to the follow until they are warm (`fallback`: the strip's half-strength mark).
+ *
  * **The camera at open** (RV2-06, RV2.R1: the owner's word "make the default camera type be player"; a browser
  * adaptation -- the live spectator's start, `SPECTATOR_START_READING` free / free, `FUN_00295260`, is the original's and
  * stands). The viewer chooses: the kept choice (`./cameraChoice`, `s2u.replay.camera.v1`), else follow -- PLAYER -- and
@@ -60,6 +71,32 @@ import { installReplayWorld, REPLAY_WORLD_PARAM, uninstallReplayWorld, type Repl
  * page exists included. A round's turnover is one more such wait: the page sets a spectator back to free at `roundStart`
  * (SPECTATOR_TURNOVER_EVENT_READING, the original's reset, untouched), and the stage, told the same `roundStart` by the
  * client, presses the choice again after it, as the watcher would. A seek's welcome is no turnover (REPLAY-SEEK-KEEP).
+ *
+ * **A name** (RVK-A, LATER 966, V21.R7; the owner, 2026-11-12: "Clicking a name in the replays should allow you to jump
+ * to that characters view"; a browser adaptation). `follow(id)` is the roster's name pressed: the page's spectator view
+ * follows that body as its own cycle would land there (`SpectatorView.followBody`, called from here alone), and the
+ * strip's camera is PLAYER, kept as a press of PLAYER keeps it. A body the view will not follow (dead, gone) changes
+ * nothing. `followed()` is the body the page follows now (its `target` in follow, else null) and `canFollow(id)` reads
+ * the page's own bodies -- the client's `bodies()`, what the view gathers from -- at the playhead. Nothing clicked is
+ * remembered: after a turnover the choice is pressed again as above and the page's own rules pick the body, so the
+ * roster shows what is followed, never what was clicked. RVK-B's fold of the RVK-A review: a name pressed before the
+ * page is attached (the world still loading; `canFollow` says 'wait' then, F3) is kept -- PLAYER chosen as a press of
+ * PLAYER is -- and tried once, at the first read once the page is attached and the recording open (whichever comes last),
+ * then dropped, followed or not; a camera chosen or a spectator's control pressed meanwhile, or a round's turnover, drops it. `canFollow` reads the
+ * client's bodies once a tick (F4: one interpolated copy for the whole roster, not one a row).
+ *
+ * **A name in the player's view** (PV-RVK, the merge of RVK with the player's-view lane; the controller's ruling 1,
+ * 2026-11-12; a browser adaptation). A name pressed while the strip is on the player's view (`inPov`: the camera shown is
+ * `'pov'`, or the choice a kept `'pov'` refused here) stays in it, on that body: `followBody` moves the body and leaves the
+ * sub-mode, which `SpectatorView` keeps through its cycle (PV-6a), so the strip's choice stays `'pov'` (`aimAt`). Where the
+ * view is refused or absent the rule above decides exactly as for a camera choice: PLAYER shown for this watch, the kept
+ * choice untouched. From PLAYER, FREE and SCENIC a name is RVK-A's, unchanged: PLAYER on that body. **The order** at each
+ * read (`press`): a pending `'pov'` settled first (`settle`: saved once the recording and the page carry it, or refused and
+ * PLAYER), then the camera's presses (the follow's key, then `setPov(true)` -- or `setPov(false)` for PLAYER), then a kept
+ * name tried once (`followBody`, the recording open). `setPov` changes only the sub-mode and `followBody` only the body
+ * followed, each asked of the view as the one before left it, and the wait is decided after both (`standing` against
+ * `aimed`) -- so a click kept before the page (RVK-A's F3) and a `'pov'` pending until the page is known (PV-8's F2, F3)
+ * cannot fight: neither undoes the other, and the view lands on the clicked body.
  *
  * **The world's ready** (RV2-03, RV2.R2: no tick advances while the world's loading screen shows). Each client the test
  * room takes is made held (`ReplayClientOptions.autoplay` false: paused at its start, seeks still landing) and the stage
@@ -73,28 +110,66 @@ import { installReplayWorld, REPLAY_WORLD_PARAM, uninstallReplayWorld, type Repl
  * client refused, which the transport shows. Both refuse while the recording is held (RV2-03), as before the room was
  * built; once it plays, the page's later word leaves it as it is.
  *
+ * **The viewer's keyboard and mouse** (RVK-B, LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully
+ * navigable with keyboard and mouse. Every view."; a browser adaptation). The frame stays deaf -- no key or pointer gate of
+ * the test room changes -- and the viewer, in this page, hands the world what a pad would: `press(action)` is the
+ * spectator's own control pressed, its key's release (`SPECTATOR_PRESS_CODES`, the codes `cameraPresses` already sends),
+ * and a press that moves the camera keeps the strip's choice as a press of its button would (so a turnover presses the
+ * same camera again); `steer`, `look` and `notch` write the steer lane hung on the host (`./worldHost` `ReplaySteerLane`),
+ * which the test room reads once a frame where its pad input is built (`./worldSteer`). Dispose lets the lane go.
+ *
  * The ISO lock stays the viewer's (`./view`: Watch locked until the disc is in; a disc taken out disposes the stage).
  * Dispose closes the client and takes the frame away -- its page, its world and its workers with it.
  */
 
-/** The camera's modes, in the button order: the spectator camera's own (`../../spectatorView` `SpectatorMode`). */
-export const CAMERA_MODES: readonly SpectatorMode[] = Object.freeze([
+/**
+ * The camera's modes, in the button order: the spectator camera's own (`../../spectatorView` `SpectatorMode`) and, PV-8,
+ * after PLAYER, the player's view (`'pov'`: the follow with PV-6a's sub-mode on -- a camera of the strip, no spectator
+ * mode; its mark the console's reticle, `armory`, the sight a player looks through, already in both icon sets).
+ */
+export const CAMERA_MODES: readonly (SpectatorMode & { id: ReplayCamera })[] = Object.freeze([
   { id: 'follow', label: 'Follow a player', icon: 'user' },
+  { id: 'pov', label: "Follow a player in the player's view", icon: 'armory' },
   { id: 'free', label: 'Free camera', icon: 'eye' },
   { id: 'scenic', label: 'Scenic views', icon: 'display' },
 ]);
+
+/** The spectator camera's own three modes (`../../spectatorView` `SpectatorMode`): what `cameraPresses` reaches. */
+const SPECTATOR_MODES: readonly string[] = ['follow', 'free', 'scenic'];
+
+/**
+ * REPLAY_POV_REFUSED_ADAPTATION (PV-8; PV.R6: "A recording of protocol 15 or under does not offer the view, and the strip
+ * says why"): the strip's sentence on the player's view for a recording made before it (below `VIEW_SINCE_PROTOCOL`).
+ * The viewer's own words, a browser adaptation with no original.
+ */
+export const REPLAY_POV_REFUSED_ADAPTATION = "This recording was made before the Player's View.";
+
+/**
+ * REPLAY_POV_ABSENT_ADAPTATION (PV-8, the review's F3): the strip's sentence on the player's view where the page's
+ * spectator cannot take it (no `setPov` on the seam, `./worldHost` `ReplayWorldSpectator`). The viewer's own words, a
+ * browser adaptation with no original.
+ */
+export const REPLAY_POV_ABSENT_ADAPTATION = "The Player's View is not available on this page.";
 
 /**
  * The original's controls that take the spectator camera from `mode` (its remembered mode `remembered`) to `want`, as
  * key codes of `../../spectatorView`'s keys: X (`KeyX`, `spectatorToggle`) goes free from follow or scenic, and from
  * free back to the remembered mode; else the next player (`ArrowRight`) enters follow, the next scenic view (`ArrowUp`)
- * the scenic views. Nothing for the mode it is in, or an unknown one.
+ * the scenic views. Nothing for the mode it is in, or an unknown one -- PV-8: `'pov'` included, no spectator mode.
  */
 export function cameraPresses(mode: string, remembered: string, want: string): string[] {
-  if (want === mode || !CAMERA_MODES.some((m) => m.id === want)) return [];
+  if (want === mode || !SPECTATOR_MODES.includes(want)) return [];
   if (want === 'free' || (mode === 'free' && remembered === want)) return ['KeyX'];
   return [want === 'follow' ? 'ArrowRight' : 'ArrowUp'];
 }
+
+/**
+ * RVK-B: each of the spectator's own controls the viewer presses, as the key code its view's keys read
+ * (`../../spectatorView` `SPECTATOR_KEYS`: the arrows the d-pad, X the toggle, C the player in view).
+ */
+export const SPECTATOR_PRESS_CODES: Readonly<Record<SpectatorPress, string>> = Object.freeze({
+  next: 'ArrowRight', previous: 'ArrowLeft', scenicNext: 'ArrowUp', scenicPrevious: 'ArrowDown', toggle: 'KeyX', jump: 'KeyC',
+});
 
 /**
  * MU_REPLAY_WORLD_TIMEOUT_MS_ADAPTATION: how long the viewer waits, from the frame's making, for the test room to build
@@ -161,6 +236,14 @@ export class WorldClient implements TransportClient {
     return this.now?.state ?? 'connecting';
   }
   get segment(): LoadedSegment | null { return this.now?.segment ?? null; }
+  /**
+   * PV-8: the client now's recording carries the player's view (`ReplayClient.viewCarried`); null while none is open
+   * (not taken yet, connecting, refused, closed) -- not known, so not refused.
+   */
+  get viewCarried(): boolean | null {
+    const c = this.now;
+    return !this.closed && this.fault === null && c?.state === 'open' ? c.viewCarried : null;
+  }
   /**
    * MU2-14: the refusal's kind beside its sentence -- the fetch's (`fail`'s `kind`), else the client's now
    * (`ReplayClient.refusedKind`); null for a text-only reason (the test room's failure, the timeout, another map).
@@ -308,9 +391,11 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
       const disc = o.disc ?? replayDiscRequest;
       const timer = o.timer ?? ((run: () => void, ms: number): (() => void) => { const t = setTimeout(run, ms); return () => { clearTimeout(t); }; });
       let cancelWait: (() => void) | null = null;
-      const [{ ReplayClient, asNetClient }, load] = await Promise.all([import('../../replay/replayClient'), import('../../replay/load')]);
+      // RVK-A: the body's Alive bit (`canFollow`), from the protocol the lazy client's chunk already holds
+      const [{ ReplayClient, asNetClient }, load, { BodyFlag }] = await Promise.all([import('../../replay/replayClient'), import('../../replay/load'), import('../../net/protocol')]);
       const segment = segmentFor(entry, ctx, load);
       const client = new WorldClient();
+      const lane = replaySteerLane();                          // RVK-B: the viewer's keyboard and mouse, read by the frame
       const view = doc.createElement('div');
       view.className = 'mur__frame-host';
       let frame: HTMLIFrameElement | null = null;
@@ -321,19 +406,124 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
        * at the open, after a button's press, after a round's turnover (the module's doc).
        */
       const cameras = o.cameras;
-      let chosen: string = readCameraChoice(cameras);
+      let chosen: ReplayCamera = readCameraChoice(cameras);
       let waiting = true;
-      const press = (): void => {
+      /**
+       * PV-8 (the review's F2): the fetched header carries the player's view -- its protocol at or over `VIEW_SINCE_PROTOCOL`,
+       * known from the fetch's answer (`segment` below), before the test room takes a client; null until then. Once a client
+       * is open its own reader (`WorldClient.viewCarried`) is the same segment's.
+       */
+      let headerCarries: boolean | null = null;
+      const carries = (): boolean | null => headerCarries ?? client.viewCarried;
+      /**
+       * PV-8 (the review's F3): the page's spectator can take the view (`setPov`); null until the page is attached.
+       */
+      const takes = (): boolean | null => (page ? typeof page.spectator.setPov === 'function' : null);
+      /**
+       * PV-8 (PV.R6; the review's F2, F3): the sentence why the player's view cannot be chosen -- a recording made before it
+       * (REPLAY_POV_REFUSED_ADAPTATION), or a page spectator without it (REPLAY_POV_ABSENT_ADAPTATION) -- or null, also while
+       * either is not known yet. A segment here is the one `.s2r` this stage fetched (`segmentFor`): each client the test
+       * room takes is made on it, so the segment under the playhead is always the fetched one.
+       */
+      const refused = (id: string): string | null => {
+        if (id !== 'pov') return null;
+        if (carries() === false) return REPLAY_POV_REFUSED_ADAPTATION;
+        return takes() === false ? REPLAY_POV_ABSENT_ADAPTATION : null;
+      };
+      /**
+       * PV-8 (the review's F2, F3): a `'pov'` chosen while the recording or the page was not known yet -- shown and pressed as
+       * the choice, but saved only once both are known to carry the view; refused then, it is PLAYER for this watch and the
+       * saved value stays as it was before the click.
+       */
+      let pending = false;
+      const settle = (): void => {
+        if (!pending) return;
+        if (refused('pov') !== null) { pending = false; chosen = 'follow'; waiting = true; }
+        else if (carries() === true && takes() === true) { pending = false; keepCameraChoice('pov', cameras); }
+      };
+      /**
+       * PV-8 (PV.R6): the camera aimed at now -- the choice, but PLAYER where the view is refused (a kept `'pov'` shown as
+       * the follow for this watch, the kept value untouched). Not known yet: the choice.
+       */
+      const aimed = (): ReplayCamera => (chosen === 'pov' && refused('pov') !== null ? 'follow' : chosen);
+      /**
+       * PV-8: where the page's view stands, as a camera of the strip: `'pov'` while it follows with the player's view on --
+       * never where the view is refused (the review's F1, F3).
+       */
+      const standing = (s: ReplayWorldSpectator): ReplayCamera => (s.mode === 'follow' && s.pov === true && refused('pov') === null ? 'pov' : s.mode);
+      /**
+       * RVK-B (F3; the review's finding 2): a name pressed before the page was attached, kept and tried ONCE -- at the first
+       * read once the page is attached and the recording is open, whichever comes last -- then dropped, followed or not.
+       */
+      let pendingFollow: number | null = null;
+      /**
+       * PV-RVK (the controller's ruling 1): the strip is on the player's view now -- the camera it shows (`current`'s answer,
+       * without its press) is `'pov'`, or the choice is a kept `'pov'` the recording or the page refuses (PLAYER shown for this
+       * watch, PV.R6).
+       */
+      const inPov = (): boolean => {
         const s = page?.spectator;
-        if (!s || !waiting) return;
-        for (const code of cameraPresses(s.mode, s.remembered, chosen)) s.key({ type: 'keyup', code, repeat: false, preventDefault: () => {} });
-        if (s.mode === chosen) waiting = false;
+        const shown = waiting || !s ? aimed() : standing(s);
+        return shown === 'pov' || (chosen === 'pov' && refused('pov') !== null);
+      };
+      /**
+       * PV-RVK (ruling 1): a name's camera. From the player's view it stays the choice -- made the choice if the view stood
+       * there by a hold in the world, kept as `set` keeps it (pending until the recording and the page are known to carry it);
+       * a `'pov'` already the choice is left exactly as it is (kept, pending, or refused here: PLAYER for this watch, the kept
+       * value untouched). Otherwise RVK-A's: PLAYER, kept as a press of PLAYER keeps it (a pending view replaced).
+       */
+      const aimAt = (pov: boolean): void => {
+        if (!pov) { chosen = 'follow'; pending = false; keepCameraChoice('follow', cameras); return; }
+        if (chosen === 'pov') return;
+        chosen = 'pov';
+        pending = !(carries() === true && takes() === true);
+        if (!pending) keepCameraChoice('pov', cameras);
+      };
+      const press = (): void => {
+        settle();
+        const s = page?.spectator;
+        if (!s) return;
+        if (waiting) {
+          const want = aimed();
+          // PV-8: the player's view is the follow's presses, then `setPov(true)` once the view follows -- asked each read until
+          // it holds (`setPov` does nothing until a body is followed); PLAYER from it is `setPov(false)`, no key
+          for (const code of cameraPresses(s.mode, s.remembered, want === 'pov' ? 'follow' : want)) s.key({ type: 'keyup', code, repeat: false, preventDefault: () => {} });
+          if (want === 'pov' && s.mode === 'follow' && s.pov !== true && carries() === true) s.setPov?.(true);
+          else if (want === 'follow' && s.mode === 'follow' && s.pov === true) s.setPov?.(false);
+          if (standing(s) === want) waiting = false;
+        }
+        if (pendingFollow !== null && current?.state === 'open') {
+          const id = pendingFollow;
+          pendingFollow = null;                                 // one try: never a jump long after the click
+          // the merge (PV-RVK): the camera aimed at decides the wait, as the strip's own presses do (`standing`, `aimed`)
+          if (s.followBody?.(id) === true) waiting = standing(s) !== aimed();
+        }
+      };
+      /**
+       * PV-8 (PV.R6; the review's F1): over a recording that carries no view, whatever turned it on (a hold of Cross in the
+       * world, the developers' key), the view is turned off -- once a frame (the viewer reads `current` once a frame) until
+       * it is; so it never stands and the refused button is never lit.
+       */
+      const forbid = (): void => {
+        const s = page?.spectator;
+        if (s && carries() === false && s.pov === true) s.setPov?.(false);
       };
       // the page resets a spectator to free at `roundStart` (it hears the event after this listener): the choice waits again
-      client.on((ev) => { if (ev.type === 'roundStart') waiting = true; });
+      client.on((ev) => { if (ev.type === 'roundStart') { waiting = true; pendingFollow = null; } });   // RVK-B (F3): a turnover drops a kept name
       /** RV2-03: the test room's loading screen has gone (`ready`), and the client it took last, to release. */
       let released = false;
       let current: InstanceType<typeof ReplayClient> | null = null;
+      /** RVK-B (F4): the client's bodies, read once a tick for the roster's whole sync (`canFollow`). */
+      // the review's finding 5: keyed on the client's state too -- a client not open yet answers no bodies at tick 0, which must
+      // not stand once it opens at that same tick (a recording starting at 0, held paused)
+      let bodiesOf: { client: InstanceType<typeof ReplayClient>; state: string; tick: number; list: ReturnType<InstanceType<typeof ReplayClient>['bodies']> } | null = null;
+      const bodiesNow = (): ReturnType<InstanceType<typeof ReplayClient>['bodies']> => {
+        const c = current;
+        if (!c) return [];
+        const tick = Math.floor(c.serverTick());
+        if (!bodiesOf || bodiesOf.client !== c || bodiesOf.state !== c.state || bodiesOf.tick !== tick) bodiesOf = { client: c, state: c.state, tick, list: c.bodies() };
+        return bodiesOf.list;
+      };
       /**
        * RV2-03: the world is open -- a client taken and the loading screen gone, in either order: the wait is over, and the
        * client plays (`release`: once; one already released is left as it is).
@@ -360,6 +550,7 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
 
       segment.then((seg) => {
         if (disposed) return;
+        headerCarries = seg.header.protocol >= VIEW_SINCE_PROTOCOL;     // PV-8 (the review's F2): known from the fetch on
         const host: ReplayWorldHost = {
           disc: () => (disposed ? null : disc()),
           client: (opts, _walk, hooks) => {
@@ -394,6 +585,7 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
             cancelWait = null;
             client.fail(`The match's world could not open: ${reason}`);
           },
+          steer: lane,                                          // RVK-B (the module's doc)
         };
         frame = doc.createElement('iframe');
         frame.className = 'mur__frame';
@@ -410,16 +602,80 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
         modes: CAMERA_MODES,
         // RV2-06: read once a frame by the viewer -- a choice still waiting is pressed again, and shown until it lands
         current: () => {
+          forbid();
           press();
-          return waiting ? chosen : (page?.spectator.mode ?? chosen);
+          const s = page?.spectator;
+          return waiting || !s ? aimed() : standing(s);
         },
         set: (id) => {
-          if (!CAMERA_MODES.some((m) => m.id === id)) return;
-          chosen = id;
+          const m = CAMERA_MODES.find((x) => x.id === id);
+          if (!m || refused(m.id) !== null) return;      // PV-8: a refused camera presses nothing and keeps nothing
+          chosen = m.id;
           waiting = true;
-          keepCameraChoice(id, cameras);
+          pendingFollow = null;                                 // RVK-B (F3): a camera pressed drops a kept name
+          // PV-8 (the review's F2, F3): the player's view is saved only once the recording and the page are known to carry it
+          pending = m.id === 'pov' && !(carries() === true && takes() === true);
+          if (!pending) keepCameraChoice(m.id, cameras);
           press();
         },
+        refused: (id) => refused(id),
+        fallback: (id) => {
+          const s = page?.spectator;
+          return id === 'pov' && !!s && refused('pov') === null && s.mode === 'follow' && s.pov === true && s.povShown !== true;
+        },
+        // RVK-A (the module's doc, "A name"): the roster's name -- PLAYER as its button's press, and the page on that body;
+        // PV-RVK (ruling 1): from the player's view, the player's view on that body
+        follow: (id) => {
+          const s = page?.spectator;
+          const pov = inPov();
+          if (!s) {                                             // RVK-B (F3): no page yet -- kept, the camera chosen, replayed at attach
+            if (disposed) return false;
+            pendingFollow = id;
+            aimAt(pov);
+            waiting = true;
+            return true;
+          }
+          if (!s.followBody || !s.followBody(id)) return false;
+          pendingFollow = null;
+          aimAt(pov);
+          waiting = standing(s) !== aimed();                    // PLAYER over a view still on: `press` turns it off
+          return true;
+        },
+        followed: () => {
+          const s = page?.spectator;
+          return s && s.mode === 'follow' ? s.target ?? null : null;
+        },
+        canFollow: (id) => {
+          if (!page) return 'wait';                             // RVK-B (F3): the page not attached yet
+          const body = bodiesNow().find((b) => b.id === id);    // RVK-B (F4): one read a tick
+          return !body ? 'absent' : (body.flags & BodyFlag.Alive) !== 0 ? 'yes' : 'dead';
+        },
+        // RVK-B (the module's doc, "The viewer's keyboard and mouse"): the spectator's own control, its key's release
+        press: (action) => {
+          const s = page?.spectator;
+          const code = SPECTATOR_PRESS_CODES[action];
+          if (!s || !code || !s.key({ type: 'keyup', code, repeat: false, preventDefault: () => {} })) return;
+          pendingFollow = null;
+          // the merge (PV-RVK): where the view stands, as a camera of the strip (`standing`: the player's view kept through
+          // the cycle and X's round trip, PV-6a), against the camera aimed at (`aimed`: a kept view refused here is PLAYER
+          // for this watch, its kept value untouched) -- kept, as a press of its button keeps it, only where it moved
+          const at = standing(s);
+          // PV-RVK's review, F1: the player's view chosen and still landing (`waiting`: `setPov(true)` not yet held -- over a
+          // dead body, say) and the press reaching a follow -- still landing: the choice and its kept value untouched, the wait
+          // kept, so the next read (`press`) asks the view again of the player reached, and goes on waiting if that one cannot
+          // take it either. (Not by asking `setPov` here: over a dead player reached it would fail and drop the choice.) A view
+          // that had landed and was turned off in the world (`waiting` false) is RVK-B's as before: PLAYER, kept.
+          if (waiting && aimed() === 'pov' && at === 'follow') return;
+          if (at !== aimed()) {
+            chosen = at;
+            pending = at === 'pov' && !(carries() === true && takes() === true);
+            if (!pending) keepCameraChoice(at, cameras);
+          }
+          waiting = false;                                      // the camera is where the press put it
+        },
+        steer: (held) => { if (!disposed) lane.set(held); },
+        look: (dx, dy) => { if (!disposed) lane.look(dx, dy); },
+        notch: (n) => { if (!disposed) lane.notch(n); },
       };
 
       return {
@@ -427,6 +683,7 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
         dispose: () => {
           disposed = true;
           page = null;
+          lane.zero();                                          // RVK-B: nothing held past the viewer
           cancelWait?.();
           cancelWait = null;
           client.close();

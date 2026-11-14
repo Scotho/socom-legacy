@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { dockOf } from './forgeBase';
 
 /**
  * LATER 176 (the merge controller's product-track call, 2026-10-21): on a narrow touch screen the forge's docks are
@@ -6,22 +7,40 @@ import { expect, test, type Page } from '@playwright/test';
  * toolbar (`header.fx-top`, `data-mu-top-bar`; `../src/modern/overlay/index.ts` `measureMenu`), sat over the left dock's
  * assets heading and palette select. The docks now start below the pushed Menu (`--mu-touch-menu-clear`), the toolbar
  * stays clear, and the docks still reach the status strip. Wide screens are unchanged. A browser adaptation (OT.R28).
+ *
+ * FC2-4 (OT.R112: the Forge's UI is its contributor's; product track): his editor hides the overlay's touch Menu while
+ * editing (`../src/forge/forge.css`: `body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }`, "the
+ * toolbar's menu button opens the forge menu. Under Play it shows again"), so in the editor no Menu lies over the toolbar
+ * or a dock -- held here as his page draws it: the Menu on the page and hidden. His docks are no drawers but his dock
+ * shell's groups in a workbench under the toolbar and its tools row, down to the status strip (`forge.css`
+ * `.fx-workbench`: top `var(--fx-top)`, bottom `var(--fx-status)`): the old left dock is his Assets group, the old right
+ * dock his column of the Object / Map / Content / Agent group over the Inspector's (`../src/forge/page.ts`
+ * `DEFAULT_DOCK`; EDITOR-MAP D1, D2), so the dock reaching the status strip on the right is the Inspector's.
+ * The drawer's push below the Menu (`body.mu-menu-below-bar`, `--mu-touch-menu-clear`) has no Menu to clear in his editor:
+ * that assertion is dropped (EDITOR-MAP D4: the old `.fx-dock` it moved is gone).
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
 type Box = { x: number; y: number; width: number; height: number };
-const hit = (a: Box, b: Box): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
-async function boxes(page: Page): Promise<{ menu: Box; top: Box; left: Box; right: Box; inner: number; status: number }> {
-  await expect(page.locator('.mu-touch-menu')).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('.fx-left')).toBeVisible();
+/** The docks' boxes: the Assets group (the old left dock), the Object group (the right column's top) and the Inspector's. */
+async function boxes(page: Page): Promise<{ top: Box; tools: Box; left: Box; right: Box; inspector: Box; inner: number; status: number }> {
+  await expect(dockOf(page, 'assets')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(200);
-  const b = async (s: string): Promise<Box> => (await page.locator(s).boundingBox())!;
+  const b = async (l: ReturnType<Page['locator']>): Promise<Box> => (await l.boundingBox())!;
   return {
-    menu: await b('.mu-touch-menu'), top: await b('header.fx-top'), left: await b('.fx-left'), right: await b('.fx-right'),
+    top: await b(page.locator('header.fx-top')), tools: await b(page.locator('nav.fx-tools-row')),
+    left: await b(dockOf(page, 'assets')), right: await b(dockOf(page, 'object')), inspector: await b(dockOf(page, 'inspector')),
     inner: await page.evaluate(() => innerHeight),
     status: await page.evaluate(() => parseFloat(getComputedStyle(document.body).getPropertyValue('--fx-status')) || 26),
   };
+}
+
+/** His editor's touch Menu: on the page (the overlay's, on a touch device) and hidden while editing (`forge.css`). */
+async function touchMenuHidden(page: Page): Promise<void> {
+  const menu = page.locator('.mu-touch-menu');
+  await expect(menu, 'the overlay\'s touch Menu on the page').toHaveCount(1, { timeout: 30_000 });
+  await expect(menu, 'hidden in the editor (forge.css: body.forge-page:not(.is-playing) > .mu-touch-menu)').toBeHidden();
 }
 
 for (const size of [{ width: 390, height: 844 }, { width: 360, height: 640 }, { width: 700, height: 900 }]) {
@@ -32,15 +51,19 @@ for (const size of [{ width: 390, height: 844 }, { width: 360, height: 640 }, { 
       await page.goto('/forge');
       // A narrow window opens on the viewport, the docks a press away (`../src/forge/page.ts`, `setDocks`): H here, the
       // toolbar's Docks button scrolled to and tapped being `./forgeToolbar.spec.ts`' case (LATER 226).
-      await expect(page.locator('.mu-touch-menu')).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('.fx-left')).toBeHidden();
+      await touchMenuHidden(page);
+      await expect(dockOf(page, 'assets')).toBeHidden();
       await page.keyboard.press('KeyH');
       const m = await boxes(page);
-      await expect(page.locator('body')).toHaveClass(/(^|\s)mu-menu-below-bar(\s|$)/);
-      expect(hit(m.menu, m.top), 'the Menu over the toolbar').toBe(false);
-      expect(hit(m.menu, m.left), `the Menu over the left dock ${JSON.stringify(m.menu)} vs ${JSON.stringify(m.left)}`).toBe(false);
-      expect(hit(m.menu, m.right), 'the Menu over the right dock').toBe(false);
-      for (const d of [m.left, m.right]) expect(d.y + d.height, 'a dock reaches the status strip').toBeCloseTo(m.inner - m.status, 0);
+      await touchMenuHidden(page);                                       // the docks shown, still no Menu over them
+      // The docks clear the toolbar and its tools row: they start at or under the row's foot.
+      for (const [name, d] of [['the left dock', m.left], ['the right dock', m.right]] as const) {
+        expect(d.y, `${name} under the toolbar's tools row`).toBeGreaterThanOrEqual(m.tools.y + m.tools.height - 0.5);
+        expect(d.y, `${name} under the toolbar`).toBeGreaterThanOrEqual(m.top.y + m.top.height - 0.5);
+      }
+      for (const [name, d] of [['the left dock', m.left], ['the right column\'s foot (the Inspector)', m.inspector]] as const) {
+        expect(d.y + d.height, `${name} reaches the status strip`).toBeCloseTo(m.inner - m.status, 0);
+      }
     });
   });
 }
@@ -51,13 +74,13 @@ test.describe('the forge on a wide touch screen', () => {
 
   test('is as it was: the docks start under the toolbar and its tools row', async ({ page }) => {
     await page.goto('/forge');
+    await touchMenuHidden(page);
     const m = await boxes(page);
     // OT.R112: the placing tools' row sits under the toolbar (`../src/forge/forge.css` `.fx-tools-row`: top
     // `var(--fx-top-bar)`, 46 px; height 40 px) and the docks start under both (`--fx-top: 86px`; the page's
     // `fitToolbar` sets it to the toolbar's height plus the row's), so their top is the row's bottom, not the toolbar's.
-    const tools = (await page.locator('nav.fx-tools-row').boundingBox())!;
-    expect(tools.y, 'the tools row under the toolbar').toBeCloseTo(m.top.y + m.top.height, 0);
-    expect(m.left.y).toBeCloseTo(tools.y + tools.height, 0);
-    expect(m.right.y).toBeCloseTo(tools.y + tools.height, 0);
+    expect(m.tools.y, 'the tools row under the toolbar').toBeCloseTo(m.top.y + m.top.height, 0);
+    expect(m.left.y).toBeCloseTo(m.tools.y + m.tools.height, 0);
+    expect(m.right.y).toBeCloseTo(m.tools.y + m.tools.height, 0);
   });
 });

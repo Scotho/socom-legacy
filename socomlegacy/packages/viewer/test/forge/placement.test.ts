@@ -192,4 +192,21 @@ describe('mountOnWall', () => {
     mountOnWall(o, new Vector3(0, 0, 0), new Vector3(0, 1, 0));
     expect(o.position.toArray()).toEqual([1, 2, 3]);
   });
+  /*
+   * FC2 (ours; the browser run `fc2-e2e2-9662df4dd`, forgePlacement's "ten place clicks"): a mount low on a wall -- the
+   * bench's 50 block clicked again at the same pixel, its front face hit 9.92 up -- put the new block's middle at the
+   * cursor and so its bottom 15.08 under the floor. A mount stops at the floor below (`floorY`), as a stand stands on it.
+   */
+  const big = (): Mesh => { const m = new Mesh(new BoxGeometry(50, 50, 50)); m.geometry.translate(0, 25, 0); return m; };
+  it('RED: a mount low on a wall stops at the floor below, never through it', () => {
+    const o = big();
+    mountOnWall(o, new Vector3(0, 9.917, 23.8), new Vector3(0, 0, 1), [0, 1], 'mount', () => 0);
+    expect(o.position.y).toBeCloseTo(0, 6);
+    expect(o.position.z).toBeCloseTo(23.8 + 25 + 0.05, 6);   // its back on the face, and the gap
+  });
+  it('CONTROL: a mount high enough on the wall keeps its middle at the cursor', () => {
+    const o = big();
+    mountOnWall(o, new Vector3(0, 40, 23.8), new Vector3(0, 0, 1), [0, 1], 'mount', () => 0);
+    expect(o.position.y).toBeCloseTo(15, 6);
+  });
 });

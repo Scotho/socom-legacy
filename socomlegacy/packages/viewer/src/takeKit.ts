@@ -16,7 +16,8 @@ import type { PickupClipName } from './mover';
  *   D:L473823-473868 "changes current inventory state").
  * - Each firearm's ring from the room's ten slots, never filled: the hand's replaced slot takes its weapon up with the
  *   exact (empty) ring (`Fire.takeWeapon`, `WEAPON_DROP_AMMO_READING`); every other ring is set through `Fire.setRing`
- *   -- after a walk-over only the slots the transfer `filled`, the magazine in the hand's weapon never (shots in flight).
+ *   -- after a walk-over only the slots the transfer `filled`, each taking the amount it poured (`added`) on top of the
+ *   page's own count, so shots in flight are kept (the magazine in the hand's weapon among them for a one-magazine weapon).
  * - A slot a claim replaced: its fire mode the original's pickup mode when the record changed (`pickupFireMode`, research
  *   323 F1), the hand's mode re-read, the held model re-hung and the HUD shown (`renew`). The hand is kept
  *   (`PICKUP_HAND_READING`, was the placeholder).
@@ -33,7 +34,7 @@ export interface TakeKitDeps {
   loadouts: { take(kit: readonly number[]): void; records(): readonly [WeaponRecord, WeaponRecord]; loadout(): readonly number[] };
   fire: {
     takeWeapon(record: WeaponRecord, rounds: readonly number[]): void;
-    setRing(record: WeaponRecord, slots: readonly number[], replaced?: string, only?: readonly number[]): void;
+    setRing(record: WeaponRecord, slots: readonly number[], replaced?: string, only?: readonly number[], added?: readonly number[]): void;
   };
   accuracy: { setWeapon(record: WeaponRecord): void };
   /** The firearm in the hand (`kitItem`). */
@@ -68,6 +69,7 @@ const FIREARM: Readonly<Record<FirearmSlot, Firearm>> = { 0: 'rifle', 1: 'pistol
 export function takeKit(
   d: TakeKitDeps, loadout: readonly number[], slot: FirearmSlot | null,
   rounds: readonly [readonly number[], readonly number[]], filled?: readonly [readonly number[], readonly number[]],
+  added?: readonly [readonly number[], readonly number[]],
 ): void {
   const before = d.loadouts.records();
   const was = [...d.loadouts.loadout()];
@@ -76,6 +78,7 @@ export function takeKit(
   d.records(recs);
   for (const s of [0, 1] as const) {
     if (s === slot && FIREARM[s] === d.hand()) { d.fire.takeWeapon(recs[s], rounds[s]); d.accuracy.setWeapon(recs[s]); }
+    else if (added?.[s]) d.fire.setRing(recs[s], rounds[s], s === slot ? before[s].name : undefined, filled?.[s], added[s]);
     else d.fire.setRing(recs[s], rounds[s], s === slot ? before[s].name : undefined, filled?.[s]);
   }
   const now = d.loadouts.loadout();

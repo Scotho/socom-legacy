@@ -7,7 +7,7 @@ import {
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { texture as textureNode, uv, vec4, vertexColor } from 'three/tsl';
 import type { Rgba } from '@s2u/gs';
-import { GAME_FRAME_DT, segmentHit, type Grid } from '@s2u/scene';
+import { GAME_FRAME_DT, segmentHit, type Grid, type WorldPoly } from '@s2u/scene';
 import { HUD_LIBRARIES, NOT_ICONS, type HudBitmaps } from './hudAssets';
 import { FONT_TEXT_01, layoutText, textWidth } from './hudFont';
 import { keepClearNeighbours, messageMeasureScale, messagePanelSpan, wrapMessageLine, type KeepClear } from './hudMessagePanel';
@@ -597,13 +597,16 @@ export const BASE_MARK_TYPE_RGB_READING: Readonly<Record<2 | 3, readonly [number
  * OBJECTIVE_MARK_RGB_READING: the objective marks' colours, by bitmap. `FUN_002126f0`'s table gives each mark type its own
  * RGB (research 87 s1.7). HX-5 (research 239 s5): the table read at D:L68680-68700 (floats at `+0xa0` in threes, type 0
  * first): type 4 `ret_hostage` (62, 49, 36), type 6 `ret_extraction` (36, 40, 62) -- 190 D's values, re-read 2026-10-06.
- * The bomb's row stays the nav marks' (32, 62, 32) (`NAV_MARK.rgb`) as XR-06 left it, its draw unchanged: settles it a
- * read of its type's row (type 1's (62, 62, 32) by the same table is not adopted without the bomb's type confirmed), or
- * capture B (a frame with the bomb on the compass). BOMB-MARKS: the base's row is type 2's (`BASE_MARK_TYPE_RGB_READING`),
- * a typed mark's `type` choosing between 2 and 3.
+ * The bomb's row is type 1's (62, 62, 32), the table's second row at `+0xac` (D:L68677-68679): the bomb's ground mark is
+ * made type 1 (`FUN_0059dab0` D:L457521-457523, the mark word's type field 0x10 >> 4; research 214 s3) with no colour of
+ * its own (its maker `FUN_002a28f0` sets `+0x18` to -1, so `FUN_002a2c70` answers 0 and `FUN_00211510` takes the table's,
+ * D:L68188-68198; no setter of that index was found reaching it -- a search, not a proof). Was the nav marks' (32, 62, 32),
+ * which XR-06 had left until the type was read. Not measured: no frame of the original with the bomb on the compass has
+ * been scored (capture B). BOMB-MARKS: the base's row is type 2's (`BASE_MARK_TYPE_RGB_READING`), a typed mark's `type`
+ * choosing between 2 and 3.
  */
 export const OBJECTIVE_MARK_RGB_READING: Readonly<Record<CompassMark['bitmap'], readonly [number, number, number]>> = {
-  'ret_bomb.tif': NAV_MARK.rgb, 'ret_base.tif': BASE_MARK_TYPE_RGB_READING[2], 'ret_hostage.tif': [62, 49, 36], 'ret_extraction.tif': [36, 40, 62],
+  'ret_bomb.tif': [62, 62, 32], 'ret_base.tif': BASE_MARK_TYPE_RGB_READING[2], 'ret_hostage.tif': [62, 49, 36], 'ret_extraction.tif': [36, 40, 62],
   'hud_talk.tif': [32, 62, 62],   // MATCH-05: type 9's row, `+0x10c` (D:L68703-68705; `./hudVoice` VOICE_TALK_MARK_READING)
 };
 
@@ -611,8 +614,8 @@ export const OBJECTIVE_MARK_RGB_READING: Readonly<Record<CompassMark['bitmap'], 
  * OBJECTIVE_MARK_PULSE_READING (HX-5; research 190 D, 87 s1.7): the compass marks of types 1-13 draw at the alpha
  * `DAT_0040c070` (`FUN_00211510` D:L68126-68130; types 0 and 14+ at `DAT_003dc500`, 128), which the compass's update
  * moves by `rate` 250 a second between `min` 64 and `max` 128, turning at each end (D:L68043-68050) -- in GS units of
- * 128. The port pulses only the marks that say `pulse` (the hostage's and the zone's, and BOMB-MARKS' base, types 2-3);
- * the bomb's, drawn by XR-06 at 1, keeps it until its type is read. [reading]
+ * 128. The port pulses the marks that say `pulse`: the hostage's and the zone's, BOMB-MARKS' base (types 2-3) and the
+ * bomb's (type 1, `./bombPage` `marks()`; was drawn at 1 until its type was read). [reading]
  */
 export const OBJECTIVE_MARK_PULSE_READING = { min: 64, max: 128, rate: 250 } as const;
 
@@ -980,6 +983,14 @@ export interface HudSpectatorView {
   /** RSP-6: the eligible respawn Action line (index 1) reasserts alpha 100 each frame (research 351 §2). */
   respawnReady?: boolean;
   /**
+   * PV-6h (POV_VIEW_ADAPTATION, a browser adaptation with no original; the plan 2026-11-11-players-view, Log 16:30Z,
+   * call 2): the player's view's help line -- 'offered' while a body is followed or watched and the view is off,
+   * 'shown' on a frame the view was drawn, 'waiting' while it is on and the frame fell back to the follow (PV.R6).
+   * Absent: no line (the free and scenic cameras, 'own', a page that gives no state). On 'spectator' and 'teammate'
+   * alike the HUD draws it as one text at `POV_HELP_PLACE_ADAPTATION`, never in `help`.
+   */
+  pov?: 'offered' | 'shown' | 'waiting';
+  /**
    * LATER 118 (the review's F1): on 'teammate', the watched body is dead -- its room body's Alive flag clear, or gone
    * from the room's list (a leaver's actor killed, `FUN_005477a0(0, ...)` D:L455521, and retired, D:L455525, under
    * `FUN_005998b0`); absent: alive or unknown. The help clock's edge is
@@ -1099,6 +1110,43 @@ export const SPECTATOR_HELP = {
 export function helpAlpha(t: number): number {
   const H = SPECTATOR_HELP;
   return t <= H.hold ? 1 : Math.max(0, 1 - (t - H.hold) / H.fade);
+}
+
+/**
+ * POV_HELP_OFFERED_ADAPTATION (POV_VIEW_ADAPTATION; a browser adaptation, no original -- research 402 §7; the plan
+ * 2026-11-11-players-view, Log 16:30Z, call 2): the player's view's help line while it is offered, in the help lines'
+ * own font, place, scale and colour (`SPECTATOR_HELP`), `¦` the pad's Cross as the spectator's line 3 writes it.
+ */
+export const POV_HELP_OFFERED_ADAPTATION = 'Hold ¦ for the Player\'s View.';
+/** POV_HELP_SHOWN_ADAPTATION (as above, no original): the line while the view is on -- drawn, or fallen back (PV.R6). */
+export const POV_HELP_SHOWN_ADAPTATION = 'PLAYER\'S VIEW.  Hold ¦ to leave.';
+/** POV_HELP_WAITING_ADAPTATION (as above, no original): the line's share of the lines' full alpha while the view has fallen back. */
+export const POV_HELP_WAITING_ADAPTATION = 0.5;
+/**
+ * POV_HELP_PLACE_ADAPTATION (as above, no original; the controller's ruling on PV-6h's reviews): the line's place, the same
+ * on the spectator's, the dead watcher's and the ghost watcher's path -- on the help block's own grid three lines above
+ * its first (baseline `SPECTATOR_HELP.y0 - 3 x pitch` = 326), centred on the block's x (324). None of the six help slots:
+ * the original's lines 5 and 6 (baselines 452 and 470) lie below the 448-high frame, and a dead watcher's blank slots
+ * are the original's. Ruled as the nearest line of the grid inside the frame clear of the round's text line
+ * (`TEXT_LINE_LAYOUT.box`, y 338-360): a glyph at scale 0.9 spans baseline - 16.5 to baseline + 4.5 (+ 0.9 for the
+ * shadow; `layoutText`: k = 0.9 x 448/480 = 0.84, top = baseline - 20k + 0.3, height 25k), so at 326 the line ends at
+ * y 331.4, 6.6 above the box; one and two lines nearer (344, 362) it would cross it. A `HudQuad`'s x and y are its
+ * CENTRE (`hudLayout`'s `push`): an earlier measure read them as a corner and moved the line a row too far.
+ */
+export const POV_HELP_PLACE_ADAPTATION = { x: SPECTATOR_HELP.x, y: SPECTATOR_HELP.y0 - 3 * SPECTATOR_HELP.pitch } as const;
+
+/** PV-6h: the player's view's help line for a state (`HudSpectatorView.pov`). */
+export function povHelpLine(pov: NonNullable<HudSpectatorView['pov']>): string {
+  return pov === 'offered' ? POV_HELP_OFFERED_ADAPTATION : POV_HELP_SHOWN_ADAPTATION;
+}
+
+/**
+ * PV-6h: the line's alpha, 0..100 (`SPECTATOR_HELP.alpha`): 'offered' rides the help clock (`clock`, `helpAlpha`) with the
+ * lines above it; 'shown' the lines' full alpha while the view is drawn; 'waiting' `POV_HELP_WAITING_ADAPTATION` of it.
+ */
+export function povHelpAlpha(pov: NonNullable<HudSpectatorView['pov']>, clock: number): number {
+  const H = SPECTATOR_HELP;
+  return pov === 'offered' ? clock * H.alpha : pov === 'shown' ? H.alpha : H.alpha * POV_HELP_WAITING_ADAPTATION;
 }
 
 /**
@@ -1270,7 +1318,14 @@ export interface SpectatorHudSource {
     healthOf?(id: number): number | null;
   };
   /** `benched`: classic's dead and the ghosts until the next round (`SpectatorView.benched`; PAR-48b, research 282 §7). */
-  spectator: { mode: string; target: number | null; scenic: number; watching: number | null; benched: boolean };
+  /**
+   * PV-6h (POV_VIEW_ADAPTATION): `pov` and `povShown`, `SpectatorView`'s getters -- the player's view chosen, and drawn this
+   * frame; the pages pass their `SpectatorView` itself (`NetPage.spectator`). Absent (a stand-in): no line.
+   */
+  spectator: {
+    mode: string; target: number | null; scenic: number; watching: number | null; benched: boolean;
+    pov?: boolean; povShown?: boolean;
+  };
   /** `clan` (SPECTATOR-VIEW W4): the row's tag, as the room's score rows carry it (`ScoreRow.clan`, research 275 §2.1). */
   rows: readonly { id: number; kills: number; deaths: number; score: number; clan?: string; bot?: true }[];
   nameOf(id: number): string;
@@ -1302,6 +1357,9 @@ export function spectatorHudView(
   const s = page.spectator;
   // W4: the viewed body's tag off its row (the original's slot lookup `FUN_002c3ac0`, D:L85560; research 275 §1.5), none without.
   const tagOf = (id: number): { tag?: string } => { const clan = page.rows.find((r) => r.id === id)?.clan; return clan ? { tag: clan } : {}; };
+  // PV-6h (POV_VIEW_ADAPTATION): the player's view's state off the page's `SpectatorView` getters, on a followed or a
+  // watched body only; a source without the getters gives none.
+  const pov: HudSpectatorView['pov'] = typeof s.pov !== 'boolean' ? undefined : !s.pov ? 'offered' : s.povShown ? 'shown' : 'waiting';
   if (page.client.role !== 'player') {
     if (walk.mode() === 'walk') return null;
     if (s.mode === 'follow' && s.target !== null) {
@@ -1309,6 +1367,7 @@ export function spectatorHudView(
       return {
         path: 'spectator', followed: { name: botDisplayName(page.nameOf(s.target), page.isBot?.(s.target) ?? row?.bot === true), health: page.client.healthOf?.(s.target) ?? null, ...tagOf(s.target) },
         stats: row ? { kills: row.kills, deaths: row.deaths, headshots: SPECTATOR_HEADSHOTS_PLACEHOLDER, score: row.score } : null,
+        ...(pov ? { pov } : {}),
       };
     }
     const title = s.mode === 'scenic' ? (views ?? page.scenicViews?.bind(page))?.()[s.scenic]?.name : undefined;
@@ -1317,8 +1376,10 @@ export function spectatorHudView(
   // LATER 118: classic and ghosts keep their existing lines. RSP-6: a respawn dead seat is not benched; its two-line
   // state comes from the same page prompt the menu/touch layer reads. Bindings/device are resolved on every frame.
   const prompt = page.prompt?.();
-  const help = (watching: boolean): { help?: readonly string[]; respawnReady?: boolean } =>
-    s.benched ? { help: deadHelpLines({ ghost: page.ghost?.() ?? false, watching, device }) }
+  // PV-6h: a benched watcher's view carries the player's view's state (drawn at `POV_HELP_PLACE_ADAPTATION`); his six
+  // help lines are `deadHelpLines`' own.
+  const help = (watching: boolean): { help?: readonly string[]; respawnReady?: boolean; pov?: HudSpectatorView['pov'] } =>
+    s.benched ? { help: deadHelpLines({ ghost: page.ghost?.() ?? false, watching, device }), ...(watching && pov ? { pov } : {}) }
       : !watching && prompt?.respawnReady !== undefined
         ? { help: respawnHelpLines(device, prompt.respawnReady), respawnReady: prompt.respawnReady } : {};
   if (s.watching !== null) {
@@ -1717,6 +1778,16 @@ export function hudLayout(
       text('help', line, { x: H.x, y: H.y0 + i * H.pitch, scale: H.scale, align: 'centre' }, C, 1,
         [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128], helpA / 128, { special: true, shadow: Math.min(helpA, 96) / 128 });
     });
+    // PV-6h (POV_VIEW_ADAPTATION, no original): the player's view's line, one text at its own place
+    // (`POV_HELP_PLACE_ADAPTATION`, none of the six slots) in the lines' font, scale and colour, at its own alpha
+    // (`povHelpAlpha`), after the lines and hidden with them; never on 'own'.
+    const pov = view && view.path !== 'own' ? view.pov : undefined;
+    const povA = pov ? povHelpAlpha(pov, timing.help ?? 1) : 0;
+    if (pov && povA > 0) {
+      const P = POV_HELP_PLACE_ADAPTATION;
+      text('help', povHelpLine(pov), { x: P.x, y: P.y, scale: H.scale, align: 'centre' }, C, 1,
+        [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128], povA / 128, { special: true, shadow: Math.min(povA, 96) / 128 });
+    }
   }
 
   // The event banner: the panel while any message shows, the lines newest at the bottom (`HUD_LAYOUT.banner`).
@@ -1934,27 +2005,39 @@ export interface HudView {
 /**
  * The range finder -- the scope's and binoculars' `RANGE(m)` line (research 87 §13), and the info box's spot only while
  * this browser's range readout is on (HUD-ALIVE C, `./rangeReadout`; the original's number there is the consoles' count,
- * `infoNumberText`): how far the surface under the reticle is, in metres (`MetersPerUnit` 0.1), along
- * a segment from the eye through the aim point, `reach` long (1000 units by default) -- the viewer's reading of the
- * readout [estimate: the game's own source for the number was not traced]. Not the shot's eye ray: that one is
- * `min(max(range, 600), the camera's MID + the view's extension)` long since AD-1 (`./fire` `aimReach`, research 232
- * section 8). Measured at most five times a second: the segment walks the hull's grid. Was: "along the shot's own
- * segment (`./fire`: the eye through the aim point, the rifle's 1000 units)".
+ * `infoNumberText`), in metres (`MetersPerUnit` 0.1). AIM-TRACE-FILTER (a reading): the line reads the eye's aim trace's
+ * stored record (`FUN_005aa6d0`, actor+0x3c0, D:L464015-464018) in `FUN_00216770` (D:L70446-70461) without tracing
+ * again -- no record, or its +0x1c zero, prints `"RANGE(m): ----"` (0x3e4860; null here); otherwise the distance from the
+ * actor's position (`iVar13 + 0x1c`, the local actor `FUN_001fcd70`, D:L70321, D:L70357) to the record's point, / 10.
+ * The record is the nearest hit `FUN_005aa6e0` keeps (D:L464145-464169, stored D:L464262-464286): the caller passes that
+ * query's filter (`./fire` `Fire.eyeStops`, `stops`) and the actor's position (`actor`). Without them (a caller that has
+ * neither) every face stops and the eye is the origin -- the earlier viewer reading, kept only as that fallback. The
+ * segment runs from the eye through the aim point as long as the aim trace's own reach (`reach`: the caller passes
+ * `Fire.eyeReach`, `aimReach` of the held item's range and the camera's cap, D:L464096-464108 -- a wall beyond it has no
+ * record, "----"); without one, the finder's own `reach` (1000 units), the same fallback. Measured at most five times a second: the segment walks the hull's grid. Was: "the
+ * surface under the reticle ... along a segment from the eye" with no filter [the game's source was not traced].
  */
 export class RangeFinder {
   private at = -Infinity;
   private value: number | null = null;
   constructor(private readonly metersPerUnit = 0.1, private readonly every = 0.2, private readonly reach = 1000) {}
-  measure(grid: Grid | null, aim: { eye: readonly number[]; far: readonly number[] } | null, now: number): number | null {
+  measure(
+    grid: Grid | null, aim: { eye: readonly number[]; far: readonly number[] } | null, now: number,
+    q: { stops?: (p: WorldPoly) => boolean; actor?: readonly number[] | null; reach?: number } = {},
+  ): number | null {
     if (now - this.at < this.every) return this.value;
     this.at = now;
     if (!grid || !aim) return (this.value = null);
     const d = [aim.far[0]! - aim.eye[0]!, aim.far[1]! - aim.eye[1]!, aim.far[2]! - aim.eye[2]!];
     const n = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
     const from: [number, number, number] = [aim.eye[0]!, aim.eye[1]!, aim.eye[2]!];
-    const end: [number, number, number] = [from[0] + (d[0]! / n) * this.reach, from[1] + (d[1]! / n) * this.reach, from[2] + (d[2]! / n) * this.reach];
-    const hit = segmentHit(grid, from, end);
-    return (this.value = hit ? hit.t * this.reach * this.metersPerUnit : null);
+    const r = q.reach ?? this.reach;                    // the aim trace's own reach (`Fire.eyeReach`, D:L464096-464108)
+    const end: [number, number, number] = [from[0] + (d[0]! / n) * r, from[1] + (d[1]! / n) * r, from[2] + (d[2]! / n) * r];
+    const hit = segmentHit(grid, from, end, q.stops);   // FUN_005aa6e0's kept hit, nearest the eye (D:L464145-464169)
+    if (!hit) return (this.value = null);               // "RANGE(m): ----" (D:L70447-70448)
+    const o = q.actor ?? from, s = hit.t * r;           // from the actor's position (D:L70451-70460)
+    const p = [from[0] + (d[0]! / n) * s - o[0]!, from[1] + (d[1]! / n) * s - o[1]!, from[2] + (d[2]! / n) * s - o[2]!];
+    return (this.value = Math.hypot(p[0]!, p[1]!, p[2]!) * this.metersPerUnit);
   }
 }
 

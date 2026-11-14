@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { expectBase } from './forgeBase';
+import { dockOf, dockTab, expectBase, panel, showTab } from './forgeBase';
 
 /**
  * FUI-22 (the owner, 2026-10-27: "The Asset Viewer should dissapear, but keep the object preview and add it as a tooltip
@@ -31,8 +31,13 @@ const open = async (page: Page, size: { width: number; height: number }): Promis
   // At 760 px and under the docks are closed drawers (forge.css, LATER 176; the page opens on the viewport): the Docks button
   // opens both, the left list and the right dock's tabs with them.
   if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
-  await expect(page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first()).toBeVisible({ timeout: 120_000 });
+  await expect(tiles(page).first()).toBeVisible({ timeout: 120_000 });
 };
+/**
+ * FC2-4 (EDITOR-MAP D1, D8, A1): the asset list's tiles -- the old left dock's (`.fx-left`) are his Assets tab's, in the
+ * Assets panel drawn in that tab's body (`./forgeBase` `panel`).
+ */
+const tiles = (page: Page) => panel(page, 'asset-browser').locator('ul.fx-assets > li[data-asset]');
 const apart = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): boolean =>
   a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
 
@@ -43,7 +48,15 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     await shot(page, `left-${size.width}`, out);
     const tip = page.locator('.fx-asset-tip');
     await expect(tip).toBeHidden();
-    const tile = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').nth(1);
+    const tile = tiles(page).nth(1);
+    // FC2 (ours, harness): his dock's asset list is short, so Playwright's hover would scroll the tile in first. The tile
+    // is brought into view and the list let settle (its scrollTop unchanged across two frames), so this tests a hover.
+    await tile.scrollIntoViewIfNeeded();
+    const list = panel(page, 'asset-browser').locator('ul.fx-assets');
+    await expect.poll(() => list.evaluate((el) => new Promise<number>((done) => {
+      const at = el.scrollTop;
+      requestAnimationFrame(() => requestAnimationFrame(() => done(el.scrollTop - at)));
+    }))).toBe(0);
     await tile.locator('.fx-asset-name').hover();
     await expect(tip).toBeVisible({ timeout: 5_000 });
     await expect(tip.locator('.fx-preview-name')).not.toHaveText('', { timeout: 30_000 });
@@ -58,7 +71,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     // The active tile: the prop step picks the next prop, its tooltip at once.
     await page.keyboard.press(']');
     await expect(tip).toBeVisible();
-    await expect(page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li.is-on')).toHaveCount(1);
+    await expect(panel(page, 'asset-browser').locator('ul.fx-assets > li.is-on')).toHaveCount(1);
     await shot(page, `active-${size.width}`, out);
     await page.keyboard.press('Escape');
     await expect(tip).toBeHidden();
@@ -66,22 +79,31 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     // put Settings with the Light rig (`environment`) under World; View left the dock for the viewport's Draw dropdown
     // (`../src/forge/page.ts` `viewportModes`), as the unit pin has it (`../test/forge/pagePanels.test.ts`).
     // The strip's tabs pinned first, so a renamed tab fails here rather than being skipped below (as Edit was).
-    expect(await page.locator('.fx-right [data-forge-tab]').evaluateAll((bs) => bs.map((b) => (b as HTMLElement).dataset['forgeTab'])))
-      .toEqual(['object', 'world', 'agent', 'content']);
-    for (const [tab, panels] of [['object', ['outliner', 'inspector', 'rules']], ['world', ['environment', 'settings', 'starters']], ['agent', ['agent']], ['content', ['creator-assets']]] as const) {
-      const button = page.locator(`.fx-right [data-forge-tab="${tab}"]`);
+    // FC2-4 (EDITOR-MAP D2, D6, I1, I3): his shell has no one right dock -- its right column is the Object / Map / Content /
+    // Agent group over the Inspector's own (`../src/forge/page.ts` `DEFAULT_DOCK`: g-outliner over g-inspector). World is
+    // his Map tab (Map Settings, the Light rig, Rules and Starter experiences: each panel's `tab: 'Map'`); Rules left
+    // Object for it, and the Inspector has its own tab, so Object holds the Outliner alone.
+    const right = dockOf(page, 'object');
+    const tabsOf = (group: ReturnType<Page['locator']>) => group.locator(':scope > .fx-dg-tabs > .fx-dg-tab[data-forge-tab]')
+      .evaluateAll((bs) => bs.map((b) => (b as HTMLElement).dataset['forgeTab']));
+    expect(await tabsOf(right)).toEqual(['object', 'map', 'content', 'agent']);
+    expect(await tabsOf(dockOf(page, 'inspector'))).toEqual(['inspector']);
+    await expect(panel(page, 'inspector')).toBeVisible();
+    for (const [tab, panels] of [['object', ['outliner']], ['map', ['settings', 'environment', 'rules', 'starters']], ['agent', ['agent']], ['content', ['creator-assets']]] as const) {
+      const button = dockTab(page, tab);
       if (!(await button.count())) continue;
       if (size.width <= 760 && !(await button.isVisible())) continue;
-      await button.click();
-      await expect(page.locator('.fx-right > details.fx-panel:not([hidden])')).toHaveCount(panels.length);
-      for (const id of panels) await expect(page.locator(`.fx-right > details.fx-panel[data-forge-panel="${id}"]`)).toBeVisible();
+      await showTab(page, tab);
+      await expect(right.locator(':scope > .fx-dg-body > details.fx-panel')).toHaveCount(panels.length);
+      for (const id of panels) await expect(right.locator(`:scope > .fx-dg-body > details.fx-panel[data-forge-panel="${id}"]`)).toBeVisible();
       await shot(page, `right-${tab}-${size.width}`, out);
     }
     // Found against main 600eb91bd: PF.R60's detail distance drew as the 28x14 switch pill; it is a slider wider than one.
     // Since the Overhaul (36ddf4282) it is a row of the viewport's Draw dropdown (`viewportModes`, `buildDetailDistance`),
     // not of a View panel in the right dock. At 760 px the docks are drawers over the viewport: closed first.
     if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
-    const draw = page.locator('details.fx-viewport-modes:not(.fx-viewport-billboards)');
+    // FC2: his Outliner's Filter is a `details.fx-viewport-modes` too (`panels/outlinerPanel.ts` `fx-outliner-filter`).
+    const draw = page.locator('details.fx-viewport-modes:not(.fx-viewport-billboards):not(.fx-outliner-filter)');
     await draw.locator(':scope > summary').click();
     const range = draw.locator('.fx-detail-distance input[type=range]');
     await expect(range).toBeVisible();
@@ -95,14 +117,14 @@ test.describe('touch', () => {
   test('a long press shows the tooltip; the lift keeps it; the next tap hides it', async ({ page }, info) => {
     await open(page, { width: 1280, height: 720 });
     const tip = page.locator('.fx-asset-tip');
-    const name = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first().locator('.fx-asset-name');
+    const name = tiles(page).first().locator('.fx-asset-name');
     await name.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, bubbles: true });
     await page.waitForTimeout(700);
     await expect(tip).toBeVisible();
     await name.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, bubbles: true });
     await expect(tip).toBeVisible();
     await shot(page, 'touch-1280', info.outputPath());
-    const other = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').nth(2).locator('.fx-asset-name');
+    const other = tiles(page).nth(2).locator('.fx-asset-name');
     await other.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, bubbles: true });
     await expect(tip).toBeHidden();
   });

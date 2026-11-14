@@ -47,6 +47,7 @@ type GroundCorrection = (feet: readonly [number, number, number]) => readonly [n
  *     if |target - prev| / dt > limit:  target = prev +- limit * dt
  *     if |prev| > 0.9 and |raw - prev| / dt > 9   (lateral: 0.78, 7.8):  target = raw, the clip blend reset to
  *       0.2 s (FUN_0028e3e0 on actor+0x170)
+ *     (the port: the ramp every tick, the snap judged from the last game frame's value: `Walker.throttle`, R8.1)
  *   FUN_00583350(lateral, forward)  -> m = min(1, |stick|) with forward = 0 when |forward| <= 0.03;
  *     w = asin(|lateral| / |stick|) * 2/pi (0 ahead .. 1 abeam); DAT_0064fc80 = 1 / sqrt(w^2 + (1 - w)^2)
  *   FUN_005858a0(lateral, forward)  -> the direction class actor+0x1338: 1 forward, 3 back, 0 right, 2 left, by the
@@ -84,7 +85,7 @@ type GroundCorrection = (feet: readonly [number, number, number]) => readonly [n
  *   faster along its class's axis (19.8 at 45 degrees).~~ *Superseded 2026-11-02 (MOVE-4, research 80 section 6g):*
  *   `FUN_0057a330` (D:L438911-438956) splits the class clip's root velocity, w to x and 1 - w to z, before
  *   `DAT_0064fc80` scales it (D:L438985) -- the band's speed along atan2(w, 1 - w) (capture: 45 degrees at 45). Ported
- *   in SEPARATE; COMBINED keeps the old reading under OT.R93 (the owner's question, HUMAN_TASKS). Research 18 section 3.13's 0.9 s "lead" and its average of
+ *   in SEPARATE, and since H392 (the owner, 2026-11-14: "Always the original's") in COMBINED and the bots too. Research 18 section 3.13's 0.9 s "lead" and its average of
  *   40 are the orbit camera trailing the actor on our recomp at 18.7 frames a second, not this ramp. [reading of
  *   the decompilation; W2.2c measures it on the console, W2.R7]
  * - **Stances.** A tap of `C` toggles stand and crouch (prone to crouch), a hold goes prone (owner, 2026-09-29; the
@@ -271,9 +272,12 @@ export const PRONE_PROBE_TILT_READING = 'root' as ProneProbeTilt;
  * D:L415443; again at D:L415459 when `+0x52f` is set), reaching `r x 1.4` -- the second height research 180 s1.6
  * believed absent (its owed read; PF-16, research 217 s2.2). The mover has no posed skeleton (the room runs none), so
  * the head is the clip's the ground state plays: `'posed'` (the crouch-run head line, seat b6's finding, 2026-11-06;
- * research 217 s2.3) -- at rest, in the air and while a one-shot owns the body the stance's idle head (`IDLE_HEAD`,
+ * research 217 s2.3) -- at rest and while a one-shot owns the body on the ground the stance's idle head (`IDLE_HEAD`,
  * standing idle unchanged); moving on the ground the head node's greatest height over the cycle the stick plays
- * (`POSED_HEAD_READING`), the crouch run (`FUN_00584c60`: it stands and runs the standing blend) the standing table's.
+ * (`POSED_HEAD_READING`), the crouch run (`FUN_00584c60`: it stands and runs the standing blend) the standing table's;
+ * in the air, under the running jump's launch or the fall, the clip's posed head at its key (`AIR_POSED_HEAD_READING`,
+ * AIR-HEAD-LINE 2026-11-13: the same routine casts the airborne segments, research 217 s2.10, and reads the head as
+ * posed, D:L415437-415446 and the other arm D:L415459-415461).
  * `'idle'`: the idle head for every state, as before (a running body's line 1.6 to 2.0 too high: it stopped a crouch run
  * under MP72's warehouse lintel, 18.23 over the feet). [reading, pending review: the cycle's phase is not followed (the
  * greatest head of the cycle stands for every phase, so a lintel inside the cycle's span stops the body as the
@@ -307,6 +311,35 @@ export const POSED_HEAD_READING = {
   },
   crouch: { forward: 13.122, back: 13.114, right: 12.990, left: 13.274 },
   prone: 4.996,
+} as const;
+/**
+ * AIR-HEAD-LINE (2026-11-13; research 217 s2.2): the head node's height over the feet at each key of the two clips the
+ * airborne body plays (the animator's `SEAL_ANIMS.launch` for the action `launch`, `SEAL_ANIMS.inAir` for `fall`), the
+ * port's animator on `seal_A_scuba` (`MOTION_P.ZAR`, `READERC.ZAR`'s `motion.rdr`, `MP2.ZDB`'s `CLIB_GEO.ZED`) as
+ * `POSED_HEAD_READING` was measured, each key held through the animator's traversal seam on a fresh animator --
+ * re-measured by `airHeadLineDisc.test.ts`. `playback` and `frames` are the clips' (`motion.rdr`'s playback, the pack's
+ * key count, pinned by the same test): a one-shot runs its keys 0 to n - 1 in `oneShotSeconds` (2.212 s and 4.311 s)
+ * and holds the last. `FUN_0054aa30` reads the head as posed each frame (D:L415437-415446), and the walker knows the
+ * clip's phase (its action's clock), so the line follows the key, as the ground table follows the stick: between two
+ * keys the greater of the two (`airPosedHead`). The launch's head 15.947 to 16.950, the fall's 14.567 to 16.328: the
+ * line 0.44 to 2.83 under the idle head's 19.394. Standing only: a crouched or prone body in the air keeps its idle
+ * head (12.138, 5.637). [reading, pending review: measured on the port's animator, not the original's; whether the
+ * original plays these standing clips for a crouched or prone body in the air is unread; the cross-fade into each clip
+ * (the launch's BlendTime 0.2 s from the run, the fall's 0.75 s from the launch) is not followed -- the launch's own
+ * keys stand over the run's lower head through its first 0.2 s, and the fall's first keys stand under the launch's last
+ * pose (16.15 to 16.33) through its 0.75 s, by up to 0.5; owed with `WALL_HEAD_LINE_READING`'s capture, a SEAL jumped
+ * through a window]
+ */
+export const AIR_POSED_HEAD_READING = {
+  launch: {
+    playback: 2.4, frames: 25,
+    head: [16.950, 16.855, 16.835, 16.760, 16.674, 16.486, 16.319, 16.237, 16.170, 16.107, 16.024, 15.947, 15.949,
+      16.041, 16.259, 16.500, 16.654, 16.737, 16.733, 16.683, 16.601, 16.510, 16.419, 16.352, 16.328],
+  },
+  fall: {
+    playback: 5, frames: 14,
+    head: [15.830, 15.051, 14.567, 14.745, 15.404, 16.326, 16.328, 15.838, 15.761, 15.843, 15.957, 16.028, 16.020, 15.975],
+  },
 } as const;
 /**
  * A wall the body's footprint meets at the face's END (the nearest point of the face's band is one of its ends, not a
@@ -548,14 +581,36 @@ export function wallProbeHeights(stance: Stance): readonly [number, number] {
 }
 const POSED_CLASS = ['right', 'forward', 'left', 'back'] as const;
 /**
+ * AIR-HEAD-LINE: the head node's height over the feet under the airborne action `air` (`AIR_POSED_HEAD_READING`): its
+ * clip's key at the action's clock (`t` x (n - 1) / `oneShotSeconds`, held at the last key), the greater of the two
+ * keys about it; null for an action that plays neither airborne clip (a blast's `fallForward` / `fallBackwards`: not
+ * measured, the caller keeps the idle head).
+ */
+export function airPosedHead(air: Pick<MoverAction, 'name' | 't'>): number | null {
+  const row = air.name === 'launch' ? AIR_POSED_HEAD_READING.launch : air.name === 'fall' ? AIR_POSED_HEAD_READING.fall : null;
+  if (!row) return null;
+  const k = Math.min(row.frames - 1, Math.max(0, (air.t * (row.frames - 1)) / oneShotSeconds(row.playback, row.frames)));
+  return Math.max(row.head[Math.floor(k)]!, row.head[Math.ceil(k)]!);
+}
+/**
  * The head line's height over the feet (`FUN_0054aa30` D:L415441-415443: the head node as posed + 2) for the body in
  * `posture` on the ground state `ground` (`WALL_HEAD_LINE_READING`): moving on the ground the posed head of the clip it
- * plays (`POSED_HEAD_READING`; standing, the row of the stick's class, `moveClass`), else -- at rest, `busy` (in the
- * air, a one-shot owning the body), or `'idle'` -- the stance's idle head (`wallProbeHeights`).
+ * plays (`POSED_HEAD_READING`; standing, the row of the stick's class, `moveClass`); in the air (`air`, the airborne
+ * body's action, standing) the posed head of the jump clip at its key (`airPosedHead`, AIR-HEAD-LINE); else -- at rest,
+ * `busy` (a one-shot owning the body, an airborne action no table holds, or a crouched or prone body in the air), or
+ * `'idle'` -- the stance's idle head (`wallProbeHeights`).
  */
-export function wallHeadLine(posture: Stance, ground: GroundMotion, busy = false): number {
+export function wallHeadLine(posture: Stance, ground: GroundMotion, busy = false, air: Pick<MoverAction, 'name' | 't'> | null = null): number {
   const idle = IDLE_HEAD.idle[posture] + HEAD_LINE_LIFT;
-  if (WALL_HEAD_LINE_READING !== 'posed' || busy || ground.state !== posture) return idle;
+  if (WALL_HEAD_LINE_READING !== 'posed') return idle;
+  if (air) {
+    // AIR_POSED_HEAD_READING: standing only -- whether the original plays the standing in-air clips for a crouched or
+    // prone body in the air (a crouch walk or a crawl off a ledge) is unread; those keep their idle head.
+    if (posture !== 'stand') return idle;
+    const head = airPosedHead(air);
+    return head === null ? idle : head + HEAD_LINE_LIFT;
+  }
+  if (busy || ground.state !== posture) return idle;
   if (posture === 'crouch') {
     const c = POSED_HEAD_READING.crouch;
     const head = ground.cls < 0 ? Math.max(c.forward, c.back, c.right, c.left) : c[POSED_CLASS[ground.cls as 0 | 1 | 2 | 3]];
@@ -751,10 +806,10 @@ export function probeLiftFor(word: Stance, drawn: Stance): number {
 export const STEEP_FLOOR_CONTACT_READING = { normalY: 0.1, distance: 6, gain: 0.7 } as const;
 
 /**
- * `FUN_00586c10`'s snap on one axis (decomp 445037-445050): last tick's value past `at` (0.78 lateral, 0.9 forward) and
+ * `FUN_00586c10`'s snap on one axis (D:L445017-445031 of D:L444957-445041): last tick's value past `at` (0.78 lateral, 0.9 forward) and
  * the wish moving faster than `rate` (7.8, 9) a second -- a full axis let go or thrown across. The axis takes the wish
  * at once, and the game snapshots the pose on screen and cross-fades from it over `STICK_SNAP_BLEND`
- * (`FUN_0028e3e0(actor+0x170)`, then `actor+0x178 = actor+0x17c = 0x3e4ccccd`, 445051-445055): `Walker.stickSnaps`
+ * (`FUN_0028e3e0(actor+0x170)`, then `actor+0x178 = actor+0x17c = 0x3e4ccccd`, D:L445032-445035): `Walker.stickSnaps`
  * counts them for the animator.
  */
 export function throttleSnaps(prev: number, target: number, axis: 'forward' | 'right', dt: number = TICK): boolean {
@@ -762,21 +817,41 @@ export function throttleSnaps(prev: number, target: number, axis: 'forward' | 'r
   return Math.abs(prev) > snap.at && Math.abs(target - prev) / dt > snap.rate;
 }
 
-/** The cross-fade `FUN_00586c10` starts on a snap, seconds (`0x3e4ccccd`, decomp 445053-445054). */
+/** The cross-fade `FUN_00586c10` starts on a snap, seconds (`0x3e4ccccd`, D:L445032-445035). */
 export const STICK_SNAP_BLEND = 0.2;
 
 /**
  * One tick of `FUN_00586c10` on one stick axis: `prev` is last tick's value, `target` the pad's; the value the
  * mover uses this tick. `forward` takes `lower/upper_z_accel`, `right` `lower/upper_x_accel` (`dynamics.rdr` 2 and
- * 5; the game's x is the actor's lateral, its z the forward).
+ * 5; the game's x is the actor's lateral, its z the forward). The walker judges the snap over a game frame instead
+ * (`Walker.throttle`, MISSION R8.1) and runs only the ramp (`throttleRamp`) every tick.
  */
 export function throttleStep(prev: number, target: number, axis: 'forward' | 'right', dt: number = TICK): number {
-  const [lo, hi] = axis === 'forward' ? SEAL_TUNING.accelZ : SEAL_TUNING.accelX;
   if (throttleSnaps(prev, target, axis, dt)) return target;
+  return throttleRamp(prev, target, axis, dt);
+}
+
+/**
+ * `FUN_00586c10`'s ramp on one axis without its snap: toward `target` at most `lower + (upper - lower)(1 - (1 -
+ * |target|)^8)` a second (`lower/upper_z_accel`, `lower/upper_x_accel`, `dynamics.rdr`), at the page's rate (MISSION R8).
+ */
+export function throttleRamp(prev: number, target: number, axis: 'forward' | 'right', dt: number = TICK): number {
+  const [lo, hi] = axis === 'forward' ? SEAL_TUNING.accelZ : SEAL_TUNING.accelX;
   const rest = (1 - Math.abs(target)) ** 2;
   const limit = lo + (hi - lo) * (1 - (rest * rest) ** 2);
   if (Math.abs(target - prev) / dt <= limit) return target;
   return target > prev ? prev + limit * dt : prev - limit * dt;
+}
+
+/**
+ * THROTTLE-FRAME (MISSION R8.1, a browser adaptation; the read interval proven by the capture rig's Q12, 2026-11-14):
+ * whether 60 Hz tick `n` (`TICK` each, counted from 0) ends a game frame (`GAME_FRAME_DT`): floor(n TICK / GAME_FRAME_DT)
+ * moves on it -- the frames `GameFrameAccumulator` counts from a start at tick 0 (its boundary guard 1e-9 the same),
+ * stateless in `n`, so two movers that number a tick alike end its frame alike (`Walker.throttleFrames`).
+ */
+export function throttleFrameEnds(n: number): boolean {
+  const frame = (k: number): number => Math.floor((k * TICK + 1e-9) / GAME_FRAME_DT);
+  return frame(n) !== frame(n - 1);
 }
 
 /**
@@ -913,8 +988,9 @@ const WALL_PASSES = 4;
 export type WalkInput = GroundWish;
 
 /**
- * What the worker hands the page for the walk: the probe's polygon set (`worldCollision`, 3,318 on Frostfire,
- * research 24 section 1.1), its nodes (`collisionOwners`: the probe's per-model unit and the gate's flags) and the
+ * What the worker hands the page for the walk: the probe's polygon set (`mapCollision`: the worldmodel's, 3,318 on
+ * Frostfire, research 24 section 1.1, then CLUTTER.ZAR's instances' appended, research 422), its nodes (its owners: the
+ * probe's per-model unit and the gate's flags, a clutter instance's under `clutter/<model>#<record>`) and the
  * map's `grid_params`. The polygons travel packed in two typed arrays the worker transfers: as objects, Guidance's
  * 18,464 took 44 ms to clone (measured 2026-09-28), part of it on the page's thread at every map load.
  */
@@ -1079,6 +1155,8 @@ export interface PlaySnapshot {
    * the wire; PAR-64's review F2).
    */
   cutStick?: { forward: number; right: number };
+  /** DEAD-HEAD-LOOK: the body is dead (`./animator` `MoverSnapshot.dead`); absent or false: alive. */
+  dead?: boolean;
 }
 
 /** The table's jump and landing fields (`./physics`): `jump_factor`, `gravity` and the landing rates. */
@@ -1288,7 +1366,8 @@ export const ACTION_CLIPS = Object.freeze({
 } as const);
 
 /**
- * MOVE-1 (B196; OT.R93, SEPARATE only; research 80 section 6g; reading, pending review): while action 0x13
+ * MOVE-1 (B196; research 80 section 6g; reading, pending review; SEPARATE only under OT.R93 until H392, the owner's
+ * 2026-11-14 ruling "Always the original's (Recommended)": every stance mode and the bots): while action 0x13
  * (`crouchToProne`) is current, the body tick `FUN_0054d9a0` (r0001 D:L416435-416455; r0004 twin 0x552790, the same
  * code at 0x552800-0x5528b8) replaces the top play's vector with (0, 0, +8 / T), -8 / T under the node's flag 0x20 (the
  * reverse flag: `FUN_0028c160` sets it, D:L134094), and adds it to the velocity `+0x2c`; T is the clip's `anim+0x10`
@@ -1951,13 +2030,26 @@ export const CROUCH_WALK_AXIS_READING = 'stick x 14 / (abs(stick) x 14.8): 0.946
  * 0x11 (0.58-0.60 s, the root 10.04 to 5.50) then 0x12; half a stick let go, 0x12 at once. `'stand-to-crouch'` (built,
  * LATER 678): a crouch run let go, not turning, plays `standToCrouch` forward, the crouch idle under it -- in SEPARATE
  * only (`stanceSeparate`, OT.R93). The function reads no stance-button mode (the original has one), but OT.R93 keeps
- * COMBINED and the bots as main has them (`stanceCutSeparate.test.ts` pins the bots' trace byte for byte), as MOVE-1 and
- * MOVE-4 were kept (H392): theirs is the owner's question. `'idle'`: the crouch idle at once (the port before LATER 678;
+ * COMBINED and the bots as main has them (`stanceCutSeparate.test.ts` pins the bots' trace), the owner's question
+ * (H405; MOVE-1 and MOVE-4's, H392, he answered 2026-11-14: the original's everywhere). `'idle'`: the crouch idle at once (the port before LATER 678;
  * COMBINED's and the bots' still). Not ported still: the posture word reads 1 (crouch) through the run where the port's
  * `posture` is `stand` (`locomote`; the hull, the headroom and the hit volumes follow it) -- owed with the run's posture
  * write. [reading, pending review]
  */
 export const CROUCH_RUN_RETURN_READING = 'stand-to-crouch' as 'stand-to-crouch' | 'idle';
+
+/**
+ * MOVE-PARITY finding 19 READING (named, no value change; research 80 section 7): the crouched full-stick run's ground
+ * speed. The port's crouch run (`locomote`'s crouch branch past `CROUCH_RUN`) sets `posture` stand and runs the
+ * standing blend, so it covers the standing run's 65 u/s; this names that behaviour and changes none. The original
+ * (AH-4's Q15/Q16 rig runs, capture, measured): crouched, full W, 52.0-53.2 u/s and full W+D 54.8 at travel -47.4, its
+ * velocity word's |vel| 65 in all -- about 0.82 of it; standing, full W+D from the same start, 64.4-64.6 at -45.0.
+ * Read: `FUN_00584c60`'s run branch (D:L444171 on) plays the standing run with the stance word `+0x174` still 1 (its
+ * play type 2 push, D:L444184). Not read: what makes the body cover only about 0.82 of |vel| -- the move or collision
+ * step taking the stance word 1 through the run, or a per-tick stall. Settled by a per-tick position trace of a
+ * crouched run against `+0x2c..+0x34` x dt and `+0x174`. [reading, pending review]
+ */
+export const CROUCH_RUN_SPEED_READING = 'standing run 65 u/s (original: about 0.82 of it, cause unread)' as const;
 
 /**
  * LATER 678 READING (named; research 217 s2.9): the release's push off a wall. During the 0x11 the release plays, the
@@ -2367,11 +2459,19 @@ export const STANCE_WORD_CROUCH_FALLBACK_READING = 'not raised: the clip is alwa
  */
 export const STANCE_WORD_DIVE_REQUEST_READING = "never the player's: CSealCtrl's +0x30 answers 0" as const;
 
+/** LATER 960: the process-wide count of placings, so each `Walker.place` stamps the body with a value no other has. */
+let placementSerial = 0;
+
 /**
  * The mover. `advance` is what the page calls each frame; `tick` is one 60 Hz step; `place` stands it on the floor
  * under a point. The page reads `eye` for the camera and writes `state.yaw` / `state.pitch` from the look.
  */
 export class Walker {
+  /**
+   * LATER 960 (`LEADER_TRAIL_LIFE_READING`, match `src/extraction.ts`): a stamp new at each placing (`place`), 0 before
+   * one -- the room's hostages read a change as the body's placement, which zeroes its trail (`FUN_00525200`).
+   */
+  placement = 0;
   readonly state: WalkState = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vz: 0, vy: 0, stickForward: 0, stickRight: 0 };
   private stance_: Stance = 'stand';
   /** Off the ground, falling (`fall`). */
@@ -2406,6 +2506,29 @@ export class Walker {
    * frames, not every 60 Hz walk tick (which eased twice as fast).
    */
   private readonly tiltClock = new GameFrameAccumulator();
+  /**
+   * THROTTLE-FRAME (finding 17; MISSION R8.1 -- a BROWSER ADAPTATION of the rule's window; the read interval and the ramp
+   * proven by the capture rig's Q12, 2026-11-14, the snap's thresholds a reading): the tick number the game frames
+   * `FUN_00586c10`'s snap is judged over are counted on. The original evaluates the throttle once a 30 Hz game frame
+   * (D:L444957-445041; `GAME_FRAME_DT`, research 180 s0), so its snap compares two frames' values; the port keeps R8's
+   * continuous ramp every tick and judges the snap from the value at the last frame's end (`snapRef_`). The frames are
+   * stateless in the number (`throttleFrameEnds`): tick n ends one where floor(n TICK / GAME_FRAME_DT) moves. The number
+   * is the command's (`commandSeq`, which `./net/moverSim` `prepare` sets on the room and on the page's re-run, and the
+   * page's walk sets per tick in the client's numbering) whenever it changed since the last tick, else the last one plus
+   * one (a test's ticks, a corpse's, an elapsed tick of the room's drop). So the room and the page agree on every
+   * command's frame end by its number, whatever either placed, parked, resumed or dropped before it, and a difference
+   * left by one (a page's `resume` re-places, the room's `handBack` does not) heals at the next frame end both sides'
+   * sticks agree at. Kept state (`saveState` copies it), so a re-run ends its frames on the same ticks.
+   */
+  private throttleTick = 0;
+  /** THROTTLE-FRAME (R8.1): `commandSeq` as the last tick read it: a changed one numbers the tick (`throttleTick`). */
+  private throttleSeq = 0;
+  /** THROTTLE-FRAME (R8.1): the ramped stick (forward, right) as it stood at the last game frame's end (`throttleTick`). */
+  private snapRef_: [number, number] = [0, 0];
+  /** THROTTLE-FRAME (R8.1): per axis (forward, right), a snap fired in this frame: the axis takes the pad's value to its end. */
+  private snapFollow: [boolean, boolean] = [false, false];
+  /** THROTTLE-FRAME (R8.1): this frame's snap counted (`stickSnaps_`): one cross-fade a snap event, not one a tick after it. */
+  private snapCounted = false;
   /** The velocity carried through the air and a landing clip (`actor+0x1350` / `+0x1358`), world x and z. */
   private carried: [number, number] = [0, 0];
   /**
@@ -2857,11 +2980,11 @@ export class Walker {
     else name = 'standToProne';
     const reversed = stance !== 'prone' && !(from === 'stand' && stance === 'crouch');
     this.start(name, ACTION_SECONDS[name], reversed);
-    // SEP-POP (OT.R93): the original's pushes leave the velocity (`FUN_005817d0` D:L442494-442518, `FUN_00581c10`
-    // D:L442622-442641, `FUN_00581540` write none); COMBINED (and a bot's mover) keeps main's zero -- COMBINED-CUT gave
-    // COMBINED the cut alone (`stanceSeparate`). Either way the clip's root carries the body from this tick on
-    // (`step60`'s held branch) or the cut's ground state does.
-    if (!this.stanceSeparate) { this.state.vx = 0; this.state.vz = 0; }
+    // SEP-POP: the original's pushes leave the velocity (`FUN_005817d0` D:L442494-442518, `FUN_00581c10`
+    // D:L442622-442641, `FUN_00581540` D:L442407-442431 write none) -- in every mode and for the bots since the main controller's reading
+    // of H392 (redotcom-67, 2026-11-14: a push's velocity is movement; the owner confirmed it, 2026-11-14T04:30Z); COMBINED and a bot's
+    // mover zeroed it before. The clip's root carries the body from the next tick on (`step60`'s held branch) or the
+    // cut's ground state does.
   }
 
   /**
@@ -2883,7 +3006,8 @@ export class Walker {
    * would), with no get-up clip and so no mover hold; the drop under way comes off `replaced` (`onActionEnd` hears it).
    * The place's gate is the press's: headroom to the feet + 19 (`placeGate`, D:L419007) -- the drop's own refusal of a
    * stand (`TRANSITION_REFUSES`, D:L418995) is the one gate it passes over. From settled prone the velocity is zeroed as
-   * the get-up it replaces zeroes it (`applyStance`); a drop's is left as the clip had it. `'refused'` (nothing changed):
+   * main's get-up zeroed it (the adaptation's own since H392's push keeps the velocity); a drop's is left as the clip had
+   * it. `'refused'` (nothing changed):
    * dead, in the air, or no headroom. Null, no pop: not prone, or the body owned by anything but the drop (a hit, a hold,
    * the dance, a move's clip), or the flinch's slot on top (`oneShotOnTop`, LATER 512c review F1), or the drop with a hold under it (the original's refusal, `TRANSITION_REFUSES`
    * D:L418995, holds the stand until the drop and the hold end) -- the press is then the ordinary one.
@@ -3375,12 +3499,50 @@ export class Walker {
     return this.stickSnaps_;
   }
 
-  /** `FUN_00586c10` on both axes against last tick's: the ramped stick in the state, a snap counted once a tick. */
+  /**
+   * THROTTLE-FRAME (R8.1): the ramped stick (forward, right) at the last game frame's end, what this tick's snap is judged
+   * from (`throttle`). A tick at rest between two frames' ends (`FUN_00586f00`) leaves it alone.
+   */
+  get snapRef(): readonly [number, number] {
+    return this.snapRef_;
+  }
+
+  /**
+   * `FUN_00586c10` on both axes (D:L444957-445041; the snap D:L445017-445031, its cross-fade D:L445032-445035): the
+   * ramped stick in the state, a snap counted once an event. THROTTLE-FRAME (finding 17; MISSION R8.1 -- a BROWSER
+   * ADAPTATION of the rule's window, labelled so; the read interval and the ramp proven by the capture rig's Q12,
+   * 2026-11-14, the snap's thresholds a reading): the original runs it once a 30 Hz game frame, so its snap (`throttleSnaps`: past `at`,
+   * faster than `rate`) compares two frames; run every 60 Hz tick against last tick's value, a fast flick was caught
+   * mid-travel and the rest ramped. So the snap is judged every tick against the value at the last game frame's end
+   * (`snapRef_`) over `GAME_FRAME_DT`; once it fires the axis takes the pad's value until the frame ends (`snapFollow`);
+   * the cross-fade is counted once a frame (`snapCounted`). Without a snap the ramp (`throttleRamp`) runs every tick at its
+   * per-second rate, as R8 has it. A press from rest (`snapRef_` 0, not past `at`) ramps, as the original's.
+   */
   private throttle(forward: number, right: number, dt: number): void {
-    const s = this.state;
-    if (throttleSnaps(s.stickForward, forward, 'forward', dt) || throttleSnaps(s.stickRight, right, 'right', dt)) this.stickSnaps_++;
-    s.stickForward = throttleStep(s.stickForward, forward, 'forward', dt);
-    s.stickRight = throttleStep(s.stickRight, right, 'right', dt);
+    const s = this.state, follow = this.snapFollow, ref = this.snapRef_;
+    const snapForward = !follow[0] && throttleSnaps(ref[0], forward, 'forward', GAME_FRAME_DT);
+    const snapRight = !follow[1] && throttleSnaps(ref[1], right, 'right', GAME_FRAME_DT);
+    if (snapForward) follow[0] = true;
+    if (snapRight) follow[1] = true;
+    s.stickForward = follow[0] ? forward : throttleRamp(s.stickForward, forward, 'forward', dt);
+    s.stickRight = follow[1] ? right : throttleRamp(s.stickRight, right, 'right', dt);
+    if ((snapForward || snapRight) && !this.snapCounted) { this.snapCounted = true; this.stickSnaps_++; }
+  }
+
+  /**
+   * THROTTLE-FRAME (R8.1): the tick just run numbered (`throttleTick`: the command's number when it changed, else the
+   * last plus one); when that tick ends a game frame (`throttleFrameEnds`) the ramped stick as it stands becomes the next
+   * frame's reference (`snapRef_`) -- whatever path set it this tick (the ramp, a snap, the idle test's raw stick, a
+   * clip's stick read and not obeyed) -- and the frame's snap is spent.
+   */
+  private throttleFrames(): void {
+    const seq = this.commandSeq;
+    this.throttleTick = seq !== this.throttleSeq ? seq : this.throttleTick + 1;
+    this.throttleSeq = seq;
+    if (!throttleFrameEnds(this.throttleTick)) return;
+    this.snapRef_[0] = this.state.stickForward; this.snapRef_[1] = this.state.stickRight;   // in place: `saveState` copies it
+    this.snapFollow[0] = false; this.snapFollow[1] = false;
+    this.snapCounted = false;
   }
 
   /** An action on the stack, in place of the one there (which ends for `reason`, `ActionEnd`). */
@@ -3544,7 +3706,7 @@ export class Walker {
    * stance transitions past their `NoInterrupt` (`pastNoInterrupt`) -- the original's player, whose controller's `IsAi`
    * (slot +0x30) answers 0. Off (the default): the refusal by id (`FUN_00587c20` D:L445536-445545), the original's for
    * the bots. COMBINED-CUT (OT.R93, the owner 2026-10-31: "3 + 4"): on for the player in both stance modes -- COMBINED
-   * takes the cut and keeps the rest of its flow (the hold, the pop's code and window, main's zero: `stanceSeparate`).
+   * takes the cut and keeps the rest of its flow (the hold, the pop's code and window: `stanceSeparate`).
    * The page lays it on its own mover each tick (`./walk` `WalkMode`), the room on a stating command unless it has marked
    * the seat AI (`./net/moverSim` `prepare`, `MoverSim.ai`: a CPU's connection, a seat the bots' brain adopts).
    */
@@ -3552,8 +3714,10 @@ export class Walker {
 
   /**
    * SEP-POP / COMBINED-CUT (OT.R93): SEPARATE's own -- the stance mode the walker's player runs, apart from the cut. On:
-   * a transition's push leaves the velocity, as the original's pushes do (`applyStance`), and the room ignores the pop's
-   * code (`./net/moverSim` `prepare`; STM.R2a). Off (the default; COMBINED and the bots): main's zero at the push. The
+   * the room ignores the pop's code (`./net/moverSim` `prepare`; STM.R2a), a press under a held transition or a dive is
+   * MOVE-2's (`applyStance`, `./traversal` `stanceButton`), and a crouch run let go plays LATER 678's release
+   * (`CROUCH_RUN_RETURN_READING`, H405's question). Off (the default; COMBINED and the bots): the pop's code pops. MOVE-1,
+   * MOVE-4 and the push's velocity no longer read it (H392, 2026-11-14: the original's in every mode). The
    * page lays it each tick (`./walk` `WalkMode`: `'separate'`), the room from the command (`Command.separate`).
    */
   stanceSeparate = false;
@@ -3745,6 +3909,16 @@ export class Walker {
   }
 
   /**
+   * LATER 890 (a browser adaptation, OT.R27): the page's correction from the room (`../walk` `WalkMode.nudge`, a policy
+   * of the port's netcode with no original) moves the whole body by (dx, dz), so the airborne probe's last hit
+   * (`airHit`, AIR-PROBE) moves with it -- else a frame-end miss after a correction in flight puts the body back at the
+   * column the uncorrected prediction last hit. On the floor it is harmless: the take-off writes it afresh.
+   */
+  shiftAirHit(dx: number, dz: number): void {
+    this.airHit = [this.airHit[0] + dx, this.airHit[1] + dz];
+  }
+
+  /**
    * Stands the mover on the floor under (x, fromY, z): the probe's highest floor at or under `fromY` + 1, else
    * the lowest within 20 over `fromY` - `probeLift` -- the selection with the origin at `fromY`. A spawn passes its feet +
    * `probeLiftOf('stand')`, so the pick is the tick's own (`FUN_005b5d40` 470230-470240 from the tick's one origin,
@@ -3756,10 +3930,13 @@ export class Walker {
   place(x: number, fromY: number, z: number): boolean {
     const floor = selectFloor(probeGround(this.grid, x, z), fromY, fromY - this.probeLift());
     if (!floor) return false;
+    this.placement = ++placementSerial;                          // LATER 960: a placing, told to the room's hostages
     Object.assign(this.state, { x, y: floor.y, z, vx: 0, vz: 0, vy: 0, stickForward: 0, stickRight: 0 });
     this.prev = { x, y: floor.y, z };
     this.accumulator = 0;
     this.tiltClock.reset();                                      // PRONE-TILT-2: the rule's frames start with the placing
+    this.throttleTick = 0;                                       // THROTTLE-FRAME (R8.1): an unnumbered tick counts from the placing
+    this.snapRef_ = [0, 0]; this.snapFollow = [false, false]; this.snapCounted = false;   // the stick at rest, as placed
     this.restDrawn();
     this.inAir = false;
     this.landing_ = null;
@@ -3996,6 +4173,7 @@ export class Walker {
     this.tickFromX = this.state.x; this.tickFromZ = this.state.z;   // HOTFIX BRIDGE-WEDGE: the push-out's reach
     if (this.wedgeArmed > 0 && !this.inAir) this.wedgeArmed--;
     this.step60(input, dt);
+    this.throttleFrames();                                       // THROTTLE-FRAME (R8.1): a frame's end after its tick's stick
     for (let f = this.tiltClock.advance(dt); f > 0; f--) this.tiltTick();   // PRONE-TILT: FUN_00548090 once a game frame (D:L417863)
     this.clocked = 0;                                            // PAR-79: between ticks, no clock ran
     this.drawTick();
@@ -4159,6 +4337,7 @@ export class Walker {
    * driver's tick) is not run.
    */
   elapse(ticks: number, dt: number = TICK): void {
+    for (let i = 0; i < ticks; i++) this.throttleFrames();       // THROTTLE-FRAME (R8.1): the ticks were the page's, so the frames run on
     if (this.driver?.owns?.(this)) return;                       // a traversal has the tick: `step60` runs no clock either
     for (let i = 0; i < ticks; i++) { this.runClocks(dt); for (let f = this.tiltClock.advance(dt); f > 0; f--) this.tiltTick(); }   // PRONE-TILT: once a game frame
   }
@@ -4274,9 +4453,9 @@ export class Walker {
       // A dead SEAL's `Land forward` held at its last key has no root travel left: the body stays where it fell.
       const ended = act.seconds !== null && act.t >= act.seconds - 1e-9;
       let [tx, tz] = ended ? [0, 0] : this.actionVelocity(held, act.t, act.reversed);
-      // MOVE-1 (SEPARATE only, OT.R93): `FUN_0054d9a0`'s push under 0x13, 8 units of local z over the clip, signed by
-      // the reverse flag (`CROUCH_PRONE_PUSH_READING`).
-      if (held === 'crouchToProne' && this.stanceSeparate && !ended) {
+      // MOVE-1: `FUN_0054d9a0`'s push under 0x13, 8 units of local z over the clip, signed by the reverse flag
+      // (`CROUCH_PRONE_PUSH_READING`) -- every stance mode and the bots (H392, the owner 2026-11-14: "Always the original's").
+      if (held === 'crouchToProne' && !ended) {
         const c2p = ACTION_CLIPS.crouchToProne, period = (c2p.playback * (c2p.frames - 1)) / c2p.frames;   // anim+0x10 x FUN_0028ada0
         tz += ((act.reversed ? -1 : 1) * CROUCH_PRONE_PUSH_READING) / period;
       }
@@ -4462,17 +4641,15 @@ export class Walker {
         const m = Math.min(1, len);
         const w = Math.min(1, Math.asin(Math.min(1, Math.abs(s.stickRight) / len)) * (2 / Math.PI));
         const a = classAxis(this.cls, STANCE.crouch.bands);
-        if (this.stanceSeparate) {
-          // MOVE-4 (SEPARATE only, OT.R93): `FUN_0057a330` D:L438911-438956 (r0004 0x57f580) hands w of the class clip's
-          // root velocity to x and 1 - w to z -- the class axis keeps its own sign, the other takes the stick's -- and
-          // D:L438985 scales by `DAT_0064fc80` = 1 / sqrt(w^2 + (1 - w)^2): the band's speed along atan2(w, 1 - w).
-          const v = (m * a.band) / Math.hypot(w, 1 - w);
-          const side = a.r !== 0 ? a.r : s.stickRight >= 0 ? 1 : -1;
-          const ahead = a.f !== 0 ? a.f : s.stickForward >= 0 ? 1 : -1;   // `+0xf64`, the stick before the dead zone
-          return { forward: ahead * (1 - w) * v, right: side * w * v };
-        }
-        const speed = (m * a.band) / Math.hypot(w, 1 - w);
-        return { forward: a.f * speed, right: a.r * speed };
+        // MOVE-4: `FUN_0057a330` D:L438911-438956 (r0004 0x57f580) hands w of the class clip's root velocity to x and
+        // 1 - w to z -- the class axis keeps its own sign, the other takes the stick's -- and D:L438985 scales by
+        // `DAT_0064fc80` = 1 / sqrt(w^2 + (1 - w)^2): the band's speed along atan2(w, 1 - w). Every stance mode and the
+        // bots (H392, the owner 2026-11-14: "Always the original's"; the function reads no mode): until then COMBINED and
+        // the bots ran the whole speed along the class axis (19.8 at 45 degrees).
+        const v = (m * a.band) / Math.hypot(w, 1 - w);
+        const side = a.r !== 0 ? a.r : s.stickRight >= 0 ? 1 : -1;
+        const ahead = a.f !== 0 ? a.f : s.stickForward >= 0 ? 1 : -1;   // `+0xf64`, the stick before the dead zone
+        return { forward: ahead * (1 - w) * v, right: side * w * v };
       }
       this.posture_ = 'stand';                                  // headroom: stands and runs the standing blend
     } else {
@@ -4498,10 +4675,11 @@ export class Walker {
 
   /**
    * The heights over the feet the walls are met at now: the low probe (`WALL_PROBE_READING`) and the head line at the
-   * posed head (`wallHeadLine`, `WALL_HEAD_LINE_READING`).
+   * posed head (`wallHeadLine`, `WALL_HEAD_LINE_READING`); in the air the action's clip at its key (AIR-HEAD-LINE).
    */
   private probeHeights(): readonly [number, number] {
-    return [WALL_PROBE_READING[this.posture_].h, wallHeadLine(this.posture_, this.ground_, this.inAir || this.action_ !== null)];
+    const air = this.inAir ? this.action_ : null;
+    return [WALL_PROBE_READING[this.posture_].h, wallHeadLine(this.posture_, this.ground_, this.inAir || this.action_ !== null, air)];
   }
 
   /**

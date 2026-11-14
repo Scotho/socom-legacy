@@ -17,13 +17,16 @@ describe('OT.R68: the forge editor\'s keys', () => {
   // (`../src/forge/keys` `FORGE_TOOL_ORDER`), Q the Select tool; the Place tool has no key (choosing a prop places).
   it('the tools (Q Select, the number keys the placing tools in the row\'s order), the gizmo, snap, duplicate, delete, frame, docks, deselect', () => {
     expect(press('KeyQ')).toEqual({ tool: 'select' });
+    // FC2-4: his order (`FORGE_TOOL_ORDER`, keys.ts:77-80: the switch after the barrier, the flare to Shift+1) and his
+    // Duplicate on Ctrl+D (keys.ts:148; C alone no longer, the walk's and the fly's).
     expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'].map((c) => press(c)))
-      .toEqual(['spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'gate', 'barrier', 'ladder', 'turret', 'flare'].map((tool) => ({ tool })));
-    expect(['Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'].map((c) => press(c, { shift: true })))
-      .toEqual(['hostage', 'zone', 'point', 'view', 'npc'].map((tool) => ({ tool })));
-    expect([press('Digit9', { shift: true }), press('Digit0', { shift: true })], 'past the last tool, none').toEqual([null, null]);
-    expect(['KeyG', 'KeyC', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
-      .toEqual(['snap', 'duplicate', 'delete', 'delete', 'frame', 'docks', 'deselect']);
+      .toEqual(['spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate'].map((tool) => ({ tool })));
+    expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].map((c) => press(c, { shift: true })))
+      .toEqual(['flare', 'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc'].map((tool) => ({ tool })));
+    expect(press('Digit0', { shift: true }), 'past the last tool, none').toBeNull();
+    expect(['KeyG', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
+      .toEqual(['snap', 'delete', 'delete', 'frame', 'docks', 'deselect']);
+    expect([press('KeyD', { ctrl: true }), press('KeyC')]).toEqual(['duplicate', null]);
   });
 
   it('the gizmo\'s modes on W, E and R, as an engine editor\'s (move, turn, scale); T and Y no longer', () => {
@@ -40,10 +43,11 @@ describe('OT.R68: the forge editor\'s keys', () => {
     expect(press('KeyW', {}, { navigating: false })).toBe('translate');
   });
 
-  // OT.R112: the bomb tools moved with the key rework (FORGE_TOOL_ORDER's eleventh to thirteenth: Shift with 1, 2, 3).
-  it('FG-51: Shift+1, Shift+2 and Shift+3 the bomb tools -- the start, the SEALs\' site, the Terrorists\' site', () => {
-    expect(['Digit1', 'Digit2', 'Digit3'].map((c) => press(c, { shift: true }))).toEqual(['bomb', 'siteSeal', 'siteTerrorist'].map((tool) => ({ tool })));
-    for (const c of ['Digit1', 'Digit2', 'Digit3']) expect(press(c, { shift: true }, { playing: true }), c).toBeNull();
+  // OT.R112: the bomb tools moved with the key rework -- in his order (FC2-4: keys.ts:77-80, the switch in the number
+  // keys pushing the flare to Shift+1) FORGE_TOOL_ORDER's twelfth to fourteenth: Shift with 2, 3, 4.
+  it('FG-51: Shift+2, Shift+3 and Shift+4 the bomb tools -- the start, the SEALs\' site, the Terrorists\' site', () => {
+    expect(['Digit2', 'Digit3', 'Digit4'].map((c) => press(c, { shift: true }))).toEqual(['bomb', 'siteSeal', 'siteTerrorist'].map((tool) => ({ tool })));
+    for (const c of ['Digit2', 'Digit3', 'Digit4']) expect(press(c, { shift: true }, { playing: true }), c).toBeNull();
   });
 
   it('the pad-only actions get keys (the merge controller\'s call (c)): [ ] the prop, , . the turn by the step, M the forge menu', () => {
@@ -128,7 +132,7 @@ describe("FP-1b: the help card's tool keys read the real order (FORGE_TOOL_ORDER
     const rows = forgeToolKeyHelp((t) => NAMES[t]!);
     expect(rows[0]).toEqual(['Q', 'Tool: <select>']);
     expect(rows[1]).toEqual(['1 … 0', `Tools: ${FORGE_TOOL_ORDER.slice(0, 10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
-    expect(rows[2]).toEqual(['Shift+1 … Shift+8', `Tools: ${FORGE_TOOL_ORDER.slice(10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
+    expect(rows[2]).toEqual(['Shift+1 … Shift+9', `Tools: ${FORGE_TOOL_ORDER.slice(10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
     expect(rows).toHaveLength(3);
     // Every tool the keys choose is named once; the Place tool, which has no key, is not.
     const told = rows.map(([, v]) => v).join(', ');

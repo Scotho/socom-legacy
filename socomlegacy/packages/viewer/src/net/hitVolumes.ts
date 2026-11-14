@@ -25,10 +25,11 @@ import { rotateByQuat, TILT_HIT_TEST_READING } from '../rootTilt';
  * weapon slots and gear nodes are not in the mesh's skeleton (`BONE_BOX_GEAR_READING`). Each box is the part's `nparams`
  * bbox (78 s3: min xyz, max xyz in the bone's own frame), posed by the bone's matrix: a skeleton's `world[i]`, the body
  * frame -- x right, y up, z behind (the model faces -z), the soles at the origin, `play.ts` `actorToWorld`'s frame --
- * then placed at the body's feet and yaw (`HitBody`). `spinelo`'s bbox is empty (it moves no vertex most; all six
- * zero on the SEAL, as `skel_root`'s and `aimnodes`'): read as it is, a box nothing enters (`entry`), and a level round
- * through the standing trunk between the hips' top and `spinehi`'s bottom meets no BODY box; until the original's own
- * answer is read, that bone's box is the band box `SPINELO_BAND_PLACEHOLDER` names (`boneTable`).
+ * then placed at the body's feet and yaw (`HitBody`). `spinelo`'s bbox is empty on the scuba SEALs (it moves no vertex
+ * most; all six zero, as `skel_root`'s and `aimnodes`'): a box nothing enters (`entry`), so a round through the standing
+ * trunk between the hips' top and `spinehi`'s bottom meets an arm and no BODY box -- as the original does (SPINELO-EMPTY,
+ * research 217 s3.6b, "The shooting legs on the original": the scuba SEAL took the arm alone there, the terrorist the
+ * arm and BODY; the band box that stood in for it, a placeholder, retired 2026-11-12).
  *
  * The body as a whole is culled first by one fixed box on the node above the skeleton's root (`BODY_CULL_BOX`;
  * `FUN_00553ea0` D:L419728-419742, the bones themselves never refused by their own boxes, `FUN_00314100`
@@ -136,52 +137,6 @@ export const BODY_CULL_FRAME_READING = 'feet and yaw, widened to the posed boxes
 /** `spinehi`'s box's maximum x, held (`FUN_0058b960` D:L447588-447590: above 3.01 it is written 0x4040a3d7, 3.01 as a single). */
 export const SPINEHI_MAX_X = Math.fround(3.01);
 
-/**
- * SPINELO-FALLBACK (research 217 s3.6b; a placeholder for an unmeasured outcome -- the main controller's ruling,
- * 2026-11-11, it ships in v0.4.19 as that): the half cross-section of the band box that stands in for an all-zero disc
- * box of a BODY damage bone with a next joint -- on the SEAL, `spinelo` (`FUN_005abbc0` D:L464740-464766: BODY), whose
- * `nparams` bbox is all six zero (research 78 s3.1). PROVEN: the original's live `spinelo` PERSON polygon on the SEAL
- * (`seal_A_scuba`) keeps `node+0x40` with six zero floats (shadow's live node read, PCSX2 r0004, PINE, 2026-11-11: near,
- * and on the shooter's console for a remote SEAL at 59 u and 300 u; `FUN_0031aec0` D:L218167-218192 takes `node+0x40`
- * unless `node+0x5f` bit 6 is set, then `FUN_00262550(*(node+100))`, the parent's); the terrorist's (`al_gman01`) box is
- * real and equals the disc's decode. Read as it is, that box is entered by nothing (`entry`), and the standing idle's
- * trunk then has a band (the hips' top near y 11.9 to `spinehi`'s bottom near 13.1) where a level round meets a forearm,
- * a hand or nothing: the v0.4.19 hit-registration review measured about 6% of v0.4.18's front BODY area and about 15%
- * from the side and behind no longer damaging the trunk. NOT measured, and what this stands in for: whether a rifle round
- * through that standing band takes trunk health on the original (the shooting legs so far had unreliable heights, a
- * written pitch reverted within 250 ms, and settle nothing). It is not a reading that the original strikes the trunk
- * there. Settles with a rifle-round shooting leg on the original (same-team / first person) with recorded aim points,
- * near and far, a scuba SEAL the target and a terrorist the control -- which settles the band and its width both.
- *
- * Its reach beyond v0.4.18 (the review's count, kept as it is: the shape is the controller's to weigh): the square
- * +-2.0 cross-section reaches past v0.4.18's round 2.0 capsule at its corners (about 2.83 from the axis, up to 0.8 u
- * outside), so it adds BODY lines v0.4.18 never had, in every stance -- on the 0.1 grid of level lines on the fixture
- * SEAL's idles, the lines v0.4.18's capsules missed that now record BODY, from 0/45/90/180/270 degrees: stand
- * 29/114/192/29/192, crouch 151/136/179/151/179, prone 43/188/284/59/284; the crouch and the prone change too. Why the
- * square is kept (the main controller, 2f, 2026-11-11): the band stands between two of the original's own boxes whose
- * cross-sections are that size or larger -- `hips` x -2.003..2.001, `spinehi` x -0.695..3.010 and z about +-2.07, by
- * shadow's live read -- so a +-2.0 band continues the boxes around it, corners and all, where a narrower one would leave a
- * waist the original's neighbours do not have; and of the two errors open to a placeholder for an unmeasured outcome, a
- * body hit up to 0.8 u outside v0.4.18's capsule at the corners is the smaller one, beside centre-mass rounds that do
- * nothing.
- *
- * Not "spinelo alone" by construction: the rule would give `spinehi` (next joint `neck`) a band box too on a page body
- * whose parts arrive without boxes (`play.ts` `bodySkeleton` fills six zeros for a part with no bbox). Today the worker
- * sends the boxes, so that does not arise, but nothing here guarantees it.
- *
- * The box (`boneTable`, `bandBox`), each choice v0.4.18's, the simplest that restores what it gave: in the bone's own
- * frame (the frame the disc's boxes are in, so the original's oriented box test runs on it unchanged); along the bone,
- * from its joint to the next joint's bind translation (v0.4.18's spinelo capsule ran joint to joint, `spinelo` ->
- * `spinehi`; the bind's, not the clip's, so the table's box stays one per parts list, as every disc box --
- * `spineloBand.test.ts` logs the standing idle's translation beside the bind's); across, the segment grown by 2.0 each
- * way (v0.4.18's `SPINELO_RADIUS_PLACEHOLDER`, between the hips' half-depth 1.65 and `spinehi`'s 2.1); BODY, the bone's
- * own part and index (`FUN_005abbc0`'s branch, so research 398's rule -- the nearest record first, a BODY record
- * remembers the round -- takes it unchanged). Only an all-zero box of a BODY bone with a next joint is replaced: every
- * other box, `skel_root`'s and `aimnodes`' (no part) included, is the disc's. The reading it replaces is the empty box
- * (`entry`'s), not a width of 0.
- */
-export const SPINELO_BAND_PLACEHOLDER = 2.0;
-
 /** A damage bone: its part, and (the bot aim point's fit, `torsoPoint`) the next joint of its chain. */
 interface DamageBone { part: number; bone: string; to?: string }
 /** `FUN_005abbc0`'s branch by bone (D:L464740-464766), the names behind its offsets read from the ELF (research 398 s3). */
@@ -202,33 +157,15 @@ export const DAMAGE_BONES: readonly DamageBone[] = [
 ];
 const PART_OF: ReadonlyMap<string, number> = new Map(DAMAGE_BONES.map((d) => [d.bone, d.part]));
 
-/**
- * SPINELO-FALLBACK (`SPINELO_BAND_PLACEHOLDER`): writes into `b` the band box of the BODY bone `p` -- in its own frame,
- * along the largest axis of its next joint's (`DAMAGE_BONES`' `to`, a child of `p`) bind translation from 0 to that
- * translation, across the other two the segment's span grown by `SPINELO_BAND_PLACEHOLDER` each way. A bone without a
- * next joint among its children is left as it is.
- */
-function bandBox(parts: readonly SkeletonPart[], p: SkeletonPart, b: Float32Array): void {
-  const to = DAMAGE_BONES.find((d) => d.bone === p.name)?.to;
-  const next = to ? parts.find((q) => q.name === to && q.parent === p.index) : undefined;
-  if (!next) return;
-  const t = [next.bindLocal[12]!, next.bindLocal[13]!, next.bindLocal[14]!];
-  const k = t.reduce((m, x, i) => (Math.abs(x) > Math.abs(t[m]!) ? i : m), 0);
-  for (let i = 0; i < 3; i++) {
-    const r = i === k ? 0 : SPINELO_BAND_PLACEHOLDER;
-    b[i] = Math.min(0, t[i]!) - r;
-    b[3 + i] = Math.max(0, t[i]!) + r;
-  }
-}
-
 /** A skeleton's boxed bones (shared by every instance on one parts list): their part indices, parts and boxes. */
 export interface BoneTable { readonly index: Int16Array; readonly part: Int8Array; readonly box: readonly Float32Array[] }
 const tables = new WeakMap<readonly SkeletonPart[], BoneTable>();
 
 /**
  * The boxed bones of a parts list (`FUN_0058b960`'s list, research 78 s3.1): `skel_root` and every part under it, in the
- * parts' order (the pre-order); each its bbox, `spinehi`'s maximum x held to `SPINEHI_MAX_X`, an all-zero BODY bone's
- * the band box (`SPINELO_BAND_PLACEHOLDER`, `bandBox`). A parts list without a `skel_root` boxes every part.
+ * parts' order (the pre-order); each its bbox, `spinehi`'s maximum x held to `SPINEHI_MAX_X`. An all-zero bbox stays
+ * all zero, a box nothing enters (`entry`), whatever its bone's part (SPINELO-EMPTY, research 217 s3.6b). A parts list
+ * without a `skel_root` boxes every part.
  */
 export function boneTable(parts: readonly SkeletonPart[]): BoneTable {
   let t = tables.get(parts);
@@ -242,7 +179,6 @@ export function boneTable(parts: readonly SkeletonPart[]): BoneTable {
   const box = boxed.map((p) => {
     const b = Float32Array.from(p.bbox);
     if (p.name === 'spinehi' && b[3]! > SPINEHI_MAX_X) b[3] = SPINEHI_MAX_X;
-    if (b.every((x) => x === 0) && PART_OF.get(p.name) === PART.BODY) bandBox(parts, p, b);
     return b;
   });
   t = {
@@ -405,9 +341,46 @@ function aimMiddle(bbox: Float32Array, axis: V3 | null): V3 {
   return [o[0] + axis[0] * t, o[1] + axis[1] * t, o[2] + axis[2] * t];
 }
 
-/** The bot aim point of `skeleton` as posed now (`torsoPoint`): the mean of its BODY bones' `aimMiddle`s, body frame. */
+/** Whether a bone box is `entry`'s empty one (min and max equal on every axis): a box nothing enters. */
+const emptyBox = (b: ArrayLike<number>): boolean => b[0] === b[3] && b[1] === b[4] && b[2] === b[5];
+
+/**
+ * The body-frame point `p` in the frame of the bone posed by `w` (its 3x3 inverted by its adjugate, as `rayBoneBox`), or
+ * null for a singular matrix.
+ */
+function boneLocal(w: ArrayLike<number>, p: readonly number[]): V3 | null {
+  const bx = p[0]! - w[12]!, by = p[1]! - w[13]!, bz = p[2]! - w[14]!;
+  const a = w[0]!, bb = w[4]!, cc = w[8]!, dd = w[1]!, e = w[5]!, f = w[9]!, g = w[2]!, h = w[6]!, i = w[10]!;
+  const A = e * i - f * h, B = -(dd * i - f * g), C = dd * h - e * g;
+  const det = a * A + bb * B + cc * C;
+  if (det === 0) return null;
+  const D = -(bb * i - cc * h), E = a * i - cc * g, F = -(a * h - bb * g);
+  const G = bb * f - cc * e, H = -(a * f - cc * dd), I = a * e - bb * dd;
+  const k = 1 / det;
+  return [(A * bx + D * by + G * bz) * k, (B * bx + E * by + H * bz) * k, (C * bx + F * by + I * bz) * k];
+}
+
+/**
+ * The bot aim point of `skeleton` as posed now (`torsoPoint`; `BOT_AIM_ADAPTATION`, a browser adaptation with no
+ * original), body frame: the mean of its BODY bones' `aimMiddle`s, where that mean lies in a BODY bone's hit box
+ * (`boneTable`'s box posed by the bone's matrix, faces included). SCUBA-BAND: where it lies in none, the mean again
+ * without the bones whose hit box is empty (`entry`: nothing enters it), and where that too lies in none, the middle of
+ * the BODY box nearest it (the least body-frame distance from the mean to the box; a tie keeps the first in
+ * `DAMAGE_BONES`' order). Why: MP2's scuba SEALs (`seal_A/D/E_scuba`) carry an all-zero `spinelo` box -- as on disc,
+ * and in the original running (shadow's live node read, 2026-11-11: the scuba SEAL's spinelo box is zero, as on disc;
+ * research 398) -- so the plain mean fell in the band between `hips`' top and `spinehi`'s bottom that no trunk box
+ * covers, and a bot's level round there met an arm or nothing of the body (`seal_C_scuba`'s thin `spinelo` likewise).
+ * A model whose mean lies in a BODY box (every terrorist, MP6's desert SEALs) aims where it aimed, bit for bit. Nothing
+ * the game does changes: the hit volumes are untouched; only where a bot points.
+ */
 function torsoOf(skeleton: Skeleton): V3 {
-  let x = 0, y = 0, z = 0, n = 0;
+  const table = boneTable(skeleton.parts);
+  const boxOf = (i: number): Float32Array | null => {
+    for (let n = 0; n < table.index.length; n++) if (table.index[n] === i) return table.box[n]!;
+    return null;
+  };
+  const body: { i: number; box: Float32Array }[] = [];
+  let x = 0, y = 0, z = 0, n = 0, fx = 0, fy = 0, fz = 0, fn = 0;
   for (const d of DAMAGE_BONES) {
     if (d.part !== PART.BODY) continue;
     const i = skeleton.indexOf(d.bone);
@@ -417,8 +390,32 @@ function torsoOf(skeleton: Skeleton): V3 {
     const m = aimMiddle(skeleton.parts[i]!.bbox, t ? [t[12]!, t[13]!, t[14]!] : null);
     const p = transformPoint(skeleton.world[i]!, ...m);
     x += p[0]; y += p[1]; z += p[2]; n++;
+    const box = boxOf(i);
+    if (box && emptyBox(box)) continue;
+    if (box) body.push({ i, box });
+    fx += p[0]; fy += p[1]; fz += p[2]; fn++;
   }
-  return n ? [x / n, y / n, z / n] : [0, STANDING_HEIGHT * 0.65, 0];
+  if (!n) return [0, STANDING_HEIGHT * 0.65, 0];
+  const mean: V3 = [x / n, y / n, z / n];
+  /** The distance from `p` to the BODY box `k` (0 inside), and the box's middle, body frame. */
+  const reach = (k: { i: number; box: Float32Array }, p: V3): { d: number; mid: V3 } => {
+    const w = skeleton.world[k.i]!, box = k.box, l = boneLocal(w, p);
+    const mid = transformPoint(w, (box[0]! + box[3]!) / 2, (box[1]! + box[4]!) / 2, (box[2]! + box[5]!) / 2);
+    if (!l) return { d: Infinity, mid };
+    const c = [0, 1, 2].map((a) => Math.min(box[3 + a]!, Math.max(box[a]!, l[a]!)));
+    if (c[0] === l[0] && c[1] === l[1] && c[2] === l[2]) return { d: 0, mid };
+    const q = transformPoint(w, c[0]!, c[1]!, c[2]!);
+    return { d: Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]), mid };
+  };
+  if (body.some((k) => reach(k, mean).d === 0)) return mean;
+  const kept: V3 = fn === n ? mean : fn ? [fx / fn, fy / fn, fz / fn] : mean;
+  let best: V3 | null = null, bestD = Infinity;
+  for (const k of body) {
+    const r = reach(k, kept);
+    if (r.d === 0) return kept;
+    if (r.d < bestD) { bestD = r.d; best = r.mid; }
+  }
+  return best ?? mean;
 }
 
 /** A bone's bbox middle, body frame, posed at `clip`'s key `frame`: where a part's mesh is (the test's hand). */
@@ -640,9 +637,10 @@ export function rayCapsule(o: V3, d: V3, reach: number, c: Capsule): number | nu
  * face ends the test: its distance along the line (in `d`'s units), else -1. A start inside the box tries no face and
  * enters nothing; a line parallel to a face never crosses it; a box whose minimum lies over its maximum is entered by
  * nothing. An empty bbox -- all six zero, as `skel_root`'s and `aimnodes`' on the SEAL (the fixture disc's MP2
- * `seal_A_scuba`; research 78 s3.1: the parts that move no vertex most), and `spinelo`'s on the disc (the table gives it
- * the band box, `SPINELO_BAND_PLACEHOLDER`) -- is a box nothing enters: the original's rectangle test would pass only a
- * line through its one point exactly (measure zero), which the port does not keep.
+ * `seal_A_scuba`; research 78 s3.1: the parts that move no vertex most), and `spinelo`'s on the scuba SEALs -- is a box
+ * nothing enters: the original's rectangle test would pass only a line through its one point exactly (measure zero),
+ * which the port does not keep; on the original a round through the scuba SEAL's empty `spinelo` takes no BODY (research
+ * 217 s3.6b, "The shooting legs on the original").
  * Allocates nothing.
  */
 function entry(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, b: ArrayLike<number>, reach: number): number {

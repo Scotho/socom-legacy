@@ -161,6 +161,8 @@ describe('the round-start banner online (FUN_001fb420 L57633-57648)', () => {
     bodies.push({ id: 2, flags: 64, feet: [100, 0, 0], yaw: 0 });
     globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));    // the ghost cycles (deadCycleRuns)
     net.frame(0.016, {} as never, false);
+    // PV-6b: this page's deps draw no player's view (no `spectatePov`), so none is offered and the HUD has no line for it
+    // (was `pov: 'offered'`, PV-6h's, before the page knew whether a view could be drawn; `netPagePov.test.ts` holds both).
     expect(spectatorHudView(net, walk)).toEqual({ path: 'teammate', followed: { name: 'Mate', health: null }, stats: null, help: deadHelpLines({ ghost: true, watching: true, device: 'pad' }) });
     server({ type: 'roundStart', round: 2, seconds: 360, wins: { seal: 0, terrorist: 1 }, rounds: 11, epoch: 2, startTick: 0 });
     expect(spectatorHudView(net, walk)).toBeNull();

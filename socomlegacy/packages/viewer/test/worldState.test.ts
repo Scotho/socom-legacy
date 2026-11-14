@@ -268,6 +268,21 @@ describe('XR-04: the program effects the world hands on and the ones it ignores'
     expect(run(false, true)).toEqual([['round', true, SITE], ['blast', true, SITE]]);
   });
 
+  it("a Forge script's MESSAGE (`forge`) is posted to the message hook; a disc program's raw-text one is not, as before the import", () => {
+    // The disc decoder gives a raw-text MESSAGE (locale 0) a text and no `locId` (`@s2u/scene` `effects.ts`, opcode 55), the
+    // same shape as a Forge switch's own; only the Forge's marker (`forge`) tells them apart. On main no MESSAGE reached
+    // the page's window at all; the Forge's post is a switch script's window line (the owner, 2026-11-08; an adaptation).
+    const disc: EffectOp = { op: 'message', text: 'DISC LINE', locId: null, scale: 1 };
+    const forge: EffectOp = { op: 'message', text: 'FORGE LINE', locId: null, scale: 1, forge: true };
+    const said: string[] = [];
+    const ground = hull();
+    const world = new WorldState(metaWith([disc, forge]), ground, groundGrid(ground), { message: (t) => said.push(t) });
+    world.applyInitial();
+    world.skipEffects = false;
+    expect(world.executeAction('v_site', false, true)).toBe(true);
+    expect(said).toEqual(['FORGE LINE']);
+  });
+
   it("CALL_ANIMATION's caller node (flag 4, +9) is the callee's NODE_CALLER; without it the caller's own is passed on (research 386 §3.3)", () => {
     // `FUN_0025d5c0` D:L107605-107613: a type-3 context entry of the node at +9; `FUN_0026f4e0` answers -6 from it
     // (D:L118164-118168; research 149 R149.2). Blizzard's `outhouse1` -> `toilet_flypart1` on part1..15 is the shape.

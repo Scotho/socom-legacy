@@ -2,7 +2,7 @@ import { capturePointer, releasePointer } from './pointer';
 import { requestLock } from './pointerLock';
 import { MathUtils, OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
 import { GAME_FRAME_DT, GAME_FRAME_MAX_STEPS } from '@s2u/scene';
-import { padRaw, strongest } from './gamepad';
+import { PAD_DEAD_ZONE, padRaw, strongest } from './gamepad';
 import { moveStick } from './moveStick';
 import {
   LookLaw, maxPitchRateOf, maxYawRateOf, nudgePitch, PITCH_HARD, ScreenShake, SCREEN, stepPitch, viewOffset, ViewBob,
@@ -262,6 +262,8 @@ export class FlyCamera {
   private pitch = 0;
   /** The touch stick's axes, -1..1: x strafes right, y moves along the look direction. */
   private stickX = 0;
+  private stickZone = PAD_DEAD_ZONE;
+  private lookZone = PAD_DEAD_ZONE;
   private stickY = 0;
   /** The touch up/down buttons: 1, 0 or -1, the same lane space and shift drive. */
   private lift = 0;
@@ -688,7 +690,8 @@ export class FlyCamera {
   }
 
   /** Forge editor browser adaptation: pixel-delta look without resetting flight glide or FOV.
-   * Only its opt-in input helper calls this; walking and suspended cameras retain their input owner.
+   * Its opt-in input helper calls this, and (RVK-B, a browser adaptation) the replay world's read of the viewer's mouse
+   * drag (`./modern/replays/worldSteer`); walking and suspended cameras retain their input owner.
    */
   lookBy(dx: number, dy: number): void {
     if (this.suspended || this.walking) return;
@@ -833,7 +836,7 @@ export class FlyCamera {
    * camera's: on the ground it is never on. Space and shift have no meaning on the ground.
    */
   groundWish(): GroundWish {
-    const [sx, sy] = moveStick(...padRaw(this.stickX, this.stickY), this.law.options().stick.deadZone);
+    const [sx, sy] = moveStick(...padRaw(this.stickX, this.stickY, this.stickZone), this.law.options().stick.deadZone);
     const keyForward = (this.keys.has('keyw') ? 1 : 0) - (this.keys.has('keys') ? 1 : 0);
     const keyRight = (this.keys.has('keyd') ? 1 : 0) - (this.keys.has('keya') ? 1 : 0);
     return { forward: strongest(keyForward, sy) + 0, right: strongest(keyRight, sx) + 0, boost: false };
@@ -956,9 +959,10 @@ export class FlyCamera {
    * The touch stick, as an axis pair rather than as keys. Nothing is clamped here -- `./touch` has
    * already put the vector inside the unit disc, and `update` clamps anyway.
    */
-  setStick(x: number, y: number): void {
+  setStick(x: number, y: number, zone: number = PAD_DEAD_ZONE): void {
     this.stickX = this.suspended ? 0 : x;
     this.stickY = this.suspended ? 0 : y;
+    this.stickZone = zone;   // PZG: the zone the pair was shaped with (`./gamepad` `Input.moveZone`), undone by `padRaw`
   }
 
   /** The touch up/down buttons: 1 up, -1 down, 0 released. */
@@ -1000,19 +1004,20 @@ export class FlyCamera {
    * A pad's right stick (`./gamepad`, W2.7): x right, y up, in the unit disc. It turns the view at the arrow keys'
    * `ARROW_LOOK` scaled by the push, in walk mode as in fly, and moves nothing.
    */
-  setLook(x: number, y: number): void {
+  setLook(x: number, y: number, zone: number = PAD_DEAD_ZONE): void {
     this.lookX = this.suspended ? 0 : x;
     this.lookY = this.suspended ? 0 : y;
+    this.lookZone = zone;    // PZG, as `setStick`
   }
 
   /**
    * Walking, one frame of the game's look: the right stick -- the push as the pad itself gave it, `./gamepad`'s radial
-   * 0.15 dead zone and rescale undone so the game's own 0.3 per axis is the only one -- or the arrow keys, a full
+   * dead zone (the pair's own, PZG) and rescale undone so the game's own 0.3 per axis is the only one -- or the arrow keys, a full
    * push, the larger on each axis; the look law's rates; the pitch stepped (`stepPitch`); then the screen shake and
    * the view bob, as a view offset.
    */
   private walkLook(dt: number, arrowTurn: number, arrowTilt: number): void {
-    const [padX, padY] = padRaw(this.lookX, this.lookY);
+    const [padX, padY] = padRaw(this.lookX, this.lookY, this.lookZone);
     const x = Math.abs(padX) > Math.abs(arrowTurn) ? padX : -arrowTurn;
     const y = Math.abs(padY) > Math.abs(arrowTilt) ? padY : arrowTilt;
     // MISSION R8 (`LOOK_MAX_DT`'s comment): the pad read and the ramp grown every drawn frame at the ramp's per-second
@@ -1056,6 +1061,18 @@ export class FlyCamera {
     if (!this.walking) return;
     this.kitOffset = [x, y];
     this.setScreenOffset(this.lookOffset[0] + x, this.lookOffset[1] + y);
+  }
+
+  /**
+   * PV-5b (the player's view; product track, a browser adaptation with no original -- research 402 s2): the watched
+   * player's view offset (`./povCamera` `PovPose.offset`, `./accuracy` `scopeViewOffset` of the carried view state and
+   * sway), PS2 pixels as `setKitOffset`'s, on a camera that is NOT walking -- the watcher's, placed by the rig. (0, 0)
+   * clears it, which the page does on the first frame the view is not drawn. Walking, nothing: the kit's and the look's
+   * offsets are the walk's alone, and the walk's look writes the whole offset again on each of its frames.
+   */
+  setSubjectOffset(x: number, y: number): void {
+    if (this.walking) return;
+    this.setScreenOffset(x, y);
   }
 
   /** The PS2 screen offset (`./look`, `viewOffset`) on the camera, or none. */

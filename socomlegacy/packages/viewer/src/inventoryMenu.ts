@@ -639,6 +639,8 @@ export class InventoryMenu {
     // Triangle's tap read none (`./matchLanes`); the stance stays blocked under the menu (D:L453331).
     let took = false;
     if (wasOpen || this.s.open || events.some((e) => e.kind === 'opened')) {
+      // COD Modern's reload/use is one press: selecting an item consumes both until release.
+      if (after.pairedReload && after.action && after.reload) this.held.add('reload');
       for (const lane of INVENTORY_LANES) {
         if (!after[lane]) continue;
         if (!this.held.has(lane) && before[lane] && STANCE_BLOCK_LANES.includes(lane)) took = true;

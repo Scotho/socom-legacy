@@ -88,6 +88,34 @@ export interface SpectatorHost {
   magnify?(magnification: number): void;
   /** The review's B1: INVERT PITCH's sign, `DAT_003df198` (+1 off, -1 on; SCENIC_LOOK), read each scenic frame. Absent: 1. */
   pitchSign?(): number;
+  /**
+   * PV-6a, POV_VIEW_ADAPTATION (a browser adaptation, no original): draw the player's view of `body` this frame -- the
+   * followed body's (`watched` false, a spectator's follow) or the benched watcher's teammate (`watched` true). Return
+   * false when it cannot (the subject dead, absent, withheld, in a view the host does not draw): the frame then runs
+   * today's follow (`follow`, or `spectate` with `followPose`), the choice kept (PV.R6). Absent: today's follow always.
+   */
+  pov?(body: SpectatorBody, dt: number, watched: boolean): boolean;
+  /**
+   * PV-6b (POV_VIEW_ADAPTATION): the rig kept warm while the follow shows -- called on every frame a body is followed or
+   * watched and the player's view was not drawn (the sub-mode off, or a fallback frame), after today's follow has run, with
+   * the arguments `pov` would have had; never in free or scenic, never where the view is not offered (`povCarried`).
+   * Absent: nothing.
+   */
+  povWarm?(body: SpectatorBody, dt: number, watched: boolean): void;
+  /**
+   * PV-7b review F4 (POV_VIEW_ADAPTATION): the view given back -- nothing when none was drawn. Called on a follow or watch
+   * frame whose body is in neither the room's list nor the retired queue (the no-body branch of `follow`/`followWatched`),
+   * where neither the draw nor the follow runs; the camera itself is left where it stands, as today
+   * (FOLLOW_AFTER_DELETE_PLACEHOLDER). Absent: nothing.
+   */
+  povRelease?(): void;
+  /**
+   * PV-6b (POV_VIEW_ADAPTATION, PV.R6): whether the page offers the view at all -- false where its client does not carry
+   * it (a replay recorded before protocol 16, `ReplayClient.viewCarried`) or no host draws it. Read by `povAvailable`, the
+   * one place that decides: where false, Cross's hold switches nothing (its release today's), `setPov(true)` and the
+   * developers' key do nothing, and `SpectatorView.pov` reads undefined (the HUD's line absent). Absent: offered.
+   */
+  povCarried?(): boolean;
 }
 
 /** The view's eye for the Triangle jump: the camera's position, its unit forward, and its far distance. */
@@ -105,6 +133,32 @@ export interface SpectatorKey {
  * (research 179 §9.6); the page's keys on `keyup`. Not measured running.
  */
 export const SPECTATOR_RELEASE_READING = 'release' as const;
+
+/**
+ * POV_VIEW_ADAPTATION (PV-6a; the player's-view lane, plan PV.R3, PV.R5, PV.R6): the player's view -- a watcher (a
+ * spectator in follow, a benched dead player watching a teammate, a replay's viewer) sees the followed body's own
+ * picture instead of the follow camera behind it. A browser adaptation with no original: the original's spectator has
+ * free, follow and scenic only, and its X acts at the release, for a spectator only (research 248 sections 1-2); a
+ * benched dead player's X does nothing there. Here it is a sub-mode of the follow (`SpectatorView.pov`), not a fourth
+ * mode; the host draws it (`SpectatorHost.pov`) or falls back to today's follow without leaving the choice (PV.R6). It
+ * changes nothing a watcher who never chooses it sees: a short press of X, the follow, the free and scenic cameras.
+ */
+export const POV_VIEW_ADAPTATION = "the followed body's own view, a sub-mode of the follow" as const;
+
+/**
+ * POV_HOLD_S_ADAPTATION (PV-6a, plan PV.R5; the owner's request of 2026-11-11, H443 for him to overturn): the seconds
+ * Cross is held, on the pad, to switch between the follow and the player's view (POV_VIEW_ADAPTATION). A browser
+ * adaptation with no original: the original reads X at its release only (research 248 section 2,
+ * SPECTATOR_RELEASE_READING). The seconds are the frames' real ones, counted after the pad sample that saw the press;
+ * the switch happens once a hold, at the first pad sample past the threshold that still shows Cross down. In the
+ * page's order -- `frame` then `pad` (`main.ts`:2176 then :2218, `matchMount.ts`:1367 then :1411) -- the hold's seconds
+ * are the time between pad samples, so a short press across one long frame stays a release. A caller that samples the
+ * pad before `frame` would credit a press with the frame it began in (a press at the end of a long stall would switch at
+ * the next sample); no page does. The release that ends a switching hold is swallowed, every other release acts as
+ * today. In the free and scenic cameras, and for a benched player on his own
+ * body, the hold does nothing.
+ */
+export const POV_HOLD_S_ADAPTATION = 0.4;
 
 /**
  * SPECTATOR_CYCLE_ORDER_READING: next / previous walk the actor list (`FUN_00546fa0` steps its slot index down,
@@ -224,13 +278,17 @@ export const SPECTATOR_TURNOVER_POSE_PLACEHOLDER = 'the fly camera where it stan
 export const SPECTATOR_ENTRY_POSE_PLACEHOLDER = 'the page camera as it stands' as const;
 
 /**
- * The follow camera: behind the followed body and over it at the game's third-person distances at rest, the spawn
- * pitch `init_aim_pitch` (`./playerCamera`; research 83, research 88's Frostfire row: standing 25.709 over, 24.906
- * behind at -9.167 degrees), looking where it looks.
+ * The non-rendering hosts' follow pose (`followPose`; research 248 F4, research 382 s2): the rendering follow's camera
+ * (`./matchNet` `spectateFollow`, `FUN_0029a950`'s rig) for a standing body on open ground, at the watched look's level
+ * pitch (`./matchNet` `WATCHED_LOOK_PITCH_READING` 0; research 382 s7): 28.75 behind (`./cameraRig` `CAM_BACK` 28 plus
+ * the pass's `CAM_MARGIN` 0.75) and 21.484 over the feet (`lookHeight` of the standing root 11.484), looking level
+ * where the body faces. Standing only: the stance's root, the hull and the ease are the rendering follow's alone. The
+ * literals keep this module's static imports light (the e2e specs load it in Node); `matchNet.test.ts` (LATER 1017)
+ * holds them to the rig. (Was 24.906 / 25.709 / -9.167, the player's own spawn rest at `init_aim_pitch`.)
  */
-export const FOLLOW_BEHIND = 24.906;
-export const FOLLOW_OVER = 25.709;
-export const FOLLOW_PITCH = -9.167;
+export const FOLLOW_BEHIND = 28.75;
+export const FOLLOW_OVER = 21.484;
+export const FOLLOW_PITCH = 0;
 
 /*
  * AD-8 (web sprint 40, the reconciliation's C83; research 314 §5.4): the followed body's death, departure and deletion.
@@ -365,10 +423,21 @@ type SpectatorAction = 'next' | 'previous' | 'scenicNext' | 'scenicPrevious' | '
 /** The pad's slots (`./gamepad` `PAD_LAYOUT`): d-pad Right / Left the peek's, Up / Down the zoom's, Cross the action, Triangle the stance. */
 const PAD_SLOTS = { next: 'leanRight', previous: 'leanLeft', scenicNext: 'zoom', scenicPrevious: 'zoomOut', toggle: 'action', jump: 'stance' } as const satisfies Record<SpectatorAction, PadFlag>;
 
-/** The keys (a development build's): the arrows the d-pad, X (V its alias) Cross, C Triangle, Space the next target (the owner). */
-const SPECTATOR_KEYS: Readonly<Record<string, SpectatorAction>> = {
+/**
+ * The keys (a development build's): the arrows the d-pad, X (V its alias) Cross, C Triangle, Space the next target (the
+ * owner); U the player's view's switch (PV-6a, POV_VIEW_ADAPTATION: the consumed hold's toggle; U is no other key of the
+ * page's -- P is the menu keyboard's START, `./menuInput`).
+ */
+const SPECTATOR_KEYS: Readonly<Record<string, SpectatorAction | 'pov'>> = {
   ArrowRight: 'next', Space: 'next', ArrowLeft: 'previous', ArrowUp: 'scenicNext', ArrowDown: 'scenicPrevious', KeyX: 'toggle', KeyV: 'toggle', KeyC: 'jump',
+  KeyU: 'pov',
 };
+
+/**
+ * PV-6a: Cross's hold (POV_HOLD_S_ADAPTATION): none down; running (its seconds counted); consumed (it switched the view:
+ * its release is swallowed); void (blocked, `voidHold`, or reached where it does nothing: no switch, its release today's).
+ */
+type PovHold = 'idle' | 'running' | 'consumed' | 'void';
 
 /**
  * X, `FUN_00295260` D:L139480-139530, on the mode and the remembered mode: from scenic, remember scenic and go free
@@ -508,6 +577,12 @@ export class SpectatorView {
   private seen = new Map<number, SpectatorBody>();
   /** AD-8: the retired leavers in their removal queue's order, the first deleted first (FOLLOW_DELETE_QUEUE_PLACEHOLDER). */
   private retiredNow: SpectatorBody[] = [];
+  /** PV-6a (POV_VIEW_ADAPTATION): the player's view chosen; and whether the host drew it this frame. */
+  private povNow = false;
+  private povShownNow = false;
+  /** PV-6a: Cross's hold and its seconds (POV_HOLD_S_ADAPTATION). */
+  private holdNow: PovHold = 'idle';
+  private holdS = 0;
   constructor(private readonly host: SpectatorHost) {}
 
   /** The spectator camera's mode. */
@@ -526,6 +601,89 @@ export class SpectatorView {
   get watching(): number | null { return this.watchingNow; }
   /** AD-8: the leavers kept retired until their deletion, in the queue's order (FOLLOW_RETIRED_BODY_PLACEHOLDER). */
   get retired(): readonly SpectatorBody[] { return this.retiredNow; }
+  /**
+   * PV-6a (POV_VIEW_ADAPTATION): the player's view chosen. Cleared by `reset` only (the controller's ruling, 2026-11-11):
+   * kept through the Left/Right cycle and follow <-> free, when a benched watcher cycles back to his own body (it shows
+   * again on the next teammate), when a ghost is benched again at a round start without a reset, and across a replay's
+   * seek (which runs no reset, REPLAY-SEEK-KEEP). PV-6b: undefined where the page does not offer the view
+   * (`SpectatorHost.povCarried` false), and, the sub-mode off, while the followed or watched body is not one it can be
+   * entered over (`viewable`: gone from the list or dead) -- the HUD then draws no line for it (`./hud`
+   * `spectatorHudView`). On, it reads true over such a body too (the review's F1, (b)): the frames fall back, 'waiting'.
+   */
+  get pov(): boolean | undefined {
+    if (!this.offered()) return undefined;
+    if (this.povNow) return true;
+    const id = this.boundId();
+    return id !== null && !this.viewable(id) ? undefined : false;
+  }
+  /** PV-6a: true only on a frame the host drew the player's view (`SpectatorHost.pov` returned true): the HUD's and the strip's. */
+  get povShown(): boolean { return this.povShownNow; }
+
+  /**
+   * PV-6a (POV_VIEW_ADAPTATION): choose the player's view or leave it -- the replay strip's and the developers' key's.
+   * On only while a body is followed (`povAvailable`); off always.
+   */
+  setPov(on: boolean): void {
+    if (!on) { this.povNow = false; this.povShownNow = false; }   // the review's F3: not shown from the moment it ends
+    else if (this.povAvailable()) this.povNow = true;
+  }
+
+  /**
+   * PV-6a: void Cross's running hold until its release (POV_HOLD_S_ADAPTATION): no switch from that press; its release
+   * acts as today's. For a page's overlay the pad's `blocked` does not cover (the scoreboard): call it after `pad`.
+   */
+  voidHold(): void {
+    if (this.holdNow === 'running') this.holdNow = 'void';
+  }
+
+  /** PV-6b: whether the page offers the view at all (`SpectatorHost.povCarried`; absent, offered). */
+  private offered(): boolean {
+    return this.host.povCarried?.() !== false;
+  }
+
+  /**
+   * PV-6a: the body the view is bound to -- a spectator's followed target in follow, or a benched watcher's watched
+   * teammate (a ghost's too: benched) -- or null (free, scenic, the own body).
+   */
+  private boundId(): number | null {
+    if (this.host.seat().role === 'spectator' && this.modeNow === 'follow' && this.targetNow !== null) return this.targetNow;
+    return this.benchedNow ? this.watchingNow : null;
+  }
+
+  /**
+   * PV-6b (the review's F1, (a)): a body the view can be entered over -- in the page's list (`host.bodies()`) with its
+   * Alive flag (`BodyFlag.Alive`, `alive`): a leaver's retired copy (AD-8) and a dead teammate kept watched (LATER 69) are not.
+   */
+  private viewable(id: number): boolean {
+    return this.host.bodies().some((b) => b.id === id && alive(b));
+  }
+
+  /**
+   * PV-6a: whether the view can be entered -- PV-6b: the page offers it (`offered`, first), a body is bound (`boundId`),
+   * and that body is viewable (the review's F1).
+   */
+  private povAvailable(): boolean {
+    if (!this.offered()) return false;
+    const id = this.boundId();
+    return id !== null && this.viewable(id);
+  }
+
+  /**
+   * PV-6a: the switch (the consumed hold's, the developers' key's). PV-6b (the review's F1, (b)): off wherever a body is
+   * bound, whether or not it is still there or alive (as `setPov(false)`: the watcher is never held in the mode); on only
+   * where `povAvailable`. False where neither (free, scenic, the own body: the hold does nothing there, PV-6a).
+   */
+  private togglePov(): boolean {
+    if (this.povNow && this.boundId() !== null) {
+      this.povNow = false;
+      this.povShownNow = false;                          // the review's F3: not shown from the moment it ends
+      return true;
+    }
+    if (!this.povAvailable()) return false;
+    this.povNow = !this.povNow;
+    if (!this.povNow) this.povShownNow = false;          // the review's F3: not shown from the moment it ends
+    return true;
+  }
 
   /** Benched: classic's dead, or a ghost, until the next round (`FUN_005979a0` L454484-454489). */
   bench(): void {
@@ -552,6 +710,8 @@ export class SpectatorView {
     this.host.resetFollow?.();
     this.benchedNow = false;
     this.watchingNow = null;
+    this.povNow = false;                                 // PV-6a: the watch ended, the player's view with it (PV.R5; `pov`'s only clear)
+    this.povShownNow = false;
     if (this.host.seat().role !== 'spectator') {
       // W6, an adaptation's guard (the gameplay seat's condition): the page has one camera for the walker and the
       // spectator, so a seat in play (a spawn, a promotion) is never left magnified.
@@ -575,7 +735,7 @@ export class SpectatorView {
     if (e.type !== (SPECTATOR_RELEASE_READING === 'release' ? 'keyup' : 'keydown') || e.repeat || blocked) return false;
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     const action = SPECTATOR_KEYS[e.code];
-    if (action === undefined || !this.act(action)) return false;
+    if (action === undefined || !(action === 'pov' ? this.togglePov() : this.act(action))) return false;
     e.preventDefault();
     return true;
   }
@@ -589,10 +749,25 @@ export class SpectatorView {
     this.last = { ...input };
     // W6: the sticks the scenic look and zoom read (SCENIC_LOOK_AXES_READING); none while the menu holds the pad (D:L140400).
     this.sticks = blocked ? { zoom: 0, lookX: 0, lookY: 0 } : { zoom: input.moveY, lookX: input.lookX, lookY: input.lookY };
-    if (blocked) return;
+    const crossDown = input[PAD_SLOTS.toggle];
+    if (blocked) {
+      // PV-6a: a blocked frame voids a running hold until Cross is released (POV_HOLD_S_ADAPTATION); a consumed one stays so.
+      if (!crossDown) this.holdNow = 'idle';
+      else if (this.holdNow !== 'consumed') this.holdNow = 'void';
+      return;
+    }
     const edges = new Set(SPECTATOR_RELEASE_READING === 'release' ? releasedSince(before, input) : pressedSince(before, input));
+    // PV-6a: the release that ends a consumed hold is swallowed; every other release acts as today.
+    const swallow = this.holdNow === 'consumed';
+    if (!crossDown) this.holdNow = 'idle';
+    else if (this.holdNow === 'idle') { this.holdNow = 'running'; this.holdS = 0; }
+    // PV-6a (the review's F1): the threshold is decided here, on a sample that still shows Cross down -- never in the
+    // frame, whose unclamped real seconds may pass it before this sample shows the button already up (the page calls
+    // `frame` before `pad`, main.ts:2176/:2218, matchMount.ts:1367/:1411): in that order a short press stays today's
+    // release (POV_HOLD_S_ADAPTATION: a pad-first caller would credit a press with the frame it began in).
+    else if (this.holdNow === 'running' && this.holdS >= POV_HOLD_S_ADAPTATION) this.holdNow = this.togglePov() ? 'consumed' : 'void';
     if (edges.has(PAD_SLOTS.jump)) this.act('jump');
-    if (edges.has(PAD_SLOTS.toggle)) this.act('toggle');
+    if (edges.has(PAD_SLOTS.toggle)) { if (!swallow) this.act('toggle'); }
     else if (edges.has(PAD_SLOTS.scenicNext)) this.act('scenicNext');
     else if (edges.has(PAD_SLOTS.scenicPrevious)) this.act('scenicPrevious');
     if (edges.has(PAD_SLOTS.next)) this.act('next');
@@ -605,6 +780,9 @@ export class SpectatorView {
    */
   frame(eye?: SpectatorEye, dt = 0): void {
     if (eye) this.eye = eye;
+    this.povShownNow = false;
+    if (this.povNow && !this.offered()) this.povNow = false;   // PV-6b: a client that stops carrying the view ends it
+    this.holdStep(dt);
     if (this.magTold !== this.magNow) this.setMagnification(this.magNow);   // the first frame: the page told 1
     if (this.host.seat().role === 'spectator') {
       // AD-8's bookkeeping is a spectator's only (a player follows no one): a player's frame reads the room's bodies no
@@ -625,6 +803,53 @@ export class SpectatorView {
     }
     if (this.benchedNow && this.watchingNow !== null) this.followWatched(dt);
     else if (this.host.seat().role !== 'spectator' || this.modeNow !== 'follow') this.host.resetFollow?.();
+  }
+
+  /**
+   * PV-6a: Cross's hold counted in the frame's real seconds while the last unblocked pad sample holds it down. The
+   * switch at POV_HOLD_S_ADAPTATION is `pad`'s, on a sample still showing Cross down (the review's F1), not the frame's.
+   */
+  private holdStep(dt: number): void {   // not `holdFrame`: that is the dev hook's name, which the built viewer must not contain (`test/holdFrame.test.ts`)
+    if (this.holdNow === 'running' && dt > 0) this.holdS += dt;
+  }
+
+  /**
+   * RVK-A (LATER 966, V21.R7; the owner, 2026-11-12): the replay viewer's roster -- a player's name puts the camera on
+   * that player. A browser adaptation with no original: the replay viewer's stage alone calls it (`./modern/replays/
+   * worldStage`), and no control of a match reaches it. It is the spectator's Right / Left cycle landing on `id` in one
+   * step: legal only where that cycle could land -- a spectator's seat, `id` one of the living bodies the cycle gathers
+   * (`spectatorBodies().filter(alive)`, as `next` does) -- and then exactly the cycle's bind below, the same state and the
+   * same host calls (none but the magnification's, out of scenic); the frame then follows it as it follows a cycled body.
+   * From free and scenic too, as Right from there: the remembered mode as `bindRemembered` leaves it, the scenic index
+   * kept. The body already followed changes nothing. Not a candidate (dead, gone, a spectator's, unknown), or a seat
+   * that is not a spectator's: false, nothing changed.
+   */
+  followBody(id: number): boolean {
+    if (this.host.seat().role !== 'spectator') return false;
+    if (!this.spectatorBodies().filter(alive).some((b) => b.id === id)) return false;
+    if (this.modeNow === 'follow' && this.targetNow === id) return true;
+    this.targetNow = id;
+    if (this.modeNow === 'scenic') this.resetMagnification();
+    this.rememberedNow = bindRemembered(this.modeNow, this.rememberedNow);
+    this.modeNow = 'follow';
+    return true;
+  }
+
+  /**
+   * RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully navigable with keyboard and mouse.
+   * Every view."): the replay viewer's mouse on a scenic view -- its drag turns it and its wheel zooms it. A browser
+   * adaptation with no original: the replay world's steer read alone calls it (`./modern/replays/worldSteer`), and no
+   * control of a match reaches it. It is the sticks' own path (W6, `frame`'s scenic arm) over one step: `lookX`, `lookY`
+   * and `zoom` in stick-seconds -- the stick's push times the seconds it is held -- so `scenicBy(x * dt, y * dt, z * dt)`
+   * turns and zooms exactly as a frame of `dt` with those sticks (`scenicLook`, `scenicMagnification`, INVERT PITCH's
+   * sign, the same bounds), then the view stood there. A spectator's seat in scenic only; anything else: false, nothing.
+   */
+  scenicBy(lookX: number, lookY: number, zoom: number): boolean {
+    if (this.host.seat().role !== 'spectator' || this.modeNow !== 'scenic') return false;
+    this.look = scenicLook(this.look, 1, lookX, lookY, this.host.pitchSign?.() ?? 1);
+    this.setMagnification(scenicMagnification(this.magNow, 1, zoom));
+    this.standScenic();
+    return true;
   }
 
   /** W6: the magnification, the page told when it changes (`SpectatorHost.magnify`). */
@@ -721,9 +946,11 @@ export class SpectatorView {
     const id = this.targetNow;
     const body = this.host.bodies().find((b) => b.id === id) ?? this.retiredNow.find((b) => b.id === id);
     if (body) {
+      if (this.drawPov(body, dt, false)) return;  // PV-6a: the player's view drawn; else today's follow (PV.R6)
       if (this.host.follow) this.host.follow(body, dt);
       else this.host.spectate(followPose(body)); // Compatibility for non-rendering hosts without a world.
-    }
+      this.warmPov(body, dt, false);              // PV-6b: after today's follow, the rig kept warm
+    } else this.host.povRelease?.();              // PV-7b F4: no body -- a view drawn is given back (else nothing)
   }
 
   /**
@@ -805,8 +1032,22 @@ export class SpectatorView {
   private followWatched(dt = 0): void {
     const body = this.host.bodies().find((b) => b.id === this.watchingNow);
     if (body) {
+      if (this.drawPov(body, dt, true)) return;   // PV-6a: the player's view drawn; else today's eased follow (PV.R6)
       if (this.host.follow) this.host.follow(body, dt, true);
       else this.host.spectate(followPose(body)); // Compatibility for non-rendering hosts without a world.
-    }
+      this.warmPov(body, dt, true);               // PV-6b: after today's follow, the rig kept warm
+    } else this.host.povRelease?.();              // PV-7b F4: no body -- a view drawn is given back (else nothing)
+  }
+
+  /** PV-6a (POV_VIEW_ADAPTATION): the host asked to draw the player's view when it is chosen; true when it drew it. */
+  private drawPov(body: SpectatorBody, dt: number, watched: boolean): boolean {
+    if (!this.povNow || !this.host.pov?.(body, dt, watched)) return false;
+    this.povShownNow = true;
+    return true;
+  }
+
+  /** PV-6b (POV_VIEW_ADAPTATION): the host's warm call on a followed or watched frame not drawn, where the view is offered. */
+  private warmPov(body: SpectatorBody, dt: number, watched: boolean): void {
+    if (this.host.povWarm && this.offered()) this.host.povWarm(body, dt, watched);
   }
 }

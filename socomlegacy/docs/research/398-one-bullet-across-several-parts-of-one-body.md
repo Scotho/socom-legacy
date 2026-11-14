@@ -9,14 +9,16 @@
   four findings are section 13). Before that it was read at the source by two fresh readers who wrote none of the code
   (the room batch's reader, then a single-question deep read that tried to refute it), and the guard and its setters
   (section 4) a third time by the pass's controller. Nothing here is measured running: the capture of section 8 is
-  owed and queued. The owner's ruling OT.R119 (2026-11-10, seat 99: "follow the source") has it built to the original,
+  owed and queued. *(2026-11-12: its first runs, PARTIAL, measured the multi-application half; section 8.1.)*
+  The owner's ruling OT.R119 (2026-11-10, seat 99: "follow the source") has it built to the original,
   test-first, after the mega release.
 - What it contradicts: `BODY_ONE_SURFACE_READING = 'per body'` (match `src/room.ts`), research 91 section 1.3's "one hit
   per actor per round", and research 219 row 307 / research 101 row 900's "walks each node polygon crossed".
 - Evidence kinds, kept apart: **(D)** the r0001 decompilation `socom2_game.elf.decomp.c`, cited `FUN_<addr>` and
   `D:L<line>` (source inspection); **(E1)** the r0001 ELF's machine code for two routines the decompilation does not hold
   and the VU0 microprogram the box test runs; **(E4)** the r0004 ELF, each routine compared word for word with its r0001
-  twin, r0004 addresses named. No capture. No decompiled or disassembled text is pasted.
+  twin, r0004 addresses named. A set-up capture since 2026-11-12 (section 8.1); no capture before it. No decompiled or
+  disassembled text is pasted.
 - The records behind it (not exported publicly): `docs/plans/reviews/2026-11-10-fable-seat/second-reader/`
   (`R2-ROOM-1.md`, `DEEP-BODY-SURFACES.md`, `CAPTURE-SPEC-LIMB-TRUNK.md`).
 
@@ -344,6 +346,128 @@ the breakpoints the hit counts need; GR-1's tool reads only). The controller's w
 
 So the capture, when it runs, is a **set-up capture**: its record names every write, and what it shows is the hit
 path's behaviour from the written pose, not that play reaches it.
+
+### 8.1 The first runs: PARTIAL, and every applied hit fits the rule (2026-11-12)
+
+The shadow seat's LIMB-TRUNK runs on the two-console r0004 rig (local Horizon, two PCSX2; A a Terrorist shooting, B a
+SEAL shot), in two slots: the first stopped at 2026-11-12T02:57Z for v0.4.20's candidate 1, the second 05:05-05:13Z;
+relayed by seats 65 and cc. A set-up capture: set-up writes only -- B's position and yaw and A's yaw before each shot,
+logged -- never a health, armour or memory write; every shot on a fresh round at a full spawn. Records on the Shadow PC
+(`D:/s2u/evidence/limb-trunk/capture/`: the csv, `diff.log`, `writes.log`, `PARTIAL.txt`, `A-hud.png`), uploaded to the
+shadow output's `2026-11-12/limb-trunk-partial/`.
+
+**The offsets on r0004** (the second slot, a read-only diff of B's actor words `+0xe00..+0x1200` before and after each
+shot): the six healths at `+0xffc..+0x1010` and the six armours at `+0x102c..+0x1040`, r0001's offsets, each in the
+order HEAD, RARM, LARM, BODY, RLEG, LLEG (8 / 30 / 30 / 50 / 30 / 30 at a spawn, armour 0 on the head and 25 on the
+rest); each hit moved exactly the named parts' words. **The memory (`+0x1048`) was not found:** it read 0 throughout;
+the one other word every hit changed, `+0x105c` (0x8a010445 -> 0x8a010447 a fresh round), changed on a limb-only hit
+too, which the memory must not, so it is a hit or last-attacker stamp, not the memory; `+0x1044`, a float falling on any
+hit (1.0 -> 0.64 / 0.72 / 0.93, 0 at death), reads as the health's overall fraction. **The memory's r0004 home is
+`+0x1048`, not moved** (E4: the shadow seat's decode of the r0004 ELF, 2026-11-12, offline): every site section 4 lists
+uses it -- the constructor's clear `sw zero,0x1048(s0)` at r4 0x559e24, the once-an-update clear at 0x5560f0 / 0x5560fc,
+the guard's test at 0x5b1530, the sets at 0x5b1574, 0x5b1a4c, 0x5b1a80 and 0x5b1b38, the part guards at 0x5b18b0 /
+0x5b18f8 and the AI's read at 0x577b0c. The rig's reads of 0 are the once-an-update clear: the remembered round lives
+within one update, so a read between frames cannot see it and only a breakpoint at a set or the test can. Nothing here
+reads it.
+
+| shot | runs | health / armour after (the parts that moved) | applications |
+|---|---|---|---|
+| 0a, standing, facing, chest | 3, identical | LARM 0 / 17; BODY 35.5 / 20.6; the other limbs 21.3 (the body's cap), their armour untouched | LARM, LARM, BODY |
+| 0a, crouched | 1 | LARM 15.5 / 20.6; BODY 35.5 / 20.6 | LARM, BODY |
+| 0b, aimed at the chest, the round met the left leg only | 1 | LLEG 15.5 / 20.6; nothing else (no cap: the body not hit) | LLEG |
+| low, side on (B yaw 180, 3 above the feet) | 1 | RLEG 0 / 17; BODY 35.5 / 20.6 | RLEG, RLEG, BODY |
+| facing, 1.6 aside (landed 8.4 up, B crouched) | 1 | LARM 15.5 / 20.6; BODY 35.5 / 20.6 | LARM, BODY |
+| facing, 1.6 the other side (landed 9.1 up, B crouched) | 1 | LARM 15.5 / 20.6; HEAD 0 (killed); the trunk untouched | LARM, HEAD |
+| 4, side on, thigh, standing | 1 | LLEG 15.5 / 20.6; BODY 35.5 / 20.6 | LLEG, BODY (the hips' box) |
+| 4, crouched | 1 | BODY only (its values not relayed apart) | BODY |
+| 1, side on, chest | 2 | BODY only (its values not relayed apart) | BODY |
+| (head-only tries) | 2 | killed | HEAD |
+
+**How the applications are counted** (arithmetic on the recorded values through the armour step, `FUN_003c7400`
+D:L318568-318590, viewer `net/damage.ts` `armourStep`: the armour takes A x (10 - P) / 10 off the damage and loses a
+quarter of what it took). Every row fits one damage, **D = 32 and P = 3 exactly**: one application takes a fresh limb to
+15.5 / 20.625 (17.5 absorbed) and the body to 35.5 / 20.625; a second on the same limb absorbs 20.625 x 0.7 = 14.44,
+leaving armour 17.02 and health 0. A single application cannot take a fresh part's armour to 17 (at most 25 x 0.7 / 4 =
+4.375 goes), so the two `0 / 17` limbs are two applications each -- two bones of one limb, section 8's shot 5 (likely
+the upper and lower bone), once in an arm and once in a leg. The other parts' health and armour show which were applied:
+the body's cap lowers a limb's health only, never its armour. The 0b line is the limb-alone control: one application, no
+cap.
+
+**The weapon, by inference:** A's spawn primary as MP2's Terrorist, a 30-round rifle with 5 magazines by its HUD
+(`A-hud.png`; its name neither on the HUD nor read from memory). Research 91 s14 gives MP2's terrorist kits as the 552,
+the Spas 12, the F90 and the M82A1A, of which the 552 alone is a rifle; its round is Impact 2.3, Dmg_Mod 0, Piercing 3,
+32.2 a shot (2.3 x 14, research 91 s1.2). The damage applied is 32, not 32.2: B's console applies the hit packet's
+damage, which the shooter's console casts to an `(int)` and the piercing to `(int)(x 20)` (`FUN_002bbda0` D:L160870,
+D:L160877, clamped by `FUN_002bd220`; research
+101's `NET_DAMAGE_CLAMP_PLACEHOLDER` row, settled by PF-22) -- 32.2 would leave the body at 35.3, not the 35.5 every row
+shows. So the rows also measure the packet's truncation on the victim's console.
+
+**What it shows.** Every line ran limb records at the full damage, and every round applied more than one part where its
+line met more than one: the arm-then-trunk lines, the same limb twice then the trunk, the limb then the head, the thigh
+then the hips, the limb alone. That refutes the retired `'per body'` reading (one application a round), and the
+arm-then-trunk lines (0a; and the belly rounds of research 217 s3.6b, LARM then BODY) answer shot 1's question, an arm
+then the trunk each at the full damage, from the front rather than the side: shot 1 as specified (side on, chest) met
+the trunk alone, BODY only, n = 2. The rows are each what `applyHit` gives from a full spawn for those applications,
+under the rule the port has applied since v0.4.19 (BONE-BOXES, the owner's ruling OT.R119; match `room.ts`'s walk).
+Capture comparison (set-up capture), value for value at the tenth the values were relayed at: **measured** -- that limb
+records apply at the full damage and that one round applies several parts -- for the rows whose values were relayed; it
+is not yet proven in PROCESS's sense, which asks for a capture-scored spec or a golden trace committed, and none is.
+**Still a reading:** the other half, that the first trunk or head record ends the round. The rows where the trunk or the
+far leg stayed untouched discriminate only if the line would have crossed those boxes, and that geometry was neither
+logged nor replayed here; shot 2, which was to test it, ran later and does not discriminate it in the port's geometry
+(below). The rig ruling's condition 5 (a pose cross-checked with pad placement) was not reported met in these runs (C0a
+meets it, below). Inferred, not read: the count of applications (the arithmetic above; no hit count was taken -- a
+breakpoint risks a desync of the live two-console game, and no game-kept counter is known) and the weapon (above).
+
+**Shot 2 and the pad-placed round (2026-11-12).** The shadow seat's later runs on the same rig (r0004, MP2, A the
+Terrorist shooting B the scuba SEAL; a set-up capture, set-up writes only), relayed to seat f7: the eye is the r0004
+camera's, the line's direction normalize(target - eye), `hB` the hit point's height above B's root (y 100) and `lat` the
+hit's lateral offset (its sign not logged). Shot 2 (section 8's table, the trunk then the far arm): B side-on, its LEFT
+flank to the shooter (the tool's yaw 0), aimed level through the chest; all three rounds applied BODY only (the body
+-14.5 / -4.4), the far (right) arm's armour 25 untouched and its health 21.3, the body's cap -- one application, BODY,
+as the table expects. C0a: B never placed (its position as it spawned, only its yaw written), front; LARM then BODY.
+
+| row | B | `hB` | `lat` | eye | camera target | hit point | applied |
+|---|---|---|---|---|---|---|---|
+| S2a | left flank, placed | 14.13 | 0.08 | (840.519, 109.904, 613.291) | (841.512, 110.019, 613.263) | (877.003, 114.129, 612.294) | BODY |
+| S2b | left flank, placed | 14.07 | 0.07 | (840.519, 109.904, 613.288) | (841.512, 110.017, 613.260) | (877.249, 114.069, 612.252) | BODY |
+| S2c | left flank, placed | 14.15 | 0.03 | (840.649, 109.904, 613.017) | (841.643, 110.014, 613.008) | (878.969, 114.148, 612.692) | BODY |
+| C0a | front, unplaced (yaw only) | 12.63 | 0.16 | (759.342, 109.908, 612.184) | (760.337, 109.995, 612.157) | (790.815, 112.638, 611.333) | LARM, BODY |
+
+**The port's replay** (unit-test evidence on fixture data, compared with these rows; match
+`test/limbTrunkShot2Replay.test.ts`, seat box jobs s2r-1 and s2r-2). Each line is built as research 217 s3.6b's "The
+port's replay" builds it (`bellyBandReplay.test.ts`): through the first box it enters at (`hB`, `lat`), both signs of
+`lat`, the target at its standing idle at 24 phases, on the room's own hit body and walk, on `seal_A_scuba`,
+`seal_E_scuba` and `seal_D_scuba`, with every record on the line listed, not only the walk's applications. (a) The far
+arm: at no phase, row, sign or model does an `rbicep` or `rforearm` (RARM) record lie on the line, before or after the
+trunk; behind `spinehi` the line meets `rscap` (no part) 2.5-2.8 u on, and at some phases the NEAR arm (`lbicep`) and
+`lshoulder_wgt` just behind the trunk's entry (on `seal_A_scuba` S2a, `lat` + at 12-14 and 19-21, `lat` - at 0, 10-11
+and 22-23) -- there the walk's BODY only is the stop-at-trunk memory at work. (b) The walk: BODY (`spinehi`) only at
+about half the phases, and the NEAR arm (`lbicep`, LARM) then BODY at the rest -- on `seal_A_scuba` BODY only at 12-21
+(S2a, `lat` +) and 0, 10-23 (`lat` -), LARM then BODY at 0-11, 22-23 and 1-9; the other rows and models alike within
+three phases (S2c - on `seal_E_scuba` and `seal_D_scuba` has two phases, 1 and 10, whose line's solve misses (`hB`,
+`lat`) by 8.1e-3, the first box `lshoulder_wgt`: pinned as unsolved, bounded under 1e-2, and counted in the BODY-only
+set): the hanging left upper arm stands in front of the trunk's flank at chest height at those phases, as
+bellyBandReplay's L13.10 at 2-8. The original applied BODY only on all three rounds, so the port disagrees with it at
+those phases: pinned in the test's `SHOT2_KNOWN`, measured and not tuned (the suspects LATER 969 names: the idle's phase
+at the shot not logged, the room's hit pose without its aim layer). C0a: `lforearm` (LARM) then `spinehi` (BODY) at all
+24 phases, both signs, all three models -- the original's outcome.
+
+**What shot 2 settles.** The original's BODY-only outcome settles the stop-at-trunk half of the rule (sections 0 and 3:
+the first BODY record ends the round) only where the far arm lies on the line behind the trunk, and in the port's
+geometry it lies on none of these lines at any phase: as far as the port's boxes can tell, the far arm took nothing
+because the line never reached it. The port does exercise the rule on these lines through the near arm where it trails
+the trunk (above), but the original's phase at each shot is not logged, so those phases cannot be told from the ones
+with no arm behind the trunk. So shot 2 as shot does not discriminate that half, and the half stays a reading. Shot 2's
+outcome itself is measured (a set-up capture, the parts read off the moved healths and armours), not proven. The rig
+ruling's condition 5 (a pose cross-checked with pad placement) is met by C0a: B never placed, only its yaw written, and
+its round applied an arm then the trunk as the placed front rows did.
+
+**Owed for a later rig slot:** the hit count on standing 0a (expected 3), owed but blocked: this PCSX2/PINE build's
+memory watch pauses the EE and it has no log-only mode, so a count cannot be taken without stopping the live two-console
+game; the weapon read by name; a stop-at-trunk shot whose line crosses the far arm behind the trunk in the port's
+geometry (shot 2, done 2026-11-12 above, does not); and the remembered round itself, read at a set or the guard's test
+(its home is `+0x1048`, above).
 
 ## 9. The attempts to refute it, and why each failed
 

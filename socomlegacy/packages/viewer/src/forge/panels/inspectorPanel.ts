@@ -1,4 +1,5 @@
 import type { MenuItem } from '../padMenu';
+import { pageSettings } from '../../pageStore';
 import { scrubNumber, type ScrubDetail } from '../scrub';
 import { builtPanel, forgeEl, revealRow, type ForgePanel } from '../shell/panel';
 
@@ -10,8 +11,8 @@ import { builtPanel, forgeEl, revealRow, type ForgePanel } from '../shell/panel'
  * The transform rows (a browser adaptation, FG.R2): position, rotation and scale, each three fields in the axis order
  * X, Y, Z -- so the axis chip's colour is the axis (pitch turns about X, yaw about Y, roll about Z) -- and a reset at the
  * row's end, hidden until the page finds the row off its default. Every field scrubs (`../scrub`): drag left or right to
- * change it, click to type. Pitch, roll and scale are drawn here but the page wires them to a stub: record v3 keeps a
- * piece's yaw alone (`creator-contracts` `recordOfLayout`), so an edit to them could not survive a save yet.
+ * change it, click to type. Pitch, roll and scale are drawn here and the page wires them (FX-9): a single piece's own,
+ * each edit one step, its value on the record's lattice (`creator-contracts` `PoseRow`, `../transformStubs`).
  */
 export interface InspectorDom {
   body: HTMLDivElement;
@@ -106,8 +107,10 @@ export function buildInspector(doc: Document, resetIcon = ''): InspectorDom {
     const s = forgeEl(doc, 'summary', 'fx-inspect-section-title', title);
     d.append(s, ...content);
     const key = `forge.inspector.${id}.open`;
-    try { d.open = globalThis.localStorage?.getItem(key) !== '0'; } catch { d.open = true; }
-    d.addEventListener('toggle', () => { try { globalThis.localStorage?.setItem(key, d.open ? '1' : '0'); } catch { /* kept for the session only */ } });
+    // Through the page's store (ours, FC2: `pageStore.test.ts` holds every storage read of the viewer to it); the names
+    // as first written. A store that cannot be reached reads null (open) and keeps the fold for the session only.
+    d.open = pageSettings.get(key) !== '0';
+    d.addEventListener('toggle', () => { pageSettings.set(key, d.open ? '1' : '0'); });
     return d;
   };
   // The lock in the head, left of the kind at its right, on the same line (the owner, 2026-11-11); an icon (the page's).

@@ -120,6 +120,8 @@ export const PACK_EXTENSIONS_BYTES_ADAPTATION = 16 * 1024;
  * before it.
  */
 export const RULES_PACK_CONTRACT_FLOOR = "0.1.1";
+/** The one script a plugin pack holds (section 3 of the community-server plugin design). No new manifest field. */
+export const PLUGIN_MAIN_PATH = "plugin/main.js";
 /**
  * A `rules` member is read whole once (hashed and parsed from the same bytes) for its `RulesSpec.capabilities`; its
  * bound is the manifest's (`PACK_MANIFEST_BYTES_ADAPTATION`, 1 MiB), far above what the rules budgets (`rules.ts`
@@ -137,9 +139,9 @@ export const THUNDERSTORE_STORE_FILES = Object.freeze(["manifest.json", "icon.pn
 const STORE_FILES: ReadonlySet<string> = new Set(THUNDERSTORE_STORE_FILES);
 
 /**
- * The v2 kinds. `plugin` (FX-5; OT.R118; the 0.2 spec section 3) is RESERVED: a server plugin for a community server,
- * its runtime Fuse's design. A pack holding it states `sides: "server"` and a 0.2 contract, validates with a warning
- * (`KIND_NOT_APPLIED`), and is never applied by a page (`appliesOn`); nothing in this build runs one.
+ * The v2 kinds. `plugin` (FX-5; OT.R118) is a server plugin for a community server. A pack holding it states
+ * `sides: "server"` and a 0.2 contract, validates with a warning that no page applies it (`KIND_NOT_APPLIED`), and
+ * is never applied by a page (`appliesOn`). The community loader runs its `plugin` role when the opt-in is on.
  */
 export const PACK_KINDS = ["content", "rules", "system", "plugin"] as const;
 export type PackKind = (typeof PACK_KINDS)[number];
@@ -151,14 +153,14 @@ export type PackSide = (typeof PACK_SIDES)[number];
 /**
  * Whether `side` applies a pack's members (FX-5; the 0.2 spec section 3: `sides` read): `client` is a page, for what it
  * draws and plays; `server` is a match's host. A `server` pack's members are never applied by a page, and a pack holding
- * the reserved `plugin` kind never is either, whatever its `sides`; a `client` pack's never by a server. Nothing here
- * applies anything: a caller that decides what a page may apply asks this.
+ * the `plugin` kind never is either, whatever its `sides`; a `client` pack's never by a server. Nothing here applies
+ * anything: a caller that decides what a page may apply asks this.
  */
 export function appliesOn(manifest: { readonly sides: PackSide; readonly kinds: readonly PackKind[] }, side: Exclude<PackSide, "both">): boolean {
   if (side === "client") return manifest.sides !== "server" && !manifest.kinds.includes("plugin");
   return manifest.sides !== "client";
 }
-export const PACK_ROLES = ["mesh", "texture", "audio", "collision", "gameplay", "rules", "system", "data", "legacy-manifest"] as const;
+export const PACK_ROLES = ["mesh", "texture", "audio", "collision", "gameplay", "rules", "system", "data", "legacy-manifest", "plugin"] as const;
 export type PackFileRole = (typeof PACK_ROLES)[number];
 /** XT.R12: what a change is declared to be. */
 export const PACK_INTENT_KINDS = ["cosmetic", "gameplay-value", "new-behaviour"] as const;
@@ -184,9 +186,11 @@ const ROLE_TYPES: Readonly<Record<PackFileRole, RegExp | null>> = {
   system: /\.json$/i,
   data: null,
   "legacy-manifest": /\.json$/i,
+  /** Any `.js` matches the role's payload type. A plugin pack still requires the path `plugin/main.js` exactly. */
+  plugin: /\.js$/i,
 };
 /** Roles whose bytes change play, so a cosmetic intent cannot cover them. */
-const GAMEPLAY_ROLES: ReadonlySet<PackFileRole> = new Set(["collision", "gameplay", "rules"]);
+const GAMEPLAY_ROLES: ReadonlySet<PackFileRole> = new Set(["collision", "gameplay", "rules", "plugin"]);
 /**
  * The validator's own role tables, exported for the modding wiki's generated reference (B205 MW-2, MW.R5; exports
  * only): the same objects the check reads, so the wiki describes what the validator does, never a copy. Read-only by
@@ -752,11 +756,11 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
     f.error(PACK_CODES.contractField, why, { field, expected: `^${PACK_CONTRACT_0_2_FLOOR}`, actual: String(raw.contract), hint });
     return true;
   };
-  // FX-5 (OT.R118): the reserved `plugin` kind -- a server's alone, a 0.2 kind, and one no page applies (a warning).
+  // FX-5 (OT.R118): a plugin is a server's alone, a 0.2 kind, and one no page applies (a warning).
   if (Array.isArray(kinds) && kinds.includes("plugin")) {
     if (oneOf(PACK_SIDES, raw.sides) && raw.sides !== "server") invalid("sides", 'A plugin pack runs on a server alone: its sides is "server".', "server");
     refuse02("kinds");
-    const hint = "The kind is reserved for community servers' plugins (OT.R118): the pack is stored, and nothing in this build runs it.";
+    const hint = "A page does not apply a plugin. A community match child runs its plugin role only when the opt-in is on.";
     f.warning(PACK_CODES.kindNotApplied, "plugin is a kind no page applies.", { field: "kinds", actual: "plugin", hint });
   }
 
@@ -820,6 +824,9 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
       if (typeof row.sha256 !== "string" || !HEX64.test(row.sha256)) return invalid(`${at}.sha256`, "sha256 is 64 lower-case hex digits.");
       if (!Number.isSafeInteger(row.size) || (row.size as number) < 0) return invalid(`${at}.size`, "size is the member's byte count.");
       if (!oneOf(PACK_ROLES, row.role)) return invalid(`${at}.role`, `role is one of ${PACK_ROLES.join(", ")}.`);
+      if (row.role === "plugin" && !(Array.isArray(kinds) && kinds.includes("plugin"))) {
+        return f.error(PACK_CODES.roleMismatch, "role plugin belongs to a plugin pack.", { field: `${at}.role`, file: p.path, expected: "plugin", actual: row.role });
+      }
       const types = ROLE_TYPES[row.role];
       if (types && !types.test(p.path)) {
         return f.error(PACK_CODES.roleMismatch, `A ${row.role} member is not that payload type.`, { file: p.path, field: `${at}.role`, expected: types.source, actual: p.path.split("/").pop() });
@@ -916,6 +923,31 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
           ...(options === undefined ? {} : { options: options.value }),
         });
       });
+    }
+  }
+
+  // A plugin pack is kind plugin alone. A content pack that also names the reserved kind stays a content pack:
+  // the page does not apply it (appliesOn), and it is not held to the one-module member rules.
+  const pluginPack = Array.isArray(kinds) && kinds.length > 0 && kinds.every((k) => k === "plugin");
+  if (pluginPack) {
+    const mains = files.filter((m) => m.role === "plugin");
+    if (mains.length !== 1 || mains[0]!.path !== PLUGIN_MAIN_PATH) {
+      f.error(PACK_CODES.fieldInvalid, "A plugin pack has exactly one member, plugin/main.js, with role plugin.", { field: "files", expected: PLUGIN_MAIN_PATH, actual: mains.map((m) => m.path).join(", ") });
+    }
+    const scripted = files.some((m) => m.path !== PLUGIN_MAIN_PATH && /\.(mjs|cjs|js|ts|node|wasm)$/i.test(m.path));
+    const nested = files.some((m) => m.path.split("/").includes("node_modules"));
+    if (scripted || nested) {
+      f.error(PACK_CODES.roleMismatch, "A plugin pack has no second script, and no node_modules.", { field: "files", expected: PLUGIN_MAIN_PATH });
+    }
+    for (const m of files) {
+      if (m.role === "plugin") continue;
+      if (m.role !== "data" || !/\.json$/i.test(m.path)) {
+        f.error(PACK_CODES.roleMismatch, "A plugin pack's other members are data JSON.", { file: m.path, field: "files", expected: "data .json", actual: m.role });
+      }
+    }
+    const declaredNew = intents.some((intent) => intent.kind === "new-behaviour" && intent.files.includes(PLUGIN_MAIN_PATH));
+    if (mains.length === 1 && mains[0]!.path === PLUGIN_MAIN_PATH && !declaredNew) {
+      f.error(PACK_CODES.intentMismatch, "plugin/main.js is a new-behaviour intent.", { file: PLUGIN_MAIN_PATH, field: "intents", expected: "new-behaviour" });
     }
   }
 
@@ -1342,7 +1374,9 @@ export async function validatePack(files: readonly PackFile[], context: PackCont
   let declared = 0;
   for (const [i, m] of manifest.files.entries()) {
     declared += m.size;
-    const bound = m.role === "rules" ? PACK_RULES_MEMBER_BYTES_ADAPTATION : PACK_MEMBER_BYTES_ADAPTATION;
+    const pluginOnly = manifest.kinds.length > 0 && manifest.kinds.every((k) => k === "plugin");
+    const pluginData = pluginOnly && m.role === "data";
+    const bound = m.role === "rules" || pluginData ? PACK_RULES_MEMBER_BYTES_ADAPTATION : PACK_MEMBER_BYTES_ADAPTATION;
     if (m.size > bound) {
       f.error(PACK_CODES.memberTooLarge, "A member is over the bound.", { file: m.path, field: `files[${i}].size`, expected: String(bound), actual: String(m.size) });
     }
@@ -1370,12 +1404,18 @@ export async function validatePack(files: readonly PackFile[], context: PackCont
     // Then the bytes, only once every declared size agrees. A `rules` member (bounded above) is gathered whole once and
     // hashed from those bytes, so its `RulesSpec.capabilities` are read from the bytes the hash verified.
     const rulesBodies: { readonly path: string; readonly bytes: Uint8Array }[] = [];
+    const pluginDataBodies: { readonly path: string; readonly bytes: Uint8Array }[] = [];
     for (const { m, file } of f.errors ? [] : present) {
       let got: MemberRead;
-      if (m.role === "rules") {
+      const pluginOnly = manifest.kinds.length > 0 && manifest.kinds.every((k) => k === "plugin");
+      const pluginData = pluginOnly && m.role === "data";
+      if (m.role === "rules" || pluginData) {
         const body = await memberBytes(file);
         got = { sha256: body.bytes === null ? null : await sha256Hex(body.bytes, context.sha256), size: body.size };
-        if (body.bytes !== null && got.sha256 === m.sha256) rulesBodies.push({ path: m.path, bytes: body.bytes });
+        if (body.bytes !== null && got.sha256 === m.sha256) {
+          if (m.role === "rules") rulesBodies.push({ path: m.path, bytes: body.bytes });
+          else pluginDataBodies.push({ path: m.path, bytes: body.bytes });
+        }
       } else got = await read(file);
       if (got.sha256 === null || got.size !== m.size) sizeFinding(f, m.path, m.size, got.size);
       else if (got.sha256 !== m.sha256) {
@@ -1391,6 +1431,17 @@ export async function validatePack(files: readonly PackFile[], context: PackCont
       f.error(PACK_CODES.memberUnlisted, "A file in the pack is not listed in the manifest.", { file: path, hint });
     }
     if (!f.errors && manifest.files.some((m) => m.role === "rules")) capabilityChecks(manifest, rulesBodies, f);
+    if (!f.errors && manifest.kinds.length > 0 && manifest.kinds.every((k) => k === "plugin")) {
+      for (const body of pluginDataBodies) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body.bytes));
+        } catch {
+          parsed = undefined;
+        }
+        if (parsed === undefined) f.error(PACK_CODES.fieldInvalid, "A plugin data member is UTF-8 JSON.", { file: body.path, field: "files" });
+      }
+    }
   }
   const missing = contextChecks(parsed, context, f);
   const report = checkReport(f.list, { evidence: "validation" });
@@ -1615,7 +1666,16 @@ export interface ThunderstoreReadmeInput {
   readonly license?: string;
   /** The authors' names: the caller's, else the manifest's own `authors` (FX-5, contract 0.2). */
   readonly authors?: readonly string[];
+  /**
+   * What the player's own copy of the game supplies that the manifest does not name (FX-11a's review: a layout's base
+   * map), each a phrase a player knows -- never a disc stem -- written as one line before the dependencies with the
+   * archive dependency's words, `<phrase> from your own copy of the game; it is not in this package.`. Absent or empty:
+   * the README is as before.
+   */
+  readonly ownCopy?: readonly string[];
 }
+/** The README's line for what the player's own copy of the game supplies (an archive dependency, an `ownCopy` phrase). */
+const ownCopyLine = (what: string): string => `- ${what} from your own copy of the game; it is not in this package.`;
 /** One plain line per kind for the store README, in `PACK_KINDS`' order. */
 const README_KIND_LINES: Readonly<Record<PackKind, string>> = Object.freeze({
   content: "Content: models, textures, sounds or maps.",
@@ -1626,7 +1686,7 @@ const README_KIND_LINES: Readonly<Record<PackKind, string>> = Object.freeze({
 /**
  * The store's `README.md` for a pack (FX-4; A3 E3; a browser adaptation with no original): its name and description,
  * its id and version, what it is (one line per kind in `PACK_KINDS`' order, then one per map given), what it needs
- * (each dependency in the manifest's order, or that it needs nothing), and its licence and authors when given or when
+ * (each `ownCopy` phrase, then each dependency in the manifest's order, or that it needs nothing), and its licence and authors when given or when
  * the manifest carries them (contract 0.2, FX-5; the caller's win). Plain
  * words, LF line ends, one trailing newline; the same input gives the same bytes. It is a store file: outside the
  * pack's digest (`THUNDERSTORE_STORE_FILES`).
@@ -1639,9 +1699,11 @@ export function thunderstoreReadme(input: ThunderstoreReadmeInput): string {
   for (const kind of PACK_KINDS) if (m.kinds.includes(kind)) lines.push(`- ${README_KIND_LINES[kind]}`);
   for (const map of input.maps ?? []) lines.push(`- A map: ${map.name} (\`${map.path}\`).`);
   lines.push("", "## What it needs", "");
-  if (m.dependencies.length === 0) lines.push("Nothing else: this pack stands alone.");
+  const ownCopy = input.ownCopy ?? [];
+  if (m.dependencies.length === 0 && ownCopy.length === 0) lines.push("Nothing else: this pack stands alone.");
+  for (const what of ownCopy) lines.push(ownCopyLine(what));
   for (const dep of m.dependencies) {
-    lines.push("id" in dep ? `- The pack \`${dep.id}\`, a version in \`${dep.range}\`.` : `- \`${dep.archive}\` from your own copy of the game; it is not in this package.`);
+    lines.push("id" in dep ? `- The pack \`${dep.id}\`, a version in \`${dep.range}\`.` : ownCopyLine(`\`${dep.archive}\``));
   }
   const license = input.license ?? m.license;
   const authors = input.authors ?? m.authors;

@@ -315,7 +315,8 @@ describe('FUI-3: the Forge\'s menu as the page composes it', () => {
     for (const id of ['check', 'lock-selection', 'frame-selection', 'grid-step', 'turn-step', 'outliner-screen', 'props']) expect(rows, id).toContain(id);
     // The View switches, followed by the detail-distance control.
     const views = rows.filter((r) => r?.startsWith('view-'));
-    expect(views).toEqual(['view-wireframe', 'view-untextured', 'view-collision', 'view-grid', 'view-spawns', 'view-fog', 'view-shadows',
+    // FC2-4: his View switches begin with Geometry (page.ts:402).
+    expect(views).toEqual(['view-geometry', 'view-wireframe', 'view-untextured', 'view-collision', 'view-grid', 'view-spawns', 'view-fog', 'view-shadows',
       'view-detail', 'view-billboards', 'view-alternate', 'view-blendgraded', 'view-engineorder', 'view-ps2',
       'view-detailDistance', 'view-renderScale']);   // PF.R60: the detail distance, after the PS2 picture; FP-2: the render scale after it
     // FP-2 (FP.R5, a browser adaptation): the render scale's row reads the page's one video setting (Balanced, nothing stored).

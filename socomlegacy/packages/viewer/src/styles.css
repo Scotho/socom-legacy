@@ -10,6 +10,10 @@
  */
 :root { font-family: var(--s2u-font-mono); }
 html, body { margin: 0; height: 100%; background: var(--s2u-ground); color: var(--s2u-text); overflow: hidden; overscroll-behavior: none; }
+/* V20.R15 (the owner, 2026-11-11; a browser adaptation, PR #783): the game page has no double-tap zoom (a double tap on
+   page space or a button would scale the picture); scrolling and pinch kept. Not in shared/ds's base: the reading
+   pages keep the browser's double-tap zoom (`../console/console.css` has the launcher's). */
+html { touch-action: manipulation; }
 
 /*
  * `100dvh` where the browser has it: on a phone `100vh` is the height *with the browser bar gone*, so a

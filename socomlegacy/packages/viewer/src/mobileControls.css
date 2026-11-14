@@ -72,11 +72,11 @@ body.touch.is-walking .mu-touch-menu {
 /* A page with no test-room chrome gets the same movable fullscreen target. */
 .mobile-fullscreen { display: none; touch-action: manipulation; }
 .touch.is-walking:not(.pad-on):not(.armory-open):not(.is-taunts-open) #fullscreen.mobile-fullscreen {
-  display: grid; width: 36px; height: 36px; z-index: 1002;
+  display: grid; width: 44px; height: 44px; z-index: 19002;
 }
 .mobile-fullscreen-status {
   position: fixed; top: calc(64px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
-  max-width: calc(100vw - 32px); padding: 8px 12px; border-radius: 6px; z-index: 1003;
+  max-width: calc(100vw - 32px); padding: 8px 12px; border-radius: 6px; z-index: 19003;
   background: #102528; color: white; font: 14px sans-serif; pointer-events: none;
 }
 .mobile-fullscreen-status[hidden] { display: none; }
@@ -116,3 +116,14 @@ html body.ps2-look #view { top: 50dvh; }
   .touch.is-walking #tw-r2 { right: calc(24px + var(--tw-stick) + var(--tw-r)); }
   .touch.is-walking #tw-r1 { right: calc(30px + var(--tw-stick) + var(--tw-u) + var(--tw-r)); }
 }
+
+/* The dedicated touch fullscreen control is available over loading (19000), Home and native menus.
+   The gamepad stays below those screens. Its hiding rules must not hide this independent browser action --
+   bar the ones `./styles.css` keeps: V20.R9 (the owner, 2026-11-11: the button keeps its ARMORY and taunts hides,
+   `body.armory-open`, `body.is-taunts-open`), and a page with no served data or with its chrome hidden. */
+body.touch:not(.armory-open):not(.is-taunts-open):not(.no-served):not(.chrome-hidden) #fullscreen[id],
+body:not(.armory-open):not(.is-taunts-open):not(.no-served):not(.chrome-hidden) #menu-touch.touch #fullscreen {
+  display: grid !important; width: 44px; height: 44px; z-index: 19002;
+}
+
+#menu-touch > #touch[hidden] { display: none; }

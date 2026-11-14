@@ -10,8 +10,11 @@ export function mountMenuTouch(canvas: HTMLCanvasElement, win: Window) {
   const root = doc.createElement('div');
   root.id = 'menu-touch'; root.className = 'is-walking';
   root.setAttribute('aria-label', 'Menu controller');
-  root.style.cssText = 'position:relative;z-index:1001';
+  // Keep only the gamepad in its canvas-level stacking context. Fullscreen must clear loading/Home screens.
+  root.style.cssText = 'position:relative';
   root.innerHTML = TOUCH_LAYER_MARKUP;
+  const touchLayer = root.querySelector<HTMLElement>('#touch')!;
+  touchLayer.style.cssText = 'position:relative;z-index:1001';
   // The bottom stick zones leave the menu canvas reachable; show the same pad while the ISO loads.
   for (const el of root.querySelectorAll('#touch-lift, #touch-stance, #touch-fire, #rotate-hint, #mobile-tip, #tw-weapons')) el.remove();
   for (const button of root.querySelectorAll('button[aria-label]')) {
@@ -29,23 +32,25 @@ export function mountMenuTouch(canvas: HTMLCanvasElement, win: Window) {
   // placements) off that lookup while its canvas is hidden, then restore them on return.
   const parked = doc.createDocumentFragment();
   const sticks = attachTouchControls({ setStick: () => {}, setLook: () => {}, setLift: () => {}, setStickBoost: () => {} }, undefined, undefined,
-    { root, signal, win, blocked: () => root.hidden || canvas.hidden || disposed });
+    { root, signal, win, blocked: () => root.hidden || padOn || canvas.hidden || disposed });
   const release = (): void => { sticks.release(); for (const reset of resets) reset(); held.clear(); latched.clear(); };
   const refresh = (): void => {
     const hidden = !touched || padOn || canvas.hidden || doc.hidden;
     if (hidden) release();
-    root.hidden = hidden;
+    // Fullscreen is an independent browser action, available even with a hardware pad.
+    root.hidden = !touched || canvas.hidden || doc.hidden;
+    touchLayer.hidden = hidden;
     if (canvas.hidden) {
       while (root.firstChild) parked.append(root.firstChild);
     } else if (parked.firstChild) root.append(parked);
     canvas.classList.toggle('mobile-game-frame', !hidden);
     root.classList.toggle('touch', touched);
-    root.classList.toggle('is-walking', !hidden); // reapply saved positions when returning or unplugging a pad
+    root.classList.toggle('is-walking', !root.hidden); // reapply saved positions when returning or unplugging a pad
   };
   attachWalkTouch((index, down, how) => {
     if (down) { held.add(index); latched.add(index); }
     else { held.delete(index); if (how === 'cancel') latched.delete(index); }
-  }, { root, signal, resets, blocked: () => root.hidden || canvas.hidden || disposed });
+  }, { root, signal, resets, blocked: () => root.hidden || padOn || canvas.hidden || disposed });
   const stopFullscreen = mountMobileFullscreen(root);
   const stopLayout = mountMobileLayout(root, release);
   win.addEventListener('touchstart', () => { touched = true; refresh(); }, { once: true, passive: true, signal });
@@ -59,7 +64,7 @@ export function mountMenuTouch(canvas: HTMLCanvasElement, win: Window) {
     release,
     padConnected(on: boolean): void { if (padOn !== on) { padOn = on; refresh(); } },
     read(): GamepadLike {
-      if (canvas.hidden || root.hidden) release();
+      if (canvas.hidden || root.hidden || padOn) release();
       const buttons = Array.from({ length: 16 }, (_, i) => {
         const pressed = held.has(i) || latched.has(i); return { pressed, value: pressed ? 1 : 0 };
       });

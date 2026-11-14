@@ -6,6 +6,8 @@ import type { ClientEvent, ServerEvent } from '../net/protocol';
 import type { ForgeLobbyChatLine, ForgeLobbyDeps, ForgeLobbyRequest, GameLobbyEvent } from './lobby/deps';
 export { LOBBY_PASSWORD_MAX, lobbyPasswordOk } from './lobby/deps';
 import { parseAssetId, parseLayout, type Layout, type LayoutSettings } from './layout';
+import type { PackRef } from '@s2u/creator-contracts';
+import { moddedMembersOf } from './lobby/packCheck';                   // CMV-6: the one reader of the label's members
 
 /**
  * FORGE (FG-26; FG.R19-R21; the owner, 2026-10-14: "A new create lobby button should be added that creates a match with
@@ -62,11 +64,22 @@ export interface ForgeLobbySummary {
   listed: boolean; inMatch: boolean;
   /** FG-48a: whether it asks a password (absent from a server before FG-48: open). */
   locked?: boolean;
+  /** CMV-6: the lobby's host is modded (`./lobby/packCheck` `moddedMembersOf`: exactly `true`, else absent). */
+  modded?: true;
+  /** CMV-6: a modded host's provider (its record's operator), text, at most 64 characters. */
+  provider?: string;
+  /** CMV-6: a modded host's lobby's packs, each by reference (display only: the join reads the needs off the layout). */
+  packs?: PackRef[];
 }
 /** A lobby as `GET /lobby/forge/lobby/<id>` answers it, its layout read by `parseLayout`. */
 export interface ForgeLobbyDetail extends ForgeLobbySummary {
   layout: Layout;
   missing: number;
+  /**
+   * CMV-6/7 (CMV.R14): a modded host's pack lobby's server declaration, as sent -- unread here; `./lobby/packCheck`
+   * `joinPackRefusal` reads it (`readDeclaredPacks`) and refuses one that does not read. Absent on any other lobby.
+   */
+  declared?: unknown;
   state: { seats: { id: number; name: string; team: 'seal' | 'terrorist' | null; ready: boolean; host: boolean }[]; countdown: number | null; launched: boolean };
 }
 
@@ -122,12 +135,22 @@ const GUEST_WORDS: Record<string, string> = {
  * base (`forgeLobbyHttp.ts`'s 400 `{ refused: 'base', map }`) names the map this server cannot open.
  */
 export const FORGE_BASE_MISSING_WORDS = (map: string): string => `the server does not hold the map ${map}, so it cannot make this lobby's room`;
+/**
+ * CMV-0 (LATER 963; a browser adaptation): a create refused because its layout names an archive that is not one of SOCOM
+ * II's own disc's (`forgeLobbyHttp.ts`'s 400 `{ refused: 'archive', map }`) names that archive -- the map's stem, or (one not
+ * of a stem's shape, `?`) none -- and says why: an online lobby plays the disc's own maps.
+ */
+export const FORGE_ARCHIVE_REFUSED_WORDS = (map: string | null): string =>
+  `${map ?? 'The layout names an archive that'} is not one of the disc's archives: an online lobby plays the disc's own maps.`;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** An archive stem as the server names one (`MP72`, `M51`): anything else is never shown. */
 const STEM = /^[A-Z0-9_]{1,16}$/i;
 /** The status in words -- a guest's refusal (FG-38) or a base the server lacks by the body's `refused`, else the table's. */
 const wordsOf = (status: number, body: unknown = null): string => {
   if (status === 400 && isObj(body) && body['refused'] === 'base' && typeof body['map'] === 'string' && STEM.test(body['map'])) return FORGE_BASE_MISSING_WORDS(body['map']);
+  if (status === 400 && isObj(body) && body['refused'] === 'archive') {           // CMV-0
+    return FORGE_ARCHIVE_REFUSED_WORDS(typeof body['map'] === 'string' && STEM.test(body['map']) ? body['map'].toUpperCase() : null);
+  }
   const guest = isObj(body) && typeof body['refused'] === 'string' ? GUEST_WORDS[body['refused']] : undefined;
   return guest ?? WORDS[status] ?? `the server answered ${status}`;
 };
@@ -312,7 +335,11 @@ export async function fetchLobby(base: string, id: string, fetchFn: typeof fetch
     if (!isObj(b) || !isObj(b['state'])) return { ok: false, status: 200, words: 'the lobby\'s answer was not understood' };
     let layout: Layout;
     try { layout = parseLayout(JSON.stringify(b['layout'])); } catch (e) { return { ok: false, status: 200, words: e instanceof Error ? e.message : 'not a forge layout' }; }
-    return { ok: true, lobby: { ...(b as unknown as ForgeLobbyDetail), layout, missing: typeof b['missing'] === 'number' ? b['missing'] : 0 } };
+    // CMV-6/7: the label's members read defensively (none unless modded; a malformed one dropped), `declared` kept as sent
+    const rest: Record<string, unknown> = { ...b };
+    for (const k of ['modded', 'provider', 'packs', 'declared']) delete rest[k];
+    const declared = b['declared'];
+    return { ok: true, lobby: { ...(rest as unknown as ForgeLobbyDetail), layout, missing: typeof b['missing'] === 'number' ? b['missing'] : 0, ...moddedMembersOf(b), ...(declared !== undefined ? { declared } : {}) } };
   } catch {
     return { ok: false, status: 0, words: wordsOf(0) };
   }

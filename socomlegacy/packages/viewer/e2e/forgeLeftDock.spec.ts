@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { expectBase } from './forgeBase';
+import { dockOf, expectBase } from './forgeBase';
 
 /**
  * R6 (round 4's review; a browser adaptation, FG.R2 -- the game has no editor): the left dock's first row is on screen,
@@ -22,16 +22,23 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
     await page.setViewportSize(size);
     await page.goto('/forge?devmode');
     await expectBase(page);                                              // OT.R112: the base named (`./forgeBase`)
-    const first = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first();
+    // FC2-4 (EDITOR-MAP D1, D5, D8): the old left dock (`.fx-left`) is his dock group holding the Assets tab, the Assets
+    // panel drawn in that tab's body (`./forgeBase` `dockOf`, `panel`).
+    const left = dockOf(page, 'assets');
+    const assets = left.locator(':scope > .fx-dg-body > details.fx-panel[data-forge-panel="asset-browser"]');
+    const first = assets.locator('ul.fx-assets > li[data-asset]').first();
     await expect(first).toBeVisible({ timeout: 120_000 });
-    await expect(page.locator('.fx-left > details.fx-panel[data-forge-panel="asset-browser"]')).toHaveCount(1);
-    await expect(page.locator('.fx-left > [data-forge-tabs] [data-forge-tab="assets"]')).toHaveAttribute('draggable', 'true');
-    const dock = await page.locator('.fx-left').boundingBox();
-    const filters = await page.locator('.fx-left [data-forge-panel="asset-browser"] .fx-asset-filters').boundingBox();
+    await expect(assets).toHaveCount(1);
+    // The Assets tab movable: the old tab's `draggable` is gone (EDITOR-MAP D7: his tabs drag by the pointer,
+    // `../src/forge/shell/dockShell.ts` `startTabDrag`); his movable tab is the one that wears its own close
+    // (`tabButton`: `.fx-dg-tab-close` only `if (movable)`).
+    await expect(left.locator('.fx-dg-tabs > .fx-dg-tab[data-forge-tab="assets"] > .fx-dg-tab-close')).toHaveCount(1);
+    const dock = await left.boundingBox();
+    const filters = await assets.locator('.fx-asset-filters').boundingBox();
     const row = await first.boundingBox();
     if (!dock || !filters || !row) throw new Error('the dock, the filter row or the row has no box');
     // The filter row whole: its chips' full height drawn, not shrunk by the column (the today shot's clip).
-    for (const chip of await page.locator('.fx-left [data-forge-panel="asset-browser"] .fx-asset-filters .fx-chip').all()) {
+    for (const chip of await assets.locator('.fx-asset-filters .fx-chip').all()) {
       const b = await chip.boundingBox();
       if (!b) throw new Error('a filter chip has no box');
       expect(b.y).toBeGreaterThanOrEqual(filters.y - 0.5);
@@ -45,6 +52,6 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
     expect(dock.y + dock.height).toBeLessThanOrEqual(size.height + 0.5);
     // `scroll`, not `auto`: the Overhaul (36ddf4282) gave the list an always-drawn scrollbar with a stable gutter
     // (`../src/forge/forge.css` `.fx-assets`: overflow-y scroll, scrollbar-gutter stable); it still scrolls in its own box.
-    expect(await page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets').evaluate((el) => getComputedStyle(el).overflowY)).toBe('scroll');
+    expect(await assets.locator('ul.fx-assets').evaluate((el) => getComputedStyle(el).overflowY)).toBe('scroll');
   });
 }

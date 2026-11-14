@@ -630,12 +630,33 @@ describe('the engine\'s node blend (FUN_00577000, FUN_00576e30, FUN_00306ae0)', 
 });
 
 describe('the turn in place (FUN_00586050, FUN_00583960)', () => {
-  it('the step\'s speed: |turn / turn_maxrate| x the stance\'s share, capped; backwards turning left', () => {
-    expect(turnStepSpeed(-2.236, 'stand')).toBeCloseTo(0.6, 9);    // full right: 1.118 x 0.6 capped at 0.6
+  it('the step\'s speed: |2 x turn / turn_maxrate| x the stance\'s share, capped; backwards turning left', () => {
+    expect(turnStepSpeed(-2.236, 'stand')).toBeCloseTo(0.6, 9);    // full right: 2 x 1.118 x 0.6 capped at 0.6
     expect(turnStepSpeed(2.236, 'stand')).toBeCloseTo(-0.6, 9);    // full left: backwards
-    expect(turnStepSpeed(-1, 'stand')).toBeCloseTo(0.3, 9);
-    expect(turnStepSpeed(-1, 'crouch')).toBeCloseTo(0.15, 9);
+    // AH-5.2 re-pins: axis 0.5 x 2 reaches the cap (FUN_00583960's |2 x axis|); *was* 0.3 and 0.15 at |axis| x share
+    expect(turnStepSpeed(-1, 'stand')).toBeCloseTo(0.6, 9);
+    expect(turnStepSpeed(-1, 'crouch')).toBeCloseTo(0.3, 9);
     expect(turnStepSpeed(-4, 'prone')).toBeCloseTo(0.35, 9);
+  });
+
+  it('AH-5.2: the speed is min(share, |2 x axis| x share) -- the Q16 turn at 4.9 deg/s steps 0.0789 cycles a second', () => {
+    // FUN_00583960's fabs argument is -2 x the axis (r0001 0x58399c-0x5839a8: 2.0 loaded, the axis negated, multiplied;
+    // 0x5839c4 the fabs; r0004 0x588f9c), not the axis -- finding 18's reading (seat 8a, 2026-11-14T02:25Z). The
+    // arithmetic below is that reading's; the harness's Q16 rows (b0's fl0 run, table (vi)) match it within 1-2%:
+    // stand-turnL -0.0788 c/s on the original, crouch-turnL -0.0641.
+    expect(turnStepSpeed(0.0855, 'stand')).toBeCloseTo(-0.0513, 9);  // axis 0.04275: |2 x axis| x 0.6, backwards (left)
+    expect(turnStepSpeed(-0.0855, 'stand')).toBeCloseTo(0.0513, 9);
+    expect(turnStepSpeed(0.0855, 'stand') / 0.65).toBeCloseTo(-0.0789, 4);   // seal_step's playback 0.65: cycles a second
+    expect(turnStepSpeed(0.0855, 'crouch')).toBeCloseTo(-0.02565, 9);       // |2 x 0.04275| x 0.3
+    expect(turnStepSpeed(0.0855, 'crouch') / 0.4).toBeCloseTo(-0.0641, 4);  // seal_crouch_step's playback 0.4
+    expect(turnStepSpeed(0.0855, 'prone')).toBeCloseTo(-0.029925, 9);      // |2 x 0.04275| x 0.35
+    // the cap: an axis of 0.5 (the turn 1 rad/s over turn_maxrate 2) already gives the whole share
+    expect(turnStepSpeed(-1, 'stand')).toBeCloseTo(0.6, 9);
+    expect(turnStepSpeed(-1, 'crouch')).toBeCloseTo(0.3, 9);
+    expect(turnStepSpeed(1, 'prone')).toBeCloseTo(-0.35, 9);
+    expect(turnStepSpeed(-1.2, 'stand')).toBeCloseTo(0.6, 9);
+    // under the cap, the speed is linear in the axis: axis 0.25 is half the share
+    expect(turnStepSpeed(-0.5, 'stand')).toBeCloseTo(0.3, 9);
   });
 
   it('standing still and turning plays seal_step, crouched seal_crouch_step, prone seal_prone_turn, at that speed', () => {
@@ -649,11 +670,13 @@ describe('the turn in place (FUN_00586050, FUN_00583960)', () => {
     expect(anim.stats()).toMatchObject({ clip: 'seal_step', play: 'turn:stand' });
     expect(anim.stats().nodes[0]!.speed).toBeCloseTo(0.6, 9);
     expect(anim.stats().rate).toBeCloseTo((0.6 / 0.65) * 20, 6);   // 0.6 of a cycle per 0.65 s
-    anim.step(1 / 60, { ...REST, turnRate: -1 });
+    // AH-5.2 re-pin: the turn -0.5 (axis 0.25, |2 x axis| x 0.6 = 0.3), *was* -1 -- under the |2 x axis| law -1 is
+    // already at the cap (0.6), the step before's speed, and would not show the speed following the turn
+    anim.step(1 / 60, { ...REST, turnRate: -0.5 });
     expect(anim.stats().nodes[0]!.speed).toBeCloseTo(0.3, 9);       // the speed follows the turn, no new play
     anim.step(1 / 60, { ...REST, stance: 'crouch', turnRate: 1 });
     expect(anim.stats()).toMatchObject({ clip: 'seal_crouch_step', play: 'turn:crouch' });
-    expect(anim.stats().nodes[0]!.speed).toBeCloseTo(-0.15, 9);
+    expect(anim.stats().nodes[0]!.speed).toBeCloseTo(-0.3, 9);      // AH-5.2 re-pin: axis 0.5 x 2 caps at 0.3; *was* -0.15
     anim.step(1 / 60, { ...REST, stance: 'prone', turnRate: 1 });
     expect(anim.stats().clip).toBe('seal_prone_turn');
     anim.step(1 / 60, { ...REST, turnRate: 0 });

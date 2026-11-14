@@ -458,6 +458,97 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(r.sent).toEqual(['switchTeams', 'switchTeams']);
   });
 
+  /**
+   * LOBBY-START (research 159 §10.1 item 4; reading, pending review): MP_EIGHTY_READY is raised by the host's
+   * `FUN_002c40c0` (D:L165503-165506) into its own dialog, whose `launch_10sec_anim` (P:L7631-7648) runs .DINK, then
+   * `NoTriangle` 1, `mp_locked_game` 1, `ForceMPLaunch` and the three `DisableButton`s -- at once, before `CountDown`'s
+   * own (clock under 11). The server raises it here (EIGHTY_READY_SERVER_ADAPTATION), so the host's page is
+   * given the event when the room's view brings a new countdown; its `ForceMPLaunch` is that countdown, sent nothing.
+   */
+  it('LOBBY-START: the host\'s page runs launch_10sec_anim at a new countdown -- .DINK, NoTriangle and mp_locked_game 1, the three buttons disabled at once, no `launch` sent', async () => {
+    const r = await lobby();
+    const hostSeats = [{ ...TWO[0]!, host: false }, { ...TWO[1]!, host: true, readyIn: 0 }];
+    r.commands.gameLobby(view(hostSeats));
+    await r.settle(4 * SECOND);
+    const enabled = () => ['Glswitchteams', 'weaponselect', 'PlayerReady'].map(name => r.input.ring()!.controls.find(c => c.name === name)!.enabled());
+    const sounds = r.sound.log.length;
+    r.commands.gameLobby(view(hostSeats, { countdown: 11 }));
+    await r.settle(6);                                                   // a fifth of a second
+    expect(r.sound.log.slice(sounds).some((l) => l.includes('.DINK'))).toBe(true);
+    expect([r.valve('NoTriangle'), r.valve('mp_locked_game')]).toEqual([1, 1]);
+    expect(enabled()).toEqual([false, false, false]);
+    expect(r.sent.filter((s) => s === 'launch')).toEqual([]);
+    r.commands.gameLobby(view(hostSeats, { countdown: 10 }));            // the same countdown's next view: no second run
+    await r.settle(6);
+    expect(r.sent.filter((s) => s === 'launch')).toEqual([]);
+  });
+
+  it("LOBBY-STEPS: the room calls the host's countdown off, then starts another -- the animation runs once each time, no `launch` sent; BACK reopened by LSR.R1's recovery, mp_locked_game left 1 (no script or page code reads it)", async () => {
+    const r = await lobby();
+    const hostSeats = [{ ...TWO[0]!, host: false }, { ...TWO[1]!, host: true, readyIn: 0 }];
+    r.commands.gameLobby(view(hostSeats));
+    await r.settle(4 * SECOND);
+    const dinks = (from: number) => r.sound.log.slice(from).filter((l) => l.includes('.DINK')).length;
+    let mark = r.sound.log.length;
+    r.commands.gameLobby(view(hostSeats, { countdown: 11 }));
+    await r.settle(6);
+    expect(dinks(mark)).toBe(1);
+    r.commands.gameLobby(view(hostSeats));                               // the room's call-off (a side emptied, the port's rule)
+    await r.settle(12 * SECOND);
+    expect([r.valve('NoTriangle'), r.valve('mp_x_sec_clock'), r.valve('mp_locked_game')]).toEqual([0, 11, 1]);
+    mark = r.sound.log.length;
+    r.commands.gameLobby(view(hostSeats, { countdown: 11 }));            // a new countdown: the animation again
+    await r.settle(6);
+    expect(dinks(mark)).toBe(1);
+    expect(r.valve('NoTriangle')).toBe(1);
+    expect(r.sent.filter((s) => s === 'launch')).toEqual([]);
+  });
+
+  it("LOBBY-STEPS F1: the countdown and the room's call-off in one frame -- the queued animation never runs: BACK and the three buttons open, no .DINK, no `launch`", async () => {
+    const r = await lobby();
+    const hostSeats = [{ ...TWO[0]!, host: false }, { ...TWO[1]!, host: true, readyIn: 0 }];
+    r.commands.gameLobby(view(hostSeats));
+    await r.settle(12 * SECOND);
+    const mark = r.sound.log.length;
+    r.commands.gameLobby(view(hostSeats, { countdown: 11 }));
+    r.commands.gameLobby(view(hostSeats));                               // no settle between: the animation only queued
+    await r.settle(12 * SECOND);
+    const enabled = () => ['Glswitchteams', 'weaponselect', 'PlayerReady'].map(name => r.input.ring()!.controls.find(c => c.name === name)!.enabled());
+    expect(r.valve('NoTriangle')).toBe(0);
+    expect(enabled()).toEqual([true, true, true]);
+    expect(r.sound.log.slice(mark).filter((l) => l.includes('.DINK'))).toEqual([]);
+    expect(r.sent.filter((s) => s === 'launch')).toEqual([]);
+  });
+
+  it("LOBBY-STEPS F1: after a call-off that stopped the queued animation, a new countdown runs it once, its ForceMPLaunch still sending nothing", async () => {
+    const r = await lobby();
+    const hostSeats = [{ ...TWO[0]!, host: false }, { ...TWO[1]!, host: true, readyIn: 0 }];
+    r.commands.gameLobby(view(hostSeats));
+    await r.settle(12 * SECOND);
+    r.commands.gameLobby(view(hostSeats, { countdown: 11 }));
+    r.commands.gameLobby(view(hostSeats));
+    await r.settle(12 * SECOND);
+    const mark = r.sound.log.length;
+    r.commands.gameLobby(view(hostSeats, { countdown: 11 }));
+    await r.settle(6);
+    expect(r.sound.log.slice(mark).filter((l) => l.includes('.DINK')).length).toBe(1);
+    expect([r.valve('NoTriangle'), r.valve('mp_locked_game')]).toEqual([1, 1]);
+    expect(r.sent.filter((s) => s === 'launch')).toEqual([]);
+  });
+
+  it('LOBBY-START: a joiner\'s page is given no MP_EIGHTY_READY -- no .DINK and no lock at the countdown\'s first view; CountDown closes BACK and the buttons under 11, as the disc has it', async () => {
+    const r = await lobby();
+    await r.settle(12 * SECOND);
+    const sounds = r.sound.log.length;
+    r.commands.gameLobby(view(TWO, { countdown: 11 }));
+    await r.settle(6);
+    expect(r.sound.log.slice(sounds).some((l) => l.includes('.DINK'))).toBe(false);
+    expect(r.valve('mp_locked_game') ?? 0).toBe(0);
+    await r.settle(2 * SECOND);
+    expect(r.valve('NoTriangle')).toBe(1);
+    expect(r.input.ring()!.controls.find(c => c.name === 'PlayerReady')!.enabled()).toBe(false);
+  });
+
   it('SWITCH-RECOVERY: cancellation restores the waiting lobby and its switch command', async () => {
     const r = await lobby();
     await r.settle(12 * SECOND);
@@ -834,6 +925,31 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(r.calls('dlgNetAbort.rdr').filter((c) => /DisconnectFromGameServer|SWITCHMENU/.test(c))).toEqual(['DisconnectFromGameServer(NA) table', 'SWITCHMENU(dlgWorldOfSOCOM.rdr) table']);
     expect(r.builds.slice(-2)).toEqual(['dlgNetAbort.rdr', 'dlgWorldOfSOCOM.rdr']);
     expect([r.valve('mp_net_errno'), r.socketLog, r.lobby.state()]).toEqual([undefined, ['open 7', 'close'], 11]);
+  });
+
+  /**
+   * VERSION-ABORT, the players-view rehearsal's stage A (i)/(ii) (2026-11-14, b0's local stacks): the room refuses a
+   * creator's hello some 5 ms after the socket opens, while CREATE GAME is still the built dialog -- it binds no
+   * MP_VERSION_NUMBER_ERROR, so the post was lost and the page sat in an empty GAME LOBBY (connected false, inLobby true,
+   * no seat). In the original the mismatch is met where a dialog answers it (`FUN_002c0850` posts to the current
+   * dialog, the GAME LOBBY's `version_failure_2`, the BRIEFING ROOM's `version_failure_1`): the post is held until one
+   * of the two is built (`VERSION_ABORT_HELD_ADAPTATION`), then the lobby's own abort runs as above.
+   */
+  it('VERSION-ABORT: a creator\'s hello refused before the GAME LOBBY is built -- the post held for the lobby, then version_failure_2, dlgNetAbort.rdr, SOCOM II ONLINE; no errno', async () => {
+    const r = await briefing({ refuse: versionRefusalText(15, 16), lobbyView: (id) => view([seat(id, 'socomc', 'seal', { host: true })]) });
+    go(r, 'CRgame');
+    r.press('CROSS', 4);
+    await until(r, () => r.current() === CREATE_GAME, 10 * SECOND);
+    await r.settle(SETTLED);
+    r.uiVars.set(r.uiVars.add('GAMENAMEVAR', null, 2), { type: 'string', value: 'mine' });
+    r.uiVars.set(r.uiVars.add('PLAYLISTVAR', null, 2), { type: 'array', value: [{ type: 'array', value: [{ type: 'int', value: 2 }] }] });
+    r.press('SQUARE', 4);
+    await until(r, () => r.socketLog.length > 0, 20 * SECOND);
+    await until(r, () => r.current() === 'dlgWorldOfSOCOM.rdr' && r.builds.at(-1) === 'dlgWorldOfSOCOM.rdr', 30 * SECOND);
+    await r.settle(SETTLED);
+    expect(r.builds.slice(-3)).toEqual([GAME_LOBBY, 'dlgNetAbort.rdr', 'dlgWorldOfSOCOM.rdr']);
+    expect(r.calls('dlgNetAbort.rdr').filter((c) => /DisconnectFromGameServer|SWITCHMENU/.test(c))).toEqual(['DisconnectFromGameServer(NA) table', 'SWITCHMENU(dlgWorldOfSOCOM.rdr) table']);
+    expect([r.valve('mp_net_errno'), r.socketLog]).toEqual([undefined, ['open 9', 'close']]);
   });
 
   it('leaving: TRIANGLE asks #362; yes -- #363, DisconnectFromGameServer (the socket closed, /lobby/leave-game, state 11), back to the briefing room', async () => {

@@ -73,11 +73,29 @@ let reached = -1;
 export function loadPhaseReached(): number { return reached; }
 
 /**
+ * XBOX-790-LOADDIAG (PR #790's piece 3; `./matchDiag`'s stage lane): when the latest `load-start` was marked
+ * (`performance.now()`), or null before the first -- so a diagnostic made after the load began (the match's chunk comes
+ * in after the front end's `load-start`) can count from it.
+ */
+let startedAt: number | null = null;
+export function loadStartedAt(): number | null { return startedAt; }
+
+/**
+ * XBOX-790-LOADDIAG: the one listener told each phase as it is marked, or null -- set by the match's chunk
+ * (`./matchDiagPage` `followLoad`), so this module imports none of the diagnostic (OT.R12). A listener that throws is
+ * ignored: an instrument does not stop a load.
+ */
+let listener: ((phase: LoadPhase) => void) | null = null;
+export function setLoadMarkListener(fn: ((phase: LoadPhase) => void) | null): void { listener = fn; }
+
+/**
  * One phase reached. A `load-start` clears the earlier load's marks first, so each summary is one load's. At the first
  * frame the summary is logged once. Never throws: an instrument does not stop a load.
  */
 export function markLoad(phase: LoadPhase, perf: LoadMarkClock | null = pagePerformance(), log: (line: string) => void = (l) => { console.info(l); }): void {
   reached = phase === 'load-start' ? 0 : Math.max(reached, LOAD_PHASES.indexOf(phase));
+  if (phase === 'load-start') startedAt = typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : null;
+  try { listener?.(phase); } catch { /* an instrument never stops the load */ }
   if (!perf) return;
   try {
     if (phase === 'load-start') { for (const p of LOAD_PHASES) perf.clearMarks?.(LOAD_MARK_PREFIX + p); perf.clearMarks?.(LOBBY_PREPARED_MARKS.found); perf.clearMarks?.(LOBBY_PREPARED_MARKS.none); }

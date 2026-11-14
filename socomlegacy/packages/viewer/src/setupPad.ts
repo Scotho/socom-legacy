@@ -65,6 +65,8 @@ function crossThroughSeam(p: PadLike | null, owns: boolean): PadLike | null {
     ...(p.nativePressure !== undefined ? { nativePressure: p.nativePressure } : {}),
     ...(p.stanceCancelled !== undefined ? { stanceCancelled: p.stanceCancelled } : {}),
     ...(p.stanceOff !== undefined ? { stanceOff: p.stanceOff } : {}),
+    ...(p.triangleFromProneOnly !== undefined ? { triangleFromProneOnly: p.triangleFromProneOnly } : {}),
+    ...(p.stickZone !== undefined ? { stickZone: p.stickZone } : {}),   // PZG review F2: the zone the sticks were guarded with
   };
 }
 

@@ -319,8 +319,10 @@ in which the engine applies `Rot`), with the spectator camera's other captures.
   seat (role, own id, team, the teams, the rules, the ghost), `spectate(pose | null)`, `leaveSelf()` (the walk to the
   fly camera, at the dead's first cycle), `views()` and `escortee(id)` (the port seats none: no wire field carries
   `+200 & 0x20000` yet). Pure helpers: `deadCycleRuns`, `previousFollow`, `scenicStep`, `segmentDistance`,
-  `jumpToVisible`, `cameraEye` (a camera's eye off `matrixWorld`, undefined for a stand-in), `followPose` (24.906
-  behind, 25.709 over, pitch -9.167: the third-person rest, research 83 and 88, moved from `netPage.ts`'s `followBody`).
+  `jumpToVisible`, `cameraEye` (a camera's eye off `matrixWorld`, undefined for a stand-in), `followPose` (moved from
+  `netPage.ts`'s `followBody`; since LATER 1017, 2026-11-13, 28.75 behind, 21.484 over, pitch 0: the rendering
+  follow's level view standing on open ground, research 382 s7; was 24.906 / 25.709 / -9.167, the player's own spawn
+  rest, research 83 and 88).
 - `packages/viewer/src/mapMeta.ts`: `ScenicView`, `SCENIC_VIEWS_READING`, `scenicViewsFromRdr`, `scenicViewsOf(bytes,
   toc)`; `packages/viewer/src/loadMap.ts`: `LoadedMap.scenicViews` (absent when none), read beside `missionName`.
 - Tests: `packages/viewer/test/spectatorView.test.ts` (six), `packages/viewer/test/mapMeta.test.ts` (the MP2 layout,

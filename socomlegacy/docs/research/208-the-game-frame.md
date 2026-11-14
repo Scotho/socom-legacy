@@ -199,3 +199,55 @@ the turn is the frames' right sum of the continuous ramp, full at 0.4185 s; a pa
 frame. Retitled with the ruling: `accuracy.test.ts` (the 29.97 a second, the constrict, each frame's own look rate),
 `look.test.ts` (the look law every drawn frame), `shotCone.test.ts` (the cone continuous on commands);
 `weapons.parity.test.ts` and `grenade.test.ts`'s tumble test follow.
+
+## 10. MISSION R8.1: a per-frame threshold rule judged over one game frame; the stick's read measured (Q12, 2026-11-14)
+
+R8 runs every per-frame law continuously at its per-second rate (§9). R8.1 (MISSION, R8.1; the owner's merge word
+recorded there) adds one kind R8 does not cover: a rule that judges **the change between two of the original's frames
+against a threshold**. Its case is the stick throttle's snap, `FUN_00586c10`: an axis past 0.78 lateral or 0.9 forward
+on the last frame, changing faster than 7.8 or 9 a second, takes the pad's value whole; otherwise it ramps at 5 a
+second. Run on every 60 Hz tick, that test splits a fast flick across two checks, so part of it ramps (finding 17, the
+slow strafe reversal). The port (option B, `agent/throttle-frame`) keeps the continuous ramp and judges the snap against
+the value at the last game frame's end (`Walker`'s `snapRef_`, the frames numbered by `throttleFrameEnds` from the
+command's `commandSeq`): a **browser adaptation** of the rule's window to one `GAME_FRAME_DT`, labelled so in
+`mover.ts`, with no input delay added. A press from rest has no tail snap: from a frame-end value of 0 the axis is never
+past the threshold, so it ramps to 1 at 5 a second, as the original's stair-steps do.
+
+**The capture (rig Q12, 2026-11-14; scored by seat 8a, 2026-11-14T01:20Z).** The original in PCSX2 (r0004,
+`seal_A_scuba` at c1), the keyboard mapped to the left stick (digital, full deflection), key reversals with a host-clocked
+centre gap of g ms, the throttle's words read at about 1.36 kHz. Evidence: the rig's files under the private bucket's
+`gate-runner/shadow/out/2026-11-14/q10-hitreg/q12-strafe/`, copied with the score to
+`agent-mail/evidence/deadzone-shark/q12/` (`rows.csv`, `commands.csv`, `q12-score-8a-2026-11-14.md`).
+
+| g (ms) | runs | the centre seen | min(1, g / 33.37) |
+|---|---|---|---|
+| 0 | 6 | 0 (one whole snap each) | 0 % |
+| 10 | 20 | 3 (15 %) | 30 % |
+| 20 | 20 | 12 (60 %) | 60 % |
+| 27 | 20 | 16 (80 %) | 81 % |
+| 33 | 10 | 9 (90 %) | 99 % |
+| 50, 80, 150, 500 | 10, 6, 6, 6 | all | 100 % |
+
+**Proven** (measured on the original running, within the tolerance below):
+- **The read interval is one game frame.** A centre gap is seen only when a frame's read falls inside it, about g / 33
+  ms of the runs; a 60 Hz read would have seen all 20 runs at 20 ms (12 were seen), so 60 Hz is refused.
+- **The ramp is one 1/6 step a frame.** Every seen reversal steps 0, ±0.167, 0.334, 0.5, 0.667, 0.834, 1: 408 steps,
+  median spacing 34 ms (mode 33-34), about 4.9-5.0 a second, the port's 5 a second run continuously (R8).
+- **A gap no read catches is one whole jump** from +1 to -1 (the snap's branch).
+
+**Tolerance.** The rows' binomial spread, about ±0.2 at 20 runs. The 10 and 33 ms rows both run low (about a 1 % chance
+together under the plain g / 33.37 law), which fits a small fixed read latency: **open**, and it does not move the window.
+
+**Reading, not proven:** the snap's thresholds and rates (0.78 / 0.9 past, 7.8 / 9 a second), transcribed from
+`FUN_00586c10` (D:L445017-445031) and not separated by this run (a digital pad only steps -1, 0, +1). Also open: which of
+the throttle's two words (`+0x244`, `+0x248`) the throttle writes and which is a copy -- both take the ramp's values on
+the same reads (472 of 525 changes together, the rest within ±1 ms) -- and about 9 % of the ramp's samples on 1/12 marks
+(the step may be the rate times the measured frame time; unread).
+
+**What holds it.** `packages/viewer/test/throttleFrame.test.ts`, the describe "THROTTLE-FRAME (R8.1) against the
+capture rig's Q12, 2026-11-14, proven" (:336 on): per gap, the port's chance of seeing the centre over 240 frame phases
+within 0.06 of min(1, g / 33.37), a snap within a frame, and a seen ramp at 5 a second. It compares the port against the
+capture's rows as transcribed above. **Owed** (not built): the capture scored by the repository's own harness. The
+score above was made by a scratchpad script (`q12score.py`, run with `python -I`), so no test re-reads `rows.csv`;
+owed is a scorer in `tools/` with a golden of Q12's rows, or the rig's files as a fixture, so the proven rows are held by
+the capture itself, not by their transcription.

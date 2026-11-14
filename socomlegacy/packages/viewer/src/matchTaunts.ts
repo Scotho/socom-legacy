@@ -13,7 +13,7 @@ import { tauntText } from './tauntSettings';
 import { TAUNT_SLOTS } from './taunts';
 import { botDisplayName, plainBotText } from './botPresentation';
 import { mountHeadset, type Headset } from './voice/headset';
-import { TalkInput, VOICE_ROUND_TALK_BUTTON_READING } from './voice/talkInput';
+import { TalkInput, controllerTalkBinding } from './voice/talkInput';
 import { controllerConfigs } from './controllerConfigs';
 
 /**
@@ -213,7 +213,7 @@ export function mountTaunts(d: MatchTauntsDeps): MatchTaunts {
       // OPT-14 (research 344 §7): the round's TeamCommand button is the active controller config's; the development key
       // stands for TeamCommand in every preset (OT.R29: a preset changes the pad's map only, never the keys).
       const preset = controllerConfigs.active;
-      const keys = [...headset.keys('round')].map((b) => (b === 'Circle' ? VOICE_ROUND_TALK_BUTTON_READING[preset].teamCommand : b));
+      const keys = [...headset.keys('round')].map((b) => (b === 'Circle' ? controllerTalkBinding(preset).teamCommand : b));
       const f = talk.frame(clock(), keys.length ? new Set([...held, ...keys]) : held, {
         phase: 'round', preset, runAndTalk: d.runAndTalk?.() ?? false, menuAllowed: allowed && !died, talkAllowed: !!gate?.inMatch && !d.otherMenu() && !(d.aborting?.() ?? false),
         lateJoiner: false, padPresent: h.padPresent, focused: h.focused,

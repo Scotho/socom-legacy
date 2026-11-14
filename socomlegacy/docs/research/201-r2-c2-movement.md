@@ -79,6 +79,14 @@ Not re-opened, because round 1 did research them: `AIM_WEIGHT_PLACEHOLDER`, `PEE
     - `FUN_005c4fd0(weapons)`.
 
     Otherwise it plays the refusal sound `FUN_003419c0`.
+
+    [2026-11-13, reading, pending review: a refused L1 / L2 is **silent**, in the original and in the port alike.
+    `FUN_003419c0` (D:L241460-241467) plays only while `DAT_0048dd90` is non-null, and `DAT_0048dd90` is set after every
+    block load (D:L242747) to `FUN_00344f30`'s lookup of the literal at ELF 0x3f7858, `SND_NEG`, which no `sounds.rdr`
+    `SETS` entry of any block and no `GROUPS` group carries (research 122 R122.10 and section 8; the whole script pinned
+    by `packages/sound/test/refusalSoundDisc.test.ts`). The port's L2 is skipped with RUN AND TALK on as the original's
+    is (`packages/viewer/src/matchLanes.ts` `playerLanes`, `runAndTalk` from the START menu's `DAT_0044d4f8`,
+    D:L61749-61755).]
   - The HUD weapon menu `FUN_0021bda0` opens behind the same `FUN_005a8cb0` + `FUN_005c4fd0` test
     (D:L72829-72845).
   - The animation is not the gate. `FUN_005a64c0` is reached only from `FUN_005c1660` (the raise-state tick,

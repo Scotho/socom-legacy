@@ -1,5 +1,6 @@
 import {
-  decodeCommands, decodeCommandsV10, decodeSnapshot, decodeSnapshotV10, encodeCommands, encodeSnapshot, PROTOCOL_VERSION,
+  decodeCommands, decodeCommandsV10, decodeCommandsV15, decodeSnapshot, decodeSnapshotV10, decodeSnapshotV15, encodeCommands, encodeSnapshot,
+  PROTOCOL_VERSION,
   type BodyState, type Command, type CommandBatch, type CraneWire, type DoorWire, type EnvWire, type HostageWire, type Role, type Rules, type ServerEvent,
   type Team,
 } from '../../../viewer/src/sim';
@@ -15,7 +16,8 @@ import {
  *
  * The layout: a file is a stream of records, each a u8 tag, a u32 payload length (little endian) and the payload. The
  * tags: header 1, players 2, snap 3, event 4, cmd 5, mark 6, end 7, hostages 8 (format 2, RE-2), refusal 9 (format 3,
- * SIMDROP-INSTR). JSON records (header, players, event, mark, end, hostages, refusal) are UTF-8 JSON of the record without its `kind`. A `snap` payload is the wire's `Frame.Snapshot` exactly
+ * SIMDROP-INSTR), rewind 10 (format 4, FIRE-LAYER FL-2). JSON records (header, players, event, mark, end, hostages,
+ * refusal, rewind) are UTF-8 JSON of the record without its `kind`. A `snap` payload is the wire's `Frame.Snapshot` exactly
  * (`own: null`; its tick is the record's) of the header's protocol -- since protocol 11 (NET-WIRE) with the environment
  * always named (a seek lands on any snapshot) and the feet's origin the bodies' own bounds' centre. A `cmd` payload is a u32 tick and a u32 player id, then the wire's
  * `Frame.Commands` with one command (`viewTick` the tick): the wire frame carries no player id, and its `viewTick` is
@@ -36,6 +38,16 @@ import {
  * file that may hold one says so in its header; this build reads 1, 2 and 3 (a format-2 reader would have skipped the
  * kind by its length, but refuses a format-3 header).
  *
+ * FIRE-LAYER FL-2 (LATER 1026; REPLAY_ADAPTATION, a playtest and field-report instrument with no original): a
+ * `rewind` record (tag 10) -- for each round the room judged (each that makes a `shot` event; written just before it, the
+ * same tick), the shooter's seat and the round's `seq`, the tick its bodies were rewound to (`at`), the round's displayed
+ * tick when it carried a valid one (`Room.shownOf`) and its `viewTick`, and for each body record the round's walk struck,
+ * in the walk's order, the body, hostage or not, the part, its `raised` flag at `at` and the Fire weight the room's poser
+ * kept with that tick's pose (`HitPoser.fireWeightAt`) -- so a field report's shot can be re-judged from the file. It
+ * changes nothing the room does. A replay-only kind: never a wire `ServerEvent`, never sent to a page. The version moved
+ * to 4 as `refusal`'s did, so a file that may hold one says so in its header; this build reads 1 to 4, and a format-3 file
+ * (which never holds tag 10) reads exactly as before.
+ *
  * SEEK_SNAPSHOT_RULE_ADAPTATION (the design's seek rule, spec 4.1): a seek lands on the nearest `snap` at or before
  * the target tick; the events between that snapshot and the target are skipped, never replayed (a tracer or a
  * grenade's arc is transient; the next event draws itself). A `cmd` stream is for investigators, never for playback.
@@ -47,12 +59,12 @@ export const SEEK_SNAPSHOT_RULE_ADAPTATION =
   'SEEK_SNAPSHOT_RULE_ADAPTATION: a seek lands on the nearest snap at or before the target tick; the events between ' +
   'are skipped, never replayed (spec 4.1, research 240 §3)';
 
-export const REPLAY_FORMAT_VERSION = 3;
+export const REPLAY_FORMAT_VERSION = 4;
 /**
- * The formats this build reads, oldest first: 1 (no `hostages` record), 2 (RE-2) and 3 (SIMDROP-INSTR's `refusal`). A
- * writer writes `REPLAY_FORMAT_VERSION`.
+ * The formats this build reads, oldest first: 1 (no `hostages` record), 2 (RE-2), 3 (SIMDROP-INSTR's `refusal`) and 4
+ * (FIRE-LAYER FL-2's `rewind`). A writer writes `REPLAY_FORMAT_VERSION`.
  */
-export const REPLAY_FORMATS: readonly number[] = [1, 2, 3];
+export const REPLAY_FORMATS: readonly number[] = [1, 2, 3, 4];
 /** The first format whose reader skips a record of a kind it does not know (RE-2, W38.R2). */
 const SKIPS_UNKNOWN_FROM = 2;
 export const REPLAY_EXTENSION = '.s2r';
@@ -80,6 +92,25 @@ export interface ReplayRefusal {
   locus: number[] | null; distance: number | null; lens: boolean;
   feet: number[]; groundNormalY: number; airborne: boolean; stance: string;
 }
+/**
+ * FIRE-LAYER FL-2 (REPLAY_ADAPTATION; an instrument, it changes nothing the room does): one body record a judged
+ * round's walk struck (`Room.fireAt`'s `path.struck`, a body's), in the walk's order -- the body's id, whether it is a
+ * hostage, the part its record applies (`NO_PART`, -1, for a bone that takes nothing), its `raised` flag at the round's
+ * `at` (`BodyFlag.Raised` as the room relayed it that tick; null for a hostage, which has none) and the Fire weight the
+ * room's poser kept with that tick's pose (`HitPoser.fireWeightAt`; null where no pose was kept: no motion, a mounted
+ * gunner, a hostage, or the ring written over).
+ */
+export interface ReplayRewindBody { id: number; hostage: boolean; part: number; raised: boolean | null; weight: number | null }
+/**
+ * FIRE-LAYER FL-2: a judged round's rewind (`Room.fireAt`) -- the shooter's seat and the round's `seq` (its `shot` event,
+ * the record after it in the file, names the seat as `id`), the tick its bodies were rewound to (`at`), the round's
+ * displayed tick when it carried a valid one (`shown`: the `shownTick` `Room.shownOf` accepted, before the cap's clamp;
+ * else null) and its `viewTick`, and the body records its walk struck (`ReplayRewindBody`, an empty list for none).
+ */
+export interface ReplayRewind {
+  seat: number; seq: number; at: number; shown: number | null; viewTick: number;
+  bodies: ReplayRewindBody[];
+}
 export interface ReplayPlayer { id: number; name: string; team: Team | null; role: Role; char: number; /** FBA.R10: optional assigned regional bot appearance. */ character?: string; /** FBA.R12: trusted CPU seat. */ bot?: true }
 export type ReplayRecord =
   | { kind: 'header'; header: ReplayHeader }
@@ -92,13 +123,16 @@ export type ReplayRecord =
   /** RE-2 (W38.R2): EXTRACTION's roster as the welcome carries it (`welcome.hostages`), at a segment's open and on a change. */
   | { kind: 'hostages'; tick: number; hostages: HostageWire[] }
   /** SIMDROP-INSTR (format 3): a `fire: cone: *` refusal with the claim and the room's eye locus; replay-only, never on the wire. */
-  | ({ kind: 'refusal'; tick: number } & ReplayRefusal);
+  | ({ kind: 'refusal'; tick: number } & ReplayRefusal)
+  /** FIRE-LAYER FL-2 (format 4): a judged round's rewind and the raise of each body it struck; replay-only, never on the wire. */
+  | ({ kind: 'rewind'; tick: number } & ReplayRewind);
 
 /**
  * The wire's decoders by protocol (NET-WIRE, PT-01b): the `snap` and `cmd` payloads are the frames of the header's
  * protocol, and the reader picks their decoder by it -- protocol 10's frozen pair (`decodeSnapshotV10`,
- * `decodeCommandsV10`) and the live codec's. A recording of any other protocol is refused, never misdecoded. Live play
- * keeps one version (`Room.hello` refuses a hello of another).
+ * `decodeCommandsV10`), protocol 11 to 15's (`decodeSnapshotV15`, `decodeCommandsV15`; WIRE-16) and the live codec's. A
+ * recording of any other protocol is refused, never misdecoded. Live play keeps one version (`Room.hello` refuses a
+ * hello of another).
  */
 interface WireDecoders {
   snapshot: (bytes: Uint8Array) => { tick: number; bodies: BodyState[]; doors?: DoorWire[]; cranes?: CraneWire[]; env?: EnvWire };
@@ -106,24 +140,28 @@ interface WireDecoders {
 }
 const DECODERS: ReadonlyMap<number, WireDecoders> = new Map<number, WireDecoders>([
   [10, { snapshot: decodeSnapshotV10, commands: decodeCommandsV10 }],
-  // Protocol 11: the live decoders read it exactly -- 12 (SEP-POP) added only the command's bit 3 of the stance byte,
-  // which no 11 writer set (its stance codes 0-3), so an 11 command reads with `separate` false and the snapshot is one.
-  [11, { snapshot: decodeSnapshot, commands: decodeCommands }],
-  // Protocol 12: the live decoders -- 13 (PLANT-AIM) changed the JSON alone (the plant's `bombAction` 'aim').
-  [12, { snapshot: decodeSnapshot, commands: decodeCommands }],
-  // Protocol 13: the live decoders -- 14 (ENEMY-RAISE ER-2) added only the command's bit 7 (`raised`; a 13 weapon is 0 or
-  // 1, so the bit was never set) and the body's `BodyFlag.Raised` (bit 16, never set by a 13 room).
-  [13, { snapshot: decodeSnapshot, commands: decodeCommands }],
-  // Protocol 14: the live decoders -- 15 (PROTO-15, V19.R10) changed the mover's rules alone (LC-1's ladder on the press,
-  // AIR-PROBE, STEEP-LAUNCH), no frame: a 14 recording's bytes read exactly as a 15 one's (match `test/replayFormat.test.ts`).
-  [14, { snapshot: decodeSnapshot, commands: decodeCommands }],
+  // Protocols 11 to 15 share one layout, now frozen (`decodeSnapshotV15`, `decodeCommandsV15`): 16 (WIRE-16, PV.R4) grew a
+  // command 15 -> 18 bytes and a body 52 -> 55 (the player's view's tail), so each reads on the frozen pair, the view's
+  // fields 0 (`VIEW_SINCE_PROTOCOL`). Protocol 11: 12 (SEP-POP) added only the command's bit 3 of the stance byte, which no
+  // 11 writer set (its stance codes 0-3), so an 11 command reads with `separate` false and the snapshot is one.
+  [11, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
+  // Protocol 12: 13 (PLANT-AIM) changed the JSON alone (the plant's `bombAction` 'aim').
+  [12, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
+  // Protocol 13: 14 (ENEMY-RAISE ER-2) added only the command's bit 7 (`raised`; a 13 weapon is 0 or 1, so the bit was
+  // never set) and the body's `BodyFlag.Raised` (bit 16, never set by a 13 room).
+  [13, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
+  // Protocol 14: 15 (PROTO-15, V19.R10) changed the mover's rules alone (LC-1's ladder on the press, AIR-PROBE,
+  // STEEP-LAUNCH), no frame: a 14 recording's bytes read exactly as a 15 one's (match `test/replayFormat.test.ts`).
+  [14, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
+  // Protocol 15: the layout as it stood before WIRE-16 (viewer `net/codecV15.ts`, frozen at the bump).
+  [15, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
   [PROTOCOL_VERSION, { snapshot: decodeSnapshot, commands: decodeCommands }],
 ]);
 /** The protocols whose recordings this build plays, oldest first. */
 export const REPLAY_PROTOCOLS: readonly number[] = [...DECODERS.keys()].sort((a, b) => a - b);
 
 /** The record tags (the u8 before each record). */
-export const REPLAY_TAG = { header: 1, players: 2, snap: 3, event: 4, cmd: 5, mark: 6, end: 7, hostages: 8, refusal: 9 } as const;
+export const REPLAY_TAG = { header: 1, players: 2, snap: 3, event: 4, cmd: 5, mark: 6, end: 7, hostages: 8, refusal: 9, rewind: 10 } as const;
 type Kind = keyof typeof REPLAY_TAG;
 const KIND_OF_TAG = new Map<number, Kind>(Object.entries(REPLAY_TAG).map(([k, t]) => [t, k as Kind]));
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import type { EffectProgram } from '@s2u/scene';
-import { renamedProgram, worldPiecesUnder } from '../../src/forge/placedAccess';
+import { accessTemplates, renamedProgram, withPlacedAccess, worldPiecesUnder, type AccessTemplate } from '../../src/forge/placedAccess';
 
 /**
  * The layout's placed gates and C4 barriers (the owner, 2026-11-06; a browser adaptation, FG.R2): a copy of a disc map's
@@ -46,6 +46,155 @@ describe("a destructible drawn as the map's own geometry", () => {
     ]);
     expect(Array.from(pieces[0]!.prop.matrices)).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     expect(worldPiecesUnder({ world } as never, 'worldmodel/none')).toEqual([]);
+  });
+});
+
+/**
+ * FC2 B(1) (ours, on the imported commit e8acb4d970; the Forge lobby's server half, a browser adaptation): the match
+ * server's library (`match/src/forgeSimMap.ts` `libraryView`) carries no drawn `world` -- the room draws nothing -- so a
+ * root whose drawing is only the map's own geometry (Desert Glory's wall) shows no piece there, yet the page's catalogue
+ * offers it (its world chunks) and a layout may place it: the room keeps it, as the page does, or the two disagree on
+ * which gates and barriers are placed and so on the wire's indices.
+ */
+describe('a library that carries no drawn world (the match server\'s)', () => {
+  // One root, one collision triangle under it, one destructible, no prop: what the room's library holds for a wall
+  // drawn as the map's own geometry. FC2-6 (ours): its node in the zAnim's initial state, as a world chunk's node always
+  // is (`loadMap.ts` `switchPath`) -- the room's one evidence, without a world, that the page can draw it.
+  const library = (extra: Record<string, unknown>) => ({
+    meta: { scene: { destructibles: [{ root: 'worldmodel/wall', health: 100, program: { sequences: [] } }], programs: [] }, actions: [], instances: [],
+      initial: [{ path: 'worldmodel/wall', deactivate: false, saveActive: false, saveTransform: false }] },
+    ground: { fields: Int32Array.of(3, 0, 0, 0, 0, 0), points: Float32Array.of(0, 0, 0, 10, 0, 0, 0, 5, 10), owners: [{ path: 'worldmodel/wall', modelName: 'worldmodel', first: 0, count: 1 }] },
+    props: [], gates: [], ...extra,
+  }) as never;
+
+  it('answers no world piece and keeps the root (today: TypeError, lib.world is not iterable)', () => {
+    expect(worldPiecesUnder({} as never, 'worldmodel/wall')).toEqual([]);
+    const ts = accessTemplates(library({}), 'MP6');
+    expect(ts.map((t) => [t.kind, t.name, t.root, t.owners.length, t.pieces.length])).toEqual([['barrier', 'wall', 'worldmodel/wall', 1, 0]]);
+  });
+
+  it('CONTROL: a library that carries a world draws its chunks, and drops a root with nothing to draw, as today', () => {
+    const world = [{ switchPath: 'worldmodel/wall', alternate: false, order: 2, textureName: 't' }];
+    expect(worldPiecesUnder({ world } as never, 'worldmodel/wall').map(({ prop }) => prop.paths)).toEqual([['worldmodel/wall']]);
+    expect(accessTemplates(library({ world: [] }), 'MP6')).toEqual([]);
+    expect(accessTemplates(library({ world }), 'MP6').map((t) => [t.name, t.pieces.length])).toEqual([['wall', 1]]);
+  });
+
+  /*
+   * FC2-6 item 2 (ours; B(1)'s unchecked case, 2026-11-13): the room keeps every root with collision (no world to tell
+   * one drawn as the map's geometry from one drawn by nothing), the page only those it can draw. The lists' LENGTH alone
+   * parts nothing on the wire: the page (`page.ts` `accessTemplate`) and the room (`match/src/forgeSimMap.ts`
+   * `withPlacedObjects`) both find a placed gate's or barrier's template by `find` on its kind and `name` -- the root's
+   * last path segment (`lastName`, '=...' dropped), never an index into the list. They part where two roots of one
+   * library share a kind and a last name and the FIRST is one the page drops: the page finds the second, the room the
+   * first, and the copy's destructibles, actions and gate -- so the wire's gate and action indices after it -- differ.
+   * Nothing run when written (the host short of memory).
+   */
+  it('RED: two roots sharing a last name, the first drawn by nothing -- the room finds the template the page finds', () => {
+    // Expected RED today: "expected 'worldmodel/a/wall' to be 'worldmodel/b/wall'". The page's library (a world, no chunk
+    // under either root; a prop under `b`) keeps `b/wall` alone (placedAccess.ts:427, `!pieces.length && lib.world`); the
+    // room's (no world) keeps both, `a/wall` first (the destructibles' order, placedAccess.ts:396-397), so `find` on
+    // ('barrier', 'wall') gives `a` there. GREEN once the room keeps exactly the roots the page keeps.
+    const destructible = (root: string) => ({ root, health: 100, program: { sequences: [] } });
+    const owner = (path: string) => ({ path, modelName: 'worldmodel', first: 0, count: 1 });
+    const twoWalls = (extra: Record<string, unknown>) => ({
+      meta: { scene: { destructibles: [destructible('worldmodel/a/wall'), destructible('worldmodel/b/wall')], programs: [] }, actions: [], instances: [], initial: [] },
+      ground: { fields: Int32Array.of(3, 0, 0, 0, 0, 0), points: Float32Array.of(0, 0, 0, 10, 0, 0, 0, 5, 10), owners: [owner('worldmodel/a/wall'), owner('worldmodel/b/wall')] },
+      props: [{ modelName: 'crate', parts: [], matrices: Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), order: 0, alternate: false, facade: 0, lod: null, paths: ['worldmodel/b/wall/crate'] }],
+      gates: [], ...extra,
+    }) as never;
+    const page = accessTemplates(twoWalls({ world: [] }), 'MP6');
+    const room = accessTemplates(twoWalls({}), 'MP6');
+    expect(page.map((t) => t.root), 'the page keeps the wall it can draw').toEqual(['worldmodel/b/wall']);
+    const found = (ts: ReturnType<typeof accessTemplates>) => ts.find((t) => t.kind === 'barrier' && t.name === 'wall')?.root;
+    expect(found(room), 'the room places what the page placed').toBe(found(page));
+  });
+});
+
+/**
+ * FC2-6 (ours; H424 (b)'s default, `docs/HUMAN_TASKS.md` H424 -- a browser adaptation, no original): a placed gate whose
+ * layout places no switch naming it keeps its disc gate's lever, at the gate (the code before the import, `589f4565f0`),
+ * so a saved layout's gate still opens and an online one (a layout with switches is refused online) can; a gate a placed
+ * switch names takes that switch's lever alone (his rule, e8acb4d970). A synthetic template: one leaf, one disc lever.
+ */
+describe("a placed gate's lever (FC2-6, H424 (b)'s default)", () => {
+  const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const tri = (path: string) => ({ modelName: 'worldmodel', path, region: 0, ditype: 2, material: 25, ptcount: 3, cameratype: 0, points: Float32Array.of(0, 0, 0, 10, 0, 0, 0, 10, 0) });
+  const program: EffectProgram = { name: 'gate_lever', root: 0, flags: 0, nodes: ['lever_1'], sequences: [] };
+  const disc = {
+    node: 'epanel_di1', path: 'worldmodel/epanel_di1', at: [5, 0, 0], type: 'SWITCH', typeCode: 2, valve: 'lever_valve', anims: ['gate_lever'],
+    team: null, range: 100, elevation: -1, points: 0, bitmap: 'action_pull_lever.tif', descriptor: '',
+  };
+  const lever = { action: 0, node: 'epanel_di1', path: 'worldmodel/epanel_di1', valve: 'lever_valve', program };
+  const spec = {
+    index: 0, node: 'gate_move1', path: 'worldmodel/access1/gate_move1', local: IDENTITY, parent: IDENTITY, owners: [0],
+    sweep: { minX: 0, maxX: 10, minZ: 0, maxZ: 0 }, open: [0, 0, 20] as [number, number, number], seconds: 2, levers: [lever],
+  };
+  const lib = { archive: 'MP11', textures: {}, textureFlags: {}, props: [], meta: { scene: { destructibles: [], programs: [] } } };
+  const t = {
+    kind: 'gate', source: 'MP11', name: 'access1', root: 'worldmodel/access1', lib, anchor: [0, 0, 0], instances: [], initial: [],
+    owners: [{ owner: { path: spec.path, modelName: 'worldmodel', first: 0, count: 1 }, polys: [tri(spec.path)] }], pieces: [],
+    destructibles: [], actions: [],
+    gate: {
+      spec, levers: [disc],
+      switches: [{ action: disc, lever, scene: null, handle: 'worldmodel/lever_1', pieces: [], instances: [], anchor: [5, 0, 0],
+        plate: [{ owner: { path: disc.path, modelName: 'worldmodel', first: 0, count: 1 }, polys: [tri(disc.path)] }] }],
+    },
+  } as unknown as AccessTemplate;
+  const base = () => ({
+    archive: 'MP2', props: [], gates: [], doors: [], textures: {}, textureFlags: {},
+    ground: { grid: { atomCount: 1024, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, owners: [], points: new Float32Array(0), fields: new Uint32Array(0) },
+    meta: { actions: [], instances: [], instanceByPath: new Map(), initial: [], scene: { destructibles: [], programs: [] } },
+  }) as never;
+  const marker = (x: number) => ({ kind: 'gate' as const, source: 'MP11', name: 'access1', at: [x, 0, 0], yaw: 0 });
+  const leversOf = (map: { gates?: { levers: { node: string; path: string; valve: string }[] }[] }) => map.gates!.map((g) => g.levers.map((l) => [l.node, l.path, l.valve]));
+
+  it('RED: no placed switch names the gate -- it keeps its disc lever, a SWITCH record on its own root (today: none)', () => {
+    // Expected RED today: `levers: []` for every placed gate (placedAccess.ts:683). GREEN once FC2-6 keeps the disc's.
+    const { map, unplaced } = withPlacedAccess(base(), [marker(0)], () => t);
+    expect(unplaced).toBe(0);
+    expect(leversOf(map)).toEqual([[['forge_gate_1', 'worldmodel/forge_gate_1', 'forge_gate_1_lever1']]]);
+    const record = map.meta!.actions[map.gates![0]!.levers[0]!.action]!;
+    expect([record.path, record.type, record.valve, record.range]).toEqual(['worldmodel/forge_gate_1', 'SWITCH', 'forge_gate_1_lever1', 100]);
+  });
+
+  it('CONTROL: a placed switch names the gate -- that switch\'s lever alone (his rule), no record on the gate', () => {
+    // Expected GREEN today and after.
+    const { map } = withPlacedAccess(base(), [marker(0)], () => t, [{ gate: 0, at: [50, 0, 0], yaw: 0 }]);
+    expect(leversOf(map)).toEqual([[['forge_switch_1', 'worldmodel/forge_switch_1', 'forge_switch_1_valve']]]);
+    expect(map.meta!.actions.some((a) => a.path === 'worldmodel/forge_gate_1')).toBe(false);
+  });
+
+  it('RED: a switch names the second gate only -- the first keeps its disc lever, the second takes the switch\'s', () => {
+    // Expected RED today: the first gate's levers [] (placedAccess.ts:683).
+    const { map } = withPlacedAccess(base(), [marker(0), marker(100)], () => t, [{ gate: 1, at: [150, 0, 0], yaw: 0 }]);
+    expect(leversOf(map)).toEqual([
+      [['forge_gate_1', 'worldmodel/forge_gate_1', 'forge_gate_1_lever1']],
+      [['forge_switch_1', 'worldmodel/forge_switch_1', 'forge_switch_1_valve']],
+    ]);
+  });
+
+  it('RED (review B-2): a switch naming the gate that is left out does not take its lever -- it keeps its disc lever', () => {
+    // Expected RED before the fix: `named` counted every switch naming the gate, placed or not, so a gate whose only
+    // switch is left out (no lever part to copy; a look the page cannot give) kept no lever and opened only by C4 or an RPG.
+    const noPart = { ...t, gate: { ...t.gate!, switches: [] } } as AccessTemplate;
+    const kept = [[['forge_gate_1', 'worldmodel/forge_gate_1', 'forge_gate_1_lever1']]];
+    const partless = withPlacedAccess(base(), [marker(0)], () => noPart, [{ gate: 0, at: [50, 0, 0], yaw: 0 }]);
+    expect(partless.unplaced).toBe(1);
+    expect(leversOf(partless.map)).toEqual(kept);
+    // A radio look with no look to give (`lookOf` answers none): the switch loop leaves it out.
+    const lookless = withPlacedAccess(base(), [marker(0)], () => t, [{ gate: 0, at: [50, 0, 0], yaw: 0, look: 'radio' }]);
+    expect(lookless.unplaced).toBe(1);
+    expect(leversOf(lookless.map)).toEqual(kept);
+  });
+
+  it('CONTROL (review B-2): a placeable switch naming the gate leaves it no lever of its own, beside one left out', () => {
+    // Expected GREEN before the fix and after: the second switch is placed, so the gate takes its lever alone.
+    const { map, unplaced } = withPlacedAccess(base(), [marker(0)], () => t,
+      [{ gate: 0, at: [50, 0, 0], yaw: 0, look: 'radio' }, { gate: 0, at: [60, 0, 0], yaw: 0 }]);
+    expect(unplaced).toBe(1);
+    expect(leversOf(map)).toEqual([[['forge_switch_2', 'worldmodel/forge_switch_2', 'forge_switch_2_valve']]]);
+    expect(map.meta!.actions.some((a) => a.path === 'worldmodel/forge_gate_1')).toBe(false);
   });
 });
 
@@ -123,7 +272,9 @@ describe.skipIf(!ISO || !existsSync(ISO))('placed gates and barriers on the disc
     expect(part.anchor[2]).toBeCloseTo(419.9, 0);
   }, 240_000);
 
-  it("a gate copied onto Frostfire has no lever of its own; its placed switch slides it; blown, the switch no longer moves it", async () => {
+  // FC2-6 (ours): the case's first half took his rule (a gate alone has no lever); under H424 (b)'s default a gate no
+  // placed switch names keeps its disc lever at the gate, so "alone" now asserts that; the switch's half is his, unchanged.
+  it("a gate copied onto Frostfire keeps its disc lever while no switch names it (FC2-6); its placed switch slides it; blown, the switch no longer moves it", async () => {
     const { accessTemplates, withPlacedAccess } = await import('../../src/forge/placedAccess');
     const { WorldState } = await import('../../src/worldState');
     const { GateSet } = await import('../../src/gates');
@@ -132,10 +283,12 @@ describe.skipIf(!ISO || !existsSync(ISO))('placed gates and barriers on the disc
     const [mp2, mp11] = [await load('MP2'), await load('MP11')];
     const t = accessTemplates(mp11, 'MP11').find((x) => x.kind === 'gate')!;
     const marker = { kind: 'gate' as const, source: 'MP11', name: t.name, at: [600, 142, 1300], yaw: 0 };
-    // Alone: no lever, no SWITCH record of its own (the original's gate has no prompt: its levers are panels apart).
+    // Alone (FC2-6, H424 (b)'s default): its disc levers, each a SWITCH record on the copy's own root.
     const alone = withPlacedAccess(mp2, [marker], () => t).map;
-    expect(alone.gates![alone.gates!.length - 1]!.levers).toEqual([]);
-    expect(alone.meta!.actions.some((a) => a.path.startsWith('worldmodel/forge_gate_1') && a.type === 'SWITCH')).toBe(false);
+    const own = alone.gates![alone.gates!.length - 1]!.levers;
+    expect(own.length).toBeGreaterThan(0);
+    expect(own.length).toBe(t.gate!.levers.length);
+    expect(own.map((l) => [alone.meta!.actions[l.action]!.path, alone.meta!.actions[l.action]!.type])).toEqual(own.map(() => ['worldmodel/forge_gate_1', 'SWITCH']));
     // With its switch, placed apart: the switch's own SWITCH record on its own plate, the gate's lever.
     const { map } = withPlacedAccess(mp2, [marker], () => t, [{ gate: 0, at: [640, 150, 1300], yaw: 0 }]);
     const gate = map.gates![map.gates!.length - 1]!;
@@ -297,6 +450,10 @@ describe.skipIf(!ISO || !existsSync(ISO))("a switch's wreck of a trigger from an
     const gate = accessTemplates(mp11, 'MP11').find((x) => x.kind === 'gate')!;
     const triggers = accessTemplates(mp6, 'MP6').filter((t) => t.kind === 'barrier');
     expect(triggers.length).toBeGreaterThan(0);
+    // FC2 (ours): the parts change only where the death's own programs switch a node (an `active` op). `tincup1`'s
+    // death -- and the plates', lights', ashtrays' -- is a flight motion that switches none (`desertGloryScene.test`):
+    // the contributor's case asked every death to change its parts, which the disc does not do (the original decides).
+    let switching = 0;
     for (const t of triggers) {
       const { map, unplaced } = withPlacedAccess(mp2, [{ kind: 'barrier', source: 'MP6', name: t.name, at: [600, 142, 1300], yaw: 0 }], () => t,
         [{ script: { steps: [{ do: 'run', barrier: 0 }] }, at: [700, 142, 1300], yaw: 0 }], () => leverLook(gate.gate!.switches[0]!, gate.lib));
@@ -311,19 +468,25 @@ describe.skipIf(!ISO || !existsSync(ISO))("a switch's wreck of a trigger from an
       expect(world.executeAction(sw.valve), t.name).toBe(true);
       for (let i = 0; i < 300; i++) world.step(1 / 30);
       for (const d of mine) expect(world.health.isSpent(d.id), t.name).toBe(true);
-      expect(paths.map((p) => world.isActive(p)), `${t.name}: its death changed its parts`).not.toEqual(before);
+      const switches = map.meta!.scene!.programs.some((p) => p.program.name.startsWith('forge_barrier_1_')
+        && p.program.sequences.some((q) => q.ops.some((o) => o.op === 'active')));
+      if (switches) {
+        switching++;
+        expect(paths.map((p) => world.isActive(p)), `${t.name}: its death changed its parts`).not.toEqual(before);
+      }
       // Its death's called programs are its own copies, not Frostfire's (`calledOf`).
       for (const p of map.meta!.scene!.programs) if (p.program.name.startsWith('forge_barrier_1_')) expect(mp2.meta!.scene!.programs.some((q) => q.program.name === p.program.name)).toBe(false);
     }
+    expect(switching, 'some of Desert Glory\'s trigger deaths do switch a part (the check is not empty)').toBeGreaterThan(0);
   }, 600_000);
 });
 
 describe.skipIf(!ISO || !existsSync(ISO))("a placed lever's prompt (SOCOM_ISO)", () => {
-  it("stood on Frostfire's floor: its handle LEVER_MOUNT_HEIGHT_READING up, reach FORGE_SWITCH_REACH -- the prompt from 2 m in front; none from behind (front faces only)", async () => {
+  it("stood on Frostfire's floor: its handle LEVER_MOUNT_HEIGHT_ADAPTATION up, reach FORGE_SWITCH_REACH -- the prompt from 2 m in front; none from behind (front faces only)", async () => {
     const { IsoAssetSource } = await import('@s2u/archive');
     const { fsBlob } = await import('../../../../tools/fmv-spike');
     const { loadMap } = await import('../../src/loadMap');
-    const { accessTemplates, leverLook, withPlacedAccess, FORGE_SWITCH_REACH, LEVER_MOUNT_HEIGHT_READING } = await import('../../src/forge/placedAccess');
+    const { accessTemplates, leverLook, withPlacedAccess, FORGE_SWITCH_REACH, LEVER_MOUNT_HEIGHT_ADAPTATION } = await import('../../src/forge/placedAccess');
     const { groundGrid } = await import('../../src/mover');
     const { actionRayDetail } = await import('../../src/equipment');
     const { actionReachNote } = await import('../../src/mapActions');
@@ -334,7 +497,7 @@ describe.skipIf(!ISO || !existsSync(ISO))("a placed lever's prompt (SOCOM_ISO)",
     const { map } = withPlacedAccess(mp2, [], () => null, [{ script: { steps: [] }, at, yaw: 0 }], () => leverLook(gate.gate!.switches[0]!, gate.lib));
     const grid = groundGrid(map.ground!);
     expect(map.meta!.actions.find((a) => a.node === 'forge_switch_1')!.range).toBe(FORGE_SWITCH_REACH);
-    const handle = [at[0], at[1] + LEVER_MOUNT_HEIGHT_READING, at[2]];
+    const handle = [at[0], at[1] + LEVER_MOUNT_HEIGHT_ADAPTATION, at[2]];
     const from = (dz: number) => {
       const feet = [at[0], at[1], at[2] + dz], eye = [feet[0]!, feet[1]! + 17, feet[2]!];
       const d = actionRayDetail(grid, eye, eye.map((v, i) => v + (handle[i]! - v) * 3), map.meta!.actions);

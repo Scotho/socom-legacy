@@ -18,6 +18,7 @@
  *   `padMapOf`, `padMapInput`; Default's map is `PAD_LAYOUT`'s, which stays the panel's table with its citations.
  * - **The watch** (`PadWatch`) says when a pad comes and goes, from the events and from the poll alike.
  */
+import { COD_MODERN_FIXED, COD_MODERN_NAME } from './controllerModern';
 import { GROUP_COMBAT, GROUP_GENERAL, GROUP_MOVE, GROUP_STANCE, GROUP_WEAPONS } from './controlsList';
 import {
   CONTROLLER_RESULTS, controllerConfigs, STRAFE_DIGITAL_SIGN_READING, type ControllerConfigRecord, type ControllerResult, type StickSlot,
@@ -66,6 +67,8 @@ export type PadAction = 'move' | 'look' | PadFlag;
  * and right, held; web research 86 section 7.4). All the walk's alone.
  */
 export interface Input {
+  /** Browser layout: one physical press carries reload/use; a menu consuming use also consumes its reload. */
+  pairedReload?: boolean;
   /** Native pressure, 0..1 including release; absent for the digital tap/hold adaptation. Research 373. */
   stancePressure?: number;
   /** A synthetic USB neutral cancels a press; it is not a physical release. Nor is the R2 inventory's take of a held
@@ -80,6 +83,13 @@ export interface Input {
   stanceOff?: boolean;
   moveX: number; moveY: number;
   lookX: number; lookY: number;
+  /**
+   * PZG (finding 14; a browser adaptation's bookkeeping, no game value): the radial zone each pair was shaped with
+   * (`padStick`) -- the pad's browser dead zone, `./controllerInput` `poll`'s `stickZone` -- so the walk undoes that
+   * zone (`padRaw`) and the game reads the pad's push itself past it. Absent: `PAD_DEAD_ZONE` (the touch stick's, a
+   * keyboard's, an agent's, a pad read without calibration).
+   */
+  moveZone?: number; lookZone?: number;
   jump: boolean; crouch: boolean; stance: boolean; boost: boolean; fire: boolean; zoom: boolean;
   /** PP-5 (OT.R67): the pad profile's Prone bind (`./setupPad` `GamePad.prone`; no row of the layout), walking only: the full press. */
   prone: boolean;
@@ -299,6 +309,10 @@ export interface GamepadLike {
   readonly stanceCancelled?: boolean;
   /** OT.R107: the logical Triangle is Triangle's action only, never the stance (`Input.stanceOff`; `./controllerInput` `poll`). */
   readonly stanceOff?: boolean;
+  /** Separate Prone supplies Triangle only for menu back, not a browser layout weapon binding. */
+  readonly triangleFromProneOnly?: boolean;
+  /** PZG: the browser dead zone the sticks were guarded with (`./controllerInput` `calibrateStick`); absent, the default. */
+  readonly stickZone?: number;
   readonly axes: readonly number[];
   readonly buttons: readonly { readonly pressed: boolean; readonly value: number }[];
 }
@@ -319,31 +333,34 @@ function down(button: { readonly pressed: boolean; readonly value: number } | un
  * side, so the walk can undo the shaping exactly (`padRaw`) and read the push per axis as the console's pad reader
  * does (`FUN_002da930` clamps each axis, not the pair: web research 88 section 4). The fly camera clamps what it uses.
  */
-export function padStick(x: number, y: number): { x: number; y: number } {
+export function padStick(x: number, y: number, zone: number = PAD_DEAD_ZONE): { x: number; y: number } {
   const d = Math.hypot(x, y);
-  if (d <= PAD_DEAD_ZONE) return { x: 0, y: 0 };
-  const s = (d - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE) / d;
+  if (d <= zone) return { x: 0, y: 0 };
+  const s = (d - zone) / (1 - zone) / d;
   return { x: x * s + 0, y: -y * s + 0 };
 }
 
 /**
  * `padStick` undone: the pad's own push per axis (x right, y up) from a shaped pair -- the touch stick's too, which is
  * shaped the same way (`./touch` `stickVector`, the same 0.15). What the walk's look and move read the game's law from.
+ * `zone` is the one the pair was shaped with (`Input.moveZone` / `lookZone`, PZG): with the pad's browser zone the
+ * game reads the push itself past that zone, and zero inside it -- a pure drift guard, no floor and no rescale.
  */
-export function padRaw(x: number, y: number): [number, number] {
+export function padRaw(x: number, y: number, zone: number = PAD_DEAD_ZONE): [number, number] {
   const push = Math.hypot(x, y);
   if (push === 0) return [0, 0];
-  const k = (PAD_DEAD_ZONE + (1 - PAD_DEAD_ZONE) * push) / push;
+  const k = (zone + (1 - zone) * push) / push;
   return [x * k, y * k];
 }
 
 /**
  * `controller.rdr`'s control names (`FUN_002c6670` D:L167011-167083 names the configurable ones) on the standard pad's
- * buttons, by position as the rest of this file reads the pad. `Triangle` and the d-pad are not among them: the game's
- * player update reads those off the pad in every config (research 344 §3).
+ * buttons, by position as the rest of this file reads the pad. The original configurable names exclude Triangle and the d-pad: the game's
+ * player update reads those off the pad in every original config (research 344 §3). Triangle's entry below serves
+ * only the explicitly selected COD Modern browser mapping.
  */
 export const CONTROLLER_RDR_BUTTON: Readonly<Record<string, PadButton>> = {
-  X: 'Cross', Circle: 'Circle', Square: 'Square', L1: 'L1', L2: 'L2', R1: 'R1', R2: 'R2', Select: 'Select', Pause: 'Start',
+  X: 'Cross', Circle: 'Circle', Square: 'Square', Triangle: 'Triangle', L1: 'L1', L2: 'L2', R1: 'R1', R2: 'R2', Select: 'Select', Pause: 'Start',
   LeftStickTap: 'L3', RightStickTap: 'R3',
 };
 
@@ -376,7 +393,8 @@ export function padMapOf(record: Readonly<ControllerConfigRecord>): PadMap {
     return c === null ? null : CONTROLLER_RDR_BUTTON[c] ?? null;
   };
   const lanes: (readonly [PadButton, PadFlag])[] = [];
-  for (const row of PAD_LAYOUT) {
+  if (record.name === COD_MODERN_NAME) lanes.push(...COD_MODERN_FIXED);
+  else for (const row of PAD_LAYOUT) {
     if (row.action !== 'move' && row.action !== 'look' && PAD_FIXED_FLAGS.includes(row.action)) lanes.push([row.control as PadButton, row.action]);
   }
   for (const r of CONTROLLER_RESULTS) {
@@ -403,13 +421,28 @@ export function padMapInput(pad: GamepadLike | null | undefined, map: PadMap): I
   const sum = (bits: number): number => Math.max(-1, Math.min(1, (bits & 1 ? axis(pad, 1) : 0) + (bits & 2 ? axis(pad, 3) : 0)));
   const strafe = r.strafe !== 0 ? horiz(r.strafe)
     : held(map.strafeLeft) ? STRAFE_DIGITAL_SIGN_READING.StrafeLeft : held(map.strafeRight) ? STRAFE_DIGITAL_SIGN_READING.StrafeRight : 0;
-  const move = padStick(strafe, r.moveLongOffInAim && aim ? 0 : vert(r.moveLong));
-  const look = padStick(horiz(r.rotate), sum(aim ? r.pitchAim : r.pitch));
+  // PZG: the pad's browser zone, carried so `padRaw` undoes it. The guard has already acted stick by stick
+  // (`./controllerInput` `calibrateStick`); a pair read whole off one stick is shaped at that zone (the shaped values as
+  // before PZG), and a pair of two sticks or of part of one (Config4, Goldeneye; MoveLong cut in aim) at 0 off the default,
+  // so no second cut falls on a push the guard passed (the review's F1). At the default, as before PZG.
+  const zone = pad.stickZone ?? PAD_DEAD_ZONE, pitchBits = aim ? r.pitchAim : r.pitch, moveLongOff = r.moveLongOffInAim && aim;
+  const moveZone = zone === PAD_DEAD_ZONE || (r.strafe !== 0 && r.strafe === r.moveLong && !moveLongOff) ? zone : 0;
+  const lookZone = zone === PAD_DEAD_ZONE || (r.rotate !== 0 && r.rotate === pitchBits) ? zone : 0;
+  const move = padStick(strafe, moveLongOff ? 0 : vert(r.moveLong), moveZone);
+  const look = padStick(horiz(r.rotate), sum(pitchBits), lookZone);
   out.moveX = move.x; out.moveY = move.y; out.lookX = look.x; out.lookY = look.y;
-  for (const [b, lane] of map.lanes) if (held(b)) out[lane] = true;
+  if (pad.stickZone !== undefined) { out.moveZone = moveZone; out.lookZone = lookZone; }
+  for (const [b, lane] of map.lanes) {
+    if (held(b) && !(r.name === COD_MODERN_NAME && pad.triangleFromProneOnly && b === 'Triangle')) out[lane] = true;
+  }
+  if (r.name === COD_MODERN_NAME) {
+    if (out.action && out.reload) out.pairedReload = true;
+    // Separate Prone still backs out of the item menu; it never becomes a stance or weapon action.
+    if (pad.triangleFromProneOnly) { out.stance = true; out.stanceOff = true; }
+  }
   if (pad.stanceCancelled) out.stanceCancelled = true;
   // OT.R107: the stance off only where Triangle alone holds it (a preset's other stance button is the stance as ever).
-  if (pad.stanceOff && out.stance && !map.lanes.some(([b, lane]) => lane === 'stance' && b !== 'Triangle' && held(b))) out.stanceOff = true;
+  if (pad.stanceOff && out.stance && (r.name === COD_MODERN_NAME || !map.lanes.some(([b, lane]) => lane === 'stance' && b !== 'Triangle' && held(b)))) out.stanceOff = true;
   if (pad.nativePressure) {
     const b = map.lanes.find(([, lane]) => lane === 'stance')?.[0];
     applyStancePressure(out, b ? pad.buttons[PAD_BUTTON[b]]?.value : 0);
@@ -457,9 +490,10 @@ export function padInput(pad: GamepadLike | null | undefined, layout?: readonly 
   for (const row of layout) {
     if (row.action === 'move' || row.action === 'look') {
       const [ax, ay] = PAD_STICK[row.control as PadStick];
-      const v = padStick(axis(pad, ax), axis(pad, ay));
+      const v = padStick(axis(pad, ax), axis(pad, ay), pad.stickZone ?? PAD_DEAD_ZONE);
       if (row.action === 'move') { out.moveX = v.x; out.moveY = v.y; }
       else { out.lookX = v.x; out.lookY = v.y; }
+      if (pad.stickZone !== undefined) out[row.action === 'move' ? 'moveZone' : 'lookZone'] = pad.stickZone;
     } else if (down(pad.buttons[PAD_BUTTON[row.control as PadButton]])) {
       out[row.action] = true;
     }
@@ -485,17 +519,25 @@ export function strongest(a: number, b: number): number {
 export function mergeInput(...inputs: readonly Input[]): Input {
   const out = noInput();
   let stanceOn = false;                                // OT.R107: a source whose `stance` is the stance's own
+  // PZG: each pair's zone is the one of the source whose pair is the larger (absent: the default's).
+  let moveBest = -1, lookBest = -1, moveZone: number | undefined, lookZone: number | undefined;
   for (const i of inputs) {
     if (i.stance && !i.stanceOff) stanceOn = true;
+    const m = Math.hypot(i.moveX, i.moveY), l = Math.hypot(i.lookX, i.lookY);
+    if (m > moveBest) { moveBest = m; moveZone = i.moveZone; }
+    if (l > lookBest) { lookBest = l; lookZone = i.lookZone; }
     out.moveX = strongest(out.moveX, i.moveX);
     out.moveY = strongest(out.moveY, i.moveY);
     out.lookX = strongest(out.lookX, i.lookX);
     out.lookY = strongest(out.lookY, i.lookY);
     for (const f of PAD_FLAGS) out[f] ||= i[f];
     if (i.stanceCancelled) out.stanceCancelled = true;
+    if (i.pairedReload && i.action && i.reload) out.pairedReload = true;
     if (i.stancePressure !== undefined) out.stancePressure = Math.max(out.stancePressure ?? 0, i.stancePressure);
   }
   if (out.stance && !stanceOn) out.stanceOff = true;   // only when every source holding it holds it as Triangle's action alone
+  if (moveZone !== undefined) out.moveZone = moveZone;
+  if (lookZone !== undefined) out.lookZone = lookZone;
   return out;
 }
 

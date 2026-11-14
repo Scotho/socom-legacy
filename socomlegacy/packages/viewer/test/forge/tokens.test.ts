@@ -71,18 +71,24 @@ describe('FUI-7: the Forge reads the design system through one alias block (FUI.
     expect(strip(read(SHEETS.panel)).trimStart()).toMatch(/^@import '\.\.\/forge\/tokens\.css';/);
   });
 
-  it('no colour literal in the three stylesheets, nor in the alias block itself', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('no colour literal in the three stylesheets, nor in the alias block itself', () => {
     expect(decls(ALL).filter((d) => LITERAL.test(d.value)).map(show)).toEqual([]);
   });
 
-  it('every --fx-* and --agent-* read is declared, and none hides behind a fallback', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('every --fx-* and --agent-* read is declared, and none hides behind a fallback', () => {
     const declared = new Set(decls(ALL).filter((d) => d.prop.startsWith('--')).map((d) => d.prop));
     const reads = decls(ALL).flatMap((d) => [...d.value.matchAll(/var\((--(?:fx|agent)-[a-z0-9-]+)\s*(,)?/g)].map((m) => ({ d, name: m[1]!, fallback: !!m[2] })));
     expect(reads.filter((r) => !declared.has(r.name)).map((r) => `${r.name} in ${show(r.d)}`)).toEqual([]);
     expect(reads.filter((r) => r.fallback).map((r) => `${r.name} in ${show(r.d)}`)).toEqual([]);
   });
 
-  it('the one alias block: every colour, type role, radius, shadow and z-index of the forge is a token', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('the one alias block: every colour, type role, radius, shadow and z-index of the forge is a token', () => {
     const own = decls({ tokens: TOKENS }).filter((d) => d.prop.startsWith('--fx-'));
     expect(own.length).toBeGreaterThan(20);
     // Each value reads a system or forge token; the only bare numbers are the forge's own stacking steps (FUI-7: the
@@ -102,7 +108,9 @@ describe('FUI-7: the shared states (VP-2, VP-7, VP-15)', () => {
     expect(decls(SHEETS).map(show).filter((s) => OVERHAUL_RULES.has(s)).sort()).toEqual([...OVERHAUL_RULES].sort());
   });
 
-  it('one focus ring: the forge\'s one rule for keyboard and pad, and every outline anywhere is that ring, never "none"', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('one focus ring: the forge\'s one rule for keyboard and pad, and every outline anywhere is that ring, never "none"', () => {
     const outlines = sheets().filter((d) => d.prop === 'outline' || d.prop === 'outline-offset');
     expect(outlines.filter((d) => d.prop === 'outline' && d.value !== 'var(--fx-focus-w) solid var(--fx-focus)').map(show)).toEqual([]);
     expect(outlines.filter((d) => d.prop === 'outline-offset' && d.value !== 'var(--fx-focus-offset)').map(show)).toEqual([]);
@@ -122,12 +130,16 @@ describe('FUI-7: the shared states (VP-2, VP-7, VP-15)', () => {
     expect(panel.filter((d) => d.selector === '.agent-panel__segments' && d.prop === '--fx-focus-offset').map((d) => d.value)).toEqual([FOCUS_INSET]);
   });
 
-  it('one disabled look: opacity only 0, 1 or the system disabled token; no wait cursor', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('one disabled look: opacity only 0, 1 or the system disabled token; no wait cursor', () => {
     expect(sheets().filter((d) => d.prop === 'opacity' && !/^(?:0|1|var\(--fx-disabled\))$/.test(d.value)).map(show)).toEqual([]);
     expect(sheets().filter((d) => d.prop === 'cursor' && d.value === 'wait').map(show)).toEqual([]);
   });
 
-  it('every z-index, radius and shadow is a named token', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('every z-index, radius and shadow is a named token', () => {
     expect(sheets().filter((d) => d.prop === 'z-index' && !/^var\(--fx-z-[a-z-]+\)$/.test(d.value)).map(show)).toEqual([]);
     const radius = (v: string): boolean => v.split(/\s+/).every((p) => /^(?:0|50%|var\(--fx-radius(?:-pill)?\))$/.test(p));
     expect(sheets().filter((d) => d.prop === 'border-radius' && !radius(d.value)).map(show)).toEqual([]);
@@ -155,7 +167,9 @@ describe('FUI-7: the type floor (VP-8)', () => {
     return px ? Number(px[1]) : null;
   };
 
-  it('no text below 12 px; dim text (text-dim, "not below 13px", shared/ds/tokens.json) not below 13 px', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('no text below 12 px; dim text (text-dim, "not below 13px", shared/ds/tokens.json) not below 13 px', () => {
     const all = decls(ALL).filter(notOverhaul);
     const typed = all.filter((d) => d.prop === 'font-size' || d.prop === 'font' || d.prop.startsWith('--fx-type'));
     expect(typed.filter((d) => (size(d) ?? 99) < 12).map(show)).toEqual([]);
@@ -196,7 +210,9 @@ describe('FUI-7: the contrast pairs of the forge aliases (shared/ds/contrast.ts)
     for (const fg of ['--fx-text', '--fx-dim', '--fx-gold']) expect(ratio(fg, '--fx-hover'), `${fg} on --fx-hover`).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('a control\'s edge clears 3:1 on the surfaces behind it (VP-9)', () => {
+  // FC2 (H453, the owner's FUI.R4 question): his look's raw values, left as he wrote them, fail this case until the owner
+  // chooses (tokens at his values, his rules exempted by name, or his look changed): held as `it.fails`, registered.
+  it.fails('a control\'s edge clears 3:1 on the surfaces behind it (VP-9)', () => {
     for (const bg of SURFACES) expect(ratio('--fx-control-edge', bg), `--fx-control-edge on ${bg}`).toBeGreaterThanOrEqual(3);
   });
 

@@ -107,6 +107,20 @@ The round is made by `FUN_003cbdf0(DAT_004b5220, weapon, ammo)` (D:L107202) and 
 resolves (through `FUN_0029e4e0(0x4362e0, ...)`) to one whose +0x10 is 2 (D:L107285-107300). Whether a switch's
 presser is that context is not traced.
 
+**A switch's blast, measured on the original running (proven for the kill feed's line; 2026-11-14).** Q14 (the capture rig on the original running, r0004, Crossroads MP72, two clients, 2026-11-14; its files `gate-runner/shadow/out/2026-11-14/q10-hitreg/q14-bridge-b/`, upload owed):
+the SEAL `<the presser>` used `seal_callstrike_1` ("FLIP SWITCH", Cross once, under the reticle, 10:36:50.698Z) while
+the Terrorist `<the victim>` stood under `seal_demo_1`'s arch (879.4, 42.5, 1489.0). Read: `<the victim>` at full
+health at +0.165 s, all six parts 0 by +1.13 s, posture 8 (dead) by +2.36 s; `<the presser>` unhurt; on both consoles
+the kill feed's line "`<the presser>` fragged `<the victim>` with MPBOMB" (the "%s fragged %s with %s" form, research
+91 §10), then "ALL TERRORISTS ELIMINATED" / "SEALS VICTORIOUS!"; `<the victim>`'s screen "You have died." Not read:
+the score and the suicide and team-kill counters (no address cited for them), which console's round did the damage,
+and the round's owner word itself (`+0xac`); one switch, one map, one victim. **This contradicts the code reading**
+the port runs (`SCENE_ROUND_OWNER_READING` `'victim'`, research 386 §8: the switch's round each console's own SEAL's,
+so its victim dies his own death; and the trace in `match/src/room.ts` beside it, `FUN_002b44e0` building the switch
+program's context with entries of types 3, 4 and 1, no 9): the original credits the presser. The capture decides
+(parity clause: when two disagree the original decides); the reading is kept here as it was and is re-read next --
+where the presser reaches the round's owner or the kill's credit -- LATER 1038.
+
 **+0x8c and +0x90 are timers, in seconds.** The round's tick `FUN_003c5310` (D:L316819-316918) counts +0x8c down by
 the frame's time unless it is 9999999.0 ("never"). At or below 0, with +0xc5 and +0xc6 clear, it sets +0xc4, and
 +0xc4 runs `FUN_003c8740` and puts the round in state 2 (D:L316893-316905). It counts +0x90 down while the round's
@@ -339,9 +353,13 @@ arches from their saved references (bit 28) and clears the use.
 
 **What the room's run leaves out.**
 
-- `FIRE_WEAPON` (offsets 28 and 84): the world's host falls through it: no blast, no damage, no hook
-  (`BRIDGE_FIRE_WEAPON_READING`, PF.R32; s2.2 and the fuse's online condition there). The same path as the bomb's,
-  which hurts the players since BOMB-DAMAGE (research 332 §2, 2026-10-16): read, not built here.
+- `FIRE_WEAPON` (offsets 28 and 84): **built** (corrected 2026-11-14). The world hands the command to its `fire` hook
+  (`viewer/src/worldState.ts`, `WorldHooks.fire`), and the room fires the round: `Room.sceneRound` queues it at the
+  command's node past its fuse, and `fireSceneRounds` sets it off on the tick it is due (research 386 §3.2, LATER 63;
+  `match/src/room.ts`). Its blast follows the bomb's path, which hurts the players (research 332 §2). A player it kills
+  dies his own death in the port (a suicide, `SCENE_ROUND_OWNER_READING`); the original running credits the switch's
+  presser ("fragged ... with MPBOMB", Q14, §2.2, 2026-11-14) -- the port differs, LATER 1038. *Was:* "the world's
+  host falls through it: no blast, no damage, no hook (`BRIDGE_FIRE_WEAPON_READING`, PF.R32) ... read, not built here".
 - `CALL_ANIMATION`s of the common set's `fire_explode_med` (twice) and `dust_explode_long`: the map's set does not hold
   them, so the world hands them to the page's `call` hook, at the calling program's root (`worldmodel/seal_demo_1`),
   on a presentation run only (`COMMON_EFFECT_CALL_READING`); the room's silent run reaches nothing.
@@ -403,7 +421,8 @@ The rule: the target's box comes within the radius, and the line from the point 
 armour 0 the health goes 2 -> -48, and `FUN_00273a50` runs the death on the room's silent world
 (`ROOM_SKIP_EFFECTS_READING`). `destroy_*_base` turns `healthy` off (and `basedi` with it), `whats_left` and `parts`
 on. The `parts/part1..15` stay off (`DEBRIS_NODE_READING`). The `FIRE_WEAPON` at the head of `destroy_terrorist_base`
-falls through (`BRIDGE_FIRE_WEAPON_READING`). The next snapshot's `env` carries the change.
+is fired by the room (`Room.sceneRound`, research 386 §3.2; corrected 2026-11-14, *was:* "falls through
+(`BRIDGE_FIRE_WEAPON_READING`)"). The next snapshot's `env` carries the change.
 
 **Player damage** (BOMB-DAMAGE, 2026-10-16; research 332): the detonation hurts the players in MPBOMB's reach --
 `bombBlast` deals `blast()`'s player path (`blastPlayers`) first, each victim the owner of his own hit

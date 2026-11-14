@@ -105,6 +105,7 @@ import { devBadgeLabel, devMode, devSwitches, startSource, tracerHold } from './
 import { ephFrameOf } from './ephFrame';
 import { EphPause } from './ephPause';
 import { enterReplayWorld, replayWorldDeps, replayWorldHost } from './modern/replays/worldHost';
+import { readReplaySteer } from './modern/replays/worldSteer';
 import { itemIcon, kitParam, PlayerLoadout } from './loadout';
 import { padButtonsDown } from './weaponExchange';
 import { mountExchange } from './matchExchange';
@@ -1732,6 +1733,8 @@ function padFrame(dt: number): void {
   const menu = start.owns || editorOwns || chat.owns || playOn && (armory.isOpen() ? armory.pad(edges) : exchangePart.pad(edges));
   // Browser safeguard: no consumed button becomes a game press/release after close or round reset.
   input = exchangeInput.frame(input, menu);
+  // RVK-B (LATER 966; a browser adaptation): framed as the replay viewer's world, its keyboard and mouse lane as a second pad
+  if (REPLAY_WORLD !== null) input = readReplaySteer(REPLAY_WORLD, input, menu, { fly, wheel: canvas, spectator: net?.spectator ?? null });
   // Open, the ARMORY holds the game's input (the S3 review): the camera and the walker take no key, stick or look.
   fly.setInputSuspended(menu);
   // Repair 2: the touch layer hidden under the open screen, its sticks and held buttons let go as it opens.
@@ -2191,7 +2194,7 @@ async function boot(): Promise<void> {
       sound.frame(fly.camera, walk.gameCamera());   // the game's listener is the camera (0x48dd40; #479: the game's); the reverb, the beds
       solo?.drain(performance.now());      // research 209 §18: the room's due ticks, and their detonate, before the page's fuse decides
       created.setGlow(throws.frame(dt, frameTime.real()));   // the throws, the launcher, the flashbang's wash and its glow (`./matchThrow`; PAR-34: the timed rules in real time)
-      view?.frame(fly.camera, dt, zoom.renderView());   // the flares turn, the LODs pick, the oceans scroll -- before the draw (PF-29: the zoom's view)
+      view?.frame(fly.camera, dt, firearm.renderView());   // the flares turn, the LODs pick, the oceans scroll -- before the draw (PF-29: the zoom's view; PV-7b: the watched player's while the view is drawn)
       if (rehearsal) {                 // #21: the walk's first draws, before this frame's render clears over them
         const b = rehearsal;
         rehearsal = null;
@@ -2250,7 +2253,7 @@ async function boot(): Promise<void> {
         hud.setCommandMenu(taunts.isOpen());             // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623)
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
-        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
+        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(loaded?.ai) ?? []);   // HX-5: the hostages' and the zones' compass marks (research 239 s7.2)
       hud.render(created.renderer);
@@ -2386,6 +2389,7 @@ function connectNet(map: LoadedMap): void {
     caps: TESTROOM_CAPABILITIES, walk, remote, hud, fly, loadouts, firearm,
     clips: () => playClips, map: () => loaded, side: matchSide, followTeam,
     menuOpen: () => loadingJoin.blocked || exchange.isOpen() || armory.isOpen() || taunts.isOpen() || startMenu.isOpen(),
+    povNet: () => net?.client ?? null,              // PV-6b: the player's view's rig reads the page's client (a replay's too)
   }, {
     ...exchangePart.netHooks(),                     // answered: the menu shows the kit the room will spawn the player with
     // The pouch too at a spawn -- the page's spent rings do not outlive a death or a round; the round's reset closes
@@ -2405,7 +2409,7 @@ function connectNet(map: LoadedMap): void {
     // The world drops' (`PART_DEPS`, PF-34, research 234 s6): the room's drops, a welcome's set too; the live kit after a
     // pickup, no fill (the one firearm's `takeKit`).
     drops,
-    kitChanged: (l, s, r, f, k) => { firearm.takeKit(l, s, r, f, k); },
+    kitChanged: (l, s, r, f, k, a) => { firearm.takeKit(l, s, r, f, k, a); },
     // The ARMORY's (`./matchArmory`, `PART_DEPS.armory`): a classic round's start -- both decal pools emptied, as the
     // game's round end does (CMPExitState L76084 -> FUN_0031c880 -> FUN_003bf050 x2, L219059-219060), the marks, the
     // footprints, the scorches -- closes the ARMORY (ARMORY_WAITING_LAUNCH_READING), a change still in the send's

@@ -13,13 +13,13 @@ import {
 import {
   buildGrid, collisionLines, DEFAULT_GRID_PARAMS, IDENTITY, loadModelLibrary, lodBands, parseCameraParams, parseClutter,
   DEFAULT_ENV_TEXTURE, parseGlobalLighting, parseGridParams, parseMaterialPalette, parseSceneGraph, parseWorldRoot, placeClutter, type EnvMaterial, type LodBand,
-  placeInstances, placementCells, resolveChunk, toColumnMajor, transformPoint, worldCollision,
+  placeInstances, placementCells, resolveChunk, toColumnMajor, transformPoint,
   type CameraParams, type CollisionLines, type GlobalLighting, type Grid, type GridParams, type ModelLibrary,
   type PlacedModel, type SceneNode, type TurretPlacement,
 } from '@s2u/scene';
 import { BULLET_MARK, parseAiMaps, VALVE_OF_ITEM, placeSpawnSlots, spawnsFor, type AiMaps, type EscorteeStart, type GameType, type SpawnSlot, type Spawns } from '@s2u/scene';
 import type { TextureFlags } from './materialSpec';
-import { applyR0004MapPatch, collisionOwners, type WorldPoly } from '@s2u/scene';
+import { applyR0004MapPatch, mapCollision, r0004DropsClutter, type CollisionOwner, type WorldPoly } from '@s2u/scene';
 import { groundGrid, packGround, type GroundData } from './mover';
 import { placementKey } from './forge/layout';
 import { openingStand, type Stand } from './stand';
@@ -1434,7 +1434,7 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
     const ranks = new Map<PlacedModel, number>();
     // The clutter joins the props: `CLUTTER.ZAR` places models the graph holds as prototypes but never
     // instances from the root, so without this pass Desert Glory's ground is bare (36 section 2).
-    const clutterPlaced = new Set(clutter(models, bytes, toc, notes));
+    const clutterPlaced = new Set(clutter(models, bytes, toc, notes, stem));
     const hiddenByName = (path: string): boolean => path.split(/[/=]/).some((segment) => ALTERNATE_STATE.test(segment));
     // MAP-01: the metadata, and where the name rule above parts from zAnim's initial state (a diagnostic).
     const meta = readMapMeta(bytes, toc, stem, models);
@@ -1602,29 +1602,33 @@ function textureScroll(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: 
  * is most of why the overlay is worth having.
  */
 function hull(models: SceneNode[], bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes): { collision: CollisionLines; ground?: GroundData; doors?: DoorSpec[]; gates?: GateSpec[]; cranes?: CraneSpec[] } {
-  let polys;
+  let polys, owners;
   try {
-    polys = worldCollision(models, WORLD_MODEL);
+    // CLT-2 (research 422; CLT.R2): the worldmodel's hull, then CLUTTER.ZAR's instances' appended -- `mapCollision`,
+    // the room's own (`./simMap`), so the two hulls stay one.
+    const hulls = mapCollision(models, stem, () => parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), WORLD_MODEL);
+    polys = hulls.polys;
+    owners = hulls.owners;
+    for (const line of hulls.notes) notes.add(line);
   } catch (e) {
     notes.add(`collision: ${say(e)}`);
     return { collision: noCollision() };
   }
-  return { collision: collisionLines(polys), ...groundOf(polys, models, bytes, toc, stem, notes) };
+  return { collision: collisionLines(polys), ...groundOf(polys, owners, models, bytes, toc, stem, notes) };
 }
 
 /**
- * The hull as the probe reads it, for the walk (`./walk`): the polygons with their nodes (`collisionOwners` walks
- * the graph as `worldCollision` does, so the owners index the polygons) and the world root's `grid_params`. A
+ * The hull as the probe reads it, for the walk (`./walk`): the polygons with their nodes (`mapCollision`'s owners index
+ * its polygons, the clutter's after the worldmodel's) and the world root's `grid_params`. A
  * root without the key takes the engine's default grid, as `CGrid::Read` does (research 23 section 2.3).
  */
-function groundOf(polys: WorldPoly[], models: SceneNode[], bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes): { ground: GroundData; doors: DoorSpec[]; gates: GateSpec[]; cranes: CraneSpec[] } {
+function groundOf(polys: WorldPoly[], owners: CollisionOwner[], models: SceneNode[], bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes): { ground: GroundData; doors: DoorSpec[]; gates: GateSpec[]; cranes: CraneSpec[] } {
   let grid = DEFAULT_GRID_PARAMS;
   try {
     grid = parseGridParams(Zar.parse(zdbMember(bytes, toc, `${stem}.ZED`)));
   } catch (e) {
     notes.add(`grid_params: ${say(e)} -- the walk takes the engine's default grid`);
   }
-  const owners = collisionOwners(models, WORLD_MODEL);
   // DOORS (`./doors`): the doors mark their polygons' owners (`sweep`) before the pack, so every grid built off this
   // hull files a leaf under its whole swing and the mover reads it fresh as it turns.
   const doors = readDoors(bytes, toc, models, owners, polys);
@@ -1640,10 +1644,11 @@ function groundOf(polys: WorldPoly[], models: SceneNode[], bytes: Uint8Array, to
  * `CLUTTER.ZAR`'s instances, placed. A model it names that the graph does not hold costs one diagnostic
  * for the model, not one per instance -- 36 of the same rock would otherwise say the same thing 36 times.
  */
-function clutter(models: SceneNode[], bytes: Uint8Array, toc: ZdbEntry[], notes: Notes): PlacedModel[] {
+function clutter(models: SceneNode[], bytes: Uint8Array, toc: ZdbEntry[], notes: Notes, stem: string): PlacedModel[] {
   try {
+    // r0004's Sujo barrel is not placed (`r0004DropsClutter`; r0004 r4 0x2f2108-0x2f2304, research 422 s4).
     const { placed, missing, malformed } = placeClutter(
-      models, parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))));
+      models, parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), (c) => !r0004DropsClutter(stem, c.modelName, c.matrix));
     for (const name of missing) notes.add(`clutter ${name}: named by CLUTTER.ZAR but not in the scene graph`);
     // Records that are not the affine matrix the format says. Drawn, they compose into basis rows
     // thousands of units long and streak across the map; this is Abandoned's whole problem.

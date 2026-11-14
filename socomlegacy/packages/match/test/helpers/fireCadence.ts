@@ -141,6 +141,10 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   const bloom = new Accuracy(rec);
   const corners = [[1, 1], [-1, -1], [1, -1], [-1, 1]] as const;
   let corner: [number, number] = [0, 0], rolled = 0;
+  // SHOTGUN-PELLET-CONE (LATER 934): each ray's own draw -- a shotgun's pull draws its pellets one after another, each
+  // bloomed before the next (`fire.ts`'s pellet loop), and emits them after the loop, so a pellet's claim takes its own
+  // draw (`pellet` of `pellets`), not the pull's last.
+  const drawn: [number, number][] = [];
   kit.setGun({
     trigger: () => bloom.trigger(), roundsPerPull: () => perPull, interval: () => interval,
     round: (d) => {
@@ -149,6 +153,8 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
       corner = opts.corner ? [c.offsetX + 0.95 * c.radius * kx, c.offsetY + 0.95 * c.radius * ky] : [0, 0];
       // SEC-F1 (`spread`): the claim at the page's cone centre plus its radius times the factors given (each in [-1, 1]).
       if (opts.spread) { const [sx, sy] = opts.spread(); corner = [c.offsetX + c.radius * sx, c.offsetY + c.radius * sy]; }
+      drawn.push(corner);
+      if (drawn.length > 16) drawn.shift();
       bloom.round(0, 'stand');
       return d;
     },
@@ -166,16 +172,21 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   // command if that is later (`max(after + 1, seq)`); else at once, at its own game frame's command (LATER 338) or the
   // last sent. `pressAtPrevious`: the page before LATER 347 -- named at once, at the previous frame's command.
   type RoundEv = Parameters<Parameters<typeof kit.subscribe>[0]>[0];
-  const heldRounds: { e: RoundEv; after: number }[] = [];
+  const heldRounds: { e: RoundEv; after: number; c: [number, number] }[] = [];
   const holds = (): boolean => !opts.pressAtPrevious && (((history[history.length - 1]?.buttons ?? 0) & Button.Trigger) === 0 || heldRounds.length > 0);
   /** `NetPage.roundSeq` (LATER 587's fold): the command a round fired now is named at -- `own`, its game frame's, if any. */
   roundSeqOf = (own?: number): number => (holds() ? Math.max(seq + 1, own ?? 0) : own ?? seq);
+  /** The claim's draw: a pellet's own (LATER 934: the last `pellets` draws are its pull's), else the last. */
+  const drawOf = (e: RoundEv): [number, number] => {
+    const { pellet, pellets } = e as { pellet?: number; pellets?: number };
+    return pellet !== undefined && pellets !== undefined && pellets > 1 ? drawn[drawn.length - pellets + pellet] ?? corner : corner;
+  };
   kit.subscribe((e) => {
     if (e.type !== 'round' || !base) return;
-    if (holds()) { heldRounds.push({ e, after: seq }); return; }
-    name(e, (e as { seq?: number }).seq ?? seq);
+    if (holds()) { heldRounds.push({ e, after: seq, c: drawOf(e) }); return; }
+    name(e, (e as { seq?: number }).seq ?? seq, drawOf(e));
   });
-  const name = (e: RoundEv, at: number): void => {
+  const name = (e: RoundEv, at: number, corner: [number, number]): void => {
     if (e.type !== 'round' || !base) return;
     if (lastRoll) rolledCone.set(at, lastRoll);
     named.push(at);
@@ -217,7 +228,7 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   const run = (dt: number, firing: boolean): void => {
     const given = Math.min(dt, 0.1);                                   // the page's clamp (PAR-24, `matchMount.ts`)
     const n = page(given, firing);
-    if (n > 0) for (const h of heldRounds.splice(0)) name(h.e, Math.max(h.after + 1, (h.e as { seq?: number }).seq ?? 0));
+    if (n > 0) for (const h of heldRounds.splice(0)) name(h.e, Math.max(h.after + 1, (h.e as { seq?: number }).seq ?? 0), h.c);
     bloom.update(given, STILL);
     kit.update(given);
     for (const ev of pending.splice(0)) room.text(1, ev);

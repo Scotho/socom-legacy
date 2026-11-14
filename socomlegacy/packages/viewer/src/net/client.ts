@@ -3,13 +3,14 @@ import { shortTurn, wrapYaw } from '../yaw';
 import type { Knock } from './blast';
 import { LookGate, LookLog, OPEN_LOOK_CONTEXT } from './lookGate';
 import {
-  BUILT_AT_PATTERN, COMMAND_REDUNDANCY, epochNewer, Frame, INTERP_DELAY_MS, partHealthOf, partHealthWire, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ,
+  BodyFlag, BUILT_AT_PATTERN, COMMAND_REDUNDANCY, epochNewer, Frame, INTERP_DELAY_MS, partHealthOf, partHealthWire, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ,
   type BodyState, type ClientEvent, type CombatReport, type Command, type CraneWire, type DoorWire, type EnvWire, type Role, type Rules, type ServerEvent, type Snapshot, type Team,
 } from './protocol';
 import type { WorldState } from '../worldState';
 import type { GameType } from '@s2u/scene';
 import { decodeVoiceDown, type VoiceDown } from './voiceWire';
 import { PlayoutClock } from './playoutClock';
+import { CommandClock } from './commandClock';
 import { SeatToldBoard } from './seatTold';
 import { SeatClanBoard } from './seatClans';
 import { equipmentLimit } from '../equipmentLimit';
@@ -306,6 +307,15 @@ export class NetClient {
   private readonly snaps: Received[] = [];
   /** INV-SPECTATE fix A: the remote bodies' playout clock, told every snapshot's arrival (`viewTick` reads it). */
   private readonly playout = new PlayoutClock();
+  /**
+   * PV-4b (the player's-view lane; product track, a browser adaptation with no original -- LATER 735, research 402 s4):
+   * the watched body's command clock (`./commandClock`), fed at each snapshot's arrival, the body it is kept for (null:
+   * none), and whether `bodies()` draws that body on it (`setCommandClockBody`). Nothing else reads them: `viewTick`,
+   * `shownTick`, `drawnAt`, every other body and the commands sent stay on the room's ticks.
+   */
+  private readonly cmdClock = new CommandClock<BodyState & { spawns?: number }>();
+  private cmdBody: number | null = null;
+  private cmdDrawn = false;
   private correction: [number, number, number] = [0, 0, 0];
   private correctionTicks = 0;
   /** LATER 528: the command whose snapshot found the correction being spread (the newer, where two were merged). */
@@ -705,6 +715,11 @@ export class NetClient {
     const at = performance.now();
     this.snaps.push({ snap, at });
     this.playout.hear(at, snap.tick);
+    // PV-4b: the watched body's clock heard at the same arrival (a snapshot without it feeds nothing: the clock's gap rule).
+    if (this.cmdBody !== null) {
+      const b = snap.bodies.find((x) => x.id === this.cmdBody);
+      if (b) this.cmdClock.hear(at, snap.tick, b.clock ?? 0, b, this.spawnsAt(b.id, snap.tick));
+    }
     if (this.deathTickPending) { this.deathTick = snap.tick; this.deathTickPending = false; }   // B138: no tick heard at the death
     if (this.snaps.length > SNAPSHOTS) this.snaps.shift();
     // HARD-FLOOD (research 169 measure 8): a watcher sends no commands, so its snapshots carry the player's 2 s ping up
@@ -1261,10 +1276,18 @@ export class NetClient {
    * (newer) snapshot is past (`spawns`, `markSpawn`) -- `RemotePlayers` rebuilds the copy at a change -- and a body
    * spawned between the two snapshots is drawn whole from the newer, its feet not lerped from where it lay or stood:
    * the original places the rebuilt copy at its record (`FUN_00598b90` D:L455245-455324). Was: lerped across it.
+   * PV-4b: a body watched AND drawn (`setCommandClockBody(id, true)`) takes its pose from its command clock
+   * (`onCommandClock`); with none, or watched and not drawn, the list is the one above for every body.
    */
   bodies(now = performance.now()): (BodyState & { spawns?: number })[] {
     const drawn = this.drawnAt(now);
     if (!drawn) return [];
+    const list = this.bodiesAt(drawn);
+    return this.cmdDrawn ? this.onCommandClock(list, now) : list;
+  }
+
+  /** `bodies(now)`'s list on the room's ticks, from `drawnAt`'s two snapshots: today's, for every body. */
+  private bodiesAt(drawn: { t: number; newer: Snapshot; older: Snapshot | null }): (BodyState & { spawns?: number })[] {
     const { t, newer, older } = drawn;
     const counted = (x: BodyState): BodyState & { spawns: number } => ({ ...x, spawns: this.spawnsAt(x.id, newer.tick) });
     if (!older) return newer.bodies.map(counted);
@@ -1281,6 +1304,61 @@ export class NetClient {
         yaw: wrapYaw(o.yaw + turn * f), pitch: o.pitch + (x.pitch - o.pitch) * f,
       };
     });
+  }
+
+  /**
+   * PV-4b (product track, a browser adaptation with no original -- LATER 735, research 402 s4): the watched body, when it
+   * is drawn on its command clock, takes the feet, yaw and pitch of its owner's command time (`./commandClock` `at`, the
+   * fraction between the two samples around it) in place of the room's tick's; every other field stays the list's own --
+   * the alive bit, the stance, the item, the action, the serials, `spawns`: discrete state on the room's tick, so nothing a
+   * round or the HUD reads moves. A dead body (a corpse moves on the room's ticks), a body with no usable clock (a
+   * hostage, whose nibble is always 0; a protocol-15 room; a seat whose commands stopped) or a command time with no
+   * sample keeps today's entry. The review's fold 2: so does a command time whose own sample is dead -- at a respawn the
+   * drawn snapshot is alive while the command time can still sit at or before the last dead sample, and `at(k)` is then
+   * the corpse: the alive check is made on the sample that would replace the entry, not only on the entry. Every other
+   * entry is untouched. `list` is this call's own (built by `bodiesAt`).
+   */
+  private onCommandClock(list: (BodyState & { spawns?: number })[], now: number): (BodyState & { spawns?: number })[] {
+    const i = list.findIndex((x) => x.id === this.cmdBody);
+    if (i < 0 || !(list[i]!.flags & BodyFlag.Alive)) return list;
+    const k = this.cmdClock.cmd(now);
+    const at = k === null ? null : this.cmdClock.at(k);
+    if (!at || !(at.flags & BodyFlag.Alive)) return list;
+    list[i] = { ...list[i]!, feet: [at.feet[0], at.feet[1], at.feet[2]], yaw: at.yaw, pitch: at.pitch };
+    return list;
+  }
+
+  /**
+   * PV-4b (the player's-view lane; product track, a browser adaptation with no original -- LATER 735, research 402 s4):
+   * the body whose owner's command clock is kept (`id`; null none) and whether `bodies()` draws it on that clock
+   * (`drawn`) -- two switches: watched, the clock is fed and answers the rig (`commandClock`, `bodyAtCommand`) while
+   * `bodies()` is today's for every body; drawn too, that one body's feet, yaw and pitch move to the clock. A change of id
+   * (or to null) restarts the clock (its epoch rises); a change of `drawn` alone does not; the same pair again does
+   * nothing (the page calls it every frame).
+   */
+  setCommandClockBody(id: number | null, drawn = false): void {
+    if (id !== this.cmdBody) { this.cmdBody = id; this.cmdClock.reset(); }
+    this.cmdDrawn = id !== null && drawn;
+  }
+
+  /**
+   * PV-4b: the watched body's command time at `now` (fractional, unwrapped: `./commandClock` `cmd`) and the clock's epoch
+   * (the rig rebuilds at a change); null when no body is watched or it has no usable clock.
+   */
+  commandClock(now = performance.now()): { cmd: number; epoch: number } | null {
+    if (this.cmdBody === null) return null;
+    const cmd = this.cmdClock.cmd(now);
+    return cmd === null ? null : { cmd, epoch: this.cmdClock.epoch };
+  }
+
+  /** PV-4b: the watched body after command `k` (`./commandClock` `at`: a fraction is the lerp); null when none is watched or k is not kept. */
+  bodyAtCommand(k: number): (BodyState & { spawns?: number }) | null {
+    return this.cmdBody === null ? null : this.cmdClock.at(k);
+  }
+
+  /** PV-15: the watched body's seat's spawn count at command `k` (`./commandClock` `lifeAt`); null when none is watched or k is not kept. */
+  lifeAtCommand(k: number): number | null {
+    return this.cmdBody === null ? null : this.cmdClock.lifeAt(k);
   }
 
   /**

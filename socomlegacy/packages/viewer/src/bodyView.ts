@@ -14,6 +14,7 @@ import { nightLit } from './nightVision';
 import type { LoadedMap } from './loadMap';
 import { drawState, materialSpec } from './materialSpec';
 import { blendFactorsFor, makeTexture } from './world';
+import { bodyResourcesFor, type RenderResourceLease } from './bodyResources';
 
 /**
  * The player's body on the page (W2.1): a three `SkinnedMesh` per sub-mesh on one `Skeleton` built from the
@@ -147,6 +148,9 @@ export function buildBody(body: LoadedBody, map: Pick<LoadedMap, 'textures' | 't
 
   const textures = new Map<string, Texture>();
   const materials = new Map<string, MeshBasicNodeMaterial>();
+  const resources = bodyResourcesFor(map);
+  const leases: RenderResourceLease<unknown>[] = [];
+  const borrow = <T>(lease: RenderResourceLease<T>): T => { leases.push(lease); return lease.value; };
   const stopExperimentalUpdates = onExperimentalAssetsChange('character', () => {
     shading = shadingFor();
     for (const material of materials.values()) {
@@ -154,152 +158,174 @@ export function buildBody(body: LoadedBody, map: Pick<LoadedMap, 'textures' | 't
       material.needsUpdate = true;
     }
   });
-  const materialFor = (name: string | null, fog: boolean, cull: boolean): MeshBasicNodeMaterial => {
-    const key = `${name ?? ''}|${fog ? 1 : 0}|${cull ? 1 : 0}`;
-    const cached = materials.get(key);
-    if (cached) return cached;
-    const flags = name === null ? undefined : map.textureFlags[name];
-    const spec = materialSpec(flags, fog, true, cull);
-    const rgba = name === null ? undefined : map.textures[name];
-    let texture = name === null ? undefined : textures.get(name);
-    if (!texture && name !== null && rgba) textures.set(name, texture = makeTexture(rgba, spec));
-    const state = drawState(spec, false);
-    const material = new MeshBasicNodeMaterial();
-    material.name = `body ${name ?? 'untextured'}`;
-    material.map = texture ?? null;
-    material.vertexColors = false;              // the graph reads the attribute itself, as the world's does
-    material.colorNode = texture ? shading.shaded : shading.shadedPlain;
-    material.transparent = state.transparent;
-    material.depthWrite = state.depthWrite;
-    Object.assign(material, blendFactorsFor(state.factors));
-    material.alphaTest = spec.alphaTest;
-    material.side = spec.cull ? FrontSide : DoubleSide;
-    material.fog = spec.fog;
-    materials.set(key, material);
-    return material;
+  let disposed = false;
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    // #790 piece 1 review F2: each step runs whatever an earlier one threw (a resource's dispose listener, say), so no
+    // lease is stranded once `disposed` is set -- a shared resource left borrowed would never be freed. The first
+    // failure is thrown after.
+    const failures: unknown[] = [];
+    const attempt = (step: () => void): void => { try { step(); } catch (error) { failures.push(error); } };
+    attempt(stopExperimentalUpdates);
+    for (const m of materials.values()) attempt(() => m.dispose());
+    for (const lease of leases) attempt(() => lease.release());
+    leases.length = 0;
+    materials.clear(); textures.clear(); variants.clear();
+    attempt(() => skeleton.dispose());
+    if (failures.length > 0) throw failures[0];
   };
-
-  /** The material colour a part is drawn with before the rig: unity for the skin, the fitting's own lane. */
-  const colour = (count: number, material: Float32Array | null): BufferAttribute =>
-    new BufferAttribute(material ? Float32Array.from(material) : new Float32Array(count * 4).fill(UNITY), 4);
-  // WEBGPU-BLACK (2026-11-05, live v0.4.7): the meshes this body built, the only ones `dispose` frees. Whatever is hung
-  // under the group later -- the page's held weapons (`./play` `hangHeld`, `setBody`), the world's one object per model
-  // whose geometry every remote body's `cloneHeld` copy shares (`./world` `held`), a grenade on a prop -- is someone
-  // else's: disposing it with the body destroyed the shared buffers under every cached remote clone, and under WebGPU
-  // the world's submit was rejected every frame from the next draw of one ("[Buffer] used in submit while destroyed").
-  const ownMeshes: Mesh[] = [];
-  for (const sub of body.subMeshes) {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new BufferAttribute(sub.positions, 3));
-    geometry.setAttribute('normal', new BufferAttribute(sub.normals, 3));
-    geometry.setAttribute('uv', new BufferAttribute(sub.uvs, 2));
-    geometry.setAttribute('color', colour(sub.positions.length / 3, null));
-    geometry.setAttribute('skinIndex', new Uint16BufferAttribute(sub.skinIndex, 4));
-    geometry.setAttribute('skinWeight', new BufferAttribute(sub.skinWeight, 4));
-    geometry.setIndex(new BufferAttribute(sub.indices, 1));
-    const mesh = new SkinnedMesh(geometry, materialFor(sub.textureName, sub.fog, CULL));
-    mesh.name = `${body.model} ${sub.textureName ?? 'untextured'}`;
-    group.add(mesh);
-    ownMeshes.push(mesh);
-    mesh.bind(skeleton, new Matrix4());         // bound at the model origin: the bind pose is the identity pose
-    // CPS H9, the body cull: culled by a bound that follows the pose (`./bodyCullBound`), not the bind pose's bounds;
-    // unculled, as before, when the mesh is outside what the bound covers. A CPU-side browser adaptation: no pixel changes.
-    cullByBones(mesh);
-  }
-
-  // The fittings hang off their parts under `offset` (78 §5), so they follow the bone when a motion moves it.
-  const gear = new Map<string, Group>();
-  for (const fitting of body.fittings) {
-    const holder = new Group();
-    holder.name = fitting.name;
-    holder.visible = !HIDDEN_AT_SPAWN.has(fitting.name);
-    gear.set(fitting.name, holder);
-    new Matrix4().fromArray(fitting.offset).decompose(holder.position, holder.quaternion, holder.scale);
-    bones[fitting.part]!.add(holder);
-    for (const m of fitting.meshes) {
-      const mesh = new Mesh(fittingGeometry(m, colour(m.positions.length / 3, m.colors)),
-        materialFor(m.textureName, m.fog, m.cull));
-      mesh.name = `${fitting.name} ${m.textureName ?? 'untextured'}`;
-      holder.add(mesh);
-      ownMeshes.push(mesh);
-    }
-  }
-
-  if (body.at) {
-    group.position.set(...body.at.position);
-    group.rotation.y = body.at.yaw;
-  }
-
-  const scratch = new Matrix4();
-  const props: Group[] = [];
-  /** Each material's own blend state, kept at the first `setOpacity` and put back at 1. */
-  const drawn = new Map<MeshBasicNodeMaterial, {
-    transparent: boolean; depthWrite: boolean; blending: Blending; blendSrc: BlendingSrcFactor | BlendingDstFactor; blendDst: BlendingDstFactor;
-  }>();
-  const hiddenGear = (): string[] => body.fittings.map((f) => f.name).filter((n) => gear.get(n)?.visible === false);
-  const view: BodyView = {
-    group,
-    stats: {
-      ...body.stats, character: body.character, model: body.model, dressedBy: body.dressedBy,
-      fittingNames: body.fittings.map((f) => f.name), missing: body.missing, height: body.height, eye: body.eye,
-      at: body.at ? [...body.at.position] : null, yaw: body.at?.yaw ?? null, hiddenGear: hiddenGear(),
-    },
-    setVisible: (on) => { group.visible = on; },
-    setPose: (locals) => {
-      locals.forEach((m, i) => {
-        const node = bones[i] ?? props[i - bones.length];
-        if (node) scratch.fromArray(m as ArrayLike<number> as number[]).decompose(node.position, node.quaternion, node.scale);
-      });
-    },
-    addProp: (name, parent) => {
-      const prop = new Group();
-      prop.name = name;
-      (bones.find((b) => b.name === parent) ?? group).add(prop);
-      props.push(prop);
-      return prop;
-    },
-    setGearVisible: (name, on) => {
-      const holder = gear.get(name);
-      if (!holder) return false;
-      holder.visible = on;
-      view.stats.hiddenGear = hiddenGear();
-      return true;
-    },
-    place: (feet, yaw) => {
-      group.position.set(feet[0], feet[1], feet[2]);
-      group.rotation.y = (yaw * Math.PI) / 180;           // the camera's yaw is three's turn about y (`camera.ts`)
-      view.stats.at = [feet[0], feet[1], feet[2]];
-      view.stats.yaw = group.rotation.y;
-    },
-    setLighting: (next) => {
-      brighten.value = brightenOf(next);
-      currentRig = next.rig; shading.rig.set(next.rig);
-    },
-    setOpacity: (opacity) => {
-      const o = Math.min(1, Math.max(0, opacity));
-      for (const m of materials.values()) {
-        let own = drawn.get(m);
-        if (!own) drawn.set(m, own = { transparent: m.transparent, depthWrite: m.depthWrite, blending: m.blending, blendSrc: m.blendSrc, blendDst: m.blendDst });
-        const fading = o < 1;
-        if (m.transparent !== (fading || own.transparent) || m.blendSrc !== (fading ? SrcAlphaFactor : own.blendSrc)) m.needsUpdate = true;
-        m.opacity = o;
-        m.transparent = fading || own.transparent;
-        // a fading body's surfaces behind its front ones show through: no depth written while it blends, as a blend draws
-        m.depthWrite = fading ? false : own.depthWrite;
-        m.blending = fading ? CustomBlending : own.blending;
-        m.blendSrc = fading ? SrcAlphaFactor : own.blendSrc;
-        m.blendDst = fading ? OneMinusSrcAlphaFactor : own.blendDst;
+  try {
+    const materialFor = (name: string | null, fog: boolean, cull: boolean): MeshBasicNodeMaterial => {
+      const key = `${name ?? ''}|${fog ? 1 : 0}|${cull ? 1 : 0}`;
+      const cached = materials.get(key);
+      if (cached) return cached;
+      const flags = name === null ? undefined : map.textureFlags[name];
+      const spec = materialSpec(flags, fog, true, cull);
+      const rgba = name === null ? undefined : map.textures[name];
+      let texture = name === null ? undefined : textures.get(name);
+      if (!texture && name !== null && rgba) {
+        // Only sampler state belongs in the texture key. Fog, opacity, culling and lighting remain per material.
+        const sampler = `${spec.wrapS}|${spec.wrapT}|${spec.bilinear}|${spec.mipmaps}`;
+        texture = borrow(resources.texture.acquire(rgba, sampler, () => makeTexture(rgba, spec)));
+        textures.set(name, texture);
       }
-    },
-    dispose: () => {
-      stopExperimentalUpdates();
-      for (const m of ownMeshes) m.geometry.dispose();   // the body's own, never a child hung on it (WEBGPU-BLACK)
-      for (const m of materials.values()) m.dispose();
-      for (const t of textures.values()) t.dispose();
-      skeleton.dispose();
-    },
-  };
-  return view;
+      const state = drawState(spec, false);
+      const material = new MeshBasicNodeMaterial();
+      material.name = `body ${name ?? 'untextured'}`;
+      material.map = texture ?? null;
+      material.vertexColors = false;              // the graph reads the attribute itself, as the world's does
+      material.colorNode = texture ? shading.shaded : shading.shadedPlain;
+      material.transparent = state.transparent;
+      material.depthWrite = state.depthWrite;
+      Object.assign(material, blendFactorsFor(state.factors));
+      material.alphaTest = spec.alphaTest;
+      material.side = spec.cull ? FrontSide : DoubleSide;
+      material.fog = spec.fog;
+      materials.set(key, material);
+      return material;
+    };
+
+    /** The material colour a part is drawn with before the rig: unity for the skin, the fitting's own lane. */
+    const colour = (count: number, material: Float32Array | null): BufferAttribute =>
+      new BufferAttribute(material ? Float32Array.from(material) : new Float32Array(count * 4).fill(UNITY), 4);
+    // WEBGPU-BLACK (2026-11-05, live v0.4.7): only this body's resource leases are released. Whatever is hung
+    // under the group later -- the page's held weapons (`./play` `hangHeld`, `setBody`), the world's one object per model
+    // whose geometry every remote body's `cloneHeld` copy shares (`./world` `held`), a grenade on a prop -- is someone
+    // else's: disposing it with the body destroyed the shared buffers under every cached remote clone, and under WebGPU
+    // the world's submit was rejected every frame from the next draw of one ("[Buffer] used in submit while destroyed").
+    for (const sub of body.subMeshes) {
+      const geometry = borrow(resources.geometry.acquire(sub, 'skin', () => {
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new BufferAttribute(sub.positions, 3));
+        geometry.setAttribute('normal', new BufferAttribute(sub.normals, 3));
+        geometry.setAttribute('uv', new BufferAttribute(sub.uvs, 2));
+        geometry.setAttribute('color', colour(sub.positions.length / 3, null));
+        geometry.setAttribute('skinIndex', new Uint16BufferAttribute(sub.skinIndex, 4));
+        geometry.setAttribute('skinWeight', new BufferAttribute(sub.skinWeight, 4));
+        geometry.setIndex(new BufferAttribute(sub.indices, 1));
+        return geometry;
+      }));
+      const mesh = new SkinnedMesh(geometry, materialFor(sub.textureName, sub.fog, CULL));
+      mesh.name = `${body.model} ${sub.textureName ?? 'untextured'}`;
+      group.add(mesh);
+      mesh.bind(skeleton, new Matrix4());         // bound at the model origin: the bind pose is the identity pose
+      // CPS H9, the body cull: culled by a bound that follows the pose (`./bodyCullBound`), not the bind pose's bounds;
+      // unculled, as before, when the mesh is outside what the bound covers. A CPU-side browser adaptation: no pixel changes.
+      cullByBones(mesh);
+    }
+
+    // The fittings hang off their parts under `offset` (78 §5), so they follow the bone when a motion moves it.
+    const gear = new Map<string, Group>();
+    for (const fitting of body.fittings) {
+      const holder = new Group();
+      holder.name = fitting.name;
+      holder.visible = !HIDDEN_AT_SPAWN.has(fitting.name);
+      gear.set(fitting.name, holder);
+      new Matrix4().fromArray(fitting.offset).decompose(holder.position, holder.quaternion, holder.scale);
+      bones[fitting.part]!.add(holder);
+      for (const m of fitting.meshes) {
+        const geometry = borrow(resources.geometry.acquire(m, 'fitting', () => fittingGeometry(m, colour(m.positions.length / 3, m.colors))));
+        const mesh = new Mesh(geometry,
+          materialFor(m.textureName, m.fog, m.cull));
+        mesh.name = `${fitting.name} ${m.textureName ?? 'untextured'}`;
+        holder.add(mesh);
+      }
+    }
+
+    if (body.at) {
+      group.position.set(...body.at.position);
+      group.rotation.y = body.at.yaw;
+    }
+
+    const scratch = new Matrix4();
+    const props: Group[] = [];
+    /** Each material's own blend state, kept at the first `setOpacity` and put back at 1. */
+    const drawn = new Map<MeshBasicNodeMaterial, {
+      transparent: boolean; depthWrite: boolean; blending: Blending; blendSrc: BlendingSrcFactor | BlendingDstFactor; blendDst: BlendingDstFactor;
+    }>();
+    const hiddenGear = (): string[] => body.fittings.map((f) => f.name).filter((n) => gear.get(n)?.visible === false);
+    const view: BodyView = {
+      group,
+      stats: {
+        ...body.stats, character: body.character, model: body.model, dressedBy: body.dressedBy,
+        fittingNames: body.fittings.map((f) => f.name), missing: body.missing, height: body.height, eye: body.eye,
+        at: body.at ? [...body.at.position] : null, yaw: body.at?.yaw ?? null, hiddenGear: hiddenGear(),
+      },
+      setVisible: (on) => { group.visible = on; },
+      setPose: (locals) => {
+        locals.forEach((m, i) => {
+          const node = bones[i] ?? props[i - bones.length];
+          if (node) scratch.fromArray(m as ArrayLike<number> as number[]).decompose(node.position, node.quaternion, node.scale);
+        });
+      },
+      addProp: (name, parent) => {
+        const prop = new Group();
+        prop.name = name;
+        (bones.find((b) => b.name === parent) ?? group).add(prop);
+        props.push(prop);
+        return prop;
+      },
+      setGearVisible: (name, on) => {
+        const holder = gear.get(name);
+        if (!holder) return false;
+        holder.visible = on;
+        view.stats.hiddenGear = hiddenGear();
+        return true;
+      },
+      place: (feet, yaw) => {
+        group.position.set(feet[0], feet[1], feet[2]);
+        group.rotation.y = (yaw * Math.PI) / 180;           // the camera's yaw is three's turn about y (`camera.ts`)
+        view.stats.at = [feet[0], feet[1], feet[2]];
+        view.stats.yaw = group.rotation.y;
+      },
+      setLighting: (next) => {
+        brighten.value = brightenOf(next);
+        currentRig = next.rig; shading.rig.set(next.rig);
+      },
+      setOpacity: (opacity) => {
+        const o = Math.min(1, Math.max(0, opacity));
+        for (const m of materials.values()) {
+          let own = drawn.get(m);
+          if (!own) drawn.set(m, own = { transparent: m.transparent, depthWrite: m.depthWrite, blending: m.blending, blendSrc: m.blendSrc, blendDst: m.blendDst });
+          const fading = o < 1;
+          if (m.transparent !== (fading || own.transparent) || m.blendSrc !== (fading ? SrcAlphaFactor : own.blendSrc)) m.needsUpdate = true;
+          m.opacity = o;
+          m.transparent = fading || own.transparent;
+          // a fading body's surfaces behind its front ones show through: no depth written while it blends, as a blend draws
+          m.depthWrite = fading ? false : own.depthWrite;
+          m.blending = fading ? CustomBlending : own.blending;
+          m.blendSrc = fading ? SrcAlphaFactor : own.blendSrc;
+          m.blendDst = fading ? OneMinusSrcAlphaFactor : own.blendDst;
+        }
+      },
+      dispose,
+    };
+    return view;
+  } catch (error) {
+    try { dispose(); } catch { /* the build's own failure is the one thrown */ }
+    throw error;
+  }
 }
 
 /** A fitting's geometry: its own positions, normals and uvs, and its material colour (the rig lights it on the GPU). */

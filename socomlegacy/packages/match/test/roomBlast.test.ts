@@ -108,7 +108,7 @@ describe('the room\'s blast (FUN_005a0e70)', () => {
     room.player(1)!.sim.walker.place(-600, 20, 0);                // the thrower walks off before the fuse
     let knocked = false;
     for (let i = 0; i < FUSE_TICKS; i++) {
-      if (i === FUSE_TICKS - 30) script.push(0.5, 0.0, 0.65);     // 13 close -> 0.81 -> 1 fragment, on the left arm
+      if (i === FUSE_TICKS - 30) script.push(0.5, 0.0, 0.65);     // the extra 5 -> 5 x 900/120^2 = 0.31 -> 1 on the second draw, on the left arm (FRAG-COUNT)
       room.step();
       if (s.of('blast').length && !knocked) { knocked = true; expect(room.player(2)!.sim.walker.airborne).toBe(true); }
     }

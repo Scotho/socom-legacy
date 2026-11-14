@@ -130,6 +130,25 @@ export function uiGpuFallbackFrame(x: UiGpuFallbackState): { level: UiGpuFallbac
  */
 export const UI_GPU_XBOX_ONE_CONTEXT_ADAPTATION: readonly UiGpuSurface[] = Object.freeze(['loading', 'overlay']);
 
+/**
+ * LATER 983's experiment (#790, 2026-11-14; product track, a browser adaptation with no original; built on the owner's
+ * word, his pick "Yes, Xbox only", for v0.4.22). On the Xbox class the front end's menus start on the
+ * software (the 2D canvas `#front-end`, the 1x frame, GM-28), so the page spends no WebGL context before the match: with
+ * GM-XBOX1's loading screen and overlay already withheld, the front surface was the one left. Central's rows: on every
+ * console page since v0.4.20 the front surface's L3 `restore-timeout` came before a match with no renderer (inputdiag
+ * `bk: null`, 11 of 11), and none without one (2 of 2 drew `webgl2`) -- the menus ended on this same software on every
+ * such page anyway. What it costs a console player: the menus' look after a loss (the 1x software frame; the menus' HD
+ * pack's scale not drawn), more CPU per menu frame; nothing in the match. The measure, before against after over a stated
+ * count of console matches (the 45 s inputdiag rows): `uigpufallback` front rows to 0, inputdiag `bk: null` to 0, the
+ * reload's L4 `no-webgl2` to 0, and `contextdiag` `webglcontextlost` per console match not up. `false` restores today's.
+ */
+export const UI_GPU_XBOX_SOFTWARE_MENUS_ADAPTATION: boolean = true;
+
+/** LATER 983: whether the front end mounts its GPU surface on `deviceClass` -- never on the Xbox class while the experiment is on. */
+export function frontGpuAllowed(deviceClass: DeviceClass): boolean {
+  return !(UI_GPU_XBOX_SOFTWARE_MENUS_ADAPTATION && deviceClass === 'xbox');
+}
+
 /** GM-XBOX1: whether the page hands `surface` its GPU option on `deviceClass` (`UI_GPU_XBOX_ONE_CONTEXT_ADAPTATION`). */
 export function gpuSurfaceAllowed(surface: UiGpuSurface, deviceClass: DeviceClass): boolean {
   return !(deviceClass === 'xbox' && UI_GPU_XBOX_ONE_CONTEXT_ADAPTATION.includes(surface));

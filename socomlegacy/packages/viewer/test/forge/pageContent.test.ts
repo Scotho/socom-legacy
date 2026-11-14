@@ -17,6 +17,7 @@ import type { LoadedMap } from '../../src/loadMap';
 import { MAP_PACK, minimalMapJson } from '../../../creator-contracts/test/contentMapFixtures';
 import { REF, solidJson, visualJson } from '../packs/contentFixtures';
 import { freshSavesDb } from './fakeSaves';
+import { pressNew, pressForgeMenu } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * R6 (3, 7; product track, a browser adaptation with no original -- the forge and its packs are the port's own): the
@@ -96,7 +97,7 @@ const statusLine = (): string => document.querySelector('.fx-status-msg')?.textC
  * is chosen from New's own card (`chooseNewBase`, a select labelled "New layout").
  */
 const menuBaseLabel = (): string => {
-  if (!document.querySelector('.fx-menu li[data-forge-menu-row="base"]')) document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+  if (!document.querySelector('.fx-menu li[data-forge-menu-row="base"]')) pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
   return document.querySelector('.fx-menu li[data-forge-menu-row="base"] .fx-menu-value')?.textContent ?? '';
 };
 const closeMenu = (): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); };
@@ -196,6 +197,96 @@ describe('R6: creator content on the mounted Forge', () => {
     expect(document.querySelector('.fx-check-card li[data-kind="missing-pack"]')!.textContent).toContain(`${REF.pack.id}@${REF.pack.version}`);
   }, 90_000);
 
+  it('FX-9 (T10): a pack piece keeps a turn about the vertical at its own size: its Pitch, Roll and Scale are off, said, and refused', async () => {
+    // A pack piece tilted or scaled would be neither drawn nor solid in the composed match map (`pieceYaw`), so the
+    // Inspector refuses it in words; its Yaw stays.
+    localStorage.setItem(FORGE_LAYOUT_KEY, JSON.stringify(recordOfLayout(withCrate(), 'Crated')));
+    const { api } = await mount(memorySource(defOf(solidJson())), [REF.pack]);
+    await vi.waitFor(() => { frame(); expect(tagged()).toHaveLength(1); });
+    expect(await api.execute('selection.set', { refs: ['piece:0'] }, api.read().revision)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(document.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
+    const field = (label: string): HTMLInputElement => document.querySelector<HTMLInputElement>(`.fx-fields input[data-label="${label}"]`)!;
+    const words = 'Pack pieces turn about the vertical at their own size: tilt or scale a disc prop instead';
+    for (const label of ['Pitch', 'Roll', 'Scale X', 'Scale Y', 'Scale Z']) {
+      expect(field(label).disabled, label).toBe(true);
+      expect(field(label).title, label).toBe(words);
+    }
+    expect(field('Yaw').disabled).toBe(false);
+    const revision = api.read().revision;
+    const f = field('Pitch');
+    f.value = '30';
+    f.dispatchEvent(new Event('change'));
+    expect(statusLine()).toBe(words);
+    expect(field('Pitch').value).toBe('0');
+    expect(api.read().revision, 'no edit').toBe(revision);
+    expect((api.read().layout as { poses?: unknown }).poses).toBeUndefined();
+    // The agent is refused the same, by name.
+    expect(await api.execute('placement.set', { ref: 'piece:0', field: 'scale', value: 2 }, api.read().revision)).toMatchObject({ ok: false, code: 'UNSUPPORTED' });
+    expect((api.read().layout as { poses?: unknown }).poses).toBeUndefined();
+  }, 90_000);
+
+  /*
+   * FC2 (ours), the hand-merge review's F2 (2026-11-13; `socomlegacy/docs/plans/2026-11-13-forge-crispy2.md`, the Log): FX-9's
+   * rule for a pack piece held through the tree (`Layout.tree`). The pack's crate (`piece:0`, at (50, 0, 50), a quarter
+   * turn) is put under a disc prop (`piece:1`, `MP2:crate` at the origin, unturned) in the layout opened; a typed Pitch or
+   * Scale on the disc prop would carry the pack piece tilted or scaled (`carrying` -> `carryFollowers`), which the composed
+   * match map cannot draw or make solid (`pieceYaw`). Cited at the import's head `11c1777cd3`.
+   */
+  const IDENTITY_M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  /** The pack's crate under a disc prop, the disc archive in memory (one model, `crate`); the Inspector showing the prop. */
+  async function packUnderDiscProp(): Promise<{ api: ForgeAgentApi; field: (label: string) => HTMLInputElement }> {
+    const { blankLibraryMap, floorMesh } = await import('../../src/forge/matchMap');
+    const disc = { ...blankLibraryMap('MP2', 1000), path: 'synthetic/MP2', name: 'MP2', world: [floorMesh(1000)],
+      props: [{ modelName: 'crate', parts: [floorMesh(4)], matrices: new Float32Array(IDENTITY_M), order: 0, alternate: false, facade: 0, lod: null, paths: ['world/crate'] }] } as LoadedMap;
+    archiveLoad.mockReset().mockImplementation(async (stem) => { if (stem === 'MP2') return disc; throw new Error('No disc supplied'); });
+    const layout: Layout = { ...withCrate(), pieces: [...withCrate().pieces, { asset: 'MP2:crate', m: IDENTITY_M }], tree: [['piece:0', 'piece:1']] };
+    localStorage.setItem(FORGE_LAYOUT_KEY, JSON.stringify(recordOfLayout(layout, 'Crated')));
+    const { api } = await mount(memorySource(defOf(solidJson())), [REF.pack]);
+    await vi.waitFor(() => { frame(); expect(tagged()).toHaveLength(1); });
+    expect((api.read().layout as { tree?: unknown }).tree, 'the pack piece under the disc prop').toEqual([['piece:0', 'piece:1']]);
+    expect(await api.execute('selection.set', { refs: ['piece:1'] }, api.read().revision)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(document.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
+    const field = (label: string): HTMLInputElement => document.querySelector<HTMLInputElement>(`.fx-fields input[data-label="${label}"]`)!;
+    expect(field('Pitch').disabled, 'a disc prop tilts').toBe(false);
+    return { api, field };
+  }
+  const PACK_WORDS = 'Pack pieces turn about the vertical at their own size: tilt or scale a disc prop instead';
+
+  it('FC2 (ours), RED: a typed Pitch on a disc prop with a pack piece under it is refused in the pack rule\'s words, nothing moved; a typed Yaw carries it', async () => {
+    // Expected RED today (`11c1777cd3`), at the status line: `commitTurnField` asks only `followersFit` (page.ts:5314),
+    // whose `followersWithin` (3111-3116) checks a carried piece's size bounds alone; the pack crate stays at scale 1,
+    // so the Pitch is applied (`carrying`, 5325) and the pack piece carried tilted -- the revision moves, the record
+    // gains pose rows, nothing is said. Expected GREEN after the fix: `followersWithin` / `followersFit` also refuse
+    // an edit that would leave a pack piece (`packPiece`) with anything but a turn about the vertical at unit scale, in
+    // `PACK_PIECE_POSE_REFUSAL`'s words. The Yaw at the end is a CONTROL (green today and after): a turn about the
+    // vertical keeps the pack piece's own.
+    const { api, field } = await packUnderDiscProp();
+    const revision = api.read().revision;
+    field('Pitch').value = '30';
+    field('Pitch').dispatchEvent(new Event('change'));
+    expect(statusLine()).toBe(PACK_WORDS);
+    expect(api.read().revision, 'no edit').toBe(revision);
+    expect(field('Pitch').value, 'the disc prop as it was').toBe('0');
+    expect((api.read().layout as { poses?: unknown }).poses, 'neither piece tilted').toBeUndefined();
+    field('Yaw').value = '45';
+    field('Yaw').dispatchEvent(new Event('change'));
+    expect(api.read().revision, 'a Yaw is an edit').not.toBe(revision);
+    expect((api.read().layout as { poses?: unknown }).poses, 'still neither tilted nor scaled').toBeUndefined();
+  }, 90_000);
+
+  it('FC2 (ours), RED: a typed Scale X on a disc prop with a pack piece under it is refused in the pack rule\'s words, nothing moved', async () => {
+    // Expected RED today: the parent's S(2, 1, 1) carries the quarter-turned crate to a scale of 2 along its own Z, inside
+    // 0.1..4, so `followersFit` passes and the scale is applied (page.ts:5314, 5325). Expected GREEN after the fix.
+    const { api, field } = await packUnderDiscProp();
+    const revision = api.read().revision;
+    field('Scale X').value = '2';
+    field('Scale X').dispatchEvent(new Event('change'));
+    expect(statusLine()).toBe(PACK_WORDS);
+    expect(api.read().revision, 'no edit').toBe(revision);
+    expect(field('Scale X').value, 'the disc prop as it was').toBe('1');
+    expect((api.read().layout as { poses?: unknown }).poses, 'neither piece scaled').toBeUndefined();
+  }, 90_000);
+
   /** Opens `record` through the toolbar's Open, as a person chooses a file. */
   const openFile = (record: unknown): void => {
     const input = document.querySelector<HTMLInputElement>('input[type="file"][accept=".json,application/json"]')!;
@@ -258,7 +349,7 @@ describe('R6: creator content on the mounted Forge', () => {
     expect(prop.userData['forgePiece']).toBeUndefined();               // the base's, not a placement: never picked or saved
     expect(api.read().layout!.pieces).toHaveLength(0);
     // The blank floor chosen from it (New, its card's base list; OT.R112): the base's props go with its world.
-    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    pressNew(document);                                           // EDITOR-MAP T2: File > New...
     await vi.waitFor(() => expect(document.querySelector('.fx-card select[aria-label="New layout"]')).not.toBeNull());
     const card = newCard();
     card.sel.value = 'blank';
@@ -277,7 +368,7 @@ describe('R6: creator content on the mounted Forge', () => {
     await vi.waitFor(() => expect(api.status().map).toBe(own));
     expect(menuBaseLabel()).toContain('Yard');
     closeMenu();
-    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    pressNew(document);                                           // EDITOR-MAP T2: File > New...
     await vi.waitFor(() => expect(document.querySelector('.fx-card select[aria-label="New layout"]')).not.toBeNull());
     const card = newCard();
     expect([...card.sel.options].map((o) => o.value)).not.toContain(own);

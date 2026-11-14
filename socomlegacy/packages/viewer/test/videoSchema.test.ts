@@ -76,7 +76,7 @@ describe('VS-1: the video schema', () => {
     expect(row('graphics').effect).toMatch(/stays on WebGL2/);
     // F1 (the S1/S2 review, gmxbox1c): since S2 the Xbox class's Automatic draws WebGL2 (`./deviceClass` `classGraphics`),
     // so the help names that class, and the bring-back is said of every other.
-    expect(row('graphics').effect).toMatch(/on an Xbox Automatic always draws WebGL2/);
+    expect(row('graphics').effect).toMatch(/on an Xbox the console always draws WebGL2, whichever is chosen/);   // XBOX-WEBGL2-ONLY
     expect(row('graphics').effect).toMatch(/elsewhere, choose Automatic again to bring WebGPU back/);
   });
 
@@ -160,17 +160,19 @@ describe('VS-2: the launcher, the overlay and the native screen draw from VIDEO_
     for (const [name, v] of named) expect(v, name).toBeDefined();
   });
 
-  it('VS.R8, the native rows through the adapter: RENDER SCALE lights the RESOLVED preset; a press leaves Automatic for that preset (never Custom); SHADOWS On restores the tier; SHOW FPS = overlay', () => {
+  it('VS.R8, the native rows through the adapter: RENDER SCALE lights the RESOLVED preset; a press sets the scale and its ceiling only (Custom); SHADOWS On restores the tier; SHOW FPS = overlay', () => {
     const m = new Map<string, string>();
     const v2 = videoSettingsKeeperV2((k) => m.get(k) ?? null, (k, v) => { m.set(k, v); });
     const rows = videoRowsKeeperV2(v2);
     expect(v2.get().preset).toBe('auto');
     expect(rows.get()).toEqual({ renderScale: 'balanced', shadows: true, showFps: false });     // Automatic's standard class: Balanced
     rows.set({ renderScale: 'performance' });
-    expect([v2.get().preset, v2.get().shadows, video.isCustom(v2.get())]).toEqual(['performance', 'off', false]);   // VS-1 (d): shadows follow the preset
-    expect(rows.get()).toEqual({ renderScale: 'performance', shadows: false, showFps: false });
+    // VS-SCALE-KEEPS-ROWS (2026-11-14, a player's report): the press moves the scale and its ceiling, keeps every other row
+    // (shadows included: VS-1 (d)'s "shadows follow the preset" is withdrawn), and the preset becomes Custom.
+    expect([v2.get().preset, v2.get().renderScalePct, v2.get().ceiling, v2.get().shadows]).toEqual(['custom', 75, 1080, 'medium']);
+    expect(rows.get()).toEqual({ renderScale: 'performance', shadows: true, showFps: false });
     rows.set({ renderScale: 'quality' });
-    expect([v2.get().preset, v2.get().shadows]).toEqual(['quality', 'medium']);
+    expect([v2.get().preset, v2.get().renderScalePct, v2.get().ceiling, v2.get().shadows]).toEqual(['custom', 100, 0, 'medium']);
     rows.set({ shadows: false });
     expect([v2.get().shadows, v2.get().preset]).toEqual(['off', 'custom']);
     rows.set({ shadows: true });
@@ -183,6 +185,20 @@ describe('VS-2: the launcher, the overlay and the native screen draw from VIDEO_
     expect(v2.get().overlay).toBe('fps');
     rows.set({ showFps: false });
     expect(v2.get().overlay).toBe('off');
+  });
+
+  it('VS-SCALE-KEEPS-ROWS: from Custom with a frame cap of 30, a RENDER SCALE press keeps the cap and every other row', () => {
+    const m = new Map<string, string>();
+    const v2 = videoSettingsKeeperV2((k) => m.get(k) ?? null, (k, v) => { m.set(k, v); });
+    v2.set({ preset: 'custom' });
+    v2.set({ frameCap: 30, shadows: 'high', colourFilter: 'deuteranopia', overlay: 'full' });
+    const before = v2.get();
+    videoRowsKeeperV2(v2).set({ renderScale: 'performance' });
+    const after = v2.get();
+    expect(after.frameCap).toBe(30);                                                                // today 0: the preset's
+    expect([after.renderScalePct, after.ceiling]).toEqual([video.PRESET_VALUES.performance.renderScalePct, video.PRESET_VALUES.performance.ceiling]);
+    expect({ ...after, renderScalePct: before.renderScalePct, ceiling: before.ceiling }).toEqual(before);   // nothing else moved
+    expect(after.preset).toBe('custom');
   });
 
   const fixture = resolve(import.meta.dirname, '../../../test-fixtures');
@@ -213,12 +229,14 @@ describe('VS-2: the launcher, the overlay and the native screen draw from VIDEO_
       return seen;
     };
     try {
-      // Automatic (the standard class: Balanced lit): RIGHT through QUALITY, PERFORMANCE, BALANCED -- each the preset, never Custom
-      expect(step(VIDEO_ROWS.renderScale, (v) => v.preset)).toEqual([
-        { box: VIDEO_ROW_SCALE_BOXES[2], value: VIDEO_ROWS_SCALES[2] }, { box: VIDEO_ROW_SCALE_BOXES[0], value: VIDEO_ROWS_SCALES[0] },
-        { box: VIDEO_ROW_SCALE_BOXES[1], value: VIDEO_ROWS_SCALES[1] },
+      // Automatic (the standard class: Balanced lit): RIGHT through QUALITY, PERFORMANCE, BALANCED -- each the tier's scale and
+      // ceiling only, the preset Custom from the first press (VS-SCALE-KEEPS-ROWS)
+      const tier = (k: (typeof VIDEO_ROWS_SCALES)[number]) => [video.PRESET_VALUES[k].renderScalePct, video.PRESET_VALUES[k].ceiling, 'custom'];
+      expect(step(VIDEO_ROWS.renderScale, (v) => [v.renderScalePct, v.ceiling, v.preset])).toEqual([
+        { box: VIDEO_ROW_SCALE_BOXES[2], value: tier(VIDEO_ROWS_SCALES[2]!) }, { box: VIDEO_ROW_SCALE_BOXES[0], value: tier(VIDEO_ROWS_SCALES[0]!) },
+        { box: VIDEO_ROW_SCALE_BOXES[1], value: tier(VIDEO_ROWS_SCALES[1]!) },
       ]);
-      // Balanced: SHADOWS On; RIGHT to OFF, then ON again -- Balanced's Medium
+      // Custom at Balanced's scale, Automatic's Medium kept: SHADOWS On; RIGHT to OFF, then ON again -- Medium (Custom's)
       expect(step(VIDEO_ROWS.shadows, (v) => v.shadows)).toEqual([{ box: VIDEO_ROW_TOGGLE_BOXES.shadows[1], value: 'off' }, { box: VIDEO_ROW_TOGGLE_BOXES.shadows[0], value: 'medium' }]);
       expect(step(VIDEO_ROWS.showFps, (v) => v.overlay)).toEqual([{ box: VIDEO_ROW_TOGGLE_BOXES.showFps[0], value: 'fps' }, { box: VIDEO_ROW_TOGGLE_BOXES.showFps[1], value: 'off' }]);
     } finally { s.close(); }

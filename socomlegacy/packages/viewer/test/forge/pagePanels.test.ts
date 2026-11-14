@@ -8,6 +8,11 @@ import type { ForgePanel } from '../../src/forge/shell/panel';
 import type { ForgePanelContext } from '../../src/forge/shell/context';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
+// FC2-4: found and pressed through the contributor's editor (`./helpers/EDITOR-MAP.md`).
+import {
+  assetTile, assetTiles, dockOf, inspector as inspectorPanel, inspectorField, menubarRow, menuOpen, menuRow, openMenu, outliner,
+  outlinerSection, panel, panelMounted, showPanel, showTab, snapToggle, tabButton, userRows,
+} from './helpers/editor';
 
 /**
  * FUI-22 (the owner, 2026-10-27: "The Asset Viewer should dissapear, but keep the object preview and add it as a tooltip
@@ -79,47 +84,56 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     await mountForge(document, { onAgentReady: (a) => { api = a; }, panels });
     const based = await api.execute('layout.base', { base: { kind: 'map', archive: 'MP2' } }, api.read().revision);
     expect(based, JSON.stringify(based)).toMatchObject({ ok: true });
-    await vi.waitFor(() => expect(document.querySelectorAll('.fx-left ul.fx-assets > li[data-asset]')).toHaveLength(2));
+    await vi.waitFor(() => expect(assetTiles(document)).toHaveLength(2));   // map A1: the Assets panel's list
     return api;
   }
-  const tile = (asset: string): HTMLElement => document.querySelector<HTMLElement>(`.fx-left ul.fx-assets > li[data-asset="${asset}"]`)!;
+  const tile = (asset: string): HTMLElement => assetTile(document, asset);
   const tip = (): HTMLElement | null => document.querySelector<HTMLElement>('.fx-asset-tip');
   const tipName = (): string | null => tip()?.querySelector('.fx-preview-name')?.textContent ?? null;
   const key = (code: string, k = code): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code, key: k, bubbles: true, cancelable: true })); };
 
-  it("FP-1b: the Environment's light rig editor edits a new empty map only -- hidden on a disc map, shown on a blank floor", async () => {
+  it("FP-1b, under FC2.R2 (2): the Environment's light rig editor edits a disc map and a blank floor alike; the copied sky is a blank floor's alone", async () => {
+    // FC2.R2 (2) (the owner, 2026-11-13: a layout may relight and re-fog a disc map in a Forge-started match): the
+    // contributor's page shows the rig editor on a disc map too (`envEditable`, page.ts:3679; `rigEditor.body.hidden`
+    // page.ts:3769, `rigEditor.top.hidden` page.ts:1415), where FP-1b hid it. A disc map's sky stays its own: the copied
+    // dome's choices are a blank floor's alone (`skyChoices`, page.ts:1369) -- a disc map's Sky list holds only None.
     const api = await mounted();
     const body = (): HTMLElement => document.querySelector<HTMLElement>('.fx-light-rig')!;
     const top = (): HTMLElement => document.querySelector<HTMLElement>('.fx-light-rig__top')!;
-    expect(body().hidden, 'a disc map keeps its own').toBe(true);
-    expect(top().hidden).toBe(true);
+    const skies = (): number => body().querySelector<HTMLSelectElement>('select.fx-light-rig__sky')!.options.length;
+    await vi.waitFor(() => expect(body().hidden, 'a disc map is edited too (FC2.R2 (2))').toBe(false));
+    expect(top().hidden).toBe(false);
+    expect(body().querySelector('[aria-label="Night vision lens alpha"]')).not.toBeNull();
+    expect(skies(), "a disc map keeps its own sky: None alone").toBe(1);
     const blank = await api.execute('layout.base', { base: { kind: 'blank', library: 'MP2' } }, api.read().revision);
     expect(blank, JSON.stringify(blank)).toMatchObject({ ok: true });
-    await vi.waitFor(() => expect(body().hidden).toBe(false));
+    await vi.waitFor(() => expect(skies(), "a blank floor's sky: None, then the disc maps'").toBeGreaterThan(1));
+    expect(body().hidden).toBe(false);
     expect(top().hidden).toBe(false);
     expect(body().querySelector('[aria-label="Night vision lens alpha"]')).not.toBeNull();
     const back = await api.execute('layout.base', { base: { kind: 'map', archive: 'MP2' } }, api.read().revision);
     expect(back, JSON.stringify(back)).toMatchObject({ ok: true });
-    await vi.waitFor(() => expect(body().hidden).toBe(true));
+    await vi.waitFor(() => expect(skies()).toBe(1));
+    expect(body().hidden).toBe(false);
   }, 90_000);
 
   it('D5 / D3: one asset list -- the archive select, filter row, view settings popup, previews and counts; the creator grid gone, its pack loading the Content tab\'s', async () => {
+    // FC2-4: the same intent on the contributor's dock shell (`./helpers/EDITOR-MAP.md` D1, D3, D6-D8, D11): the assets
+    // group (the old left dock), the viewport's group (the old centre), Window > Reset layout (the toolbar's button gone).
     await mounted();
-    const left = document.querySelector<HTMLElement>('.fx-left')!;
-    const center = document.querySelector<HTMLElement>('.fx-dock-center')!;
-    expect(center.querySelector(':scope > details.fx-panel[data-forge-panel="viewport"] > .fx-viewport')).not.toBeNull();
-    const viewportTab = center.querySelector<HTMLButtonElement>(':scope > [data-forge-tabs] [data-forge-tab="viewport"]');
-    expect(viewportTab?.textContent).toBe('Viewport');
-    expect(viewportTab?.draggable).toBe(false);
-    expect(document.querySelector<HTMLButtonElement>('.fx-dock-target--center')?.textContent).toBe('Center');
-    expect(document.querySelector<HTMLButtonElement>('.fx-top [data-forge="reset-layout"]')?.title)
-      .toBe('Restore the default dock layout and panel sizes');
-    expect(document.querySelector('.fx-dock-target--floating')).toBeNull();
+    const left = dockOf(document, 'assets');
+    expect(panel(document, 'viewport').querySelector(':scope > .fx-viewport')).not.toBeNull();
+    const viewportTab = tabButton(document, 'viewport');
+    expect(viewportTab.textContent).toBe('Viewport');
+    expect(viewportTab.querySelector('.fx-dg-tab-close'), 'the viewport cannot be closed or moved').toBeNull();
+    expect(document.querySelector<HTMLElement>('.fx-dg-target--center')?.textContent, 'the drop guide\'s middle: a tab').toBe('Tab');
+    expect(menubarRow(document, 'Window', 'Reset layout').disabled).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));   // the menu shut
     expect(left.querySelector('.fx-asset-preview, [aria-label="Asset preview"]')).toBeNull();
     expect(left.querySelector<HTMLElement>('#fx-asset-view-popup')?.hidden).toBe(true);
-    const assetsPanel = left.querySelector<HTMLElement>(':scope > details.fx-panel[data-forge-panel="asset-browser"]');
-    expect(assetsPanel, 'the asset palette is the movable Assets tab').not.toBeNull();
-    expect(left.querySelector<HTMLButtonElement>(':scope > [data-forge-tabs] [data-forge-tab="assets"]')?.draggable).toBe(true);
+    const assetsPanel = panel(document, 'asset-browser');
+    expect(assetsPanel.closest('.fx-dg-group'), 'the asset palette is the Assets tab').toBe(left);
+    expect(tabButton(document, 'assets').querySelector('.fx-dg-tab-close'), 'a movable tab: it closes and docks').not.toBeNull();
     expect(left.querySelectorAll('ul.fx-assets'), 'one list').toHaveLength(1);
     expect(assetsPanel!.querySelector(':scope > .fx-assets-pane > select.fx-select')).not.toBeNull();
     // The search and the filters on one row, not the status strip's chips (whose rule clipped it), and never shrunk.
@@ -141,8 +155,8 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(ruleOf('.fx-assets')).toMatch(/overflow-y:\s*scroll/);
     expect(ruleOf('.fx-assets')).toMatch(/scrollbar-width:\s*thin/);
     expect(ruleOf('.fx-assets')).toMatch(/scrollbar-gutter:\s*stable/);
-    expect(ruleOf('.fx-assets::-webkit-scrollbar')).toMatch(/width:\s*12px/);
-    expect(ruleOf('.fx-right > .fx-panel[data-forge-panel="asset-browser"]')).toMatch(/flex:\s*1 1 0/);
+    // FC2-4: dropped -- `.fx-assets::-webkit-scrollbar`'s 12 px (his stylesheet has no such rule) and
+    // `.fx-right > .fx-panel[data-forge-panel="asset-browser"]`'s flex (no right dock, EDITOR-MAP D2).
     // A tile: its star, its name, its count, draggable, a control of its own to focus.
     const barrel = tile('MP2:barrel');
     expect(barrel.draggable).toBe(true);
@@ -155,134 +169,345 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     // A favourite stays the same row style, starred, first.
     barrel.querySelector<HTMLButtonElement>('button.fx-star')!.click();
     expect(tile('MP2:barrel').querySelector('.fx-star')!.classList.contains('is-on')).toBe(true);
-    expect(document.querySelector('.fx-left ul.fx-assets > li[data-asset]')!.getAttribute('data-asset')).toBe('MP2:barrel');
-    // The pack loading: the Local files panel, the right dock's Content tab, the page's one file chooser.
-    const files = document.querySelector<HTMLElement>('.fx-right > details.fx-panel[data-forge-panel="creator-assets"]')!;
+    expect(assetTiles(document)[0]!.getAttribute('data-asset')).toBe('MP2:barrel');
+    // The pack loading: the Local files panel, the Content tab (EDITOR-MAP A4), the page's one file chooser.
+    const files = showPanel(document, 'creator-assets');
     expect(files).not.toBeNull();
     expect(files.querySelector(':scope > summary')!.textContent).toBe('Local files');
     expect(files.querySelector('input[type="file"]')).not.toBeNull();
     expect(document.querySelectorAll('input[type="file"][aria-label="Add local files"]')).toHaveLength(1);
   }, 90_000);
 
-  it('D6 / D2: Edit, World and Content each show their own sections; one section style; the Inspector\'s sticky head; one stepper', async () => {
+  it('D6 / D2: his tabs (Object, Map, Content) each show their own sections; one section style; the Inspector\'s sticky head; one stepper', async () => {
+    // FC2-4: the same intent on the contributor's dock shell (`./helpers/EDITOR-MAP.md` D2, D6, D8, O2-O4, I1-I3): the
+    // old right dock is his Object / Map / Content / Agent group over the Inspector's own; World is his Map tab, and the
+    // Rules panel is under Map (panels/rulesPanel.ts:179); the outliner's tree is two section rows.
     const api = await mounted();
-    const right = document.querySelector<HTMLElement>('.fx-right')!;
-    const tabs = (): string[] => [...right.querySelectorAll('[data-forge-tab]')].map((b) => b.textContent ?? '');
-    const drawn = (): string[] => [...right.querySelectorAll<HTMLElement>(':scope > details.fx-panel')].filter((d) => !d.hidden).map((d) => d.dataset['forgePanel']!);
-    // The Edit tab is Object now (what is placed), Settings with the map-wide panels under World.
-    expect(tabs()).toEqual(['Object', 'World', 'Content']);
-    // FCW-32 step 4 (FUI.R23 D1): the Rules panel under Object, after the Inspector.
-    expect(drawn()).toEqual(['outliner', 'inspector', 'rules']);
-    const tree = right.querySelector<HTMLUListElement>('ul.fx-outliner')!;
-    // One tree (the owner, 2026-11-10: no Map Data / User Data): a branch a kind, the map's own and the layout's together.
-    const branchesOf = (parent: Element): (string | null)[] =>
-      [...parent.querySelectorAll(':scope > li.fx-tree-branch')].map((branch) => branch.getAttribute('data-tree-branch'));
-    expect(branchesOf(tree)).toContain('mapProps');
-    expect(branchesOf(tree)).not.toContain('mapData');
-    expect(branchesOf(tree)).not.toContain('userData');
-    const mapBranch = tree.querySelector<HTMLLIElement>('[data-tree-branch="mapProps"]')!;
-    expect(mapBranch.querySelector('.fx-tree-toggle')?.textContent).toContain('Props');
-    mapBranch.querySelector<HTMLButtonElement>('.fx-tree-toggle')!.click();
-    expect(tree.querySelector('[data-tree-branch="mapProps"] .fx-tree-toggle')?.getAttribute('aria-expanded')).toBe('false');
-    tree.querySelector<HTMLButtonElement>('[data-tree-branch="mapProps"] .fx-tree-toggle')!.click();
-    const settings = right.querySelector<HTMLElement>('[data-forge-panel="settings"] .fx-settings')!;
+    const tabs = (): string[] => [...dockOf(document, 'object').querySelectorAll<HTMLElement>(':scope > .fx-dg-tabs .fx-dg-tab')].map((b) => b.dataset['forgeTab'] ?? '');
+    const drawnIn = (key: string): string[] =>
+      [...dockOf(document, key).querySelectorAll<HTMLElement>(':scope > .fx-dg-body > details.fx-panel')].map((d) => d.dataset['forgePanel']!);
+    expect(tabs().slice(0, 3)).toEqual(['object', 'map', 'content']);
+    expect(drawnIn('object')).toEqual(['outliner']);
+    expect(drawnIn('inspector')).toEqual(['inspector']);
+    const tree = outliner(document);
+    // One tree (his: two top-level sections, User Objects then Map Objects, each folding what it holds).
+    expect([...tree.querySelectorAll<HTMLElement>(':scope > li.fx-outliner-section')].map((li) => li.dataset['outlinerSection'])).toEqual(['user', 'map']);
+    outlinerSection(document, 'map').click();
+    expect(outlinerSection(document, 'map').getAttribute('aria-expanded')).toBe('false');
+    outlinerSection(document, 'map').click();
+    expect(outlinerSection(document, 'map').getAttribute('aria-expanded')).toBe('true');
+    showTab(document, 'map');
+    // Map (the old World): the settings, the environment (the layout's lighting and the map's own), the rules, the starters.
+    expect(drawnIn('map'), 'view controls are in the viewport dropdown').toEqual(['settings', 'environment', 'rules', 'starters']);
+    const settings = panel(document, 'settings').querySelector<HTMLElement>('.fx-settings')!;
     expect(settings.querySelector('input[aria-label="Grid step"], input[aria-label="Turn step (°)"], input[aria-label="Snap"]')).toBeNull();
     expect(settings.querySelector('[data-forge-setting="assetTips"]')).toBeNull();
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="world"]')!.click();
-    // World: the Environment panel (the layout's lighting and the map's own, read only), Settings and the starters.
-    expect(drawn(), 'the environment, the settings and the starters are world content; view controls are in the viewport dropdown')
-      .toEqual(['environment', 'settings', 'starters']);
-    const environment = right.querySelector<HTMLElement>('[data-forge-panel="environment"] .fx-environment')!;
+    const environment = panel(document, 'environment').querySelector<HTMLElement>('.fx-environment')!;
     expect(environment.querySelector('input[aria-label="Night to day"]')).not.toBeNull();   // Day / night, moved from Settings
-    expect(right.querySelector('[data-forge-panel="settings"] input[aria-label="Night to day"]')).toBeNull();
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="content"]')!.click();
-    expect(drawn()).toEqual(['creator-assets']);
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="object"]')!.click();
+    expect(panel(document, 'settings').querySelector('input[aria-label="Night to day"]')).toBeNull();
+    showTab(document, 'content');
+    expect(drawnIn('content')).toEqual(['creator-assets']);
+    showTab(document, 'object');
+    // The menu's Panels row brings the starters' tab (Map) forward, the starters open.
+    openMenu(document);
+    menuRow(document, 'panel-starters').click();
+    expect(drawnIn('map')).toEqual(['settings', 'environment', 'rules', 'starters']);
+    expect((panel(document, 'starters') as HTMLDetailsElement).open).toBe(true);
     // One section style: every open section's body is the one .fx-section, its padding and gap on the tokens.
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
-    document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="panel-starters"]')!.click();
-    // Its World tab shown (the starters with the tab's other panels), the starters open.
-    expect(drawn()).toEqual(['environment', 'settings', 'starters']);
-    expect(right.querySelector<HTMLDetailsElement>(':scope > details.fx-panel[data-forge-panel="starters"]')!.open).toBe(true);
-    for (const t of ['object', 'world', 'content']) {
-      right.querySelector<HTMLButtonElement>(`[data-forge-tab="${t}"]`)!.click();
-      for (const d of right.querySelectorAll<HTMLDetailsElement>(':scope > details.fx-panel:not([hidden])[open]')) {
+    for (const t of ['object', 'map', 'content']) {
+      showTab(document, t);
+      for (const d of dockOf(document, t).querySelectorAll<HTMLDetailsElement>(':scope > .fx-dg-body > details.fx-panel[open]')) {
         expect(d.querySelectorAll(':scope > .fx-section'), d.dataset['forgePanel']).toHaveLength(1);
       }
     }
-    const section = ruleOf('.fx-dock .fx-panel > .fx-section');
+    // His rule's selector names the workbench beside the old dock (`:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section`).
+    const section = rules.filter((r) => r.selectors.join(', ').includes('.fx-workbench) .fx-panel > .fx-section')).map((r) => r.body).join(';');
     expect(section).toMatch(/padding:\s*var\(--s2u-space-/);
     expect(section).toMatch(/gap:\s*var\(--s2u-space-/);
     for (const old of ['.fx-inspector', '.fx-view', '.fx-settings']) expect(ruleOf(old), `${old}'s own padding gone`).not.toMatch(/padding/);
     expect(ruleOf('.fx-section h3'), 'one sub-heading').toMatch(/text-transform:\s*uppercase/);
-    // Every number field of the dock is the one stepper control.
-    const numbers = [...right.querySelectorAll<HTMLInputElement>('input[type="number"]')];
+    // Every number field of the docked panels is the one stepper control.
+    const numbers = ['outliner', 'inspector', 'settings', 'environment', 'rules', 'starters', 'creator-assets']
+      .flatMap((id) => [...panelMounted(document, id).querySelectorAll<HTMLInputElement>('input[type="number"]')]);
     expect(numbers.length).toBeGreaterThanOrEqual(7);
-    expect(numbers.filter((i) => !i.classList.contains('fx-stepper')).map((i) => i.title || i.dataset['label'])).toEqual([]);
+    // A field named by its title, its data-label, else its aria-label (his reverb fields carry only the last).
+    expect(numbers.filter((i) => !i.classList.contains('fx-stepper')).map((i) => i.title || i.dataset['label'] || i.getAttribute('aria-label'))).toEqual([]);
     expect(ruleOf('.fx-stepper')).toMatch(/height:/);
     // The Inspector's head: sticky, the selection's name and kind; nothing selected said in one line.
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="object"]')!.click();
-    const head = right.querySelector<HTMLElement>('[data-forge-panel="inspector"] .fx-inspect-head')!;
+    showTab(document, 'object');
+    const head = inspectorPanel(document).querySelector<HTMLElement>('.fx-inspect-head')!;
     expect(head).not.toBeNull();
-    expect(head.closest('[data-forge-panel]')?.previousElementSibling?.getAttribute('data-forge-panel')).toBe('outliner');
-    expect(right.querySelectorAll('[data-forge-panel="inspector"] .fx-position-fields .fx-field')).toHaveLength(3);
-    expect(right.querySelector('[data-forge-panel="inspector"] .fx-rotation-fields .fx-field > input[data-label="Yaw"]')).not.toBeNull();
-    const inspectorField = (label: string): HTMLInputElement =>
-      right.querySelector<HTMLInputElement>(`[data-forge-panel="inspector"] input[data-label="${label}"]`)!;
+    expect(inspectorPanel(document).querySelectorAll('.fx-position-fields .fx-field')).toHaveLength(3);
+    expect(inspectorPanel(document).querySelector('.fx-rotation-fields .fx-field > input[data-label="Yaw"]')).not.toBeNull();
+    const field = (label: string): HTMLInputElement => inspectorField(document, label);
     expect(ruleOf('.fx-inspect-head')).toMatch(/position:\s*sticky/);
     expect(head.querySelector('.fx-inspect-name')!.textContent).toBe('Nothing selected');
     expect(head.querySelector('.fx-inspect-kind')!.textContent).toBe('');
     expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(head.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
     expect(head.querySelector('.fx-inspect-name')!.textContent).toContain('crate');
-    // Pitch, roll and scale: the piece's own values kept in the fields (hidden while `FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION`,
-    // the FC-1 case below); an edit is a stub -- no edit, the value put back.
-    await vi.waitFor(() => expect(inspectorField('Pitch').value).toBe('0'));
-    expect([inspectorField('Roll').value, inspectorField('Scale X').value, inspectorField('Scale Y').value, inspectorField('Scale Z').value]).toEqual(['0', '1', '1', '1']);
-    expect([inspectorField('Pitch'), inspectorField('Roll'), inspectorField('Scale X')].some((i) => i.disabled)).toBe(false);
-    const revision = api.read().revision;
-    for (const [label, typed] of [['Pitch', '30'], ['Scale Y', '2']] as const) {
-      const f = inspectorField(label);
-      f.value = typed;
-      f.dispatchEvent(new Event('change'));
-    }
-    expect(api.read().revision, 'a stub makes no edit').toBe(revision);
-    expect([inspectorField('Pitch').value, inspectorField('Scale Y').value]).toEqual(['0', '1']);
-    expect(tree.querySelector('[data-tree-branch="mapProps"] [data-user-prop]')?.textContent).toContain('crate');
+    // Pitch, roll and scale (FX-9: real, the FX-9 case below edits them): the piece's own values, each field live.
+    await vi.waitFor(() => expect(field('Pitch').value).toBe('0'));
+    expect([field('Roll').value, field('Scale X').value, field('Scale Y').value, field('Scale Z').value]).toEqual(['0', '1', '1', '1']);
+    expect([field('Pitch'), field('Roll'), field('Scale X')].some((i) => i.disabled)).toBe(false);
+    expect(userRows(document)[0]?.textContent).toContain('crate');
     for (const at of [[10, 0, 0], [20, 0, 0]]) {
       expect(await api.execute('piece.place', { asset: 'MP2:crate', at }, api.read().revision)).toMatchObject({ ok: true });
     }
-    const userRows = (): HTMLElement[] => [...tree.querySelectorAll<HTMLElement>('[data-tree-branch="mapProps"] [data-user-prop]')];
-    userRows()[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    userRows()[2]!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
-    expect(tree.querySelectorAll('[data-tree-branch="mapProps"] [data-user-prop].is-on')).toHaveLength(3);
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    userRows(document)[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    userRows(document)[2]!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    expect(userRows(document).filter((r) => r.classList.contains('is-on'))).toHaveLength(3);
+    if (!menuOpen(document)) openMenu(document);
     expect(document.querySelector('.fx-menu-list [data-forge-menu-row="frame-selection"]')?.classList.contains('is-off')).toBe(false);
   }, 90_000);
 
-  it('FC-1: a placed piece\'s Inspector shows no Pitch, Roll or Scale; no Scale tool, R picks none, the rotate gizmo turns yaw only', async () => {
-    // The owner, 2026-11-07 ("hiding the pitch/roll/scale"; a browser adaptation, FG.R2): record v3 keeps a piece's yaw
-    // alone, so the stubs are hidden (`FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION`); Position and Yaw stay.
+  it('FX-9: a piece takes Pitch 30, Roll -45 and Scale 2 / 1 / 0.5 from the Inspector, one step each; undo, redo, a save and a reopen keep it', async () => {
+    // The owner, 2026-11-11 (FX.R3: "finish scale and rotate 100%"; a browser adaptation, FG.R2): the record keeps a
+    // piece's pitch, roll and scale (FX-1), so Crispy's fields edit -- each change one step, as Yaw's (FUI-6).
     const api = await mounted();
-    const right = document.querySelector<HTMLElement>('.fx-right')!;
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="object"]')!.click();
+    showTab(document, 'object');                                    // map D6: the Object tab (the Outliner's)
     expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
-    const inspector = right.querySelector<HTMLElement>('[data-forge-panel="inspector"]')!;
+    const inspector = inspectorPanel(document);                     // map I1: its own tab, drawn
     await vi.waitFor(() => expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
     const shown = (e: Element | null): boolean => {
       for (let n = e; n && n !== inspector; n = n.parentElement) if ((n as HTMLElement).hidden) return false;
       return e !== null;
     };
-    const field = (label: string): HTMLInputElement | null => inspector.querySelector<HTMLInputElement>(`input[data-label="${label}"]`);
-    for (const label of ['Pitch', 'Roll', 'Scale X', 'Scale Y', 'Scale Z']) expect(shown(field(label)), label).toBe(false);
-    expect(shown(inspector.querySelector('.fx-scale-fields')), 'the Scale row').toBe(false);
-    for (const label of ['X', 'Y', 'Z', 'Yaw']) expect(shown(field(label)), label).toBe(true);
-    const scaleTool = document.querySelector<HTMLButtonElement>('button.fx-tool[title^="Scale with the gizmo"]');
-    expect(scaleTool === null || scaleTool.hidden, 'the Scale tool').toBe(true);
-    key('KeyE', 'e');
-    expect(api.read().view.gizmo).toBe('rotate');
-    key('KeyR', 'r');
-    expect(api.read().view.gizmo, 'R picks no scale gizmo').toBe('rotate');
+    const field = (label: string): HTMLInputElement => inspector.querySelector<HTMLInputElement>(`input[data-label="${label}"]`)!;
+    const values = (): string[] => ['Pitch', 'Yaw', 'Roll', 'Scale X', 'Scale Y', 'Scale Z'].map((l) => field(l).value);
+    const typed = (label: string, value: string): void => { const f = field(label); f.value = value; f.dispatchEvent(new Event('change')); };
+    const undoBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('[data-forge="undo"]')!;
+    const redoBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('[data-forge="redo"]')!;
+    const poses = (): unknown => (api.read().layout as { poses?: unknown }).poses;
+    // Shown and live for a piece: the Rotation row's three fields and the Scale row, each bounded as the record is.
+    for (const label of ['X', 'Y', 'Z', 'Pitch', 'Yaw', 'Roll', 'Scale X', 'Scale Y', 'Scale Z']) {
+      expect(shown(field(label)), label).toBe(true);
+      expect(field(label).disabled, label).toBe(false);
+    }
+    expect(shown(inspector.querySelector('.fx-scale-fields')), 'the Scale row').toBe(true);
+    expect([field('Pitch').min, field('Pitch').max, field('Scale X').min, field('Scale X').max]).toEqual(['-90', '90', '0.1', '4']);
+    // Pitch 30: one step, named as Yaw's ("Rotate"), the record keeping it.
+    let revision = api.read().revision;
+    typed('Pitch', '30');
+    expect(api.read().revision).toBeGreaterThan(revision);
+    expect(undoBtn().title).toMatch(/^Undo: Rotate · pad SELECT/);
+    expect(poses()).toEqual([[0, 30, 0, 1, 1, 1]]);
+    // Scale 2 / 1 / 0.5: an axis a step ("Set scale"); Y unchanged at 1 makes no step.
+    typed('Scale X', '2');
+    expect(undoBtn().title).toMatch(/^Undo: Set scale · pad SELECT/);
+    revision = api.read().revision;
+    typed('Scale Y', '1');
+    expect(api.read().revision, 'a value already kept makes no step').toBe(revision);
+    typed('Scale Z', '0.5');
+    expect(poses()).toEqual([[0, 30, 0, 2, 1, 0.5]]);
+    expect(values()).toEqual(['30', '0', '0', '2', '1', '0.5']);
+    // A roll shown signed (-45), the record keeping 315.
+    typed('Roll', '-45');
+    expect(values()).toEqual(['30', '0', '-45', '2', '1', '0.5']);
+    expect(poses()).toEqual([[0, 30, 315, 2, 1, 0.5]]);
+    // A finer value is rounded and shown rounded; one past the bounds is held at them.
+    typed('Scale Y', '9');
+    expect(field('Scale Y').value).toBe('4');
+    typed('Scale Y', '1.004');
+    expect(field('Scale Y').value).toBe('1');
+    expect(poses()).toEqual([[0, 30, 315, 2, 1, 0.5]]);
+    // A yaw typed keeps the tilt and the scale.
+    typed('Yaw', '90');
+    expect(values()).toEqual(['30', '90', '-45', '2', '1', '0.5']);
+    expect(api.read().layout!.pieces[0]![4]).toBe(90);
+    // Undo walks back one step an edit; redo brings it back.
+    undoBtn().click();
+    await vi.waitFor(() => expect(values()).toEqual(['30', '0', '-45', '2', '1', '0.5']));
+    redoBtn().click();
+    await vi.waitFor(() => expect(values()).toEqual(['30', '90', '-45', '2', '1', '0.5']));
+    // Saved and reopened (the record, then back: `layout.import` reads it through `layoutOfRecord`): the piece as left.
+    const saved = JSON.parse(JSON.stringify(api.read().layout)) as Record<string, unknown>;
+    expect(saved['poses']).toEqual([[0, 30, 315, 2, 1, 0.5]]);
+    expect(await api.execute('layout.import', { layout: saved }, api.read().revision)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(api.read().layout!.pieces).toHaveLength(1));
+    expect(await api.execute('selection.set', { refs: ['piece:0'] }, api.read().revision)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(values()).toEqual(['30', '90', '-45', '2', '1', '0.5']));
+    expect(poses()).toEqual([[0, 30, 315, 2, 1, 0.5]]);
+    // A finer pitch is rounded (30.4 is the 30 kept: no step); one past 90 is held at 90, where the roll goes into the
+    // yaw (the record's one form at the gimbal: yaw 90 less a roll of -45 is 135).
+    const reopened = api.read().revision;
+    typed('Pitch', '30.4');
+    expect(field('Pitch').value).toBe('30');
+    expect(api.read().revision, 'the value kept: no step').toBe(reopened);
+    typed('Pitch', '120');
+    expect(api.read().revision).toBeGreaterThan(reopened);
+    expect(values()).toEqual(['90', '135', '0', '2', '1', '0.5']);
+    expect(poses()).toEqual([[0, 90, 0, 2, 1, 0.5]]);
+    expect(api.read().layout!.pieces[0]![4]).toBe(135);
+  }, 90_000);
+
+  it("FC2-2: a pose field's scrub cancelled (Escape) puts back what it carried -- a parent's X scrubbed then cancelled, its child back at its place too", async () => {
+    // Ours, written at the contributor's import (MISSION OT.R112: his tree, `Layout.tree`): FX-9's early cancel restores
+    // the placement inside `carrying`, so the children the scrub's preview carried go back with it. A control: it holds
+    // what the page does now (the main controller's condition).
+    const api = await mounted();
+    showTab(document, 'object');                                    // map D6: the Object tab (the Outliner's)
+    for (const at of [[0, 0, 0], [50, 0, 0]]) expect(await api.execute('piece.place', { asset: 'MP2:crate', at }, api.read().revision)).toMatchObject({ ok: true });
+    // The tree: piece 1 under piece 0, read back through the record as a saved layout is.
+    const saved = JSON.parse(JSON.stringify(api.read().layout)) as Record<string, unknown>;
+    expect(await api.execute('layout.import', { layout: { ...saved, tree: [['piece:1', 'piece:0']] } }, api.read().revision)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(api.read().layout!.pieces).toHaveLength(2));
+    expect((api.read().layout as { tree?: unknown }).tree).toEqual([['piece:1', 'piece:0']]);
+    expect(await api.execute('selection.set', { refs: ['piece:0'] }, api.read().revision)).toMatchObject({ ok: true });
+    const inspector = inspectorPanel(document);                     // map I1: its own tab, drawn
+    await vi.waitFor(() => expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
+    const x = inspector.querySelector<HTMLInputElement>('input[data-label="X"]')!;
+    const at = (ref: string): number[] => (api.read().refs as { ref: string; at: number[] }[]).find((r) => r.ref === ref)!.at;
+    const [parent0, child0] = [at('piece:0'), at('piece:1')];
+    // The scrub's live preview: the parent 30 along X, its child carried by the same step.
+    x.dispatchEvent(new CustomEvent('fx-scrub', { detail: { value: parent0[0]! + 30 } }));
+    expect(at('piece:0')[0]).toBeCloseTo(parent0[0]! + 30, 4);
+    expect(at('piece:1')[0], 'the child carried').toBeCloseTo(child0[0]! + 30, 4);
+    // Escape: both back where they were.
+    x.dispatchEvent(new CustomEvent('fx-scrub', { detail: { value: parent0[0]! + 30, cancelled: true } }));
+    for (const [k, v] of parent0.entries()) expect(at('piece:0')[k], `parent ${k}`).toBeCloseTo(v, 4);
+    for (const [k, v] of child0.entries()) expect(at('piece:1')[k], `child ${k}`).toBeCloseTo(v, 4);
+  }, 90_000);
+
+  it("FX-9's review: a turn step (the `.` and `,` keys, the pad's turn) turns a piece about the vertical from its own yaw and keeps its tilt and scale; a paste keeps a copy's scale", async () => {
+    // The fresh review of FX-9: `turnSelected` set `rotation.set(0, rotation.y + step, 0)`, which wiped a piece's pitch and
+    // roll, and read three's XYZ angle as the yaw -- wrong past 90 degrees once the Yaw field writes the quaternion. And
+    // the clipboard kept a piece's turn but not its scale. Players turn a piece with the pad: this is their main path.
+    const api = await mounted();
+    showTab(document, 'object');                                    // map D6: the Object tab (the Outliner's)
+    expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const inspector = inspectorPanel(document);                     // map I1: its own tab, drawn
+    await vi.waitFor(() => expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
+    const field = (label: string): HTMLInputElement => inspector.querySelector<HTMLInputElement>(`input[data-label="${label}"]`)!;
+    const values = (): string[] => ['Pitch', 'Yaw', 'Roll', 'Scale X', 'Scale Y', 'Scale Z'].map((l) => field(l).value);
+    const typed = (label: string, value: string): void => { const f = field(label); f.value = value; f.dispatchEvent(new Event('change')); };
+    const undoBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('[data-forge="undo"]')!;
+    const poses = (): unknown => (api.read().layout as { poses?: unknown }).poses;
+    const yawOfPiece = (i: number): number => api.read().layout!.pieces[i]![4] as number;
+
+    // An UNTILTED piece first, its yaw typed past 90 (the Yaw field writes the quaternion): `.` is one turn step right.
+    typed('Yaw', '135');
+    expect(yawOfPiece(0)).toBe(135);
+    let revision = api.read().revision;
+    key('Period', '.');
+    expect(api.read().revision, 'one step').toBeGreaterThan(revision);
+    expect(yawOfPiece(0), 'a turn step from 135, not from the XYZ angle 45').toBe(120);
+    expect(poses(), 'an untilted piece writes no pose row').toBeUndefined();
+    key('Comma', ',');
+    expect(yawOfPiece(0)).toBe(135);
+
+    // Tilted and scaled: the turn step changes the yaw alone.
+    typed('Pitch', '30');
+    typed('Roll', '10');
+    typed('Scale X', '2');
+    typed('Scale Z', '0.5');
+    expect(values()).toEqual(['30', '135', '10', '2', '1', '0.5']);
+    revision = api.read().revision;
+    key('Period', '.');
+    expect(api.read().revision, 'one step').toBeGreaterThan(revision);
+    expect(undoBtn().title).toMatch(/^Undo: Rotate · pad SELECT/);
+    expect(values(), 'the pitch, the roll and the scale kept').toEqual(['30', '120', '10', '2', '1', '0.5']);
+    expect(poses()).toEqual([[0, 30, 10, 2, 1, 0.5]]);
+    expect(yawOfPiece(0)).toBe(120);
+    // Undo is that one step: the yaw back, the tilt and the scale as they were.
+    undoBtn().click();
+    await vi.waitFor(() => expect(values()).toEqual(['30', '135', '10', '2', '1', '0.5']));
+    expect(poses()).toEqual([[0, 30, 10, 2, 1, 0.5]]);
+
+    // A copy pasted at a point (the agent's paste, then Ctrl+C / Ctrl+V): the copy is the size and the tilt of its source.
+    expect(await api.execute('selection.set', { refs: ['piece:0'] }, api.read().revision)).toMatchObject({ ok: true });
+    expect(await api.execute('selection.copy', {}, api.read().revision)).toMatchObject({ ok: true, data: { copied: 1 } });
+    const pasted = await api.execute('selection.paste', { at: [120, 0, 120] }, api.read().revision);
+    expect(pasted, JSON.stringify(pasted)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(api.read().layout!.pieces).toHaveLength(2));
+    expect(poses(), "the agent's paste").toEqual([[0, 30, 10, 2, 1, 0.5], [1, 30, 10, 2, 1, 0.5]]);
+    const chord = (code: string): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.slice(3).toLowerCase(), ctrlKey: true })); };
+    expect(await api.execute('selection.set', { refs: ['piece:0'] }, api.read().revision)).toMatchObject({ ok: true });
+    chord('KeyC');
+    chord('KeyV');
+    await vi.waitFor(() => expect(api.read().layout!.pieces).toHaveLength(3));
+    expect(poses(), 'Ctrl+V').toEqual([[0, 30, 10, 2, 1, 0.5], [1, 30, 10, 2, 1, 0.5], [2, 30, 10, 2, 1, 0.5]]);
+  }, 90_000);
+
+  it('FX-9: a scrubbed Pitch or Scale previews live with no step; Escape puts the piece back; the release is one step', async () => {
+    const api = await mounted();
+    showTab(document, 'object');                                    // map D6: the Object tab (the Outliner's)
+    expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const inspector = inspectorPanel(document);                     // map I1: its own tab, drawn
+    await vi.waitFor(() => expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
+    const field = (label: string): HTMLInputElement => inspector.querySelector<HTMLInputElement>(`input[data-label="${label}"]`)!;
+    const pointer = (target: EventTarget, type: string, x: number): void => {
+      target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, button: 0 }));
+    };
+    const revision = api.read().revision;
+    // Pitch dragged 20 px (a degree a pixel): the piece pitched live, no step.
+    pointer(field('Pitch'), 'pointerdown', 100);
+    pointer(document, 'pointermove', 110);
+    pointer(document, 'pointermove', 120);
+    const poses = (): unknown => (api.read().layout as { poses?: unknown }).poses;
+    expect(field('Pitch').value).toBe('20');
+    expect(poses()).toEqual([[0, 20, 0, 1, 1, 1]]);
+    expect(api.read().revision, 'a preview is no edit').toBe(revision);
+    // Escape mid-drag: the piece and the field back, still no step.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+    expect(field('Pitch').value).toBe('0');
+    expect(poses()).toBeUndefined();
+    expect(api.read().revision).toBe(revision);
+    // The Escape is the scrub one, not the editor deselect: the piece stays selected.
+    expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece');
+    // The same for every other field the scrub previews: Roll, a Scale axis, a Position axis, each back exactly.
+    const escaped = (label: string, px: number): void => {
+      pointer(field(label), 'pointerdown', 100);
+      pointer(document, 'pointermove', 100 + px);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+    };
+    pointer(field('Roll'), 'pointerdown', 100);
+    pointer(document, 'pointermove', 130);
+    expect(poses(), 'Roll previews').toBeDefined();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+    expect(poses(), 'Roll put back').toBeUndefined();
+    pointer(field('Scale Z'), 'pointerdown', 100);
+    pointer(document, 'pointermove', 150);
+    expect(poses()).toEqual([[0, 0, 0, 1, 1, 1.5]]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+    expect(poses(), 'Scale Z put back').toBeUndefined();
+    expect(field('Scale Z').value).toBe('1');
+    escaped('X', 10);
+    expect(api.read().layout!.pieces[0]![1], 'X put back').toBeCloseTo(0, 9);
+    expect(field('X').value).toBe('0');
+    expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece');
+    expect(api.read().revision).toBe(revision);
+    // Scale X dragged 100 px (0.01 a pixel) and let go: one step, on the lattice.
+    pointer(field('Scale X'), 'pointerdown', 0);
+    pointer(document, 'pointermove', 100);
+    expect(poses()).toEqual([[0, 0, 0, 2, 1, 1]]);
+    expect(api.read().revision).toBe(revision);
+    pointer(document, 'pointerup', 100);
+    expect(api.read().revision).toBeGreaterThan(revision);
+    expect(field('Scale X').value).toBe('2');
+    expect(document.querySelector<HTMLButtonElement>('[data-forge="undo"]')!.title).toMatch(/^Undo: Set scale · pad SELECT/);
+  }, 90_000);
+
+  it('FX-9: a marker keeps a yaw alone: its Pitch, Roll and Scale stay off and empty, and a change to one makes no edit', async () => {
+    const api = await mounted();
+    showTab(document, 'object');                                    // map D6: the Object tab (the Outliner's)
+    expect(await api.execute('spawn.place', { team: 'A', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    expect(await api.execute('selection.set', { refs: ['spawn:0'] }, api.read().revision)).toMatchObject({ ok: true });
+    const inspector = inspectorPanel(document);                     // map I1: its own tab, drawn
+    await vi.waitFor(() => expect(inspector.querySelector('.fx-inspect-kind')!.textContent).toBe('Spawn'));
+    const field = (label: string): HTMLInputElement => inspector.querySelector<HTMLInputElement>(`input[data-label="${label}"]`)!;
+    for (const label of ['Pitch', 'Roll', 'Scale X', 'Scale Y', 'Scale Z']) {
+      expect(field(label).disabled, label).toBe(true);
+      expect(field(label).value, label).toBe('');
+    }
+    expect(field('Yaw').disabled).toBe(false);
+    const revision = api.read().revision;
+    const f = field('Pitch');
+    f.value = '30';
+    f.dispatchEvent(new Event('change'));
+    expect(api.read().revision, 'no edit for a marker').toBe(revision);
+    expect(field('Pitch').value).toBe('');
+    expect((api.read().layout as { poses?: unknown }).poses).toBeUndefined();
   }, 90_000);
 
   it('D1: a hovered tile shows the tooltip with its name; the pad\'s prop step shows it beside the picked tile at once; Escape hides it; the setting turns it off', async () => {
@@ -309,8 +534,9 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     key('Escape');
     expect(tip()!.hidden).toBe(true);
     // The Forge setting: off, a hover shows nothing.
-    document.querySelector<HTMLButtonElement>('.fx-left [aria-label="Asset view options"]')!.click();
-    const setting = document.querySelector<HTMLInputElement>('.fx-left input[aria-label="Asset preview on hover"]')!;
+    // Map A2: the Assets panel's own view options (its dock, D1, is the contributor's).
+    panel(document, 'asset-browser').querySelector<HTMLButtonElement>('[aria-label="Asset view options"]')!.click();
+    const setting = panel(document, 'asset-browser').querySelector<HTMLInputElement>('input[aria-label="Asset preview on hover"]')!;
     expect(setting).not.toBeNull();
     expect(setting.checked).toBe(true);
     setting.click();
@@ -379,7 +605,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(turn(before, yaw()), 'another prop picked: unturned').toBe(0);
     // Snap on: three notches (45 deg) at 15, then the step 20: the carried turn lies on the 20 deg grid.
     expect(await api.execute('snap.set', { on: true, rotation: 15 }, api.read().revision)).toMatchObject({ ok: true });
-    expect(document.querySelector('.fx-viewport-snap-summary')?.classList.contains('is-on')).toBe(true);
+    expect(snapToggle(document, 'Rotation snap').classList.contains('is-on')).toBe(true);   // EDITOR-MAP V1: his snap pill
     wheel(-100); wheel(-100); wheel(-100);
     expect(await api.execute('snap.set', { on: true, rotation: 20 }, api.read().revision)).toMatchObject({ ok: true });
     const deg = (yaw() * 180) / Math.PI;
@@ -406,7 +632,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     };
     it('the pad menu\'s Props screen: a different prop arrives unturned', async () => {
       const { yaw, before, turn } = await setup();
-      document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+      openMenu(document);                                           // map T1: Controls > Forge menu (M), the pointer's way
       const props = await vi.waitFor(() => { const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="props"]'); expect(r).not.toBeNull(); return r!; });
       props.click();
       const cell = await vi.waitFor(() => { const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="prop-MP2:crate"]'); expect(r).not.toBeNull(); return r!; });

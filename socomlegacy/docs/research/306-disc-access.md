@@ -136,7 +136,8 @@ Evidence kinds are kept apart: **[run]** = run on this host 2026-10-11; **[sourc
   thread, shared by `worker.ts` and `movieWorker.ts`, keyed by `sourceKey` (the `File`s' name, size and modification
   time, never `discIdentity`); `assetSourceFor` makes `IsoAssetSource`, `DirectoryAssetSource` or `HttpAssetSource`.
   `openDisc(request, probe)` checks a disc once on the page before any worker sees it: an image by the probe's size, a
-  folder by `discIdentity` (DA.R8) and then the probe. `discPrompt.ts` `openFrontEndDisc` takes both kinds;
+  folder by `discIdentity` (DA.R8) and then the probe. *Since 2026-11-12 an image is identified by `discIdentity` too,
+  before the probe (the disc-access plan's Log of that day).* `discPrompt.ts` `openFrontEndDisc` takes both kinds;
   `openFrontEndImage` stays its image case.
 - **Tests** [run, in DA-3's report]: `test/discSource.test.ts`, 17 cases, one of them dev-disc (`SOCOM_DISC` /
   `SOCOM_ISO`; skipped without them): the type-level check that `iso` and `http` are still `SourceRequest`s from
@@ -178,7 +179,7 @@ Evidence kinds are kept apart: **[run]** = run on this host 2026-10-11; **[sourc
 
 - **What it does** [source]: `packages/viewer/src/discMemory.ts`. `rememberDisc(handle, meta)` keeps a
   `FileSystemHandle` (a file handle for an image, a directory handle for a folder) with its name, kind and DA-2's
-  identity (null for an image) in `pageStore.ts`'s new records store (database `s2u.page`, slots `disc.handle` and
+  identity (null for an image until 2026-11-12; an image has its identity since) in `pageStore.ts`'s new records store (database `s2u.page`, slots `disc.handle` and
   `disc.copy`; pageStore stays the only module naming IndexedDB); `rememberedDisc()`, `forgetDisc()`.
   `discPermission(handle)` reads `queryPermission({ mode: 'read' })` -- `granted`, `prompt`, `denied` -- and tries a
   granted handle (an image's `getFile()`, a folder's first entry): `NotFoundError` is `gone`, and the remembered disc is

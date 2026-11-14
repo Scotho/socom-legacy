@@ -804,12 +804,41 @@ function meterRows(reach: number, order: MeterRowOrder = GRENADE_METER_BITMAP_RE
 }
 
 /**
- * GRENADE_METER_CENTRE_READING (research 320 sections 3 and 8.2): under set 4 the HUD lays no size and moves no centre
- * (`FUN_00216770` D:L70415-70434), so the meter stays where the last frame of another set left `hud+0x44ac/+0x44b0` -- the
- * aim point and the firearm's knock then (D:L70421-70424); Init's (320, 224) before any (D:L71139-71140). How much knock
- * is left at the switch's write is unread: a capture of a burst and an M67 taken at once settles it.
+ * Where the throw meter is laid under set 4, the three rules (`GRENADE_METER_CENTRE_OWNER`):
+ * - `'the last firearm frame\'s'` -- the original: under set 4 the HUD lays no size and moves no centre (`FUN_00216770`
+ *   D:L70415-70434), so its meter stays where the last frame of another set left `hud+0x44ac/+0x44b0` -- the aim point
+ *   and the firearm's knock then (D:L70421-70424); Init's (320, 224) before any (D:L71139-71140). It does not follow a
+ *   turn, a walk or a climb, and a knock up at the swap holds it raised while the grenade is up.
+ * - `'the screen\'s centre'` -- the aim point the last frame of another set laid, with no knock in it (the frame's middle
+ *   at rest: `./matchFirearm` `aimReticle`); still unmoved by a turn, a walk or a climb.
+ * - `'the live centre'` -- the centre write not skipped under set 4: every frame's aim point and knock, so the meter runs
+ *   to rest as the knock returns at the held item's rate (`./accuracy`) and hands the firearm's reticle over where it
+ *   stood.
  */
-export const GRENADE_METER_CENTRE_READING = 'the last firearm frame\'s' as const;
+export type GrenadeMeterCentreRule = 'the last firearm frame\'s' | 'the screen\'s centre' | 'the live centre';
+
+/** The aim and the knock the meter is laid at under set 4, by `rule`: the last firearm frame's (`laid`) or this frame's (`live`). */
+export function meterCentreSource(
+  rule: GrenadeMeterCentreRule,
+  laid: { aim: [number, number]; offset: [number, number] },
+  live: { aim: [number, number]; offset: [number, number] },
+): { aim: [number, number]; offset: [number, number] } {
+  if (rule === 'the live centre') return { aim: [live.aim[0], live.aim[1]], offset: [live.offset[0], live.offset[1]] };
+  if (rule === 'the screen\'s centre') return { aim: [laid.aim[0], laid.aim[1]], offset: [0, 0] };
+  return { aim: [laid.aim[0], laid.aim[1]], offset: [laid.offset[0], laid.offset[1]] };
+}
+
+/**
+ * GRENADE_METER_CENTRE_OWNER (OT.R124: the owner's ruling, 2026-11-13T05:59Z, `socomlegacy/docs/MISSION.md`; v0.4.21's
+ * V21.R16, H451; a named departure of the page's drawing, not a reading): `'the live centre'` -- the meter "inherits" the
+ * firearm's recoil: under set 4 it is laid every frame at the aim point and this frame's knock, so it runs to rest at
+ * the held item's return rate (`./accuracy`) and the firearm's reticle takes over where it stood; the threat marks under
+ * set 4 follow that centre every frame too (`layThreat`). It supersedes his "Meter always at the screen centre." of
+ * about 05:05Z (`'the screen\'s centre'`). `'the last firearm frame\'s'` restores the original (research 320 sections 3
+ * and 8). Nothing else moves: the knock itself and its return, the firearm's reticle, the cone, the room; the marks'
+ * size under set 4 (`hud+0x44b4`, held as the original's) was not asked and is unchanged.
+ */
+export const GRENADE_METER_CENTRE_OWNER: GrenadeMeterCentreRule = 'the live centre';
 
 /**
  * C4_RETICLE_READING (research 320 sections 5 and 8.2): the C4 and the satchel have no set (D:L474926-474928), so nothing
@@ -1346,7 +1375,7 @@ export class Reticle {
   private meterBitmap: { width: number; height: number } | null = null;
   private meterMaps: Partial<Record<MeterQuad['bitmap'], Texture>> = {};
   private power = 0;
-  /** Where the last frame of a set other than 4 laid the reticle (`GRENADE_METER_CENTRE_READING`): Init's centre first. */
+  /** Where the last frame of a set other than 4 laid the reticle (`GRENADE_METER_CENTRE_OWNER`): Init's centre first. */
   private laid: { aim: [number, number]; offset: [number, number] } = { aim: [0.5, 0.5], offset: [0, 0] };
   private sizes: ReticleSizes = { fixed: FIXED, arm: ARM };
   private setTextures = new Map<string, DataTexture>();
@@ -1401,6 +1430,8 @@ export class Reticle {
   private threatFirstFour = true;
   private threatSize = 0;
   private threatLaid: (ThreatVertex[] | null)[] = new Array<ThreatVertex[] | null>(8).fill(null);
+  /** The centre the marks were last laid or moved about (OT.R124: under set 4 they travel with the meter's live centre). */
+  private threatCentre: [number, number] | null = null;
 
   /**
    * The bitmaps of the map just loaded, or none (the reticle then draws nothing); NU-3b: `font` the HUD's font atlas
@@ -1639,7 +1670,8 @@ export class Reticle {
    * THREAT-MARKS: one HUD frame of the eight quads -- ChangeReticule's show state of the first four (hidden under set -1 or
    * a death, left as they were under 6, 8 and 10, shown under the rest: D:L69339-69591), its `Aw`/`Ah` for the set
    * (`threatArm`; under a death, set -1, the last kept), the relayout (`threatLayout`; every frame but under set 4, laid
-   * there once at the change, `FUN_00213e20` D:L69317 then `FUN_00216770` D:L70415-70434; THREAT_SCOPED_SETS_READING),
+   * there once at the change, `FUN_00213e20` D:L69317 then `FUN_00216770` D:L70415-70434 -- and by OT.R124 moved with the
+   * meter's live centre after it, its shape held; THREAT_SCOPED_SETS_READING),
    * each quad's vertices and opacity (THREAT_ALPHA_SCALE_READING). Whether any quad shows.
    */
   private layThreat(): boolean {
@@ -1656,9 +1688,24 @@ export class Reticle {
       if (arm) this.threatArmSize = arm;
     }
     if (set !== 4) this.threatSize = this.drawSize;   // `hud+0x44b4`, written by the HUD frame but under set 4 (D:L70419)
+    // Under set 4 the original lays the marks once, at the change (`FUN_00215250` runs only in the branch the HUD frame
+    // skips under set 4, D:L70415-70434): their centre, size, breadths and which diagonals are laid all held. By the
+    // owner's ruling OT.R124 they follow the meter's live centre every frame while it is drawn -- the boxes laid at the
+    // change moved by the centre's travel, nothing of them relaid.
+    const meterDrawn = set === 4 && this.set === 4;
     if ((set !== 4 || prev !== 4) && this.threatArmSize) {
-      const laid = threatLayout(this.frame, this.meterCentre(), this.threatSize, this.threatArmSize, this.threatBitmap, this.threatValues);
+      // About the HUD's centre `hud+0x44ac/+0x44b0`: a firearm set's, knock and all (D:L70421-70424); under set 4 the
+      // meter's, by the owner's rule (`meterCentre`, OT.R124) -- the marks stay on the meter, and nothing else moves.
+      const centre = meterDrawn ? this.meterCentre() : this.laidCentre();   // the meter drawn: a map serving no ret_grenade keeps the knock
+      const laid = threatLayout(this.frame, centre, this.threatSize, this.threatArmSize, this.threatBitmap, this.threatValues);
       laid.forEach((q, i) => { if (q) this.threatLaid[i] = q.vertices; });
+      this.threatCentre = centre;
+    } else if (meterDrawn && GRENADE_METER_CENTRE_OWNER === 'the live centre' && this.threatCentre) {
+      const c = this.meterCentre(), dx = c[0] - this.threatCentre[0], dy = c[1] - this.threatCentre[1];
+      if (dx !== 0 || dy !== 0) {
+        this.threatLaid = this.threatLaid.map((q) => (q ? q.map((v) => ({ ...v, x: v.x + dx, y: v.y + dy })) : q));
+        this.threatCentre = c;
+      }
     }
     let any = false;
     this.threatMeshes.forEach((mesh, i) => {
@@ -1750,6 +1797,8 @@ export class Reticle {
     meter: { power: number; fill: number; rect: Rect } | null;
     /** NU-3b C4: the target's name, its pen (frame pixels) and its bar (the rectangle and the health), or null. */
     target: { name: string; pen: [number, number]; bar: { rect: Rect; health: number; fill: number } | null } | null;
+    /** OT.R124's browser proof (a test instrument): this frame's aim point as handed (`setAimPoint`), 0..1 of the frame. */
+    aim: [number, number];
   } {
     const visible = this.on && this.meshes.length > 0 && this.frame.height > 0;
     const shown = visible && this.mode === 'reticle';
@@ -1762,6 +1811,7 @@ export class Reticle {
       tube: shown && this.tube && this.scopeMeshes.some((m) => m.userData.bitmap === 'ret_scope_01.tif'),
       meter: meter ? { power: this.power, fill: meter.quads[0]!.height, rect: meter.rect } : null,
       target: target ? { ...target, name: plainBotText(target.name) } : null,
+      aim: [this.aim[0], this.aim[1]],
     };
   }
 
@@ -1852,8 +1902,14 @@ export class Reticle {
     return mesh;
   }
 
-  /** The meter's centre: where the last frame of another set laid the reticle (`GRENADE_METER_CENTRE_READING`). */
+  /** The meter's centre under set 4, by the owner's rule (`GRENADE_METER_CENTRE_OWNER`, `meterCentreSource`). */
   private meterCentre(): [number, number] {
+    const s = meterCentreSource(GRENADE_METER_CENTRE_OWNER, this.laid, { aim: this.aim, offset: this.offset });
+    return reticleLayout(this.frame, s.aim, 0, s.offset).centre;
+  }
+
+  /** The centre the last frame of another set laid, its knock in it: the HUD's `hud+0x44ac/+0x44b0` (D:L70421-70424). */
+  private laidCentre(): [number, number] {
     return reticleLayout(this.frame, this.laid.aim, 0, this.laid.offset).centre;
   }
 
@@ -1870,8 +1926,9 @@ export class Reticle {
   render(renderer: HudRenderer): void {
     renderer.getDrawingBufferSize(this.size);
     this.frame = { width: this.size.x, height: this.size.y };
-    // FUN_00216770 (D:L70415-70434): a frame of any set but 4 lays the centre; under 4 it stays (GRENADE_METER_CENTRE_READING).
-    if (this.set !== 4 || GRENADE_METER_CENTRE_READING !== 'the last firearm frame\'s') {
+    // FUN_00216770 (D:L70415-70434): a frame of any set but 4 lays the centre; under 4 it stays -- the meter then laid by
+    // the owner's rule from it or from this frame (GRENADE_METER_CENTRE_OWNER, OT.R124; `meterCentre`).
+    if (this.set !== 4) {
       this.laid = { aim: [this.aim[0], this.aim[1]], offset: [this.offset[0], this.offset[1]] };
     }
     // THREAT-MARKS: the eight quads outside the reticle's gate (THREAT_DEAD_FADE_READING): with the reticle off (a death),
@@ -2008,5 +2065,6 @@ export class Reticle {
     for (const m of this.threatMeshes) { this.scene.remove(m); m.geometry.dispose(); }
     this.threatMeshes = []; this.threatBitmap = null; this.threatPrevSet = null; this.threatArmSize = null; this.threatFirstFour = true;
     this.threatLaid = new Array<ThreatVertex[] | null>(8).fill(null);
+    this.threatCentre = null;
   }
 }

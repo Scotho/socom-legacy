@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { DeviceClass } from '../src/deviceClass';
-import { gpuSurfaceAllowed, UI_GPU_XBOX_ONE_CONTEXT_ADAPTATION, uiGpuSurfaceWiring } from '../src/uiGpuSurfaceMount';
+import { frontGpuAllowed, gpuSurfaceAllowed, UI_GPU_XBOX_ONE_CONTEXT_ADAPTATION, UI_GPU_XBOX_SOFTWARE_MENUS_ADAPTATION, uiGpuSurfaceWiring } from '../src/uiGpuSurfaceMount';
 import { UI_GPU_SURFACES } from '../src/uiGpuSwitch';
 
 // GM-XBOX1 (the GPU menus plan's Log, 2026-11-10; research 380 §5; PRODUCT TRACK, a browser adaptation with no original):
@@ -73,10 +73,47 @@ describe('GM-XBOX1 review F1: uiGpuSurfaceWiring decides a surface\'s HD and GPU
   });
 });
 
+// LATER 983's experiment (#790; product track, a browser adaptation; built on the owner's word): on the Xbox class the
+// front end's menus start on the software, so the page spends no GPU context before the match -- the front surface was
+// the one left (the loading screen and the overlay are GM-XBOX1's; the ARMORY surface is not built on the page). Central's
+// rows (2026-11-14): on every console page since v0.4.20, the front surface's L3 restore-timeout was followed by a match
+// with no renderer (11 of 11), none without one (2 of 2 drew).
+describe('LATER 983: on the Xbox class the front end mounts no GPU surface (the experiment, the owner pick of 2026-11-14)', () => {
+  it('the experiment is on in this branch; the front surface is withheld on the Xbox class only', () => {
+    expect(UI_GPU_XBOX_SOFTWARE_MENUS_ADAPTATION).toBe(true);
+    expect(Object.fromEntries(CLASSES.map((c) => [c, frontGpuAllowed(c)]))).toEqual({
+      xbox: false, software: true, touch: true, lowMemory: true, standard: true, high: true,
+    });
+  });
+
+  it('`./frontEnd` mounts FrontEndGpu only where frontGpuAllowed says so, after the class probe', () => {
+    const fe = src('frontEnd.ts');
+    const probe = fe.indexOf('pageRendererProbe();');
+    const gate = fe.indexOf('gpuFront = frontWithheld ? null : FrontEndGpu.mount({');
+    expect(probe).toBeGreaterThan(0);
+    expect(gate).toBeGreaterThan(probe);
+    expect(fe.match(/FrontEndGpu\.mount\(/g)).toHaveLength(1);
+  });
+
+  // The batch review (2026-11-14): withheld, the front is down as after a loss, so the menus' HD pack (`./hdMenuTextures`
+  // and three) is neither loaded nor turned on -- the 1x software frame would never draw it.
+  it('withheld, the front is down as after a loss: the HD pack follows it (`menusHd` reads frontGpuDown)', () => {
+    const fe = src('frontEnd.ts');
+    const withheld = fe.indexOf('const frontWithheld = !frontGpuAllowed(pageDeviceClass());');
+    const down = fe.indexOf('if (frontWithheld) frontGpuDown = true;');
+    const mount = fe.indexOf('gpuFront = frontWithheld ? null : FrontEndGpu.mount({');
+    const hd = fe.indexOf('const menusHd = (): boolean => menusHdOn({ uiPerfHd: uiPerf.hd, choice: packChoice.get(), gpu: !frontGpuDown && ');
+    expect(withheld).toBeGreaterThan(0);
+    expect(down).toBeGreaterThan(withheld);
+    expect(mount).toBeGreaterThan(down);
+    expect(hd).toBeGreaterThan(mount);
+  });
+});
+
 describe('GM-XBOX1: the page builds the loading screen\'s and the overlays\' options through uiGpuSurfaceWiring (source inspection)', () => {
   it('`./frontEnd`: the loading panel\'s and the match overlay\'s HD and GPU options both come from it; the front end\'s own surface is not gated', () => {
     const fe = src('frontEnd.ts');
-    expect(fe).toMatch(/^import \{ uiGpuSurfaceLoader, uiGpuSurfaceWiring \} from '\.\/uiGpuSurfaceMount';$/m);
+    expect(fe).toMatch(/^import \{ frontGpuAllowed, uiGpuSurfaceLoader, uiGpuSurfaceWiring \} from '\.\/uiGpuSurfaceMount';$/m);   // LATER 983
     expect(fe).toMatch(/\(\(w\) => new LoadingPanel\(doc, w\.hd, w\.gpu\)\)\(uiGpuSurfaceWiring\('loading', pageDeviceClass\(\), \(\) => hdMenus\?\.options\(\) \?\? \{ scale: 1 \}, \(\) => \(\{ resolveAt: \(s: number\) => uiGpu\.resolve\('loading', s\), [^\n]*\}\)\)\)\);/);
     expect(fe).toMatch(/new NativeSettings\(\{ doc, load: [^\n]*?, \.\.\.uiGpuSurfaceWiring\('overlay', pageDeviceClass\(\), \(\) => hdMenus\?\.options\(\) \?\? \{ scale: 1 \}, \(\) => \(\{ resolveAt: \(s: number\) => uiGpu\.resolve\('overlay', s\), [^\n]*\}\)\) \}\) : undefined;/);
     // Neither construction hands an HD or GPU option of its own beside the helper's (review F1: they cannot drift).

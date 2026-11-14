@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
+import { menubarRow } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -122,12 +123,14 @@ describe('R7-1: the mounted toolbar', () => {
     // Walk sits with Check and Create lobby: one group fewer in the row.
     const walk = top.querySelector('button[aria-label="Walk"]')!;
     expect(walk.parentElement).toBe(top.querySelector('button[aria-label="Check"]')!.parentElement);
-    // The base group: New, Open, Saves and the layout name, the row's own items (`display: contents`). OT.R112: no base
+    // The base group: the layout name (New, Open and Saves in his File menu), the row's own items (`display: contents`). OT.R112: no base
     // list on the toolbar (the owner, 2026-11-06) -- New asks for the base; the name is shown, not typed.
     const baseGroup = top.querySelector<HTMLElement>('.fx-group--base')!;
     expect(baseGroup.querySelector('select')).toBeNull();
     expect(top.querySelector('select[title^="The base"]')).toBeNull();
-    expect(baseGroup.querySelector('button[title^="Start a new layout"]')).not.toBeNull();
+    // FC2-4: New left the base group for his File menu (page.ts:12207, 12233; EDITOR-MAP T2, T11): its row is there.
+    expect(baseGroup.querySelector('button[title^="Start a new layout"]')).toBeNull();
+    expect(menubarRow(document, 'File', 'New…').disabled).toBe(false);
     expect(baseGroup.querySelector<HTMLInputElement>('input.fx-name')?.readOnly).toBe(true);
     // The brand's badge keeps its text.
     expect(top.querySelector('.fx-badge')?.textContent).toBe('EXPERIMENT');

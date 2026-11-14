@@ -411,10 +411,10 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     emit({ type: 'bomb', ...ground, state: 1, pos: [70, 0, 80] });
     me.team = 'seal';
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 70, z: 80 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 70, z: 80, pulse: true }]);
     me.team = 'terrorist';
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 70, z: 80 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 70, z: 80, pulse: true }]);
   });
 
   // BOMB-MARKS (the owner, seat b6, 2026-11-06; research 214 s3 "The base mark for both sides"; reading, pending
@@ -458,7 +458,7 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     me.team = 'terrorist';
     emit({ type: 'bomb', ...ground, state: 1, pos: [50, 0, 60] });
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 50, z: 60 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 50, z: 60, pulse: true }]);
   });
 
   // BOMB-MARKS (research 87 s12, 214 s3 "The scoreboard's satchel"): the board's satchel is the row of the player who
@@ -537,7 +537,7 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     log.length = 0;
     me.tick = 1000 + 10 * TICK_HZ;
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 305, z: 300 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 305, z: 300, pulse: true }]);
     expect(timers.at(-1)).toBeCloseTo(20, 9);
     // The fuse's end: base_explosion1 at the bomb, the bomb gone (FUN_002c1c30 hides its node), the detonation's cue.
     emit({ type: 'bomb', ...ground, state: 5, pos: [305, 0, 300], planter: 2, plantingTeam: 'seal', detonateTick: 1000 + 30 * TICK_HZ });

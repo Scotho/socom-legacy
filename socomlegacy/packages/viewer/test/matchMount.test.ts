@@ -817,12 +817,14 @@ describe('sprint 30 wave 4: the parts the front end switch has off carry their h
       expect(src(f), f).toMatch(/new WorldDrops\(dropModels\(scene, \(\) => loadouts\.tables\(\), \(m\) => view\?\.held\(m\)\?\.clone\(\) \?\? null, \(\) => pickupKitOf\(loadouts\.loadout\(\), loadouts\.tables\(\), \(s\) => firearm\.heldRounds\(\)\[s\]\?\.rounds \?\? 0, ((?:throws\.)?grenade)\.stats\(\)\.leftByItem, \1\.stats\(\)\.equipmentSlots\), \(item\) => \{ const h = heldOfItem\(item\); if \(h\) play\.dropHeld\(h\); \}\)\);/);   // MLS-EQ: the same thrower's aggregate and exact slot rings in both mounts; OBF-15: the own death's drop off the own body
       expect(src(f), f).toMatch(/^\s+drops,\s/m);
       expect(src(f), f).toMatch(/drops: \{ ahead: \(\) => drops\.promptAt\(walk\.feet\(\), walk\.snapshot\(\)\?\.yaw \?\? 0\), candidates: /);   // PAR-34 group 7: the count beside it
-      expect(src(f), f).toMatch(/kitChanged: \(l, s, r, f, k\) => \{ firearm\.takeKit\(l, s, r, f, k\); \},/);   // OT.R59: a resume's pouch (`k`) too
+      // OT.R59: a resume's pouch (`k`) too; the pour's amounts (`a`, the `kit` event's `added`, PICKUP_POUR_READING) since
+      // 2026-11-13 -- both mounts alike, so still one wiring, no twins.
+      expect(src(f), f).toMatch(/kitChanged: \(l, s, r, f, k, a\) => \{ firearm\.takeKit\(l, s, r, f, k, a\); \},/);
     }
     expect(src('matchThrow.ts')).toMatch(/tagOwnProjectile: \([^)]*\) => grenade\.tagOwn\(/);
     expect(src('matchThrow.ts')).toMatch(/detonateProjectile: \([^)]*\) => grenade\.detonateRemote\(/);
     expect(src('main.ts')).toMatch(/kitChanged: \([^)]*\) => \{ firearm\.takeKit\(/);
-    expect(src('matchFirearm.ts')).toMatch(/takeKit: \(l, s, r, f, resumed\) => \{\s+fireModes\[kitItem\] = fireMode; takeRoomKit\(kitTaker, l, s, r, f\);/);
+    expect(src('matchFirearm.ts')).toMatch(/takeKit: \(l, s, r, f, resumed, added\) => \{\s+fireModes\[kitItem\] = fireMode; takeRoomKit\(kitTaker, l, s, r, f, added\);/);   // the pour's amounts handed on (2026-11-13)
   });
   it('PF-37: the R2 inventory\'s launcher reads the wading depth (matchThrow.ts inventoryKit, the same depth selectSlot reads): once, for both pages', () => {
     expect(src('matchThrow.ts')).toMatch(/if \(equipmentKind\(id\) === 'launcher'\) return slotSelectable\(id, \{ claymoresDown: 0, roundsFor: \(l\) => rocket\.roundsFor\(l\), wadingDepth: \(\) => rocket\.wadingDepth\(\) \}\);/);
@@ -966,9 +968,11 @@ describe('sprint 29 wave 4: the front end match mirrors main.ts\'s view and spec
   // page's, research 222). PF-29 (research 232 s7): the zoom's render view reaches the world each frame. PF-31 (research
   // 232 s5.7): the pad reaches the spectator once a frame; the map's scenic views reach the page -- the shared deps' own
   // line since the one wiring (matchNet.ts), in neither page.
+  // PF-29: the world frame takes the firearm's render view -- the zoom's own, or the watched player's while the player's
+  // view is drawn (PV-7b; `MatchFirearm.renderView`).
   const pairs: [string, RegExp, RegExp][] = [
-    ['PF-29: the world frame takes the zoom\'s render view (WorldView.frame\'s third argument)',
-      /view\?\.frame\(fly\.camera, dt, zoom\.renderView\(\)\);/, /view\?\.frame\(fly\.camera, dt, firearm\.zoom\.renderView\(\)\);/],
+    ['PF-29: the world frame takes the firearm\'s render view -- the zoom\'s own, or the watched player\'s while the player\'s view is drawn (PV-7b; `MatchFirearm.renderView`)',
+      /view\?\.frame\(fly\.camera, dt, firearm\.renderView\(\)\);/, /view\?\.frame\(fly\.camera, dt, firearm\.renderView\(\)\);/],
     ['PF-31: the pad reaches the spectator once a frame (NetPage.spectatorPad)',
       /net\?\.spectatorPad\(padMerged\);/, /net\?\.spectatorPad\(padMerged\);/],
   ];
@@ -1880,7 +1884,7 @@ describe('ACT-1: the action part on the menu-launched match (the playtest of 202
     t.w.step(2);
     const marks = (): unknown => hookOf(t).hud().model.extraMarks ?? [];
     // The lobby heard the welcome before the match was mounted: its objective reaches the part all the same.
-    expect(marks()).toEqual([{ bitmap: 'ret_bomb.tif', x: START_BOMB[0], z: START_BOMB[2] }]);
+    expect(marks()).toEqual([{ bitmap: 'ret_bomb.tif', x: START_BOMB[0], z: START_BOMB[2], pulse: true }]);
     const g = setMap.mock.contexts.at(-1) as GrenadeThrower;
     const satchel = named(g.object, 'Satchel');
     expect(satchel).toHaveLength(1);                                                     // bomb-floor's Satchel (BOMB_MODEL_READING)
@@ -1990,7 +1994,12 @@ describe('ACT-1: the doors, the turret, the follow and the traversal on the menu
     expect(t.w.live.has('blur')).toBe(true);                                             // XR-06: the window's blur cancels a hold
     // LATER 237: the firearm asks the open client's `lastSeq` each frame (`commandSeq`), as every `NetClient` has it;
     // NET-RES-2d's link watch its `heardAt` (heard now: the watch stays under its bound and never drops this stand-in).
-    const next = { on: () => () => {}, state: 'open', bodies: () => [], id: 2, team: 'seal', role: 'player', lastSeq: () => 0, heardAt: () => performance.now() };
+    // PV-6b: the player's view's rig (`povNet`) lets the watched body go on every frame none is followed
+    // (`./matchNet` `povReset`: `setCommandClockBody(null)`), as every `NetClient` has it.
+    const next = {
+      on: () => () => {}, state: 'open', bodies: () => [], id: 2, team: 'seal', role: 'player', lastSeq: () => 0, heardAt: () => performance.now(),
+      setCommandClockBody: () => {},
+    };
     const net = m.net() as unknown as { client: unknown };
     net.client = next;                                                                   // NetPage's reconnect replaced its client
     t.w.step(1);
@@ -2139,14 +2148,14 @@ describe("ACT-4: the HUD's prompts on the menu-launched match", () => {
     a.t.w.step(3);
     expect(hudFrame).toHaveBeenCalledTimes(3);                                           // once a drawn frame
     const model = () => hookOf(a.t).hud().model;
-    expect(model().extraMarks).toEqual([{ bitmap: 'ret_bomb.tif', x: START_BOMB[0], z: START_BOMB[2] }]);
+    expect(model().extraMarks).toEqual([{ bitmap: 'ret_bomb.tif', x: START_BOMB[0], z: START_BOMB[2], pulse: true }]);
     expect(model().defuseTimer ?? null).toBeNull();
     a.x.say({ type: 'bomb', ...onGround, state: 2, carrier: 2 } as unknown as ServerEvent);
     a.t.w.step(1);
     expect(model().extraMarks).toEqual([{ bitmap: 'ret_base.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2], type: 2, pulse: true }]);   // BOMB-MARKS: the carrier's side, type 2
     a.x.say({ type: 'bomb', ...onGround, state: 3, pos: TERRORIST_TENT, carrier: null, planter: 2, plantingTeam: 'seal', detonateTick: 600 } as unknown as ServerEvent);
     a.t.w.step(1);
-    expect(model().extraMarks).toEqual([{ bitmap: 'ret_bomb.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2] }]);
+    expect(model().extraMarks).toEqual([{ bitmap: 'ret_bomb.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2], pulse: true }]);
     expect(model().defuseTimer).toBeGreaterThan(0);                                      // the fuse in the round timer's place
     a.x.say({ type: 'bomb', ...onGround, state: 4, pos: TERRORIST_TENT, carrier: null, planter: 2, plantingTeam: 'seal', defuser: 3, detonateTick: 600 } as unknown as ServerEvent);
     a.t.w.step(1);
@@ -2646,7 +2655,8 @@ describe('ACT-2: the turret on the menu-launched match (research 215 s7, turret-
       expect(text, f).toMatch(new RegExp([
         // PAR-34 group 7 widened the window: the drops line carries the candidate count beside `ahead`; LkPaioX5 (c) again:
         // the second candidate and the drops' items beside it.
-        String.raw`mountActions\(\{[\s\S]{0,1700}?\n\s+turret: \{`,
+        // FC2-4: 2000 -- his call holds more lines before turret (matchMount.ts:797-811, 1737 characters); the lines pinned unchanged.
+        String.raw`mountActions\(\{[\s\S]{0,2000}?\n\s+turret: \{`,
         String.raw`\n\s+sound: \(name, at\) => \{ ${audio}\.play\(name, at, 'play', 1\); \},`,
         String.raw`\n\s+bodyFeet: \(id\) => remote\.feet\(id\), clips: \(\) => remote\.playClips\(\),`,
         String.raw`\n\s+hand: \(id\) => \(id === net\?\.client\.id \? walk\.hand\(\) : \(net\?\.client\.bodies\(\)\.find\(\(b\) => b\.id === id\)\?\.slot === 1 \? 1 : 0\)\),`,

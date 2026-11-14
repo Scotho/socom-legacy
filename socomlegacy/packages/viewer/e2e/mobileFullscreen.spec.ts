@@ -31,6 +31,7 @@ test.beforeEach(async ({ page }) => {
       const menu = mountMenuTouch(document.getElementById('menu'), window);
       document.getElementById('edit').onclick = () => openMobileLayoutEditor(document, () => {});
       window.disposeMenu = menu.dispose;
+      window.menuPadConnected = menu.padConnected;
       document.getElementById('start-match').onclick = async () => {
         document.getElementById('menu').hidden = true;
         await new Promise(requestAnimationFrame); // the menu parks its nodes before the match mounts
@@ -116,4 +117,71 @@ test('the normal match fullscreen target is above its canvas and receives taps',
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === document.documentElement)).toBe(true);
   await page.getByRole('button', { name: 'Exit fullscreen', exact: true }).tap();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+});
+
+for (const match of [false, true]) test(`dedicated fullscreen stays reachable during loading and modal screens (${match ? 'match' : 'menu'})`, async ({ page }) => {
+  await page.setViewportSize(sizes[1]!);
+  await page.goto('/mobile-fullscreen-check');
+  if (match) await page.getByRole('button', { name: 'Start match', exact: true }).tap();
+  await page.evaluate(() => {
+    const loading = document.createElement('div'); loading.id = 'original-loading';
+    loading.textContent = 'Loading game'; document.body.append(loading);
+  });
+  const button = page.getByRole('button', { name: 'Enter fullscreen', exact: true });
+  await expect(button).toBeVisible({ timeout: 3000 });
+  expect(await button.evaluate(el => { const box = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)); })).toBe(true);
+  await button.tap();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+  await page.getByRole('button', { name: 'Exit fullscreen', exact: true }).tap();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+});
+
+test('V20.R9: the dedicated fullscreen button keeps its armory and taunts hides, and comes back after each', async ({ page }) => {
+  // The owner, 2026-11-11 (V20.R9), to "the button keeps its armory and taunts hides": "yeah hide it agreed".
+  await page.setViewportSize(sizes[1]!);
+  await page.goto('/mobile-fullscreen-check');
+  await page.getByRole('button', { name: 'Start match', exact: true }).tap();
+  const button = page.locator('#fullscreen');
+  await expect(button).toBeVisible({ timeout: 3000 });
+  for (const cls of ['armory-open', 'is-taunts-open']) {
+    await page.evaluate((c) => document.body.classList.add(c), cls);
+    await expect(button, cls).toBeHidden();
+    await page.evaluate((c) => document.body.classList.remove(c), cls);
+    await expect(button, `after ${cls}`).toBeVisible();
+  }
+});
+
+test('V20.R15: the reading pages keep the browser\'s double-tap zoom; the launcher and the game page do not', async ({ page }) => {
+  await page.setViewportSize(sizes[1]!);
+  for (const path of ['/news', '/roadmap', '/leaderboard']) {
+    await page.goto(path);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).touchAction), path).toBe('auto');
+  }
+  for (const path of ['/console', '/setup']) {
+    await page.goto(path);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).touchAction), path).toBe('manipulation');
+  }
+});
+
+test('double taps on page space and buttons keep the mobile viewport scale', async ({ page }) => {
+  await page.setViewportSize(sizes[1]!);
+  await page.goto('/mobile-fullscreen-check');
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).touchAction)).toBe('manipulation');
+  const before = await page.evaluate(() => visualViewport!.scale);
+  await page.touchscreen.tap(400, 80); await page.touchscreen.tap(400, 80);
+  const cross = page.locator('#tw-cross'); await cross.tap(); await cross.tap();
+  expect(await page.evaluate(() => visualViewport!.scale)).toBe(before);
+  expect(await cross.evaluate(el => getComputedStyle(el).touchAction)).toBe('none');
+});
+
+test('the dedicated fullscreen button remains available with a controller connected', async ({ page }) => {
+  await page.setViewportSize(sizes[1]!);
+  await page.goto('/mobile-fullscreen-check');
+  await page.evaluate(() => (window as any).menuPadConnected(true));
+  await expect(page.locator('#menu-touch #touch')).toBeHidden();
+  const button = page.getByRole('button', { name: 'Enter fullscreen', exact: true });
+  await expect(button).toBeVisible(); await button.tap();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+  await page.getByRole('button', { name: 'Exit fullscreen', exact: true }).tap();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
 });

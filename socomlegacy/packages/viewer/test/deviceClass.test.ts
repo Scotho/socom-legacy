@@ -87,6 +87,12 @@ describe('VS-7: the device class (VS.R1: the Xbox only when certain)', () => {
     expect(src('frontEnd.ts')).toMatch(/if \(releasesMatchOnReturn\(readGraphicsBackend\(\)\) \|\| pageDeviceClass\(\) === 'xbox'\) matchLoading\?\.release\(\)/);
   });
 
+  it('PR #790 piece 2 (review F4): the Xbox class takes the loader\'s two new measures beside the pick -- requests one decoder at a time, a replaced mission cancelled', () => {
+    const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf8');
+    expect(src('matchMount.ts')).toMatch(/serialWorkerRequests = options\.serialWorkerRequests \?\? \(readGraphicsBackend\(\) === 'xbox' \|\| pageDeviceClass\(\) === 'xbox'\)/);
+    expect(src('matchMount.ts')).toMatch(/cancelSupersededLoads = options\.cancelSupersededLoads \?\? \(readGraphicsBackend\(\) === 'xbox' \|\| pageDeviceClass\(\) === 'xbox'\)/);
+  });
+
   it('readDeviceSignals: the agent, the probe\'s string and verdict, the memory and the saved Xbox pick', () => {
     const win = { navigator: { userAgent: SERIES_X_AGENT, deviceMemory: 8 } };
     expect(readDeviceSignals(win, () => ({ renderer: D3D11, software: false }))).toEqual({

@@ -45,16 +45,60 @@ export interface SpectatorHudRead {
    * `teammate` step compares it with the watched teammate's held item's (`spectatorHudFindings`' `icon`).
    */
   icon: string | null;
+  /**
+   * PV-9 item 4 (PV-6h's review, finding 2): the player's view's state as the HUD draws its line (`HudSpectatorView.pov`;
+   * a browser adaptation, no original); null or absent: no line. Read by `readOf`; a read made without it judges as before.
+   */
+  pov?: 'offered' | 'shown' | 'waiting' | null;
+  /**
+   * PV-9 item 4: the `'help'` element's band in the HUD's own units (y down, a 448-high frame: `HUD_FRAME_HEIGHT`), from
+   * its rect and the page's frame; null with no frame given or nothing drawn. The view's line lies above
+   * `POV_LINE_SPLIT_Y`, the original lines below it, so the two are judged apart.
+   */
+  helpBand?: { top: number; bottom: number } | null;
 }
 
 /** The part of `Hud.state()` (`HudView`) a read takes: structural, so a page's JSON answer fits it. */
 export interface HudStateLike {
   visible: boolean;
   rects: Partial<Record<string, unknown>>;
-  model: { spectator?: { path?: 'spectator' | 'teammate' | 'own'; followed: { name: string } | null } | null };
+  model: { spectator?: { path?: 'spectator' | 'teammate' | 'own'; followed: { name: string } | null; pov?: 'offered' | 'shown' | 'waiting' } | null };
   timing: { help?: number };
   /** LATER 117: `HudView.icon`, the weapon box's icon bitmap drawn; absent: none. */
   icon?: string | null;
+  /** PV-9 item 4: `HudView.frame`, the frame the rects are on; absent (the earlier specs' reads): no band read. */
+  frame?: { width: number; height: number };
+}
+
+/**
+ * PV-9 item 4: the HUD's frame height its layout is written in (`../src/hud` `PS2_H`: `hudLayout`'s scale is
+ * `frame.height / 448`). Restated here (nothing of `../src/hud` at run time); `../test/spectatorHudSetPov.test.ts` holds it.
+ */
+export const HUD_FRAME_HEIGHT = 448;
+/**
+ * PV-9 item 4: the y, in HUD units, between the player's view's line (`POV_HELP_PLACE_ADAPTATION`, baseline 326: its
+ * glyphs end at 331.4, that constant's own note in `../src/hud`) and the help block's first line (`SPECTATOR_HELP.y0`,
+ * baseline 380: its glyphs start at 363.5) -- their baselines' midpoint, 353. Restated, and held against the HUD's own
+ * by the unit test.
+ */
+export const POV_LINE_SPLIT_Y = 353;
+
+/**
+ * PV-9 item 4: whether the HUD draws the player's view's line at a help clock of `clock` -- `../src/hud` `povHelpAlpha`
+ * above 0: 'offered' rides the clock with the lines, 'shown' at the lines' full alpha and 'waiting' at half of it whatever
+ * the clock (PV-6h). Restated, and held against `povHelpAlpha` by the unit test.
+ */
+export function povLineLit(pov: 'offered' | 'shown' | 'waiting', clock: number): boolean {
+  return pov === 'offered' ? clock > 0 : true;
+}
+
+/** PV-9 item 4: the help element's band in HUD units, from its rect on a frame of `height`; null with none. */
+function helpBandOf(rect: unknown, height: number | undefined): { top: number; bottom: number } | null {
+  if (!height || !(height > 0) || typeof rect !== 'object' || rect === null) return null;
+  const { y, height: h } = rect as { y?: unknown; height?: unknown };
+  if (typeof y !== 'number' || typeof h !== 'number') return null;
+  const s = height / HUD_FRAME_HEIGHT;
+  return { top: y / s, bottom: (y + h) / s };
 }
 
 /** A page's `Hud.state()` (and its reticle, null with no read) as the check reads it. */
@@ -64,6 +108,7 @@ export function readOf(view: HudStateLike, reticle: boolean | null): SpectatorHu
     visible: view.visible, drawn: Object.keys(view.rects).filter((k) => view.rects[k] !== undefined),
     path: v ? v.path ?? 'spectator' : null, followed: v?.followed?.name ?? null, help: view.timing.help ?? null, reticle,
     icon: view.icon ?? null,
+    pov: v?.pov ?? null, helpBand: helpBandOf(view.rects['help'], view.frame?.height),
   };
 }
 
@@ -206,15 +251,44 @@ export function spectatorHudFindings(
   }
   if (want.help) {
     const lit = (read.help ?? 1) > 0;
+    // PV-9 item 4 (PV-6h's review, finding 2): the player's view's line, drawn in the 'help' element at its own place and
+    // alpha (never on 'own'), is judged by itself; with no state in the read (the earlier specs, a view never chosen) the
+    // judgement is the one before it, and 'offered' rides the same clock as the lines, so it changes nothing there either.
+    const pov = want.path !== 'own' ? read.pov ?? null : null;
+    const povLit = pov !== null && povLineLit(pov, read.help ?? 1);
+    const band = pov !== null ? read.helpBand ?? null : null;
+    const line = `the player's view's line ('${pov}')`;
+    const povWhy = "POV_HELP_*_ADAPTATION (PV-6h, a browser adaptation: on the clock while offered, drawn whatever the clock while shown, at half its alpha while waiting)";
     if ((opts.help ?? 'clock') === 'shown') {
       if (!lit) out.push(`${step}: 'help' faded (timing.help ${read.help}) where the step asks it lit -- ${why('help')}`);
       if (!has.has('help')) out.push(`${step}: 'help' not drawn -- ${why('help')}`);
-    } else if (lit !== has.has('help')) {
+      else if (band && povLit && !(band.top < POV_LINE_SPLIT_Y)) out.push(`${step}: ${line} not drawn -- ${povWhy}`);
+    } else if (band) {
+      // The band read: the original lines below the split on their clock, the view's line above it by its own rule.
+      const linesDrawn = band.bottom > POV_LINE_SPLIT_Y, lineDrawn = band.top < POV_LINE_SPLIT_Y;
+      if (linesDrawn !== lit) {
+        out.push(linesDrawn
+          ? `${step}: 'help' drawn past its clock (timing.help ${read.help}) -- ${why('help')}`
+          : `${step}: 'help' not drawn with its clock at ${read.help} -- ${why('help')}`);
+      }
+      if (lineDrawn !== povLit) out.push(`${step}: ${line} ${lineDrawn ? 'drawn past the help clock' : 'not drawn'} (timing.help ${read.help}) -- ${povWhy}`);
+    } else if ((lit || povLit) !== has.has('help')) {
+      // No band (no frame given): the element as a whole -- drawn while the lines' clock or the view's line asks it.
       out.push(has.has('help')
         ? `${step}: 'help' drawn past its clock (timing.help ${read.help}) -- ${why('help')}`
-        : `${step}: 'help' not drawn with its clock at ${read.help} -- ${why('help')}`);
+        : lit
+          ? `${step}: 'help' not drawn with its clock at ${read.help} -- ${why('help')}`
+          : `${step}: 'help' not drawn: ${line} not drawn (timing.help ${read.help}) -- ${povWhy}`);
     }
   }
-  if (step !== 'own' && read.reticle === true) out.push(`${step}: the reticle drawn -- the hide-all hides its root +0x11df0 (D:L56327; research 282 §1)`);
+  // PV-10b item 5: while the player's view is 'shown' the reticle drawn is the watched player's (PV-7b, a browser
+  // adaptation: `../src/matchFirearm.ts` `showReticle`), asked drawn -- but under the scoreboard, a screen that hides every
+  // reticle (`../src/reticle.ts` `reticleShown`; the tactical map and a round screen hide it too, not in this read). With
+  // the view absent, 'offered' or 'waiting' (every existing spectator spec: none turns the view on) the path is the one
+  // before it: the hide-all's.
+  const viewReticle = step !== 'own' && step !== 'scoreboard' && read.pov === 'shown' && !has.has('scoreboard');
+  if (viewReticle) {
+    if (read.reticle === false) out.push(`${step}: the watched player's reticle not drawn while the view is 'shown' -- PV-7b (a browser adaptation: the reticle of his view)`);
+  } else if (step !== 'own' && read.reticle === true) out.push(`${step}: the reticle drawn -- the hide-all hides its root +0x11df0 (D:L56327; research 282 §1)`);
   return out;
 }

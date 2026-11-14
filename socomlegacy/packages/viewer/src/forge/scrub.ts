@@ -33,6 +33,16 @@ export interface ScrubDetail { value: number; cancelled?: true }
 
 /** The fields given their own options (`scrubNumber`): the page-wide scrub (`scrubAllNumbers`) leaves them to it. */
 const own = new WeakSet<HTMLInputElement>();
+/** The documents with a scrub's press live (from the press to its release or its Escape). */
+const live = new WeakSet<Document>();
+/**
+ * Whether a scrub's press is live in `doc`. FX-9: the page's own key map hears a key first (its listener is the window's,
+ * in the capture phase), so it leaves Escape to a live scrub, whose Escape puts the value back and is not the editor's
+ * deselect.
+ */
+export function scrubLive(doc: Document): boolean {
+  return live.has(doc);
+}
 /** Those fields' options, for the wheel's step (`wheelAllNumbers`). */
 const ownOptions = new WeakMap<HTMLInputElement, ScrubOptions>();
 
@@ -163,6 +173,7 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
     doc.documentElement.classList.remove('fx-scrubbing');
     if (press?.pointerId !== undefined) { try { input.releasePointerCapture(press.pointerId); } catch { /* not captured */ } }
     press = null;
+    live.delete(doc);
   };
   const onMove = (e: Event): void => {
     const p = press;
@@ -204,6 +215,7 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
   m.preventDefault();                                         // no focus, no caret: a press is a scrub until it is a click
   const pointerId = (e as Partial<PointerEvent>).pointerId;
   press = { x: m.clientX, start, dragging: false, pointerId };
+  live.add(doc);
   if (pointerId !== undefined) { try { input.setPointerCapture(pointerId); } catch { /* the document still hears it */ } }
   doc.addEventListener('pointermove', onMove);
   doc.addEventListener('pointerup', onUp);

@@ -1,16 +1,50 @@
-import { itemClass, type Grid, type Loadout, type Side } from '@s2u/scene';
+import { itemClass, probeGround, selectFloor, type Grid, type Loadout, type Side } from '@s2u/scene';
 import type { FlyCamera } from './camera';
 import type { LoadedMap } from './loadMap';
 import { kitRecords, wireLoadout, type PlayerLoadout } from './loadout';
 import type { MatchCapabilities } from './matchCore';
 import { sideLoadoutOf } from './matchCore';
 import type { MatchFirearm } from './matchFirearm';
-import { STANCE_CODES, type Team } from './net/protocol';
-import { rootY } from './mover';
-import { GAME_ASPECT, INIT_AIM_PITCH, PlayerCamera } from './playerCamera';
+import type { NetClient } from './net/client';
+import { BodyFlag, STANCE_CODES, type BodyState, type Team } from './net/protocol';
+import { probeLiftOf, rootY, type Stance } from './mover';
+import { GAME_ASPECT, PlayerCamera } from './playerCamera';
 import type { NetPageDeps } from './netPage';
 import type { PlayClips } from './play';
+import { PovCamera, type PovBody, type PovPose } from './povCamera';
 import { scenicViews } from './spectatorView';
+import type { SpectatorBody } from './spectatorView';
+
+/**
+ * PV-5b (the player's view; product track, a browser adaptation with no original -- research 402, plan PV.R3): what the
+ * player's view reads of the page's match client -- the watched body's command clock (PV-4b): `NetClient`'s three, the
+ * same on a replay's client (`./replay/replayClient` `asNetClient`).
+ */
+export type PovNet = Pick<NetClient, 'setCommandClockBody' | 'commandClock' | 'bodyAtCommand'> & Partial<Pick<NetClient, 'lifeAtCommand'>>;
+
+/**
+ * SPECTATE-PITCH (8a's finding 13; research 382 s7): the pitch, in degrees, the original's FOLLOW camera
+ * (`spectateFollow`, the spectator's follow and the dead player's teammate view) turns by for a watched remote body --
+ * not the body's replicated aim. [the dead watcher's view: measured by the rig's capture Q6, 2026-11-13 (r0004, n = 6
+ * runs, level within 0.0005 u at rest and 0.07 u walking); the spectator's follow: reading, pending review, measured
+ * at rest only] The camera aims along the bound
+ * actor's look quaternion `+0x1070` (`FUN_00297410` D:L140992-140999). The look's one writer, `FUN_005af470`
+ * (D:L466564), runs from the body's set-up with pitch 0 (`FUN_00553ea0` D:L419805), from the pitch routine
+ * `FUN_00594600` (D:L452953) and from three camera helpers writing the local actor's look (`FUN_002b3580`,
+ * D:L142196, D:L142259, D:L142320); `FUN_00594600` runs for the local pad (`FUN_005966a0` D:L453866), an AI
+ * (`FUN_005fe880` D:L510366), the
+ * local actor's camera (`FUN_002980d0` D:L141633-141636, bound == own) and the dead watcher's camera state 7
+ * (`FUN_00295f20` D:L140144, on the bound actor's controller `cam+0xc4`, `FUN_002956e0` D:L139725-139728), where the
+ * watcher's OWN stick orbits the view (Q6: about 23 u, the watched controller's `+0x130` unmoved; its path not read)
+ * -- research 248 s3's orbit, not built. No
+ * writer of a remote controller's pitch `+0x130` from the network was found (a search of every writer, not a proof).
+ * Measured point at rest: the rig's 2026-11-12 captures (dead player, state 7; lobby spectator, state 0) hold the
+ * stored eye and target level in 6974 of 7011 and 6968 of 6986 samples, the rest torn reads -- partial support at
+ * rest, with the watched player never touching his vertical stick, not a changing pitch. Q6 (2026-11-13) held the
+ * dead watcher's view level on every frame while the watched player pitched -70 to +60 degrees, the remote's look the
+ * identity throughout; the spectator's capture under a changing pitch is owed (research 382 s7).
+ */
+export const WATCHED_LOOK_PITCH_READING = 0;
 
 /**
  * ONE-WIRE (web research 222): the `NetPage` deps of a page's match, built once for both pages -- `/testroom`
@@ -27,10 +61,13 @@ export interface MatchNetParts {
   walk: NetPageDeps['walk'];
   remote: NetPageDeps['remote'];
   hud: NetPageDeps['hud'];
-  /** SPECTATOR-VIEW W6: `setMagnification` and `lookOptions` (INVERT PITCH) optional for the stand-ins with no projection. */
-  fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect'>>;
+  /**
+   * SPECTATOR-VIEW W6: `setMagnification` and `lookOptions` (INVERT PITCH) optional for the stand-ins with no projection.
+   * PV-5b: `placeView`, `setViewNear` and `setSubjectOffset`, the player's view's; without `placeView` it never draws.
+   */
+  fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect' | 'placeView' | 'setViewNear' | 'setSubjectOffset'>>;
   loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit' | 'held' | 'tables'>>;
-  firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt' | 'threatThrow'>> & {
+  firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt' | 'threatThrow' | 'setSubjectView'>> & {
     /** NET-REFILL: `setNetRefill` optional for the stand-ins that build no `Fire`. */
     fire: Pick<MatchFirearm['fire'], 'undoReload' | 'restoreReload' | 'refundRound'> & Partial<Pick<MatchFirearm['fire'], 'setNetRefill' | 'setPressWindow'>>;
   };
@@ -50,6 +87,11 @@ export interface MatchNetParts {
   roundClear?(): void;
   /** A screen over the game (the loading screen's hold; `/testroom`'s WEAPON EXCHANGE and ARMORY). */
   menuOpen(): boolean;
+  /**
+   * PV-5b: the page's match client (`NetPage.client`: a live room's, or a replay's through `asNetClient`), read each
+   * frame the player's view runs; absent or null, the view never draws (the follow shows, PV.R6).
+   */
+  povNet?(): PovNet | null;
 }
 
 /** A page's own additions to the shared hooks, each run after the shared line. */
@@ -144,7 +186,60 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
   // FUN_002998f0 kind 2 -> FUN_00296f10 -> FUN_0029bf70: a followed actor uses the same pass as a player.
   // Kept across frames; neither a target switch nor a different map inherits the previous obstruction (research 382 §2).
   let following: { id: number; grid: Grid | null; map: LoadedMap | null; camera: PlayerCamera } | null = null;
-  const resetFollow = (): void => { following = null; };
+  // PV-5b (the player's view; research 402 s1-s2, plan PV.R6): one rig for the watched body, rebuilt as `following` is --
+  // a new id, ground grid or map -- and when the command clock's epoch changes (a reset of its numbers: a rig built on
+  // the old ones could otherwise hold on a hole that never fills). `povDrawn`: the body and the pose the last call put on
+  // the page (the camera, the near plane, the sway's offset, the hide), so the first frame it is not drawn gives each back,
+  // once -- whichever path that frame takes: the view's own fallback, the warm call, a reset, or the follow (PV-6a's
+  // `SpectatorView` returns before `follow` on a drawn frame, so a follow frame is never a drawn one).
+  let pov: { id: number; grid: Grid | null; map: LoadedMap | null; epoch: number; rig: PovCamera } | null = null;
+  let povDrawn: { id: number; pose: PovPose } | null = null;
+  const povUndraw = (): void => {
+    if (!povDrawn) return;
+    const { pose } = povDrawn;
+    povDrawn = null;
+    // PV-5b review F2: `placeView` leaves the fly camera's own look (and its glide) where the last `setPose` put it, so the
+    // free camera after the view would turn and strafe from a stale look: it is handed the last drawn eye and look, as it
+    // is handed the follow's today. `setPose` also clears the glide and the finger's owed look and puts the FOV at rest
+    // (PV-7b's lens ends with the view); it touches neither the magnification, the screen offset nor the near plane,
+    // which are given back after it. A follow frame's own `setPose` comes after this and stands.
+    p.fly.setPose({ x: pose.eye[0], y: pose.eye[1], z: pose.eye[2], yaw: pose.yaw, pitch: pose.pitch });
+    p.fly.setViewNear?.(null);                         // the map's near plane (`FlyCamera.setViewNear`, the walk's own writer)
+    p.fly.setSubjectOffset?.(0, 0);
+    p.remote.setPovHidden?.(null);
+    p.firearm.setSubjectView?.(null);                 // PV-7b: after `setPose`, so the FOV's one writer ends on the page's own
+  };
+  const povReset = (): void => { povUndraw(); pov = null; p.povNet?.()?.setCommandClockBody(null); };
+  /**
+   * The rig run for `body` on its command clock: its pose, or null when it cannot be drawn (PV.R6: no client, the page's
+   * own player walking, no clock, the subject dead, no sample). `net.setCommandClockBody(id, false)` first: watched, its
+   * clock fed, `bodies()` today's -- the caller sets `drawn` only on a frame it places the camera.
+   */
+  const povFrame = (body: SpectatorBody): PovPose | null => {
+    const net = p.povNet?.() ?? null;
+    if (!net) return null;
+    // PV-4b's review: a body drawn on its clock moves for every reader of `bodies()` (the throws', the mount's, the
+    // actions'), so a page whose own player walks never watches one -- whatever its spectator view asks.
+    if (p.walk.mode?.() === 'walk') { net.setCommandClockBody(null); return null; }
+    net.setCommandClockBody(body.id, false);
+    const c = net.commandClock();
+    if (!c || !(body.flags & BodyFlag.Alive)) return null;   // PV-4b: null across a respawn or a replay's reset too
+    const grid = p.walk.gridOfGround?.() ?? null, map = p.map();
+    if (!pov || pov.id !== body.id || pov.grid !== grid || pov.map !== map || pov.epoch !== c.epoch) {
+      pov = { id: body.id, grid, map, epoch: c.epoch, rig: new PovCamera({ grid }) };
+    }
+    // The root and its posed flag exactly as `spectateFollow` passes them: the drawn pose's, the same for every k.
+    const posed = p.remote.cameraRoot?.(body.id) ?? null;
+    const traversal = body.travRootY;
+    const root = posed ?? (traversal !== undefined && Number.isFinite(traversal) ? traversal : rootY(STANCE_CODES[body.stance ?? 0] ?? 'stand'));
+    const at = (k: number): PovBody | null => {
+      const b = net.bodyAtCommand(k);
+      // PV-15: the seat's spawn count at k, so the rig's history stops at a spawn (absent on a client that has none)
+      return b ? povBody(b, root, posed !== null, grid, net.lifeAtCommand?.(k) ?? null) : null;   // a miss allocates nothing
+    };
+    return pov.rig.frame({ at }, c.cmd, p.fly.aspect?.() ?? GAME_ASPECT);
+  };
+  const resetFollow = (): void => { following = null; povReset(); };
   const shared: NetPageDeps = {
     walk: p.walk, remote: p.remote, hud: p.hud, clips: () => p.clips(),
     // The live kit's records for the page's own; another side's type's kit on the map for a team's.
@@ -174,6 +269,14 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
     spectate: (pose) => { resetFollow(); if (pose) p.fly.setPose(pose); },
     spectateFollowReset: resetFollow,
     spectateFollow: (body, dt, ease) => {
+      // PV-5b review F1: a view drawn last frame given back (else nothing), and its body watched, not drawn: `bodies()`
+      // today's from the next frame, the clock and the rig kept for the view's return, as the warm call keeps them (the
+      // warm call's own `(id, false)`; null only where the page's own player walks, as `povFrame` has it).
+      if (povDrawn) {
+        const id = povDrawn.id;
+        povUndraw();
+        p.povNet?.()?.setCommandClockBody(p.walk.mode?.() === 'walk' ? null : id, false);
+      }
       const grid = p.walk.gridOfGround?.() ?? null, map = p.map();
       if (!following || following.id !== body.id || following.grid !== grid || following.map !== map) {
         following = { id: body.id, grid, map, camera: new PlayerCamera(grid) };
@@ -181,17 +284,54 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
       const camera = following.camera;
       camera.ease = ease === true;   // INV-SPECTATE C: the dead player's teammate view only (`SpectatorView.followWatched`)
       camera.nearAspect = p.fly.aspect?.() ?? GAME_ASPECT;
+      // The peek stays the watched body's: the camera's lean `DAT_004161c0` eases toward the BOUND actor's lean byte
+      // `+0x375` (`FUN_002998f0` D:L141961-141976), which a record's apply writes (`FUN_002be150` D:L162319).
       camera.peek = body.peek ?? 0;
       // The remote body was posed immediately before SpectatorView.frame. The no-mesh fallback is the player's
       // existing measured stance/traversal root, not the old fixed standing offset (FUN_0029a950, research 382 §2).
       const posed = p.remote.cameraRoot?.(body.id) ?? null;
       const traversal = body.travRootY;
       const root = posed ?? (traversal !== undefined && Number.isFinite(traversal) ? traversal : rootY(STANCE_CODES[body.stance ?? 0] ?? 'stand'));
-      camera.tick(body.feet, body.yaw, body.pitch ?? INIT_AIM_PITCH, root, Math.max(0, dt), posed !== null);
+      camera.tick(body.feet, body.yaw, WATCHED_LOOK_PITCH_READING, root, Math.max(0, dt), posed !== null);
       const view = camera.view(1), dx = view.target[0] - view.eye[0], dy = view.target[1] - view.eye[1], dz = view.target[2] - view.eye[2];
       p.fly.setPose({ x: view.eye[0], y: view.eye[1], z: view.eye[2],
         yaw: Math.atan2(-dx, -dz) * 180 / Math.PI, pitch: Math.atan2(dy, Math.hypot(dx, dz)) * 180 / Math.PI });
     },
+    // PV-5b (`./spectatorView` POV_VIEW_ADAPTATION): the watched body's own picture -- placed by `placeView`, never
+    // `setPose` (which resets the FOV and clamps the pitch; the FOV is PV-7b's while the view is on); the head view's
+    // near plane, the sway's offset and the hidden body set on a drawn frame, given back on the first frame not drawn.
+    spectatePov: (body) => {
+      const pose = p.fly.placeView ? povFrame(body) : null;
+      // LATER 897 (PV.R6): a head view on a turret is the turret's camera, which the rig does not rebuild: the follow.
+      if (!pose || (pose.head && p.remote.mounted?.(body.id) === true)) { povUndraw(); return false; }
+      p.povNet?.()?.setCommandClockBody(body.id, true);   // drawn: on this frame only (the next frame's bodies() reads it)
+      p.fly.placeView!(pose.eye, pose.target);
+      p.fly.setViewNear?.(pose.near);                    // null: the map's
+      p.fly.setSubjectOffset?.(pose.offset[0], pose.offset[1]);
+      p.remote.setPovHidden?.(pose.head ? body.id : null);
+      // PV-7b: the watched player's lens on the page (`MatchFirearm.setSubjectView`), once the camera is placed.
+      const net = p.povNet?.() ?? null, c = net?.commandClock() ?? null;
+      p.firearm.setSubjectView?.(net && c ? { id: body.id, cmd: c.cmd, epoch: c.epoch, at: (k) => net.bodyAtCommand(k), spawns: (k) => net.lifeAtCommand?.(k) ?? net.bodyAtCommand(k)?.spawns ?? 0, pose } : null);
+      povDrawn = { id: body.id, pose };
+      following = null;                                // review F3: the follow after the view starts fresh, as at a new bind
+      return true;
+    },
+    // PV-5b: the warm call, while the follow shows -- the rig ticked on the subject's commands and the pose discarded, so
+    // the wall pass's history is the owner's when the view is chosen. Nothing placed, nothing hidden; a view drawn on the
+    // last frame is given back (the sub-mode turned off). Its cost: one camera tick a command crossed, a burst caught up
+    // to `POV_MAX_TICKS_ADAPTATION` (PV-10a: 90, the warm window) in one frame, or a rebuild's `POV_WARM_TICKS_ADAPTATION`
+    // (90) once at a bind, a seek or an epoch -- never more than 91 ticks in a frame.
+    spectatePovWarm: (body) => { povUndraw(); povFrame(body); },
+    // PV-10a (finding 6, the exit side; `NetPage.frame`): the view drawn last frame and switched off since -- before this
+    // frame's `bodies()` -- the body let go of the command clock's pose, so the frame the view is left draws it where the
+    // follow expects it. That and nothing else: it only ever passes `false` (PV-4b's binding cannot be broken by it); the
+    // camera, near plane, offset, hide and lens are given back by the follow's `povUndraw` later in the same frame, after
+    // the body's play has run. The entry side and a fallback frame inside the mode stay as they are (the body hidden or at
+    // rest there; rarer).
+    spectatePovIdle: () => { if (povDrawn) p.povNet?.()?.setCommandClockBody(povDrawn.id, false); },
+    spectatePovReset: povReset,
+    // PV-6b (PV.R6): the page's client carries the view -- a replay's `viewCarried` (protocol 16 or over), else carried.
+    spectatePovCarried: () => { const c: object | null | undefined = p.povNet?.(); return !(c && 'viewCarried' in c && c.viewCarried === false); },
     spectateMagnify: (m) => p.fly.setMagnification?.(m),   // W6: the scenic zoom on the page's projection (`FlyCamera.setMagnification`)
     spectatePitchSign: () => (p.fly.lookOptions?.().invertPitch ? -1 : 1),   // review B1: INVERT PITCH (DAT_003df198), the camera's own option
     scenicViews: () => scenicViews(p.map() ?? {}),   // PF-31: mission.rdr's Scenic_Views (the map may load after the page)
@@ -242,6 +382,27 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
     };
   }
   return deps;
+}
+
+/**
+ * PV-5b: the watched body after a command as the rig takes it (`./povCamera` `PovBody`): the feet, look, peek, view state,
+ * sway and stance at that command off the wire; the root and its posed flag handed in (the drawn pose's, as
+ * `spectateFollow`'s); the floor normal's y the walker's own pick under those feet (`selectFloor(probeGround(grid, x, z),
+ * y + probeLiftOf(stance), y)`, as `RemotePlayers` picks another body's floor for its tilt), asked only prone -- the one
+ * posture whose eye reads it (`./cameraRig` `scopeEye`) -- and 1 off a grid or on a miss. No drawn height: a remote body
+ * has none (LATER 96's drawn-only offset is the page's own walker's), so `drawn` is absent.
+ */
+function povBody(b: BodyState, root: number, posed: boolean, grid: Grid | null, life: number | null = null): PovBody {
+  const stance: Stance = STANCE_CODES[b.stance] ?? 'stand';
+  let floorNormalY = 1;
+  if (stance === 'prone' && grid) {
+    const floor = selectFloor(probeGround(grid, b.feet[0], b.feet[2]), b.feet[1] + probeLiftOf(stance), b.feet[1]);
+    if (floor) floorNormalY = floor.normal[1];
+  }
+  return {
+    feet: b.feet, yaw: b.yaw, pitch: b.pitch, peek: b.peek < 0 ? -1 : b.peek > 0 ? 1 : 0, root, posed,
+    view: b.view ?? 0, sway: [b.swayX ?? 0, b.swayY ?? 0], floorNormalY, stance, ...(life !== null ? { life } : {}),
+  };
 }
 
 /**

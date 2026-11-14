@@ -148,11 +148,31 @@ import { isDead, MP_HEALTH, overall, PARTS, type Health } from './damage';
  * side mounted and the other did not is never healed: the two refuse each other at the hello (`Room.hello`, the page's
  * version text). The wire's shape is 14's -- no frame, field or event changed -- so a 14 `.s2r` plays on the live
  * decoders (match `replay/format.ts` `DECODERS`).
+ * 16 (2026-11-11, WIRE-16, the player's view's lane's PV-1; PV.R4, the main controller, seat redotcom-2f: "take the byte,
+ * not the flag bits"; the layout research 402 section 3): the player's view -- a watcher drawing the watched player's own
+ * picture, a browser adaptation with no original (research 248 sections 1-2, 314 section 5.7) -- needs that player's view
+ * state and the scope's sway, every tick. Page to room: a command grows 15 -> 18 bytes, `Command.view` (u8, the page's
+ * `../zoom` state 0-12) and `Command.swayX`, `swayY` (i8 each, at `VIEW_SWAY_STEP_ADAPTATION` PS2 pixels, `./codec`).
+ * Room to pages: a body grows 52 -> 55, `BodyState.view` and `clock` in one u8 (bits 0-3 the view state, bits 4-7 the low
+ * four bits of the seat's last run command number), then `swayX` and `swayY`. Nothing the room simulates reads them: no
+ * mover, cone, hit or rule (PV.R4). Who receives a body's tail whole and who zeroed is the room's (PV.R9; PV-2): the room
+ * fills it from the seat's last live command, and sends it zeroed only to a player on the body's other side. A per-tick binary field that moves the frames' widths bumps the version: a 15
+ * peer and a 16 peer refuse each other at the hello (`Room.hello`, the page's version text). A `.s2r` of protocol 11 to
+ * 15 plays on frozen decoders (`./codecV15`; match `replay/format.ts` `DECODERS`) with the four fields 0, and the viewer
+ * does not offer the view on it (`VIEW_SINCE_PROTOCOL`). `BodyFlag` bit 17 stays reserved, defined by nothing (PV.R4).
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 /** ENEMY-RAISE ER-2: the first protocol whose bodies carry their owners' raise state (`BodyFlag.Raised`). */
 export const RAISED_SINCE_PROTOCOL = 14;
+
+/**
+ * WIRE-16 (PV-1; PV.R6): the first protocol whose commands and bodies carry the player's view's bytes (`Command.view`,
+ * `swayX`, `swayY`; `BodyState.view`, `clock`, `swayX`, `swayY`). A recording or a room below it carries no view: the
+ * frozen decoders give the four fields 0 (`./codecV15`), and the viewer offers no player's view on it and says why --
+ * nothing is inferred from `BodyFlag.Aiming`.
+ */
+export const VIEW_SINCE_PROTOCOL = 16;
 
 /**
  * A hello's `session` token (S2 round 4): base64url, 22 characters (128 bits, the page's own) to 64. Anything else is
@@ -387,7 +407,7 @@ export interface Command {
   weapon: number;
   /**
    * SEP-POP (OT.R93): the page's stance mode is SEPARATE -- the room's mover takes SEPARATE's own as the page's does
-   * (`Walker.stanceSeparate`: the velocity left at a push, the pop's code ignored), and, a stating command, the stick's
+   * (`Walker.stanceSeparate`: the pop's code ignored; since H392 every mode leaves the velocity at a push), and, a stating command, the stick's
    * cut of the stance clips in either mode unless the room has marked the seat AI -- a CPU's connection (`Conn.cpu`,
    * match `room.ts` `newSim`) or a seat the bots' brain adopts while it drives it (match `MatchBots.adopt`, a Forge
    * NPC) -- not this bit (COMBINED-CUT: `Walker.stanceCut`, `MoverSim.ai`; both laid by `./moverSim` `prepare`). On the wire bit 3 of the stance nibble (`./codec`); decoded
@@ -403,6 +423,21 @@ export interface Command {
    * (a CPU's command, a test's, a 13 page's): down.
    */
   raised?: boolean;
+  /**
+   * WIRE-16 (protocol 16; PV.R4; research 402 section 3; a browser adaptation, no original): the page's view state this
+   * tick, `../zoom` 0-12 (0 the third person, 4 the binoculars or the 9x view, 5-12 the scopes' levels), for a watcher's
+   * player's view. A u8 after the last byte (`./codec`): any value but an integer 0-12 is no view, 0, written and read
+   * (`./codec` `viewState`); decoded always. Absent (a bot's command, the room's own, a test's): 0. Nothing the room
+   * simulates reads it.
+   */
+  view?: number;
+  /**
+   * WIRE-16: the scope's sway this tick, PS2 pixels (`../accuracy` `Accuracy.state().sway`, x right and y down), for the
+   * watcher's scoped picture. An i8 each at `VIEW_SWAY_STEP_ADAPTATION` (`./codec` `qSway`); decoded always. Absent: 0.
+   * Nothing the room simulates reads them.
+   */
+  swayX?: number;
+  swayY?: number;
 }
 
 /** A batch: the newest commands, oldest first; the server skips the ones it has run. */
@@ -439,7 +474,8 @@ export interface BodyState {
   /**
    * `BodyFlag` bits, a u32 on the wire since protocol 11 (NET-WIRE): bits 0-10 the flags below, 11-14 the kit's hold code
    * and 15 the hold's start parity (the equip-anim fix's `BODY_HOLD_SHIFT` and `BodyFlag.HoldSerial`, their meanings kept),
-   * 16 the owner's raise state (`BodyFlag.Raised`, protocol 14), 17-31 free. Protocol 10's u16 was full.
+   * 16 the owner's raise state (`BodyFlag.Raised`, protocol 14), 17 reserved (WIRE-16, PV.R4: the fog of war's lane;
+   * defined by nothing here), 18-31 free. Protocol 10's u16 was full.
    */
   flags: number;
   /** `STANCE_CODES` index: the posture the body uses. */
@@ -470,6 +506,19 @@ export interface BodyState {
   slot: number;
   /** `PlaySnapshot.stickSnaps`' low bit (the packed byte's spare bit 7): a flip starts the snap's 0.2 s cross-fade. */
   stickSnaps?: number;
+  /**
+   * WIRE-16 (protocol 16; PV.R4, PV.R9; research 402 section 3; a browser adaptation, no original): the body's owner's
+   * view state, `Command.view`'s 0-12 (0 for a dead body), bits 0-3 of the tail's first byte; `clock`, the low four bits of
+   * the owner's last run command number, its bits 4-7 -- the watcher's command clock. Every decoder gives the four as
+   * numbers: the live one what the bytes hold (a nibble past 12 is view 0, `./codec` `viewState`), the frozen ones for
+   * protocol 10 and 11 to 15 (`./codecV10`, `./codecV15`; below `VIEW_SINCE_PROTOCOL`) 0. A body literal built in code
+   * (a hostage's, a test's) may omit them: absent is 0. Nothing the room simulates reads them.
+   */
+  view?: number;
+  clock?: number;
+  /** WIRE-16: the owner's scope sway, PS2 pixels, `Command.swayX`/`swayY` as carried (i8 at `VIEW_SWAY_STEP_ADAPTATION`). */
+  swayX?: number;
+  swayY?: number;
 }
 
 /** `BodyState.flags`. */
@@ -501,6 +550,11 @@ export const BodyFlag = {
    * (`Player.raise`); never for a dead body.
    */
   Raised: 1 << 16,
+  // Bit 17 (1 << 17) is RESERVED, defined by nothing here (WIRE-16, PV.R4; the main controller's ruling, the player's view's
+  // plan's Log 2026-11-11T16:23Z): its intended user is the fog of war's lane -- that lane's plan, section 9
+  // (`docs/plans/2026-11-11-fog-of-war.md` on `agent/fow`), names it for a body whose place is withheld. No room of
+  // protocol 16 sets it; the codec and a recording carry it untouched (`test/netCodecView.test.ts`, match
+  // `test/replayFormat.test.ts`), so that lane can set it with no bump.
 } as const;
 export type BodyFlag = (typeof BodyFlag)[keyof typeof BodyFlag];
 
@@ -845,6 +899,16 @@ export type ClientEvent =
    * `start`), for the original's drop at a death before then (`FUN_00547af0` -> `FUN_005b8920`, D:L413023, D:L471751-471870).
    */
   | { type: 'throwStart'; seq: number; kind: string; slot?: number }
+  /**
+   * ROOM-HAND (LATER 652; additive under protocol 15, no bump: an older room ignores it). [adaptation]
+   * `ROOM_HAND_TRUST_ADAPTATION` (`packages/match/src/room.ts`): the selected non-firearm, non-launcher item in the page's
+   * hand -- its id (`./matchThrow` `handItem`), or null for the firearm -- named on the last command the page sent, taken
+   * by the room from command `seq + 1` (as the launcher's `heldNext` is). The original carries the item every frame in the
+   * player record (`FUN_002bd640` packs `FUN_005c89d0(kit)`, D:L162059-162066); the port sends it only when it changes.
+   * The room's cone runs the item's reticle from then (`ShotCone.setItem`), and refuses a round named while it is up
+   * ('fire: hand').
+   */
+  | { type: 'hand'; seq: number; item: number | null }
   /** The scoreboard asked for (Select/Tab): the server answers with `score`. */
   | { type: 'score' }
   /** W3.R13, research 91 section 17: "VOTE RETAIN:REMOVE" on a teammate, toggled; `remove` false retains. */
@@ -1077,6 +1141,21 @@ export function healthTold(seat: Team, recipient: Team | null): boolean {
 }
 
 /**
+ * PV-2 (PV.R9, the main controller's condition on WIRE-16; research 402 sections 3 and 6): who is told a body's view tail
+ * whole (`BodyState.view`, `clock`, `swayX`, `swayY`) -- A BROWSER ADAPTATION with no original (the original carries no
+ * view, research 248 sections 1-2): the body's own side, alive or dead (a dead player cycles his own side only), and the
+ * spectators; the other side, alive or dead, receives the same three bytes zeroed (the room's per-recipient pass, match
+ * `room.ts` `recipientBodies`), so a page learns nothing of an enemy's scope or aim point from them. The recipients of
+ * NU-3c's `healthTold`; the recording keeps the tail whole (a replay is not a live opponent).
+ */
+export const VIEW_RECIPIENTS_ADAPTATION = 'the body\'s side, alive or dead, and the spectators; the other side gets the tail zeroed' as const;
+
+/** Whether a page whose seat is on `recipient` (null: a spectator) is told the view tail of a body on `seat` (`VIEW_RECIPIENTS_ADAPTATION`). */
+export function viewTold(seat: Team, recipient: Team | null): boolean {
+  return recipient === null || recipient === seat;
+}
+
+/**
  * NU-3c (research 321 section 4.2.1): how soon a part's byte may change again for the others, in the room's 60 Hz ticks.
  * The original's policy for the six part bytes is 100 ms online (research 193 section 12.4, correcting its section 2.3's
  * table), tested `lastSent + 100 < now` strictly in the DME's millisecond clock (`FUN_0061a488` D:L526672-526674), each
@@ -1217,14 +1296,14 @@ export interface JoinWire {
 }
 
 /**
- * PF-34 (ruling PF.R54; research 234 s1, 194 s2): one entry of an ammunition bundle -- the weapon (`item`, the record id
- * whose ring the rounds came from) and its magazines' rounds, the ring's non-empty slots in ring order
- * (`MagazineRing.entries`). The original's bundle (`FUN_005ba040` D:L472580-472672 -> `FUN_003cfef0`) records each
- * slot's weapon, its ammo item and the slot's ten entries **summed**; the port keeps the split because the original's
- * redistribution into magazines (`FUN_005bb000`/`FUN_005ba770`) is not read (`AMMO_TRANSFER_PLACEHOLDER`). The total is
- * the same, round for round.
+ * PF-34 (ruling PF.R54; research 234 s1, 194 s2): one entry of an ammunition bundle, as the original's death makes it
+ * (`FUN_005ba040` D:L472580-472626 -> `FUN_003cfef0`): the slot's ammunition by its name (`ammo`: the record's
+ * `AMMO_TYPES` NAME, `ZAMMO`'s), the SUM of the slot's ten magazines (`count`), and the weapon's record (`item`) only for
+ * what is not a firearm -- a firearm's or a pistol's entry carries none (the record zeroed for those classes,
+ * D:L472586-472589), so it is matched by its ammunition (`FUN_005bb000` D:L473176-473188, `../../match/src/pickups`
+ * `PICKUP_AMMO_MATCH_READING`). Was (to 2026-11-13): the record id and the ring's non-empty slots, split.
  */
-export interface BundleEntryWire { item: number; rounds: number[] }
+export interface BundleEntryWire { ammo: string; count: number; item?: number }
 /**
  * PF-34 (ruling PF.R54; research 234 s1-s2): a world drop -- a weapon (`item`, its ring empty: `WEAPON_DROP_AMMO_READING`)
  * or an ammunition bundle (`entries`) -- by its stable per-round id (`did`: a serial from 0 at each cleared air, never
@@ -1984,6 +2063,12 @@ export type ServerEvent =
      * other values are not newer than the page's. Absent after a claim (the claimed ring is new, the other untouched).
      */
     filled?: [number[], number[]];
+    /**
+     * 2026-11-13 (the pour, `../../../match/src/pickups` PICKUP_POUR_READING): with `filled`, the amount each of those
+     * magazines changed by, slot for slot -- the page adds it to its own count (`Fire.setRing`'s `added`), the magazine
+     * in the weapon among them: exact with shots or a reload in flight. Absent: `filled` set from `rounds` as before.
+     */
+    added?: [number[], number[]];
   };
 
 /** Why a `loadout` request was refused (`@s2u/scene` `PickRefusal`). */

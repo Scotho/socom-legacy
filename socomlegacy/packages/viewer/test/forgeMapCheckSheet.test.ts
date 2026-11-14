@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeAgentApi } from '../src/forge/agent/api';
 import type { LoadedMap } from '../src/loadMap';
+import { pressSaves, toolbarButton } from './forge/helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FUI-2 (the review's IA-1; a browser adaptation, FG.R2): the map check's list is a sheet beside the editor, not the
@@ -25,7 +26,7 @@ vi.mock('../src/forge/archives', () => ({ Archives: class {
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
 const toolbar = (label: string): HTMLButtonElement =>
-  [...document.querySelectorAll<HTMLButtonElement>('.fx-top button.fx-tool')].find((b) => b.textContent?.trim() === label)!;
+  toolbarButton(document, label);   // EDITOR-MAP T5-T10: a toolbar button by its word
 const saves = (): HTMLElement | null => document.querySelector<HTMLElement>('.fx-saves');
 const flush = (): Promise<void> => new Promise((done) => { setTimeout(done, 0); });
 
@@ -56,7 +57,7 @@ describe('the map check beside the cards (FUI-2, IA-1)', () => {
     const sheet = document.querySelector<HTMLElement>('.fx-check-card')!;
     expect(sheet.closest('.fx-modal'), 'the list is a sheet, not the dialog').toBeNull();
     expect(api.read().ready, 'the check is not left running behind its list').toBe(true);
-    toolbar('Saves').click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     expect(saves()).not.toBeNull();
     const host = saves()!.closest<HTMLElement>('.fx-modal')!;
     expect(host.hidden).toBe(false);
@@ -83,7 +84,7 @@ describe('the map check beside the cards (FUI-2, IA-1)', () => {
     expect(card.closest('.fx-modal.fx-check-modal')).not.toBeNull();     // see-through, as forgeMapCheck.spec.ts reads it
     expect(card.getAttribute('role')).toBe('dialog');
     expect(document.activeElement?.textContent, 'Go back first, never Play anyway').toBe('Go back');
-    toolbar('Saves').click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     expect(saves(), 'Saves refused while a card is open').toBeNull();
     expect(card.isConnected && !card.hidden).toBe(true);
     expect(document.querySelector('.fx-toast')!.textContent).toMatch(/card/i);

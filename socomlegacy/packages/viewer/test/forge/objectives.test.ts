@@ -118,13 +118,21 @@ describe('FG-51: a layout plays the type it names only when the map can', () => 
     expect(applyForgeObjectives(map, untyped)).toBe(map);
   });
 
-  it('an incomplete demolition leaves the disc sites, StartBomb and game type', () => {
+  // FG-51 as the contributor's commit changed it (`objectives.ts` `forgeTypeUnplayable`, case 2: "a disc Demolition map as
+  // it is -- `applyForgeObjectives` then keeps the base's"), kept by the main controller's decision of 2026-11-13 for the
+  // owner to overrule (the FC2 plan's Log): a Demolition layout whose bomb has NO START of its own, on a base with its
+  // own StartBomb and a site a team, plays Demolition on the BASE's -- the disc's sites and StartBomb kept, the layout's
+  // own sites unused, the type set. Before: such a layout left the map as it was, the type unset.
+  it("a demolition with no start of its own, on a disc Demolition base, plays the base's: its sites and StartBomb kept, game type 2", () => {
     const map = discMap();
     const oneSite = applyForgeObjectives(map, {
       gameType: 2,
       bomb: { sites: [{ team: 0, at: [4, 0, 0], yaw: 0, range: 15, elevation: 15 }] },
     });
-    expect(oneSite).toBe(map);
+    expect(oneSite).not.toBe(map);
+    expect(oneSite.gameType).toBe(2);
+    expect(plantSite('seal', oneSite.meta!.actions)?.node).toBe('terrorist_tent');
+    expect(oneSite.bombStart).toEqual([9, 8, 7]);
     const noStart = applyForgeObjectives(map, {
       gameType: 2,
       bomb: {
@@ -134,9 +142,16 @@ describe('FG-51: a layout plays the type it names only when the map can', () => 
         ],
       },
     });
-    expect(noStart).toBe(map);
+    expect(noStart.gameType).toBe(2);
+    expect(plantSite('seal', noStart.meta!.actions)?.node).toBe('terrorist_tent');
+    expect(noStart.bombStart).toEqual([9, 8, 7]);
+    // the base itself is never written
+    expect(map.gameType).toBeUndefined();
     expect(plantSite('seal', map.meta!.actions)?.node).toBe('terrorist_tent');
     expect(map.bombStart).toEqual([9, 8, 7]);
+    // a base with NO StartBomb of its own is still not playable so: left as it is, as before
+    const bare = (({ bombStart: _b, ...rest }) => rest)(discMap());
+    expect(applyForgeObjectives(bare, { gameType: 2, bomb: { sites: [{ team: 0, at: [4, 0, 0], yaw: 0, range: 15, elevation: 15 }] } })).toBe(bare);
   });
 
   it('a ready demolition replaces the tents and StartBomb and sets game type 2', () => {

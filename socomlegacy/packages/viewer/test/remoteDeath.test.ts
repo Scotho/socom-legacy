@@ -339,3 +339,115 @@ describe('PF-28 integration fix: clear() forgets the joiner\'s pending corpses a
     expect([internals.ghosts.size, internals.pendingAges.size, internals.pendingDeaths.size]).toEqual([0, 0, 0]);
   });
 });
+
+/**
+ * LATER 939 (DEATH-PAGES, LATER 979's browser spec: `e2e/deathPages.spec.ts` case (d), RED on the killer's, the
+ * watcher's and a joiner's pages): a dead player's copy REBUILT on another page -- a new side (`setTeam`), a new type
+ * (`setType`), a hostage's body (`setEscortee`), a frame without the body (`frame` drops it, the seat away and back) --
+ * lost the room's death clip (`remove` kept nothing, `add` read an empty `pendingDeaths`) and was drawn standing in its
+ * idle. The fix keeps what the room chose: the clip and the death's time, restored at `add` so the body lies on its clip
+ * at its age -- no clip, list or timing changes. `setCharacter` kept it before (the area (c) review's finding 5) and
+ * still does. Each case runs a twin never rebuilt beside the rebuilt copy and asks for the same drawn body: the same
+ * clip, the same key, the same feet (a clip's root travel is not applied to a corpse, research 421 section 3, so the
+ * rebuilt corpse must lie where the twin lies, not move).
+ */
+describe('LATER 939: a dead copy rebuilt keeps the room\'s clip at its age (remotePlayers remove / add)', () => {
+  const TRAVEL = 'death_stand_groin02';                         // 36.8 units of forward root travel on the disc (research 421 section 2)
+  const map = {
+    body: {}, terrorist: {}, types: { seal: [{}, {}], terrorist: [{}], escortees: [{ character: 'mp_fem1' }] },
+    characters: { catalogue: { region: 'russia', uniform: 'Scuba', choices: [], pool: { seal: [], terrorist: [] } }, bodies: { jester: {} }, diagnostics: [] },
+  } as unknown as LoadedMap;
+  const camera = new PerspectiveCamera();
+  const at = (alive: boolean): BodyState => ({ ...state(alive), feet: [120, 4, -60], yaw: 135 });
+  function make(): RemotePlayers {
+    const r = new RemotePlayers(new Scene());
+    r.setMap(map, DEFAULT_LIGHTING, null);
+    r.setRules('classic');
+    r.setClips({ clips: [{ name: clip, frameCount: 60, parts: [] }, { name: TRAVEL, frameCount: 40, parts: [] }], table: null } as unknown as PlayClips);
+    return r;
+  }
+  /** One frame of `r` with these bodies; the snapshot its body played, or null when none was drawn. */
+  function step(r: RemotePlayers, bodies: BodyState[]): PlaySnapshot | null {
+    const n = output.snapshots.length;
+    r.frame(1 / 60, bodies, camera);
+    return output.snapshots.length > n ? output.snapshots.at(-1)! : null;
+  }
+  /** What the body is drawn as: its place, facing and tilt, the clip and its root, exactly; the key (`frame`) apart. */
+  const drawn = (s: PlaySnapshot | null) => s && { feet: [...s.feet], yaw: s.yaw, traversal: s.traversal && { ...s.traversal, frame: 0 }, rootTilt: s.rootTilt ?? null };
+  type Path = 'setTeam' | 'setType' | 'setEscortee' | 'setCharacter' | 'a frame without the body';
+  const rebuild = (r: RemotePlayers, path: Path): void => {
+    if (path === 'setTeam') r.setTeam(2, 'terrorist');
+    else if (path === 'setType') r.setType(2, 1);
+    else if (path === 'setEscortee') r.setEscortee(2, 0);
+    else if (path === 'setCharacter') r.setCharacter(2, 'jester');
+  };
+  /** A twin never rebuilt and a copy rebuilt by `path` at 0.5 s dead; both stepped on to `frames` frames dead. */
+  function twins(path: Path, death: string, frames: number): { twin: PlaySnapshot | null; rebuilt: PlaySnapshot | null } {
+    output.snapshots.length = 0;
+    const twin = make(), copy = make();
+    for (const r of [twin, copy]) { r.setTeam(2, 'seal'); step(r, [at(true)]); r.died(2, death); }
+    let a: PlaySnapshot | null = null, b: PlaySnapshot | null = null;
+    for (let i = 0; i < frames; i++) {
+      if (i === 30) rebuild(copy, path);
+      const away = path === 'a frame without the body' && i >= 30 && i < 50;   // the seat's body out of 20 snapshots
+      a = step(twin, [at(false)]);
+      b = step(copy, away ? [] : [at(false)]);
+    }
+    return { twin: a, rebuilt: b };
+  }
+  const PATHS: Path[] = ['setTeam', 'setType', 'setEscortee', 'setCharacter', 'a frame without the body'];
+
+  it.each(PATHS)('%s: the rebuilt corpse plays the room\'s clip at the twin\'s key, mid-clip and on its last key', (path) => {
+    const mid = twins(path, clip, 70);                           // 70 frames dead: mid-clip (the one-shot runs about 1.9 s)
+    expect(mid.rebuilt?.traversal?.clip, `${path}: the room's clip after the rebuild`).toBe(clip);
+    expect(mid.rebuilt!.traversal!.frame, `${path}: the clip at the death's age`).toBeCloseTo(mid.twin!.traversal!.frame, 6);
+    const end = twins(path, clip, 240);                          // 4 s dead: past the clip's end
+    expect(end.rebuilt?.traversal?.clip).toBe(clip);
+    expect(end.rebuilt!.traversal!.frame, `${path}: held on the last key`).toBe(59);
+    expect(end.twin!.traversal!.frame).toBe(59);
+  });
+
+  it('a clip with root travel: the corpse rebuilt while dead lies where the twin never rebuilt lies, in the same pose', () => {
+    for (const path of PATHS) {
+      for (const frames of [55, 70, 240]) {                       // past the away window (frames 30-49): mid-clip twice, then its end
+        const { twin, rebuilt } = twins(path, TRAVEL, frames);
+        expect(drawn(rebuilt), `${path} at ${frames} frames`).toEqual(drawn(twin));
+        expect(rebuilt!.traversal?.clip).toBe(TRAVEL);
+        // The key to the summation's rounding: the kept age is the death's time on the page's summed clock (`keptDeaths`),
+        // the twin's the frames' steps added one by one.
+        expect(rebuilt!.traversal!.frame, `${path} at ${frames} frames: the key`).toBeCloseTo(twin!.traversal!.frame, 9);
+      }
+    }
+  });
+
+  it('no stale clip on a living body: a copy rebuilt while dead and back alive (a respawn while away) plays none, nor on a later dead frame without a kill', () => {
+    output.snapshots.length = 0;
+    const r = make();
+    r.setTeam(2, 'seal'); step(r, [at(true)]); r.died(2, clip);
+    for (let i = 0; i < 20; i++) step(r, [at(false)]);
+    for (let i = 0; i < 10; i++) step(r, []);                    // away while dead: the copy removed, its death kept
+    expect(step(r, [at(true)])?.traversal, 'back alive: the kept death is dropped').toBeNull();
+    for (let i = 0; i < 5; i++) step(r, [at(true)]);
+    expect(step(r, [at(false)])?.traversal, 'dead again with no kill heard: no earlier clip replayed').toBeNull();
+    // A dead copy rebuilt and then alive while drawn (the respawn seen): the clip cleared as before.
+    const s = make();
+    s.setTeam(2, 'seal'); step(s, [at(true)]); s.died(2, clip);
+    for (let i = 0; i < 20; i++) step(s, [at(false)]);
+    s.setType(2, 1);
+    expect(step(s, [at(false)])?.traversal?.clip).toBe(clip);
+    expect(step(s, [at(true)])?.traversal).toBeNull();
+    expect(step(s, [at(false)])?.traversal).toBeNull();
+  });
+
+  it('a seat that leaves for good (forget) takes its kept death with it: a new seat of its id is not drawn on the old clip', () => {
+    output.snapshots.length = 0;
+    const r = make();
+    r.setTeam(2, 'seal'); step(r, [at(true)]); r.died(2, clip);
+    for (let i = 0; i < 20; i++) step(r, [at(false)]);
+    step(r, []);                                                 // removed while dead: its death kept
+    r.forget(2);                                                 // then the seat leaves
+    r.setTeam(2, 'seal');
+    step(r, [at(true)]);
+    expect(step(r, [at(false)])?.traversal ?? null, 'the new seat\'s body: no clip of the old one').toBeNull();
+  });
+});

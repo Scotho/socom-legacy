@@ -1,4 +1,4 @@
-import { BufferAttribute, Mesh, type Object3D } from 'three';
+import { BufferAttribute, Mesh, Vector3, type Object3D } from 'three';
 import type { Hud } from './hud';
 import type { BombWire } from './net/objective';
 import type { RemotePlayers } from './remotePlayers';
@@ -18,7 +18,11 @@ import type { GrenadeThrower } from './grenade';
  *   drawn, not the model it was drawn from; none while the HUD is not drawn (`Hud.render` returns before the draw);
  * - **the message window's lines** (RV-1, web sprint 39; research 276 §9): each post `Hud.postMessage` holds now
  *   (`Hud.postsForDev`), its lines' text and its age (`sinceOn` less its `at`, seconds) -- what the page posted,
- *   drawn or not (a replay's watcher draws no HUD): the launch countdown's "GAME STARTS IN n SECONDS" after a seek.
+ *   drawn or not (a replay's watcher draws no HUD): the launch countdown's "GAME STARTS IN n SECONDS" after a seek;
+ * - **each drawn body's chest** (DEATH-PAGES, LATER 979; `chestOf`): the torso's facing off the body's posed bones, by
+ *   research 421 section 1's measure, for every remote body (`chests`, by id) and for the page's own body (`own`: a body
+ *   group of the scene that no remote draws), so `e2e/deathPages.spec.ts` can say whether a page draws the room's death
+ *   clip to the end the disc gives it.
  *
  * The page's objects are read through their public read-only accessors, never their private fields (PAR-41):
  * `RemotePlayers.seenForDev` (the bodies, the ghosts and the gear asked), `GrenadeThrower.worldBombForDev` (the bomb
@@ -55,11 +59,34 @@ export interface SeenBody {
   gearDrawn: Record<string, boolean>;
 }
 
+/**
+ * DEATH-PAGES (LATER 979; research 421 section 1): a drawn body's chest, read off its bones' world matrices as the last
+ * render left them (`chestOf`). Degrees.
+ */
+export interface ChestRead {
+  /** The torso's front's elevation in the world: +90 straight up (face up), -90 straight down (face down). */
+  chest: number;
+  /** The same in the body's own frame (its group's axes): `deathPoses.test.ts`'s measure, blind to a tilt of the group. */
+  bodyChest: number;
+  /** The front's dot with the body's facing (its group's -z): about 1 for a body standing in its idle (the calibration). */
+  ahead: number;
+  /** The group's up against the world's, degrees (a root tilt laid on the whole body). */
+  tilt: number;
+}
+
 export interface DevSeen {
   marker: string;
   bomb: BombWire | null;
   worldBomb: { visible: boolean; pos: [number, number, number] } | null;
   bodies: SeenBody[];
+  /** DEATH-PAGES: each drawn body's chest (`chestOf`), by id, in `bodies`' order; null with the four bones absent. */
+  chests: { id: number; chest: ChestRead | null }[];
+  /**
+   * DEATH-PAGES: the page's own body -- every body group of the drawn bodies' scene (a group named `body <model>` with
+   * bones, `./bodyView` `buildBody`) that no remote draws: its name, whether it is shown, where it stands and its chest.
+   * Empty with no remote drawn (the scene is found through one).
+   */
+  own: { name: string; visible: boolean; at: [number, number, number]; chest: ChestRead | null }[];
   ghosts: number[];
   hud: {
     visible: boolean; drawn: Record<string, { x: number; y: number }[]>;
@@ -82,6 +109,57 @@ function shownUnder(node: Object3D, root: Object3D): boolean {
   return true;
 }
 
+const DEG = 180 / Math.PI;
+
+/** A bone of `group` by its part name (`./bodyView`: one bone a part, named by it), or null. */
+function boneOf(group: Object3D, name: string): Object3D | null {
+  let found: Object3D | null = null;
+  group.traverse((o) => { if (!found && o.name === name && (o as { isBone?: boolean }).isBone === true) found = o; });
+  return found;
+}
+
+/**
+ * DEATH-PAGES (LATER 979; product track, a development instrument -- no original, nothing the game does changes): the
+ * chest of a drawn body by research 421 section 1's measure -- the torso's normal `(lbicep - rbicep) x (neck - spinelo)`,
+ * exactly the body's front (-z) in the bind -- off its bones' world matrices as the last render left them (read, never
+ * written: no matrix is updated here). A mirrored group turns the cross product, so it is turned back. Null when one of
+ * the four bones is absent or the torso has no area.
+ */
+export function chestOf(group: Object3D): ChestRead | null {
+  const at = (name: string): Vector3 | null => {
+    const bone = boneOf(group, name);
+    return bone ? new Vector3().setFromMatrixPosition(bone.matrixWorld) : null;
+  };
+  const l = at('lbicep'), r = at('rbicep'), neck = at('neck'), lo = at('spinelo');
+  if (!l || !r || !neck || !lo) return null;
+  const front = l.sub(r).cross(neck.sub(lo));
+  if (front.lengthSq() === 0) return null;
+  front.normalize();
+  const e = group.matrixWorld.elements;
+  const x = new Vector3(e[0], e[1], e[2]).normalize(), y = new Vector3(e[4], e[5], e[6]).normalize(), z = new Vector3(e[8], e[9], e[10]).normalize();
+  if (new Vector3().crossVectors(x, y).dot(z) < 0) front.negate();
+  const elevation = (v: number): number => Math.asin(Math.max(-1, Math.min(1, v))) * DEG;
+  return {
+    chest: elevation(front.y),
+    bodyChest: elevation(front.dot(y)),
+    ahead: -front.dot(z),
+    tilt: Math.acos(Math.max(-1, Math.min(1, y.y))) * DEG,
+  };
+}
+
+/** DEATH-PAGES: the page's own body groups -- `body <model>` groups with bones in `root` that are not `drawn`. */
+function ownBodies(root: Object3D, drawn: ReadonlySet<Object3D>): DevSeen['own'] {
+  const out: DevSeen['own'] = [];
+  root.traverse((o) => {
+    if (drawn.has(o) || !o.name.startsWith('body ') || !o.children.some((c) => (c as { isBone?: boolean }).isBone === true)) return;
+    const p = new Vector3().setFromMatrixPosition(o.matrixWorld);
+    let shown = true;
+    for (let q: Object3D | null = o; q; q = q.parent) if (!q.visible) { shown = false; break; }
+    out.push({ name: o.name, visible: shown, at: [p.x, p.y, p.z], chest: chestOf(o) });
+  });
+  return out;
+}
+
 export function devSeen(s: DevSeenSources): DevSeen {
   const state = s.bomb.state();
   const remote = s.remote.seenForDev();
@@ -98,6 +176,10 @@ export function devSeen(s: DevSeenSources): DevSeen {
       gear: [...(remote.gearShown.get(r.id) ?? [])], gearDrawn,
     };
   });
+  const chests = remote.bodies.map((r) => ({ id: r.id, chest: chestOf(r.group) }));
+  let root: Object3D | null = remote.bodies[0]?.group ?? null;
+  while (root?.parent) root = root.parent;
+  const own = root ? ownBodies(root, new Set(remote.bodies.map((r) => r.group))) : [];
   const visible = s.hud.state().visible;
   const drawn: Record<string, { x: number; y: number }[]> = {};
   if (visible) {
@@ -121,6 +203,8 @@ export function devSeen(s: DevSeenSources): DevSeen {
     bomb: state ? (JSON.parse(JSON.stringify(state)) as BombWire) : null,
     worldBomb: s.grenade.worldBombForDev(),
     bodies,
+    chests,
+    own,
     ghosts: [...remote.ghosts],
     hud: { visible, drawn, posts: s.hud.postsForDev() },
   };

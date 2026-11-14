@@ -2,27 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { flat } from './parity/world';
 import { ACTION_CLIPS, ACTION_SECONDS, CROUCH_PRONE_PUSH_READING, STANCE_CANCEL_CLIP_SPEED_READING, TICK, type Stance } from '../src/mover';
 import { Button, COMMAND_STANCE_CODES, type Command } from '../src/net/protocol';
+import { popStance } from '../src/stanceButton';
 
 /**
- * MOVE-1 (B196; OT.R93: SEPARATE identical to the original, COMBINED as main has it; reading, pending review; research 80
- * section 6g). While action 0x13 ("Crouch -> Prone", `seal_crouch2prone`) is current, the body tick `FUN_0054d9a0`
+ * MOVE-1 (B196; OT.R93: SEPARATE identical to the original, COMBINED as main has it -- and since H392, the owner's
+ * 2026-11-14 ruling, MOVE-1 and MOVE-4 in COMBINED and the bots too; reading, pending review; research 80 section 6g). While action 0x13 ("Crouch -> Prone", `seal_crouch2prone`) is current, the body tick `FUN_0054d9a0`
  * (r0001 D:L416435-416455; r0004 twin 0x552790, the same code at 0x552800-0x5528b8) replaces the top play's vector with
  * (0, 0, +-8 / (anim+0x10 x (n - 1) / n)) (`FUN_0028ada0` D:L133349-133366, r0004 0x28c130) and adds it to the actor's
  * velocity `+0x2c`: over the clip, 8 units of local z (behind) against the clip's own -8.39 -- the drop and the pop move
  * about 1.17 u, not 8.45. Capture (eph-hunt rerun-sep-pop, r0004, 3 trials): 0.9-1.1 u in each 0x13.
  */
 
+/** Who runs the walker: SEPARATE's player, COMBINED's player (the cut, the pop's code), a bot (neither word). */
+type Who = 'separate' | 'combined' | 'bot';
+
 /** The walker in a stance, its words by who runs it (`stanceCutSeparate.test.ts`'s rig). */
-function rig(from: Stance, who: 'separate' | 'combined') {
+function rig(from: Stance, who: Who) {
   const r = flat(), w = r.walker;
   w.stance = from;
-  w.stanceCut = true;
+  w.stanceCut = who !== 'bot';
   w.stanceSeparate = who === 'separate';
   return { ...r, w };
 }
 
 /** Runs a stance change to its clip's end, no stick; the body's travel in its own frame (x right, z behind). */
-function travel(from: Stance, to: Stance, who: 'separate' | 'combined'): { right: number; back: number; clip: string | undefined; reversed: boolean | undefined } {
+function travel(from: Stance, to: Stance, who: Who): { right: number; back: number; clip: string | undefined; reversed: boolean | undefined } {
   const r = rig(from, who);
   for (let i = 0; i < 10; i++) r.w.tick({ forward: 0, right: 0, boost: false });
   const x0 = r.w.state.x, z0 = r.w.state.z;
@@ -78,15 +82,75 @@ describe('MOVE-1: the crouch <-> prone root travel (SEPARATE)', () => {
   });
 });
 
-describe('MOVE-1: COMBINED unchanged (OT.R93)', () => {
-  it('the drop and the pop carry the clip\'s whole travel, as main', () => {
-    const [rx, rz] = ACTION_CLIPS.crouchToProne.travel;
-    const drop = travel('crouch', 'prone', 'combined');
-    expect(drop.right).toBeCloseTo(rx, 0.5);
-    expect(drop.back).toBeCloseTo(rz, 0.5);
-    const pop = travel('prone', 'crouch', 'combined');
-    expect(pop.right).toBeCloseTo(-rx, 0.5);
-    expect(pop.back).toBeCloseTo(-rz, 0.5);
+/**
+ * H392 (the owner, 2026-11-14 ~04:05Z, in the main controller's seat redotcom-67, verbatim: "Always the original's
+ * (Recommended)"): the drop's and the pop's travel is the original's in every stance mode and for the bots --
+ * `FUN_0054d9a0` tests the action, not a stance mode. Re-pinned from "COMBINED unchanged (OT.R93)", where COMBINED and
+ * the bots carried the clip's whole travel (about 8.4 u: (0.99, -8.39)).
+ */
+describe('MOVE-1 under H392: COMBINED and the bots drop and pop about 1.17 u, not 8.4 u', () => {
+  for (const who of ['combined', 'bot'] as const) {
+    it(`${who}: the drop and the pop as SEPARATE's -- about 1.17 u each, the opposite ways`, () => {
+      const [rx, rz] = ACTION_CLIPS.crouchToProne.travel;
+      const drop = travel('crouch', 'prone', who);
+      expect(drop.clip).toBe('crouchToProne');
+      expect(drop.reversed).toBe(false);
+      expect(drop.right).toBeCloseTo(rx, 0.5);
+      expect(drop.back).toBeCloseTo(rz + PUSH_TRAVEL, 1);
+      expect(Math.hypot(drop.right, drop.back)).toBeGreaterThan(1.1);
+      expect(Math.hypot(drop.right, drop.back)).toBeLessThan(1.25);
+      const pop = travel('prone', 'crouch', who);
+      expect(pop.clip).toBe('crouchToProne');
+      expect(pop.reversed).toBe(true);
+      expect(pop.right).toBeCloseTo(-rx, 0.5);
+      expect(pop.back).toBeCloseTo(-(rz + PUSH_TRAVEL), 1);
+      expect(Math.hypot(pop.right, pop.back)).toBeGreaterThan(1.1);
+      expect(Math.hypot(pop.right, pop.back)).toBeLessThan(1.25);
+      const sep = travel('crouch', 'prone', 'separate');
+      expect(drop.right).toBeCloseTo(sep.right, 6);
+      expect(drop.back).toBeCloseTo(sep.back, 6);
+    });
+  }
+});
+
+/**
+ * The main controller's reading of H392 (redotcom-67, 2026-11-14; for the owner to overturn): a stance push's velocity
+ * is movement, so the original's in every mode -- SEP-POP's reading, which SEPARATE has followed since 2026-10-31:
+ * `FUN_005817d0` (D:L442494-442518), `FUN_00581c10` (D:L442622-442641) and `FUN_00581540` push the transition and write
+ * no velocity (research 80 section 6f). COMBINED and the bots zeroed it until then.
+ */
+describe('the push leaves the velocity, every mode (the controller\'s reading of H392)', () => {
+  for (const who of ['separate', 'combined', 'bot'] as const) {
+    it(`${who}: the crouch walk's 14 u/s left as it was by the drop's push`, () => {
+      const r = rig('crouch', who);
+      for (let i = 0; i < 60; i++) r.w.tick({ forward: 0.5, right: 0, boost: false });
+      const vx = r.w.state.vx, vz = r.w.state.vz;
+      expect(Math.hypot(vx, vz)).toBeCloseTo(14, 6);
+      r.w.changeStance('prone');
+      expect(r.w.action).toMatchObject({ name: 'crouchToProne', reversed: false });
+      expect([r.w.state.vx, r.w.state.vz]).toEqual([vx, vz]);
+    });
+  }
+});
+
+/**
+ * H392 keeps the stance button's behaviour as each mode has it (the ruling: "the button behaviour (the prone pop) is
+ * unchanged"): COMBINED's prone pop (OT.R67, `PRONE_POP_ADAPTATION`, a browser adaptation) still stands a crouched drop
+ * at once, with no clip -- now from where MOVE-1's push leaves it. The pop's own cases are `pronePop.test.ts`'s (the
+ * default walker) and `stanceCutSeparate.test.ts` N1 (COMBINED's pop code taken, SEPARATE's ignored).
+ */
+describe('H392 leaves the button: COMBINED\'s prone pop', () => {
+  it('COMBINED, 6 ticks into the crouch drop: the pop stands it at once, no clip, near where it began', () => {
+    const r = rig('crouch', 'combined');
+    for (let i = 0; i < 10; i++) r.w.tick({ forward: 0, right: 0, boost: false });
+    const x0 = r.w.state.x, z0 = r.w.state.z;
+    r.w.changeStance('prone');
+    for (let i = 0; i < 6; i++) r.w.tick({ forward: 0, right: 0, boost: false });
+    expect(r.w.action).toMatchObject({ name: 'crouchToProne', reversed: false });
+    expect(popStance(r.w, r.moves)).toBe('drop');
+    expect(r.w.stance).toBe('stand');
+    expect(r.w.action).toBeNull();
+    expect(Math.hypot(r.w.state.x - x0, r.w.state.z - z0)).toBeLessThan(0.3);   // was about 1 u (6 ticks of 9.9 u/s)
   });
 });
 
@@ -101,7 +165,7 @@ describe('MOVE-1: COMBINED unchanged (OT.R93)', () => {
  * Capture (eph-hunt rerun-sep-pop, D1, r0004): 225 degrees with yaw 180 -- 45 degrees off the facing -- where the page
  * ran its class axis at 17.45 u/s.
  */
-function crouchWalk(forward: number, right: number, who: 'separate' | 'combined') {
+function crouchWalk(forward: number, right: number, who: Who) {
   const r = rig('crouch', who);
   for (let i = 0; i < 90; i++) r.w.tick({ forward, right, boost: false });
   const yaw = (r.w.state.yaw * Math.PI) / 180;
@@ -142,12 +206,34 @@ describe('MOVE-4: the crouched diagonal (SEPARATE)', () => {
   });
 });
 
-describe('MOVE-4: COMBINED unchanged (OT.R93; the reading reaches it too -- the owner\'s question, HUMAN_TASKS)', () => {
-  it('the stick at 45 degrees runs the class axis, 1 / sqrt(w^2 + (1 - w)^2) fast, as main', () => {
-    const t = crouchWalk(0.6 * Math.cos(deg(45)), 0.6 * Math.sin(deg(45)), 'combined');
-    expect(Math.abs(t.angle) % 90).toBeCloseTo(0, 3);
-    expect(t.speed).toBeGreaterThan(19);
-  });
+/**
+ * H392 (the owner, 2026-11-14 ~04:05Z, in the main controller's seat redotcom-67, verbatim: "Always the original's
+ * (Recommended)"): crouched movement takes the original's split whatever the stance button's mode, the bots included --
+ * the original's `FUN_0057a330` reads no stance mode. Re-pinned from "COMBINED unchanged (OT.R93)", where COMBINED and
+ * the bots ran the whole speed along the class axis (19.8 u/s at 0 degrees). The rig's Q15 on the original (measured;
+ * AH-4's tables, agent-mail `evidence/diag-slide/ah4-67da2ffeb/keep/out/q15/`, finding 19's reading): crouched, the
+ * stick at 0.5 on each axis (half45-L and half45-R), 14.1 and 14.0 u/s at +45.0 and -45.0 degrees.
+ */
+describe('MOVE-4 under H392: COMBINED and the bots walk the crouched diagonal as the original (Q15)', () => {
+  for (const who of ['combined', 'bot'] as const) {
+    it(`${who}: the stick at 0.5 + 0.5 walks 14 u/s (+-0.5) at 45 degrees (+-1), not 19.8 along the class axis`, () => {
+      const left = crouchWalk(0.5, 0.5, who), right = crouchWalk(0.5, -0.5, who);
+      expect(left.ground).toBe('crouch');
+      expect(Math.abs(left.angle - 45)).toBeLessThan(1);
+      expect(Math.abs(left.speed - 14)).toBeLessThan(0.5);
+      expect(Math.abs(right.angle + 45)).toBeLessThan(1);
+      expect(Math.abs(right.speed - 14)).toBeLessThan(0.5);
+    });
+
+    it(`${who}: the same walk as SEPARATE's, at 30 and 45 degrees`, () => {
+      for (const a of [30, 45]) {
+        const sep = crouchWalk(0.6 * Math.cos(deg(a)), 0.6 * Math.sin(deg(a)), 'separate');
+        const other = crouchWalk(0.6 * Math.cos(deg(a)), 0.6 * Math.sin(deg(a)), who);
+        expect(other.angle).toBeCloseTo(sep.angle, 6);
+        expect(other.speed).toBeCloseTo(sep.speed, 6);
+      }
+    });
+  }
 });
 
 /** The parity world run up to speed by the room's commands in a stance mode (`pronePop.test.ts`'s runner), then the dive. */

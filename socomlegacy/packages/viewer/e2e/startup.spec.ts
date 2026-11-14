@@ -22,9 +22,16 @@ import { SETUP, TEST_ROOM_PAST_SHEET } from './urls';
  * home's fit at 1440 x 900 and 375 x 812; the live chrome (LS-1) and its fit.
  */
 
-/** A disc image holding the front end's first dialog archive, which `openFrontEndImage` checks for (tracked fixture). */
+/**
+ * A disc image holding the front end's first dialog archive, which `openFrontEndImage` checks for (tracked fixture), and
+ * a generated `SYSTEM.CNF` booting the US release, which it identifies first (DA.R8).
+ */
 const FRONT_END_FIXTURE = fileURLToPath(new URL('../../../test-fixtures/RUN/UI/READERC.ZAR', import.meta.url));
-const frontEndIso = (): Buffer => Buffer.from(buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(readFileSync(FRONT_END_FIXTURE)) }], 'SCUS_97275'));
+const FRONT_END_CNF = new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n');
+const frontEndIso = (): Buffer => Buffer.from(buildIso([
+  { path: 'SYSTEM.CNF', bytes: FRONT_END_CNF },
+  { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(readFileSync(FRONT_END_FIXTURE)) },
+], 'SCUS_97275'));
 
 test('the plain game page (CX-9b): the disc prompt alone, no launcher, no page error', async ({ page }) => {
   const errors: string[] = [];

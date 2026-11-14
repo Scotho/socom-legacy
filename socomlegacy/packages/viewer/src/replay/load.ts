@@ -2,7 +2,7 @@ import { decodeRecords, readReplayHeader, REPLAY_FORMATS, REPLAY_PROTOCOLS, type
 import { replayQueryPairs } from './query';
 import { isPinnedReplayDoor, pinnedReplayDoor, replayDoorShaped, type PinnedReplayDoor } from '../connectHost';
 import { universeServiceBase } from '../universeHost';
-import type { ReplayLoadKind } from './refusalKind';
+import { REPLAY_NEWER_VERSION, type ReplayLoadKind } from './refusalKind';
 
 /**
  * A recorded segment read in the page (web sprint 35 PT-18; W35.R1, W35.R2; research 244 §2). REPLAY_ADAPTATION: a
@@ -134,6 +134,8 @@ export const REPLAY_DOOR_INFLATED_MAX_BYTES_ADAPTATION = 256 * 2 ** 20;
 export const REPLAY_DOOR_RECORDS_MAX_ADAPTATION = 750_000;
 /** SA-9b (the review's F1): a door's recording of another version, in fixed words -- never the header's values. */
 export const REPLAY_DOOR_OTHER_VERSION = 'This recording was made by another version of the game server than this page plays.';
+/** FL-2b: a recording newer than this build reads (`./refusalKind`'s, the leaf's; re-exported here). */
+export { REPLAY_NEWER_VERSION };
 
 /** SA-9b: a door's refusal -- its 404 or a throw (no CORS on a refusal), the two read alike. */
 export const REPLAY_DOOR_REFUSED = 'This recording could not be fetched from the server that kept it: it is gone, it is not yours to watch, or that server did not answer.';
@@ -203,13 +205,18 @@ function refusal(bytes: Uint8Array, e: unknown, door = false): ReplayLoadError {
   let h: ReplayHeader | null = null;
   try { h = readReplayHeader(bytes); } catch { h = null; }
   if (!h) return new ReplayLoadError('This file is not a replay recording (it has no header).', 'corrupt');
+  // FL-2b: a whole-number format or protocol past every one this build reads -- the page is older than the recording
+  const newer = (Number.isSafeInteger(h.format) && h.format > Math.max(...REPLAY_FORMATS))
+    || (Number.isSafeInteger(h.protocol) && h.protocol > Math.max(...REPLAY_PROTOCOLS));
   // SA-9b (F1): a door's header is a host's words -- another version only when both are whole numbers, said in fixed
   // words; anything else is a body that does not decode
   if (door) {
     if (!Number.isSafeInteger(h.format) || !Number.isSafeInteger(h.protocol)) return new ReplayLoadError('This recording is damaged and cannot be played.', 'corrupt');
+    if (newer) return new ReplayLoadError(REPLAY_NEWER_VERSION, 'version');
     if (!REPLAY_FORMATS.includes(h.format) || !REPLAY_PROTOCOLS.includes(h.protocol)) return new ReplayLoadError(REPLAY_DOOR_OTHER_VERSION, 'version');
     return new ReplayLoadError('This recording is damaged and cannot be played.', 'corrupt');
   }
+  if (newer) return new ReplayLoadError(REPLAY_NEWER_VERSION, 'version');
   // RE-2 (W38.R2): format 1 (no hostages) and 2 are read; another is refused in words.
   if (!REPLAY_FORMATS.includes(h.format)) {
     return new ReplayLoadError(`This recording's file format is version ${String(h.format)}; this build reads ${REPLAY_FORMATS.length < 2 ? 'version' : 'versions'} ${listed(REPLAY_FORMATS)}.`, 'version');

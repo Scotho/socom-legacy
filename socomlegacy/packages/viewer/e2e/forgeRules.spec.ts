@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { expectBase, newLayoutOn } from './forgeBase';
+import { panel as dockPanel, expectBase, newLayoutOn, openSaves, showPanel, showTab } from './forgeBase';
 import { forgeAuthoringText } from '../src/forge/rulesAuthoring';
 import { vaultLayout } from '../test/forge/rulesFixture';
 
@@ -35,12 +35,18 @@ const open = async (page: Page, size: { width: number; height: number }): Promis
   await expectBase(page);                                              // OT.R112: the base named (`./forgeBase`)
   if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
 };
-const rules = (page: Page) => page.locator('.fx-right details.fx-panel[data-forge-panel="rules"]');
+/**
+ * FC2-4 (EDITOR-MAP D2, D6, D8): the Rules panel is under his Map tab (`../src/forge/panels/rulesPanel.ts`: `tab: 'Map'`),
+ * no longer under Object with the Outliner -- the two are tabs of one group, so one is drawn at a time (`showOutliner`).
+ */
+const rules = (page: Page) => dockPanel(page, 'rules');
 const control = (page: Page, key: string) => rules(page).locator(`[data-rules-key="${key}"]`);
 const showRules = async (page: Page): Promise<void> => {
-  await page.locator('.fx-right [data-forge-tab="object"]').click();
+  await showPanel(page, 'rules');
   if (!(await rules(page).evaluate((d) => (d as HTMLDetailsElement).open))) await rules(page).locator(':scope > summary').click();
 };
+/** The Outliner's tab shown (EDITOR-MAP D6): its rows drawn, the Rules panel then waiting under Map. */
+const showOutliner = (page: Page): Promise<void> => showTab(page, 'object');
 /**
  * The Settings' Game type select by its exact name: the forge menu's card stays in the DOM once opened (`expectBase`
  * opens it), and its Game type row's steps are named "Game type: previous" / "Game type: next" (`../src/forge/menuView.ts`,
@@ -52,8 +58,7 @@ const gameType = (page: Page) => page.getByLabel('Game type', { exact: true });
  * 2026-11-06 ruling (`../src/forge/page.ts` `layoutNameIn.readOnly`, daed4f539); New rules takes its mode from that name.
  */
 const nameLayout = async (page: Page, name: string): Promise<void> => {
-  if (!(await page.locator('[data-forge="saves"]').isVisible())) await page.locator('.fx-top button[aria-label="Docks"]').click();
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
   // The press's effect waited for, never retried around (the e2e-mega lost press, aws-20261109t2209z run3: Save as pressed
   // while the boot's map still decoded opened nothing, and the fill below waited out the test's 300 s): the prompt's heading
@@ -113,8 +118,10 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     await control(page, 'place:zone').click();
     const box = (await page.locator('.fx-input').boundingBox())!;
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.62);
-    await expect(page.locator('ul.fx-outliner li[data-rules-entity="zone:zone1"]')).toBeVisible();
     await expect(page.locator('.fx-input')).toHaveAttribute('data-rules-gizmos', 'zone:zone1');
+    await showOutliner(page);
+    await expect(page.locator('ul.fx-outliner li[data-rules-entity="zone:zone1"]')).toBeVisible();
+    await showRules(page);
     await control(page, 'check').click();
     await expect(rules(page).locator('[data-rules-clear]')).toBeVisible();
     await shot(page, String(size.width), info.outputPath());
@@ -127,8 +134,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     await page.locator('.fx-match-back').click();
     await expect(page.locator('.fx-input')).toHaveAttribute('data-rules-gizmos', 'zone:zone1', { timeout: 60_000 });
     // Download (the layout and its rules), a new layout, the file opened again: the rules and the zone return.
-    if (size.width <= 760 && !(await page.locator('[data-forge="saves"]').isVisible())) await page.locator('.fx-top button[aria-label="Docks"]').click();
-    await page.locator('[data-forge="saves"]').click();
+    await openSaves(page);                                              // FC2-4 (EDITOR-MAP T4): File > Saves...
     const download = page.waitForEvent('download');
     await page.locator('.fx-modal').getByRole('button', { name: 'Download' }).click();
     const file = await (await download).path();
@@ -139,6 +145,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     await page.locator('input[type=file][accept=".json,application/json"]').setInputFiles(file);
     await showRules(page);
     await expect(control(page, 'rule-open:hello')).toBeVisible({ timeout: 60_000 });
+    await showOutliner(page);
     await expect(page.locator('ul.fx-outliner li[data-rules-entity="zone:zone1"]')).toBeVisible();
     expect(errors, errors.join('\n')).toEqual([]);
   });

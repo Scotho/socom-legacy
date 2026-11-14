@@ -214,7 +214,8 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   // S2 (the controller's level-3 review of mega; VS-7's Xbox class, a browser adaptation, `./deviceClass` `classGraphics`):
   // a resolved Automatic on the Xbox class draws on WebGL2 under every preset and in the test room and the Forge, unless
   // the address named it; the class (its probe made once a page, its context let go) is read only for Automatic.
-  const graphics = chosen === 'auto' ? classGraphics(chosen, pageDeviceClass(), graphicsBackendOverride() !== null) : chosen;
+  // XBOX-WEBGL2-ONLY (#790): a WebGPU choice is read against the class too; WebGL2 and the Xbox pick never read it.
+  const graphics = chosen === 'auto' || chosen === 'webgpu' ? classGraphics(chosen, pageDeviceClass(), graphicsBackendOverride() !== null) : chosen;
   const antialias = options.antialias ?? chosen !== 'xbox';
   const webgpu = asksForWebGPU(graphics) && await webgpuAnswers((globalThis.navigator as Navigator & { gpu?: GpuLike } | undefined)?.gpu);
   // An opaque WebGPU canvas; the WebGL2 fallback ignores it (three's WebGLBackend forces alpha on), so

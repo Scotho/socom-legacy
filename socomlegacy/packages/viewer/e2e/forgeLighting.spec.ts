@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { placingTool } from './forgeBase';
+import { openSaves, panel, placingTool, showPanel } from './forgeBase';
 import { forgeStoredList } from './forgeStore';
 
 /** Product adaptation: normal saved Forge controls, no prototype query or overlay.
@@ -19,13 +19,15 @@ test('normal Settings saves Night, reloads it, and passes it to Play; Original r
     if (await page.locator('.fx-check-card').isVisible()) await page.getByRole('button', { name: 'Play anyway', exact: true }).click();
     await expect(page.locator('body')).toHaveClass(/is-matching/);
   };
-  /** The World tab shown and its Environment panel open: the lighting's controls on the screen. */
+  /**
+   * The World tab shown and its Environment panel open: the lighting's controls on the screen. FC2-4 (EDITOR-MAP D2, D6):
+   * his dock has no World tab -- World's panels, the Light rig (`environment`) with them, are under his Map tab.
+   */
   const showLighting = async () => {
-    await page.locator('.fx-right [data-forge-tab="world"]').click();
-    const env = page.locator('.fx-right details.fx-panel[data-forge-panel="environment"]');
+    const env = await showPanel(page, 'environment');
     if (!(await env.evaluate(d => (d as HTMLDetailsElement).open))) await env.locator(':scope > summary').click();
   };
-  const lightValue = () => page.locator('.fx-right [data-forge-panel="environment"] .fx-setting-value').first();
+  const lightValue = () => panel(page, 'environment').locator('.fx-setting-value').first();
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/forge?floor');
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
@@ -47,7 +49,7 @@ test('normal Settings saves Night, reloads it, and passes it to Play; Original r
   // R3-B: the autosave is in the page's saves store (IndexedDB, `./forgeStore`), not localStorage.
   await expect.poll(async () => JSON.parse((await forgeStoredList(page, 'autosave')) || '{}').settings?.timeOfDay).toBe(0);
   // Use the normal named-save panel too; its record keeps the same numeric zero.
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-modal').getByRole('button', { name: 'Save as', exact: true }).click();
   await page.locator('.fx-modal form.fx-card input').fill('Night lighting');
   await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();

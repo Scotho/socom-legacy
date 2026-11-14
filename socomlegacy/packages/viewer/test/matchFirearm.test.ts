@@ -19,7 +19,7 @@ import { KitRounds } from '../src/firearms';
 import { Hud, RangeFinder } from '../src/hud';
 import { PlayerLoadout } from '../src/loadout';
 import { botDisplayName } from '../src/botPresentation';
-import { mountFirearm, type FirearmHands, type MatchFirearmDeps } from '../src/matchFirearm';
+import { mountFirearm, PICKUP_SCOPE_CLAIM_READING, type FirearmHands, type MatchFirearmDeps } from '../src/matchFirearm';
 import { Play } from '../src/play';
 import type { ReloadLifeSpec } from '../src/reloadLock';
 import { RemotePlayers } from '../src/remotePlayers';
@@ -484,6 +484,11 @@ describe("PF-34: the room's kit after a pickup (`takeKit`, research 234 s6), on 
     firearm.takeKit(kit, null, [[30, 0, 0, 0, 0, 0, 0, 0, 0, 0], ring(12)], [[0], []]);
     expect(takeWeapon).not.toHaveBeenCalled();
     expect(setRing).toHaveBeenLastCalledWith(firearm.records()[1], ring(12), undefined, []);
+    // The pour (PICKUP_POUR_READING): the kit's amounts reach each ring as setRing's `added`, slot for slot.
+    setRing.mockClear();
+    firearm.takeKit(kit, null, [[30, 30, 0, 0, 0, 0, 0, 0, 0, 0], ring(12)], [[1], []], undefined, [[18], []]);
+    expect(setRing).toHaveBeenCalledWith(firearm.records()[0], [30, 30, 0, 0, 0, 0, 0, 0, 0, 0], undefined, [1], [18]);
+    expect(setRing).toHaveBeenLastCalledWith(firearm.records()[1], ring(12), undefined, [], []);
   });
   it("a claim into the slot not in the hand keeps the hand's fire mode as switched (stored with its firearm first, as spawnKit does)", () => {
     const { firearm } = rig();
@@ -495,6 +500,53 @@ describe("PF-34: the room's kit after a pickup (`takeKit`, research 234 s6), on 
     expect(switched).not.toBe(opening);
     firearm.takeKit(kit, 1, [ring(30), ring(12)]);
     expect(firearm.fireMode()).toBe(switched);
+  });
+
+  // PICKUP-SCOPE (a v0.4.21 player report: "picked up a sniper and had binoculars"): d-pad Up reads `NumZoomModes` off
+  // the record in the hand at each press (`FUN_005445b0` via `FUN_005c3780`; research 323 R323.3, §1.3), so a weapon
+  // claimed into the hand's slot (the hand kept, `PICKUP_HAND_READING`) zooms as its own record does. The disc's records
+  // (zweapon.rdr, the fixture): the AK-47 (58) NumZoomModes 1, the M40A1 (102) 3, the DE .50 (7) a sidearm.
+  const zweapon = fixture('RUN/ZWEAPON.ZAR');
+  const scopeRig = (kit: number[]) => {
+    const r = rig();
+    r.loadouts.setMap(readKitTable(zweapon!), null);
+    r.firearm.spawnKit('seal', kit);
+    expect(r.firearm.item(), 'the primary in the hand (the control)').toBe('rifle');
+    return r;
+  };
+  const AK47 = 58, M40A1 = 102, DE50 = 7;
+  it.skipIf(zweapon === null)(`PICKUP-SCOPE: a sniper claimed into the hand's slot scopes at d-pad Up, not the binoculars${zweapon === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+    const { firearm, loadouts } = scopeRig([AK47, 15, 121, 126, EMPTY_ITEM]);
+    expect(loadouts.tables()!.records.get(M40A1)!.zoomModes.length, 'the M40A1 has a scope (the control)').toBeGreaterThanOrEqual(2);
+    firearm.takeKit([M40A1, 15, 121, 126, EMPTY_ITEM], 0, [ring(0), ring(12)]);
+    expect(firearm.item()).toBe('rifle');                                     // the hand kept
+    firearm.zoom.zoomIn();                                                     // third -> first person
+    firearm.zoom.zoomIn();
+    expect([firearm.zoom.state(), firearm.zoom.view()], 'RED before: 4, the binoculars').toEqual([5, 'scope']);
+  });
+  // The page's reading, not the original's (`PICKUP_SCOPE_CLAIM_READING`, research 323 §8): what the pickup's hand
+  // refresh (`FUN_005bc410` D:L473852-473868) does to a scope state is not read; this pins the page's drop.
+  it.skipIf(zweapon === null)(`PICKUP-SCOPE (PICKUP_SCOPE_CLAIM_READING, the page's reading): an unscoped weapon claimed into the hand's slot under a scope drops to first person${zweapon === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+    expect(PICKUP_SCOPE_CLAIM_READING).toBe('first-person');
+    const { firearm } = scopeRig([M40A1, 15, 121, 126, EMPTY_ITEM]);
+    firearm.zoom.zoomIn();
+    firearm.zoom.zoomIn();
+    expect(firearm.zoom.state(), 'the M40A1\'s scope (the control)').toBe(5);
+    firearm.takeKit([AK47, 15, 121, 126, EMPTY_ITEM], 0, [ring(0), ring(12)]);
+    expect([firearm.zoom.state(), firearm.zoom.view()], 'RED before: 5, a scope the AK-47 has not').toEqual([1, 'first']);
+  });
+  it.skipIf(zweapon === null)(`PICKUP-SCOPE (the control): a claim into the slot not in the hand leaves the zoom as it was${zweapon === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+    const one = scopeRig([AK47, 15, 121, 126, EMPTY_ITEM]).firearm;
+    one.zoom.zoomIn();
+    one.zoom.zoomIn();
+    expect(one.zoom.state()).toBe(4);                                          // the AK-47's binoculars
+    one.takeKit([AK47, DE50, 121, 126, EMPTY_ITEM], 1, [ring(30), ring(0)]);
+    expect([one.zoom.state(), one.zoom.zoomIn()]).toEqual([4, 4]);             // still the AK-47's one mode
+    const scoped = scopeRig([M40A1, 15, 121, 126, EMPTY_ITEM]).firearm;
+    scoped.zoom.zoomIn();
+    scoped.zoom.zoomIn();
+    scoped.takeKit([M40A1, DE50, 121, 126, EMPTY_ITEM], 1, [ring(5), ring(0)]);
+    expect([scoped.zoom.state(), scoped.zoom.zoomIn()]).toEqual([5, 6]);       // still the M40A1's scope, its next step
   });
 });
 

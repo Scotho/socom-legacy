@@ -36,7 +36,8 @@ export function findExchangePlacement(map: Pick<SimMap, 'grid' | 'slots'> & Part
     const rest: Position = [walker.state.x, walker.state.y, walker.state.z];
     if (walker.airborne || Math.hypot(rest[0] - feet[0], rest[1] - feet[1], rest[2] - feet[2]) > SETTLE_DRIFT
       || wadingDepth(map.grid, rest) !== 0) return null;
-    // Room.blast HEAD_OVER.stand equals this shared stature; a resting grenade is
+    // Room.blast's standing head line stood at this shared stature until NADE-BLAST retired HEAD_OVER (now the posed eye,
+    // 15.884, and line 1 to the root, 11.48 -- both under it, so this stature still covers them); a resting grenade is
     // BOUNCE_LIFT above floor, and Room.sightFrom advances another BOUNCE_LIFT.
     const from: [number, number, number] = [feet[0], feet[1] + 2 * BOUNCE_LIFT, feet[2]];
     const head: [number, number, number] = [feet[0], feet[1] + HEAD_VOLUME_HEIGHT_READING, feet[2]];

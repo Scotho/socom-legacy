@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { controllerConfigs } from '../src/controllerConfigs';
 import { noInput, type Input, type PadButton } from '../src/gamepad';
 import { FRONT_END_CAPABILITIES, TESTROOM_CAPABILITIES } from '../src/matchCore';
 import { PART_DEPS } from '../src/matchNet';
@@ -292,4 +293,22 @@ describe('one wiring (ONE-WIRE): both switches mount it, its hook is one PART_DE
     const menu = mount.slice(mount.indexOf('menu: () =>'), mount.indexOf('\n'));
     expect(menu).toContain('tauntDev?.isOpen()');
   });
+});
+
+it('COD Modern keeps the development TeamCommand key on its adapted voice button', () => {
+  controllerConfigs.select('CODModern');                          // V20.R4: the page's choice (no card value names it)
+  const r = rig(), keys = new Set<PadButton>();
+  const read = r.t.headset.frame.bind(r.t.headset);
+  const keySpy = vi.spyOn(r.t.headset, 'keys').mockImplementation(() => keys);
+  const frameSpy = vi.spyOn(r.t.headset, 'frame').mockImplementation(opts => ({ ...read(opts), padPresent: true, focused: true }));
+  try {
+    r.frame([]);
+    keys.add('Circle');
+    const frames = Array.from({ length: 12 }, () => r.frame([]));
+    expect(frames.some(frame => frame.talk)).toBe(true);
+    keys.clear();
+    expect(r.frame([]).talk).toBe(false);
+  } finally {
+    keySpy.mockRestore(); frameSpy.mockRestore(); r.t.dispose(); controllerConfigs.reset();
+  }
 });

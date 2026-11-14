@@ -147,6 +147,18 @@ describe.skipIf(!HAVE_STREAMS)('round streams on the dev disc (SOCOM_DISC; resea
     for (const s of d.streams ?? []) expect([s.sound.sampleRate, s.sound.peak > 0]).toEqual([s.file.endsWith('VPK') ? 32000 : 22050, true]);
   }, 120_000);
 
+  // FC2-2 (the contributor's `cuesFrom` and `lend`, MISSION OT.R112; the main controller's condition): a call without
+  // them reads the map as before his change -- the same data as one naming neither (no donor, nothing lent), and no
+  // `lentStreams`. A control, green when written: his two parameters change nothing when absent.
+  it('without his cuesFrom and lend: the same sound data as before them, and no lentStreams', async () => {
+    const plain = await soundFromDisc(disc(), 'RUN/MP2.ZDB', 'MP2');
+    const named = await soundFromDisc(disc(), 'RUN/MP2.ZDB', 'MP2', undefined, []);
+    expect('lentStreams' in plain).toBe(false);
+    expect('lentStreams' in named).toBe(false);
+    expect(named).toEqual(plain);
+    expect(plain.roundCues?.map).toBe('MP2');                // the cues the map's own script's, as before
+  }, 240_000);
+
   for (const map of ['MP61', 'MP62', 'MP73']) {
     it.skipIf(!DISC || !existsSync(resolve(DISC, `RUN/${map}.ZDB`)))(`${map}: breach-success group loads its original voices and plays before the music`, async () => {
       // Reading, pending review (research 304 section 8): SOUNDRDR GROUPS/MP_COMMON and each MZANIM objectives.

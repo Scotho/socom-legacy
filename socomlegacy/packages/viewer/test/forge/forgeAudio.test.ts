@@ -68,9 +68,11 @@ describe('ambient audio scripts', () => {
     const fire = prog([{ name: 'a', activation: 1, ops: [{ op: 'sound', sound: '~FIRE_SM', node: 1, volume: 3 }, { op: 'pauseAnimation', anim: 'NA' }] },
       { name: 'b', activation: 1, ops: [{ op: 'particles', source: {} as never }] }]);
     expect(audioOfProgram(fire, 'MP6')).toEqual({ whole: true, steps: [{ do: 'play', sound: '~FIRE_SM', from: 'MP6', volume: 3 }] });
-    // A call among its sounds: not those commands alone -- its loops only.
+    // A call among its sounds: what only draws (`audioOfProgram`'s DRAWS, "a call, a light") is left out and the script
+    // partial -- its sounds kept, `whole` false. FC2 (ours): was "its loops only", before his DRAWS rule (his doc comment
+    // on `audioOfProgram`, src/forge/forgeObjects.ts).
     const called = prog([{ name: 'a', activation: 1, ops: [{ op: 'sound', sound: '~HUM', node: 1, volume: 1 }, { op: 'call', anim: 'x' }, { op: 'sound', sound: '.ZAP', node: 1, volume: 1 }] }]);
-    expect(audioOfProgram(called, 'MP73')).toEqual({ whole: false, steps: [{ do: 'play', sound: '~HUM', from: 'MP73' }] });
+    expect(audioOfProgram(called, 'MP73')).toEqual({ whole: false, steps: [{ do: 'play', sound: '~HUM', from: 'MP73' }, { do: 'play', sound: '.ZAP', from: 'MP73' }] });
   });
 
   it('lends each sound from its own map, the home map for one with none', () => {

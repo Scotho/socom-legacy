@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { openedDiscImage, openedDiscRequest, openFrontEndImage } from '../../../src/discPrompt';
 import { buildIso } from '../../../../archive/test/isoImage';
-import { enterReplayWorld, installReplayWorld, REPLAY_WORLD_KEY, replayWorldDeps, replayWorldHost, type ReplayWorldHost } from '../../../src/modern/replays/worldHost';
+import {
+  enterReplayWorld, installReplayWorld, REPLAY_WORLD_KEY, replayWorldDeps, replayWorldHost, type ReplayWorldHost, type ReplayWorldPage, type ReplayWorldSpectator,
+} from '../../../src/modern/replays/worldHost';
+import { SpectatorView } from '../../../src/spectatorView';
 import type { NetOptions, NetWalk } from '../../../src/net/client';
 
 /**
@@ -67,6 +70,40 @@ describe("RV-7c-2: the world's deps hand the host the page's hooks (replayWorldD
     const host = fakeHost();
     replayWorldDeps(host).client(o, walk);
     expect(host.client).toHaveBeenCalledWith(o, walk, undefined);
+  });
+});
+
+/**
+ * PV-8 (the player's-view lane; product track, a browser adaptation with no original): the seam's spectator gains the
+ * player's view -- `pov`, `povShown`, `setPov`, `SpectatorView`'s own members (PV-6a) -- so the page's spectator view handed
+ * through `attached` (main.ts's `{ spectator: net.spectator }`, unchanged) answers the strip's fourth camera.
+ */
+describe("PV-8: the seam's spectator carries the player's view (ReplayWorldSpectator)", () => {
+  it("a page's SpectatorView passes pov, povShown and setPov through the seam", () => {
+    let draws = true;
+    const subject = { id: 7, feet: [0, 0, 0] as [number, number, number], yaw: 0, flags: 64 };
+    const view = new SpectatorView({
+      bodies: () => [subject], spectate: () => {}, leaveSelf: () => {}, views: () => [],
+      seat: () => ({ role: 'spectator', self: null, team: null, teams: new Map(), rules: 'classic', ghost: false }),
+      pov: () => draws,
+    });
+    const seam: ReplayWorldSpectator = view;                    // main.ts: `REPLAY_WORLD.attached({ spectator: net.spectator })`
+    const page: ReplayWorldPage = { spectator: view };
+    expect(page.spectator).toBe(view);
+    expect([seam.pov, seam.povShown]).toEqual([false, false]);
+    seam.setPov!(true);
+    expect(seam.pov).toBe(false);                               // nobody followed yet: setPov does nothing (povAvailable)
+    seam.key({ type: 'keyup', code: 'ArrowRight', repeat: false, preventDefault: () => {} });
+    expect(seam.mode).toBe('follow');
+    seam.setPov!(true);
+    expect([seam.pov, seam.povShown]).toEqual([true, false]);
+    view.frame(undefined, 0.1);
+    expect([seam.pov, seam.povShown]).toEqual([true, true]);    // the host drew it this frame
+    draws = false;
+    view.frame(undefined, 0.1);
+    expect([seam.pov, seam.povShown]).toEqual([true, false]);   // fallen back: the choice kept (PV.R6)
+    seam.setPov!(false);
+    expect([seam.pov, seam.povShown]).toEqual([false, false]);
   });
 });
 
@@ -179,7 +216,7 @@ describe('the release build hosts the world (MU-11 review 2)', () => {
 
 describe('the opened disc image (discPrompt openedDiscImage)', () => {
   /** A generated image with the one file `openFrontEndImage` asks after (four zero bytes: nothing of the disc). */
-  const image = (name: string): File => new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(4) }])], name);
+  const image = (name: string): File => new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(4) }])], name);
   it('is the last image that opened; a newer one being read, or refused, clears it', async () => {
     const a = image('a.iso'), b = image('b.iso');
     await openFrontEndImage(a);

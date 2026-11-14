@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IsoAssetSource, type AssetSource } from '@s2u/archive';
+import { IsoAssetSource, SOCOM2_US_BOOT, type AssetSource } from '@s2u/archive';
 import { bootPage, PAGE_LOADERS, readPageAddress, type PageEntry, type PageLoaders } from '../src/pageEntry';
 import { FrontEndSession, type FrontEndMount } from '../src/frontEnd';
 import { openFrontEndImage } from '../src/discPrompt';
@@ -404,16 +404,23 @@ const FIXTURES = resolve(here, '../../../test-fixtures');
 const IMAGE_FILES = ['RUN/UI/READERC.ZAR', 'RUN/UIZANIM.ZAR'];
 const HAVE_FIXTURES = IMAGE_FILES.every((p) => existsSync(resolve(FIXTURES, p)));
 let image: Uint8Array<ArrayBuffer> | null = null;
-/** An ISO9660 image of the fixtures' RUN/UI/READERC.ZAR and RUN/UIZANIM.ZAR (`buildIso`, as `e2e/iso.spec.ts` builds one). */
+/**
+ * An ISO9660 image of the fixtures' RUN/UI/READERC.ZAR and RUN/UIZANIM.ZAR (`buildIso`, as `e2e/iso.spec.ts` builds one),
+ * with a generated `SYSTEM.CNF` booting the US release: the front end identifies an image before its probe (DA.R8).
+ */
 const fixtureImage = (): Uint8Array<ArrayBuffer> =>
-  (image ??= buildIso(IMAGE_FILES.map((path) => ({ path, bytes: new Uint8Array(readFileSync(resolve(FIXTURES, path))) })), 'SCUS_97275'));
+  (image ??= buildIso([
+    { path: 'SYSTEM.CNF', bytes: new TextEncoder().encode(`BOOT2 = cdrom0:\\${SOCOM2_US_BOOT};1\r\nVER = 1.02\r\nVMODE = NTSC\r\n`) },
+    ...IMAGE_FILES.map((path) => ({ path, bytes: new Uint8Array(readFileSync(resolve(FIXTURES, path))) })),
+  ], 'SCUS_97275'));
 
 describe('openFrontEndImage: the visitor\'s image opened by `@s2u/archive`\'s ISO reader, refused in its words', () => {
   it('something that is not a disc image is refused by the reader', async () => {
     await expect(openFrontEndImage(new Blob([new Uint8Array(40 * 2048)]))).rejects.toThrow(/not an ISO9660 image/);
   });
   it('an ISO without the front end\'s dialogs is refused, naming what it lacks', async () => {
-    const other = buildIso([{ path: 'SYSTEM.CNF', bytes: new Uint8Array(4) }]);
+    // A SOCOM II SYSTEM.CNF, so the image passes the identity (DA.R8) and reaches the probe it lacks.
+    const other = buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode(`BOOT2 = cdrom0:\\${SOCOM2_US_BOOT};1\r\n`) }]);
     await expect(openFrontEndImage(new Blob([other]))).rejects.toThrow(/ISO: no RUN/);
   });
   it.skipIf(!HAVE_FIXTURES)('an image holding them opens as an IsoAssetSource that reads them', async () => {

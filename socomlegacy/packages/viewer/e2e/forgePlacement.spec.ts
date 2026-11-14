@@ -3,8 +3,8 @@ import { OUTLINER_USER_ROW } from './forgeBase';
 
 /**
  * FORGE placement aids (FG-5, FG-49; a browser adaptation, no original). The no-disc bench (`/forge?bench`) places
- * the forge's own block -- no disc. Ten clicks in Place mode each leave a piece on the floor (a click on the gizmo of
- * the piece just placed still places). Copy and paste keep a group's offsets, and undo puts the layout back.
+ * the forge's own block -- no disc. Ten clicks in Place mode leave ten pieces, none below the floor (a click on the piece
+ * just placed mounts the next on its side: the owner's wall rule of 2026-11-10). Copy and paste keep a group's offsets, and undo puts the layout back.
  */
 
 type Pt = [number, number, number];
@@ -32,7 +32,14 @@ test.describe('forge placement on a blank floor', () => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto('/forge?bench');
-    await expect(page.locator('.fx-status-msg')).toHaveText('blank floor');
+    // FC2 (a setup race, seen twice: fc2-place-bc45acf90 and v0.4.22's interim gate at 80d2cef37e): the bench says "blank
+    // floor" on the status line, but the line is any notice's -- a background archive's progress ("forge: Opening the
+    // archive 0%") can replace it before the first poll, and the wait then sat its 60 s on a page that was ready. Ready
+    // is the page's own state instead: the base open and nothing loading (`__forgeHide.ready()`, as `expectBase` polls it,
+    // without its menu read: its Escape would put the Place tool down), and the bench block's ghost under the pointer
+    // (`data-ghost` 1: the Place tool on the bench's own block, chosen only by `?bench`).
+    await expect.poll(() => page.evaluate(() => (globalThis as { __forgeHide?: { ready(): boolean } }).__forgeHide?.ready() ?? false),
+      { timeout: 60_000, message: 'the bench open, nothing loading' }).toBe(true);
     await expect(page.locator('.fx-input')).toHaveAttribute('data-ghost', '1');
     (page as unknown as { fxErrors: string[] }).fxErrors = errors;
   });
@@ -52,7 +59,14 @@ test.describe('forge placement on a blank floor', () => {
     }
     const placed = await readPieces(page);
     expect(placed).toHaveLength(10);
-    for (const p of placed) expect(p[1]).toBeCloseTo(0, 1);
+    // FC2: since the owner's wall rule (2026-11-10, "anything that should be placed on the wall to use the normal ... also
+    // do the same for props"; the contributor's `wallPose`), a click on a placed piece's side mounts the next one on it,
+    // so ten clicks at one pixel are a row, not a stack on the floor: the first on the floor, the second on the floor
+    // flush against the first's face (a mount stops at the floor below), the rest climbing -- and none below the floor.
+    for (const p of placed) expect(p[1], 'none below the floor').toBeGreaterThanOrEqual(-0.05);
+    expect(placed[0]![1], 'the first on the floor').toBeCloseTo(0, 1);
+    expect(placed[1]![1], 'the second on the floor, the mount stopped there').toBeCloseTo(0, 1);
+    expect(placed[1]![2] - placed[0]![2], "the second flush against the first's face (50 and the gap)").toBeCloseTo(50.05, 0);
     await page.screenshot({ path: test.info().outputPath('forge-ten-places.png') });
     expect((page as unknown as { fxErrors: string[] }).fxErrors).toEqual([]);
   });

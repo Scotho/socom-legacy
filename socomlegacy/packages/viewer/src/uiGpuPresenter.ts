@@ -374,9 +374,9 @@ export interface UiGpuSurfaceOptions {
  * level and reason, whichever surface met it first, as `{ v: 1, s: surface, lv, why, r: the menus' renderer (cut to
  * 120), src: where the string came from }`. `no-parallel-link` is the loading surface's designed path (it draws its own
  * software while a match loads), not a fallback, and is not reported; nor is `software-adapter` (v0.4.20 rc2's red,
- * 2026-11-12): a software adapter (SwiftShader, the Basic Render Driver) falls to the software menus by design, as before
- * v0.4.20 -- the row named nothing wrong, the adapter string rides on the page's other rows, and every software page sent
- * one. A failed send never reaches the page.
+ * 2026-11-12): a software adapter (SwiftShader, llvmpipe, the Basic Render Driver: `./uiGpuSwitch` `isSoftwareAdapter`)
+ * falls to the software menus by design, as before v0.4.20 -- the row named nothing wrong, the adapter string rides on
+ * the page's other rows, and every software page sent one. A failed send never reaches the page.
  */
 const fallbackRowsSent = new Set<string>();
 const FALLBACK_ROW_SKIPPED: ReadonlySet<string> = new Set(['no-parallel-link', 'software-adapter']);
@@ -814,12 +814,16 @@ export class UiGpuSurfacePresenter implements UiPresenter {
   }
 
   /** UIGPU-FALLBACK-ROWS: the fallback's row, once a page per level and reason; never a throw into the page. */
+  /** MATCH-RENDERER-RETRY A: the last context loss's status message, for the L3 row. */
+  private lossStatus: string | null = null;
   private fallbackRow(lv: 'L3' | 'L4', why: string): void {
     const key = `${lv}|${why}`;
     if (FALLBACK_ROW_SKIPPED.has(why) || fallbackRowsSent.has(key)) return;
     fallbackRowsSent.add(key);
     try {
-      const row = JSON.stringify({ v: 1, s: this.o.surface, lv, why, r: this.caps?.renderer?.slice(0, 120) ?? null, src: this.caps?.rendererSource ?? null });
+      // MATCH-RENDERER-RETRY A (#790): an L3 after a context loss names the browser's status for it (`st`), capped.
+      const st = lv === 'L3' && this.lossStatus ? { st: this.lossStatus.slice(0, 120) } : {};
+      const row = JSON.stringify({ v: 1, s: this.o.surface, lv, why, r: this.caps?.renderer?.slice(0, 120) ?? null, src: this.caps?.rendererSource ?? null, ...st });
       // rc1 red (2026-11-12): the beacon loaded at send time, never imported statically -- Playwright's Node loader reaches
       // this module (e2e/uiGpuHarness.ts) and the beacon's chain imports package.json, which Node refuses without an
       // import attribute. On the page the beacon is already loaded (the entry installs it), so this resolves at once; a
@@ -888,6 +892,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     e.preventDefault();                                   // so the browser may restore it (WebGL 1.0 §5.15.3)
     if (this.releasing) { this.releasing = false; return; }
     const status = (e as Event & { statusMessage?: string }).statusMessage;
+    this.lossStatus = status || null;                     // MATCH-RENDERER-RETRY A: for the L3 row's `st`
     this.lose('context', `webglcontextlost${status ? `: ${status}` : ''}`);
   }
 

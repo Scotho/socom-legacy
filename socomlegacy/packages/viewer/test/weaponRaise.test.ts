@@ -126,6 +126,76 @@ describe('NU-8a B1: the rifle through a throw and a placing (research 326 §6 B1
     expect(w[40]).toBe(0);
   });
 
+  // LATER 792 item 1 (reading, pending review; the chain measured, research 326 §7.2: "At the pop ... the edge 3, 2, 1").
+  it("a gated release's bit-7 branch waits for the pop (D:L453484-453501): the slot's last grenade, R1 held -- 1, then 3 at the pop, 2, 1; down at the pop", () => {
+    const r = hot();
+    r.frame(DT, { ...FIRING, grenade: true, release: 'gated' });       // the release under a held R1
+    frames(r, 20, FIRING);                                               // under the clip: the slot empty, the press held
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });
+    r.frame(DT, { ...FIRING, pop: true });                               // the pop: the branch runs
+    expect(r.stats()).toMatchObject({ state: 'down', edge: 3 });         // FUN_005dfe30(actor, 2) D:L453488; 1 -> 3
+    r.frame(DT, FIRING);
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 2 });           // held: a press again, up (D:L453633-453634)
+    r.frame(DT, FIRING);
+    expect(r.stats().edge).toBe(1);
+    r.frame(DT, { ...FIRING, pop: true });                               // bit 7 cleared: a second pop runs nothing
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });
+  });
+
+  it('a pop with no release before it runs nothing; an ungated release has run its branch before its pop', () => {
+    const r = hot();
+    frames(r, 4, FIRING);
+    r.frame(DT, { ...FIRING, pop: true });
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });
+    r.frame(DT, { ...FIRING, grenade: true, release: 'ungated' });
+    r.frame(DT, FIRING);
+    expect(r.stats().edge).toBe(3);                                      // R+1: the branch (1 -> 3)
+    frames(r, 4, FIRING);
+    expect(r.stats().edge).toBe(1);
+    r.frame(DT, { ...FIRING, pop: true });
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });
+  });
+
+  it("a pop between two game frames is kept for the next (LATER 185's page frames)", () => {
+    const r = hot();
+    r.frame(DT, { ...FIRING, grenade: true, release: 'gated' });
+    frames(r, 4, FIRING);
+    r.frame(DT / 4, { ...FIRING, pop: true });                           // a page frame inside the game frame
+    expect(r.stats().edge).toBe(1);                                      // no game frame ended
+    r.frame(DT, FIRING);
+    expect(r.stats().edge).toBe(3);
+  });
+
+  // POP-EDGE-REMAP's review F1: the after-pop call lowers a rifle that is up at a gated pop, a grenade left included.
+  it("the held-R1 rethrow chain, a grenade left: up under the clip on the held edge 1; down at the pop (D:L453488) and kept down through the re-armed wind-up (D:L453637)", () => {
+    const r = hot();
+    frames(r, 4, FIRING);                                                // R1 held: the edge 1
+    r.frame(DT, { ...FIRING, grenade: true, release: 'gated' });
+    const under = frames(r, 20, { ...FIRING, grenade: true });           // the edge 1 held asks up (D:L453612-453613)
+    expect(under.every((w) => w === 1)).toBe(true);
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });
+    const atPop = r.frame(DT, { ...FIRING, grenade: true, pop: true });
+    expect(r.stats()).toMatchObject({ state: 'down', moving: true, edge: 3 });   // FUN_005dfe30(actor, 2), 1 -> 3
+    expect(atPop).toBeLessThan(1);
+    const wind = frames(r, 3, { ...FIRING, grenade: true, windUp: true });  // the re-armed press: bit 6, no request
+    expect(r.stats()).toMatchObject({ state: 'down', edge: 0 });
+    expect(wind[0]).toBeLessThan(atPop);
+    expect(wind[1]).toBeLessThan(wind[0]!);
+    expect(wind[2]).toBeLessThan(wind[1]!);
+  });
+
+  // POP-EDGE-REMAP's review F2: bit 7 stays set under the ER-1 gate, and the branch runs on the first ungated update.
+  it('a pop on a gated game frame is kept: the remap and the lower on the first ungated frame (D:L453478-453480)', () => {
+    const r = hot();
+    r.frame(DT, { ...FIRING, grenade: true, release: 'gated' });
+    frames(r, 4, FIRING);
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });
+    r.frame(DT, { ...FIRING, pop: true, gated: true });                  // the control off (DAT_003df1b0 0)
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1 });           // nothing runs under the gate
+    r.frame(DT, FIRING);                                                 // the control back
+    expect(r.stats()).toMatchObject({ state: 'down', edge: 3 });
+  });
+
   it('the wind-up: its press resets the countdown and leaves the edge idle (D:L453624-453660); it asks nothing while held, nor runs the countdown', () => {
     const r = hot();
     frames(r, 30, IDLE);                                                 // about a second of the countdown run
@@ -146,9 +216,9 @@ describe('NU-8a B1: the rifle through a throw and a placing (research 326 §6 B1
     expect(after[after.length - 1]).toBe(0);
   });
 
-  it('names its readings: THROW_RIFLE_RAISE_READING, THROW_LAST_GRENADE_RAISE_READING (the countdown), ACTION_PLANT_RAISE_READING, REMOTE_HAND_RAISE_READING', () => {
+  it('names its readings: THROW_RIFLE_RAISE_READING, THROW_LAST_GRENADE_RAISE_READING (the countdown, the pop lower), ACTION_PLANT_RAISE_READING, REMOTE_HAND_RAISE_READING', () => {
     expect(THROW_RIFLE_RAISE_READING).toBe('down at a take-up; up at a release, down two updates on with one left');
-    expect(THROW_LAST_GRENADE_RAISE_READING).toBe('the countdown');
+    expect(THROW_LAST_GRENADE_RAISE_READING).toBe("the countdown, the pop's one-update lower");
     expect(ACTION_PLANT_RAISE_READING).toBe('none');
     expect(REMOTE_HAND_RAISE_READING).toBe('a hand grenade from a throw to the next trigger');
   });

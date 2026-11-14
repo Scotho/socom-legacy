@@ -1,6 +1,6 @@
-import { Matrix4, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import { bombOfMarkerStates, bombRestOf, markersOfBomb } from '../bombMarkers';
-import { RULES_SCHEMA, RULES_VOCABULARY_VERSION, type InstalledRulesPack, type LayoutMarker, type LayoutSpawner, type LayoutZone, type RuleDecl, type RulesSpec, type RulesVariable } from '@s2u/creator-contracts';
+import { checkReport, PACK_AUTHORS_ADAPTATION, RULES_SCHEMA, RULES_VOCABULARY_VERSION, type InstalledRulesPack, type LayoutMarker, type PackRef, type LayoutSpawner, type LayoutZone, type RuleDecl, type RulesSpec, type RulesVariable } from '@s2u/creator-contracts';
 import { emptyLayout, newLayout, parseAssetId, parseSettings, serializeLayout, type Layout } from '../layout';
 import { checkRecord, layoutOfRecord, recordOfLayout, type LayoutRecord } from '../record';
 import {
@@ -8,10 +8,12 @@ import {
   type ForgeLayout, type ForgeRulesDraft,
 } from '../rulesAuthoring';
 import { ForgeAgentError, validateForgeAgentArguments } from './api';
+import { exportForgePack, type ForgeExportInput } from '../exportPack';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from '../extractionZones';
 import { nextHostageName } from '../hostages';
 import { bombMarkerPlaysIn } from '../objectives';
 import { nextNavName, nextViewName } from '../placedPoints';
+import { snappedScale, snappedTurn, turnOf, turnQuaternion } from '../transformStubs';
 // The disc objects a placement copies unless it names one (`../copyDefaults`), re-exported where the planner's callers read them.
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from '../copyDefaults';
 export { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET };
@@ -32,6 +34,28 @@ export const FORGE_LAYOUT_OPERATIONS = new Set(['layout.import', 'layout.new', '
   // FCW-32 (a browser adaptation, the Forge's own authoring): the rules entities and the layout's rules pack.
   ...FORGE_RULES_EDITS]);
 const fail = (code: string, message: string): never => { throw new ForgeAgentError(code, message); };
+/**
+ * FX-9 (FX.R3; a browser adaptation, FG.R2): a piece's matrix with its pitch or roll (degrees, `YXZ`, as the Inspector's
+ * fields) or its scale (a number for all three axes, or `[x, y, z]`) set, its place kept, put on the record's lattice
+ * with the Inspector's clamps (`../transformStubs`: whole degrees, the pitch within -90..90, a scale of 0.01 within
+ * 0.1..4), so the agent's piece is the person's and the one a save keeps.
+ */
+function posedPieceMatrix(m: readonly number[], field: 'pitch' | 'roll' | 'scale', value: unknown, bad: (why: string) => never): number[] {
+  const at = new Vector3(), q = new Quaternion(), s = new Vector3();
+  new Matrix4().fromArray(m as number[]).decompose(at, q, s);
+  const turn = turnOf(q);
+  let scale = [s.x, s.y, s.z];
+  if (field === 'scale') {
+    const axes = typeof value === 'number' ? [value, value, value] : Array.isArray(value) && value.length === 3 ? value : null;
+    if (!axes || !axes.every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0)) bad('must be a number above 0, or [x, y, z] each above 0');
+    scale = axes as number[];
+  } else {
+    if (typeof value !== 'number' || !Number.isFinite(value)) bad('must be degrees');
+    turn[field] = value as number;
+  }
+  const kept = snappedScale(scale);
+  return new Matrix4().compose(at, turnQuaternion(snappedTurn(turn)), new Vector3(kept[0], kept[1], kept[2])).toArray();
+}
 export function importedLayout(raw: unknown): ForgeLayout {
   // A record (v2, or v3 since FCW-07a: `schema`), FCW-32's authoring envelope (a record and its rules), or else a v1
   // layout file (its rules with it, `parseForgeLayout`).
@@ -177,6 +201,10 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
       const bad = (why: string): never => fail('INVALID_ARGUMENT', `${field} ${why}`);
       const above0 = (): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : bad('must be a number above 0'));
       const [kind, a, b] = ref.split(':');
+      // FX-9: a piece's pitch, roll and scale (a view's pitch is its camera's, below); every other placement is a marker,
+      // which turns about the vertical at its own size -- refused by name, as the Inspector keeps its fields off.
+      const posing = field === 'roll' || field === 'scale' || (field === 'pitch' && kind !== 'view');
+      if (posing && kind !== 'piece') fail('UNSUPPORTED', `${field}: ${ref} is a marker, which turns about the vertical at its own size: turn it with piece.rotate, or tilt and scale a piece`);
       if (kind === 'xzone') {
         const z = l.extractionZones![Number(a)]!;
         if (field === 'name') z.name = typeof value === 'string' && /^[A-Za-z0-9_ -]{1,32}$/.test(value) ? value : bad('must be 1-32 letters, digits, spaces, _ or -');
@@ -184,9 +212,15 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
         else if (field === 'depth') z.size = [z.size[0], above0()];
         else bad('is not a zone\'s');
       } else if (kind === 'piece') {
+        // FX-9: a piece's pitch, roll or scale, kept by the record since FX-1 (`creator-contracts` `PoseRow`).
+        if (posing) {
+          const piece = l.pieces[Number(a)]!;
+          // T10: a pack's piece keeps a turn about the vertical at its own size (`../transformStubs`).
+          if (piece.content) fail('UNSUPPORTED', `${field}: ${ref} is a pack piece, which turns about the vertical at its own size: tilt or scale a disc prop instead`);
+          piece.m = posedPieceMatrix(piece.m, field as 'pitch' | 'roll' | 'scale', value, bad);
+          break;
+        }
         // A placed ladder's Map and Ladder (the owner, 2026-11-06): the disc prop it is, `<archive>:<model>`.
-        // FC-1 (`../transformStubs`): a piece's tilt is not kept by the record (v3 keeps its yaw alone) -- said, not dropped.
-        if (field === 'pitch') bad('is not supported yet: a saved layout keeps a piece\'s yaw only');
         if (field !== 'model') bad('is not a piece\'s');
         const id = typeof value === 'string' ? parseAssetId(value) : null;
         if (!id || !/^[A-Z]{1,3}\d{1,3}$/.test(id.archive)) bad('must be a disc prop <archive>:<model>, as MP73:ladder35');
@@ -452,4 +486,81 @@ function planRulesEdit(l: ForgeLayout, operation: string, args: Record<string, u
     }
     default: return fail('UNKNOWN_OPERATION', operation);
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// FX-11a slice 4: forge.export, the agent's twin of the Forge's pack export
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * FX-11a (FX.R4; the pack format 0.2 spec section 5: "the agent gets the same act as `forge.export`"; a browser
+ * adaptation with no original): the agent's pack export. It runs `exportForgePack` for the open layout with the same
+ * input the page's Export gives and answers what the export wrote -- each file's path and size, the zip's size, its name
+ * and the pack's reference -- never the bytes (the control channel carries no zip). Refused with `REFUSED`, the
+ * message naming each of the export's codes (`forge.export.*`, the contract's `mapPack.*`, `pack.*`, `store.*`), or
+ * `INVALID_ARGUMENT` for an argument it does not take, before any export. It reads the layout and changes nothing.
+ *
+ * Its wire declaration (the protocol's operation list, the manual, the page target's route and the facade's case) is not
+ * here: declaring it there without the route turns the manual's reach tests red (FX-11a's report says where it goes).
+ */
+export const FORGE_EXPORT_COMMAND = 'forge.export' as const;
+/** The arguments `forge.export` takes, each as `ForgeExportInput`'s field of the same name. */
+const EXPORT_STRINGS = ['id', 'version', 'name', 'description', 'license', 'team', 'slug', 'baseName', 'websiteUrl'] as const;
+const EXPORT_FLAGS = ['project', 'forStore'] as const;
+const EXPORT_KEYS: ReadonlySet<string> = new Set([...EXPORT_STRINGS, ...EXPORT_FLAGS, 'authors', 'teams']);
+/** The most authors a pack names: the contract's own bound (the export's validator holds each name's). */
+const EXPORT_AUTHORS_MAX = PACK_AUTHORS_ADAPTATION;
+const EXPORT_TEAMS_MAX = 64;
+
+export interface ForgeExportAnswer {
+  /** The download's name in the store's form (`exportForgePack`'s `name`). */
+  name: string;
+  ref: PackRef;
+  /** Each file in the zip's order, its size in bytes. */
+  files: { path: string; size: number }[];
+  /** The zip's size in bytes. */
+  size: number;
+}
+
+/** `forge.export`'s arguments as the export's input, or `INVALID_ARGUMENT` naming the first it does not take. */
+function exportArguments(args: Record<string, unknown>): Omit<ForgeExportInput, 'layout'> {
+  const bad = (why: string): never => fail('INVALID_ARGUMENT', `forge.export: ${why}`);
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) bad('its arguments are an object');
+  const extra = Object.keys(args).find((k) => !EXPORT_KEYS.has(k));
+  if (extra !== undefined) bad(`it takes no argument ${extra.slice(0, 40)}`);
+  for (const k of EXPORT_STRINGS) if (args[k] !== undefined && typeof args[k] !== 'string') bad(`${k} is a string`);
+  for (const k of EXPORT_FLAGS) if (args[k] !== undefined && typeof args[k] !== 'boolean') bad(`${k} is true or false`);
+  if (typeof args['id'] !== 'string' || typeof args['version'] !== 'string') bad('id and version are required');
+  const authors = args['authors'];
+  if (authors !== undefined && (!Array.isArray(authors) || authors.length > EXPORT_AUTHORS_MAX || !authors.every((a) => typeof a === 'string'))) {
+    bad(`authors is a list of at most ${EXPORT_AUTHORS_MAX} names`);
+  }
+  const teams = args['teams'];
+  if (teams !== undefined && (teams === null || typeof teams !== 'object' || Array.isArray(teams) || Object.keys(teams).length > EXPORT_TEAMS_MAX
+    || !Object.values(teams).every((t) => typeof t === 'string'))) {
+    bad(`teams is an object of at most ${EXPORT_TEAMS_MAX} pack ids, each a team name`);
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of [...EXPORT_STRINGS, ...EXPORT_FLAGS]) if (args[k] !== undefined) out[k] = args[k];
+  if (authors !== undefined) out['authors'] = [...(authors as string[])];
+  if (teams !== undefined) out['teams'] = { ...(teams as Record<string, string>) };
+  return out as unknown as Omit<ForgeExportInput, 'layout'>;
+}
+
+/**
+ * The pack export for the agent: the open layout through `exportForgePack`, answered as paths, sizes and the reference.
+ * `context.installed` are the page's installed rules packs; `context.baseName` the base map's display name (the README's).
+ */
+export async function exportForgeCommand(current: ForgeLayout, args: Record<string, unknown>,
+  context: { installed?: readonly InstalledRulesPack[]; baseName?: string } = {}): Promise<ForgeExportAnswer> {
+  const input = exportArguments(args);
+  const result = await exportForgePack({
+    ...(context.baseName !== undefined ? { baseName: context.baseName } : {}),
+    ...input, layout: current, ...(context.installed ? { installed: context.installed } : {}),
+  });
+  if (!result.ok) {
+    const words = refusalWords(checkReport(result.diagnostics, { evidence: 'validation' })) ?? 'The export was refused.';
+    return fail('REFUSED', words);
+  }
+  return { name: result.name, ref: { ...result.ref }, files: result.files.map((f) => ({ path: f.path, size: f.bytes.length })), size: result.zip.length };
 }

@@ -228,7 +228,7 @@ describe('RE-6 (research 249 §2): Home lands on the round\'s first tick, where 
     expect(marks()).toEqual([]);                           // OT.R99: the carried bomb is marked on nobody's compass
     expect(p.replay.seekStart()).toBe(1);
     expect(p.replay.serverTick()).toBe(1);
-    expect(marks()).toEqual([{ bitmap: 'ret_bomb.tif', x: START[0], z: START[2] }]);
+    expect(marks()).toEqual([{ bitmap: 'ret_bomb.tif', x: START[0], z: START[2], pulse: true }]);
     // an explicit seek still goes anywhere: the segment's start, before the round, where no round is in play
     expect(p.replay.seek(0)).toBe(0);
     expect(marks()).toEqual([]);

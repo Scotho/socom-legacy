@@ -9,6 +9,8 @@
 > `2d5421767`, cited **SR**. **Evidence kind: source inspection only.** Tests named here were read, not run, unless
 > section 12 says so. A rendered run is cited only where a plan's Log records it.
 > **Track:** this document is product track (OT.R53). Rows below marked **sim** change what a round does.
+> **Step 3 design (2026-11-12, documents only):** [the community-server plugin kind](2026-11-12-community-server-plugin-design.md).
+> It proposes the runtime for CM-14 and CM-15. The kind word is on v0.4.20. It does not change the rows below.
 
 ## The owner's words
 
@@ -369,8 +371,8 @@ servers labelled and ranked separately (6); the direction, Arma first with plugi
 | CM-H1 | **Player-side code.** May any pack code ever run in a player's browser (a client plugin, a pack's UI script)? | **No.** Only content and declarative rules reach players (OT.R118's last clause); the client runs presentation actions only (`rules.ts:96`). | any client plugin |
 | CM-H2 | **How packs reach players.** May a community server hand its packs to a joining player (Arma's mission download), or does the player always install them himself in MODS? XT.R4 hosts no payload without the rights (`extensibility.md:47-51`); H276 keeps requirements in the match record (`HUMAN_TASKS.md:620`); H342 fetches nothing from a store. | **The player installs them himself.** The join refusal names each pack and the host's "where to get it" text; nothing downloads. | CM-2's download half; CM-17's ease |
 | CM-H3 | **Path 1's online home.** Is a Forge lobby ("Custom matches") enough for adjusted disc maps, or must one appear as a normal game in the briefing-room list or a rotation? | **The Forge lobby.** CM-5 is not built. | CM-5 |
-| CM-H4 | **The community class beside HyperNode's terms.** CHT.R4 and H368 accepted "no match-server modifications" for HyperNode's community hosts (`community-host-tier.md:25-27`; `HUMAN_TASKS.md:788`), and Fuse's CHT build holds no plugin path (`community-host-tier.md:94-95`). Is the modded class its own tier, enrolled separately, or CHT's tier where the provider's terms allow it? | **Its own tier.** A CHT community host loads no plugin. | CM-14, CM-16 |
-| CM-H5 | **Where a modded ranking lives.** Kept by Fuse's servers, or a separate ranking on our central? | **Fuse's servers.** Central keeps no modded ranking; modded results never reach central's ladder or stats. | CM-16's ranking half |
+| CM-H4 | **The community class beside HyperNode's terms.** CHT.R4 and H368 accepted "no match-server modifications" for HyperNode's community hosts (`community-host-tier.md:25-27`; `HUMAN_TASKS.md:788`), and Fuse's CHT build holds no plugin path (`community-host-tier.md:94-95`). Is the modded class its own tier, enrolled separately, or CHT's tier where the provider's terms allow it? | **Its own tier.** A CHT community host loads no plugin. **Answered by the owner 2026-11-12, as the default** (MISSION OT.R118, "The plugin kind's design, answered", a): central's tier is the authority, the image's flag the local switch on top. | CM-14, CM-16 |
+| CM-H5 | **Where a modded ranking lives.** Kept by Fuse's servers, or a separate ranking on our central? | **Fuse's servers.** Central keeps no modded ranking; modded results never reach central's ladder or stats. **Answered by the owner 2026-11-12, as the default** (MISSION OT.R118, "The plugin kind's design, answered", c). | CM-16's ranking half |
 
 Already the owner's and unchanged: H-FP8-a (the pack-format read, FP.R7; blocks CM-13), H-FS-1 (stage D; blocks
 CM-6, CM-8), H355 / OP-2 (pack audio; part of CM-10), H342 (Thunderstore), H273 and H274 for our live servers.

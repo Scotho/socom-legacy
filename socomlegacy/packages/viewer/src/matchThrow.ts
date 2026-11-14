@@ -158,9 +158,10 @@ export interface PageHands {
 /**
  * The throwables' NetPage deps: `PART_DEPS.throwables`, owed where the part is on, and `roundEndEffects`
  * (ROUND_END_EFFECTS_READING), handed with them but optional in `NetPageDeps` -- a page with the part off has no effects to
- * stop at the engine's read.
+ * stop at the engine's read -- and ROOM-HAND's `handItem` (the item up, re-told at a welcome and a resume), optional alike:
+ * a page with the part off holds no item.
  */
-export type MatchThrowNetDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['throwables'][number] | 'roundEndEffects'>>;
+export type MatchThrowNetDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['throwables'][number] | 'roundEndEffects' | 'handItem'>>;
 
 export interface MatchThrowables {
   readonly grenade: GrenadeThrower;
@@ -416,15 +417,37 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     if (rocket.up() && !walk.isDead()) return;
     launcherDown = launcherPress = launcherWaits = false;
   };
+  /**
+   * NU-2 (research 320 sections 1 and 4): an item's id as the reticle's set asks it (`FUN_005be300`) -- its record's ID,
+   * else the arsenal table's; the Detonator 193 with no table read (`arsenal-items.json`'s id, `readArsenal` over
+   * `RUN/ZWEAPON.ZAR`, research 320 section 1). One computation for `handItem` and the room's `hand` (ROOM-HAND), so the
+   * two cannot drift.
+   */
+  const handItemId = (item: string | null): number | null => {
+    if (item === null) return null;
+    return grenade.recordOf(item)?.id ?? loadouts.tables()?.arsenal.byName.get(item)?.id ?? (item === 'Detonator' ? 193 : null);
+  };
+  /**
+   * LATER 792 item 1 (reading, pending review): the kit's phase at the raise's last read -- its throw's clip off the top
+   * since (`throwing` to anything else: `./grenade` `finishThrow`, the pop the re-arm counts from) is the pop a gated
+   * release's bit-7 branch runs on (D:L453484-453501; `./weaponRaise` `ItemRaise.pop`). A placing's end is no release's
+   * (no bit 7: `throwReleaseOf` gives it none), and a death's cut is not fed (the dead's controller takes the respawn
+   * press alone, `FUN_00592560` D:L451644-451731).
+   */
+  let raisePhase = grenade.phase();
   play.setItemRaise?.(() => {
     const held = grenade.held();
     launcherLetGo();
     const press = placingPress || launcherPress;
     placingPress = launcherPress = false;
+    const phase = grenade.phase();
+    const pop = raisePhase === 'throwing' && phase !== 'throwing' && !walk.isDead();
+    raisePhase = phase;
     return {
       grenade: held !== null && handGrenade(grenade.recordOf(held)?.id) && grenade.stats().left > 0,
-      windUp: grenade.phase() === 'holding',
+      windUp: phase === 'holding',
       trigger: placingDown || launcherDown || press,
+      pop,
     };
   });
   offs.push(grenade.on('equip', (on, item) => {
@@ -447,6 +470,9 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     // the night vision, to first person; what a scoped grenade does was not traced -- research 84 section 7]. The
     // binoculars stay (FUN_005c4b10 leaves state 4), and the throw waits for them to come down (FUN_005be9a0).
     if (on && firearm().zoom.state() >= 5) firearm().setZoom(1);
+    // ROOM-HAND (LATER 652; ROOM_HAND_TRUST_ADAPTATION; reading, pending review): the room told the item in the hand, by
+    // the id `handItem` gives the reticle, or null for the firearm; the launcher is not this hook's (`Player.held`)
+    d.net()?.handEvent?.(on ? handItemId(item) : null);
   }));
   // The throw's clip (and the claymore's placing) holds the mover as the game's one-shot does: the ground state stops
   // until the stick may cut it past the clip's NoInterrupt (`Walker.hold`, `HOLD_CLIPS`' header; the owner, 2026-09-29).
@@ -858,11 +884,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     // NU-2 (research 320 sections 1 and 4): the reticle's set is the hand's item's (`FUN_005be300`) -- its record's ID,
     // else the arsenal table's; the Detonator 193 with no table read (`arsenal-items.json`'s id, `readArsenal` over
     // `RUN/ZWEAPON.ZAR`, research 320 section 1) -- and the meter is laid at the throw's power, 0 with none left.
-    handItem: () => {
-      const held = grenade.held();
-      if (held === null) return null;
-      return grenade.recordOf(held)?.id ?? loadouts.tables()?.arsenal.byName.get(held)?.id ?? (held === 'Detonator' ? 193 : null);
-    },
+    handItem: () => handItemId(grenade.held()),
     throwPower: () => {
       if (!grenade.equipped()) return 0;
       const s = grenade.stats();
@@ -877,6 +899,8 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       // `ENGINE_READ_S` after the `roundOver`), as the original's `FUN_002aa910` before the round screen; not the air or
       // the scorches (the round's start's, `roundStart`, which runs this clear again as a backstop).
       roundEndEffects: () => { grenade.clearRoundEffects(); firearm().effects?.clearRound(); },
+      // ROOM-HAND (LATER 652; the task-2 review's F1): the item up, as the equip hook tells it, for NetPage's re-tell
+      handItem: () => handItemId(grenade.held()),
       // The room's projectiles flown here.
       remoteGrenade: (kind, from, velocity, owner, pid, phase, ageTicks) => grenade.launchRemote(kind as GrenadeItem, from, velocity, owner, pid === undefined ? undefined : { pid, ...phase }, ageTicks),   // LATER 643: the room's age
       ownProjectiles: () => grenade.ownLive(),       // PF-28: a rejoin's envelope does not double the page's own throws

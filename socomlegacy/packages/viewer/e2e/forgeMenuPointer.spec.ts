@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { expectBase, placingTool } from './forgeBase';
+import { controlsButton, dockOf, expectBase, forgeMenu, openMenu, placingTool, pressForgeMenu } from './forgeBase';
 
 /**
  * LATER 230 (the merge controller's product-track call, 2026-10-21): the forge's menu had no way in but the pad's START.
@@ -32,7 +32,14 @@ const padStub = (page: Page, connected: boolean) => page.addInitScript((on) => {
   Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => (pad ? [pad] : []) });
 }, connected);
 
-const menuBtn = (page: Page) => page.locator('header.fx-top button[data-forge="menu"]');
+/**
+ * FC2-4 (OT.R112; EDITOR-MAP T1, M3): his toolbar has no menu button -- built, never put on the page ("the menu button and
+ * Reset layout off the page (M and START open the menu ...)", `../src/forge/page.ts` `top.append`). The pointer's way in
+ * is Controls, then its card's "Forge menu (M)", which presses that button: the same toggle, the same pointer's hint and
+ * the same refusal while a walk holds it disabled (`./forgeBase` `pressForgeMenu`, `openMenu`). The button's own `is-on`
+ * is on the detached button, which no spec reads: the menu's card says whether it is open.
+ */
+const menuWay = (page: Page) => controlsButton(page);
 const menu = (page: Page) => page.locator('.fx-menu');
 const row = (page: Page, label: string) => menu(page).locator('li').filter({ has: page.locator('.fx-menu-label', { hasText: new RegExp(`^${label}$`) }) });
 
@@ -61,12 +68,12 @@ test.describe('a phone, 390x844, no pad', () => {
     // into view below -- back under the list's fold between its measure and the probes. This case is the menu's pointer,
     // not the boot's: the early tap is `../test/forge/pageEarlyTap.test.ts` and `earlyPress.test.ts`.
     await expectBase(page, /New Empty Map/);
-    await expect(menuBtn(page)).toBeVisible({ timeout: 30_000 });
-    const b = (await menuBtn(page).boundingBox())!;
+    // The menu's pointer way in on screen without a scroll: his Controls (EDITOR-MAP T1, M3).
+    await expect(menuWay(page)).toBeVisible({ timeout: 30_000 });
+    const b = (await menuWay(page).boundingBox())!;
     expect(b.x + b.width, 'on screen without a scroll').toBeLessThanOrEqual(390);
-    await menuBtn(page).tap();
-    await expect(menu(page)).toBeVisible();
-    await expect(menuBtn(page)).toHaveClass(/(^|\s)is-on(\s|$)/);
+    await pressForgeMenu(page, 'tap');
+    await expect(forgeMenu(page)).toBeVisible();
     await expect(menu(page).locator('header .fx-dim')).toHaveText('tap a row · ‹ › change · outside closes');
     const snap = row(page, 'Snap');
     // R7-A (the Forge batch's first rendered pass, case 6): the menu's list scrolls on a phone and Snap may sit below its
@@ -82,9 +89,10 @@ test.describe('a phone, 390x844, no pad', () => {
     await snap.locator('.fx-menu-step', { hasText: '›' }).tap();
     await expect(snap.locator('.fx-menu-value')).not.toHaveText(before);
     await expect(menu(page)).toBeVisible();
-    await expect(page.locator('.fx-left')).toBeHidden();
+    // FC2-4 (EDITOR-MAP D1, D10): the old left dock is his Assets group, drawn only while the docks are shown.
+    await expect(dockOf(page, 'assets')).toBeHidden();
     await row(page, 'Docks').tap();
-    await expect(page.locator('.fx-left')).toBeVisible();
+    await expect(dockOf(page, 'assets')).toBeVisible();
     // LATER 234 (the review's F2): a greyed row tapped runs nothing -- on this blank floor "NPC character" is greyed (no
     // characters), and the cursor's row would otherwise run (Play the layout's check card, or the match).
     const npc = row(page, 'NPC character');
@@ -92,12 +100,11 @@ test.describe('a phone, 390x844, no pad', () => {
     await npc.locator('.fx-menu-label').tap();                             // the row itself, not its greyed steps (which take nothing)
     await page.waitForTimeout(500);
     await expect(menu(page)).toBeVisible();
-    await expect(page.locator('.fx-left'), 'the cursor\'s row (Docks) not run again').toBeVisible();
+    await expect(dockOf(page, 'assets'), 'the cursor\'s row (Docks) not run again').toBeVisible();
     await expect(page.locator('.fx-check-card')).toBeHidden();
     await expect(page.locator('body')).not.toHaveClass(/is-matching/);
     await page.mouse.click(5, 840);                                       // the backdrop, outside the card
     await expect(menu(page)).toBeHidden();
-    await expect(menuBtn(page)).not.toHaveClass(/(^|\s)is-on(\s|$)/);
   });
 
   // The re-review's G1 and G2: on a one-character value (Rounds) the ‹'s and the ›'s touch areas do not meet -- the ‹'s
@@ -106,8 +113,9 @@ test.describe('a phone, 390x844, no pad', () => {
     await padStub(page, false);
     await page.goto('/forge');
     await expectBase(page);                                              // the boot's open done first: the case above, RC1
-    await expect(menuBtn(page)).toBeVisible({ timeout: 30_000 });
-    await menuBtn(page).tap();
+    await expect(menuWay(page)).toBeVisible({ timeout: 30_000 });
+    await pressForgeMenu(page, 'tap');                                   // FC2-4 (EDITOR-MAP T1): Controls > Forge menu (M)
+    await expect(forgeMenu(page)).toBeVisible();
     const rounds = row(page, 'Rounds');
     await rounds.scrollIntoViewIfNeeded();
     // A single digit first (the default may be 10 or more): stepped down on the ‹ itself, not at a point.
@@ -134,6 +142,9 @@ test.describe('a phone, 390x844, no pad', () => {
     expect(inner, 'the ‹ glyph\'s right half is the ‹').toBe('‹');
   });
 
+  // FC2-4 (EDITOR-MAP T1): his page has no menu button to read as disabled; its pointer's way in (Controls > Forge menu
+  // (M)) presses that detached button, which a walk holds disabled (`../src/forge/page.ts`: `menuBtn.disabled = on`, its
+  // listener `if (menuBtn.disabled) return`) -- so the way in is pressed and opens nothing, then opens the menu again.
   test('walking, the menu button is disabled; the walk stopped, it is back', async ({ page }) => {
     test.skip(!HAVE_MAPS, 'needs socomlegacy/public/maps/index.json and RUN/MP2.ZDB, the blank floor\'s library (not committed)');
     await padStub(page, false);
@@ -143,20 +154,26 @@ test.describe('a phone, 390x844, no pad', () => {
     await page.goto('/forge?floor&devmode');
     await expectBase(page, /New Empty Map/);                             // OT.R112: the base named (`./forgeBase`)
     // The review's F5: the walk started from the menu's own row closes the menu, and the button waits.
-    await menuBtn(page).tap();
+    await openMenu(page, 'tap');
     await row(page, 'Walk the layout').tap();
     await expect(page.locator('body')).toHaveClass(/(^|\s)is-playing(\s|$)/, { timeout: 120_000 });
-    await expect(menu(page)).toBeHidden();
-    await expect(menuBtn(page)).toBeDisabled();
+    await expect(forgeMenu(page)).toBeHidden();
+    // A development build locks the mouse for the walk's look (`lockMouse`, OT.R38: a development build's), and the locked
+    // pointer takes the tap; a release has no lock, so the lock is let go first.
+    await page.evaluate(() => document.exitPointerLock());
+    // The button waits: its pointer's way pressed while walking opens no menu, and the walk goes on.
+    await pressForgeMenu(page, 'tap');
+    await expect(forgeMenu(page), 'the menu waits while walking').toBeHidden();
+    await expect(page.locator('body')).toHaveClass(/(^|\s)is-playing(\s|$)/);
     const walk = page.locator('header.fx-top button[title^="Walk the layout"]');
     await walk.scrollIntoViewIfNeeded();
-    // A development build locks the mouse for the walk's look (`lockMouse`, OT.R38: a development build's), and the locked
-    // pointer takes the tap; a release has no lock, so the lock is let go first. Under the Walk button's centre is the
-    // Walk button, walking too (elementFromPoint, the seat's diagnosis).
+    // Under the Walk button's centre is the Walk button, walking too (elementFromPoint, the seat's diagnosis).
     await page.evaluate(() => document.exitPointerLock());
     await walk.tap();
     await expect(page.locator('body')).not.toHaveClass(/(^|\s)is-playing(\s|$)/);
-    await expect(menuBtn(page)).toBeEnabled();
+    // The walk stopped, the way in opens the menu again.
+    await pressForgeMenu(page, 'tap');
+    await expect(forgeMenu(page)).toBeVisible();
   });
 
   test('LATER 803: a bare disc map at its FP-15 still -- Walk from the menu, no mouse, stands on the map\'s own stand', async ({ page }) => {
@@ -168,7 +185,7 @@ test.describe('a phone, 390x844, no pad', () => {
     await page.goto('/forge?devmode');
     await expectBase(page, /MP2/);                                       // the disc map, not the blank floor
     await expect(page.locator('.fx-outliner li[data-user-prop]')).toHaveCount(0);   // nothing placed: no layout spawn
-    await menuBtn(page).tap();
+    await openMenu(page, 'tap');                                         // FC2-4 (EDITOR-MAP T1): Controls > Forge menu (M)
     await row(page, 'Walk the layout').tap();
     await expect(page.locator('body')).toHaveClass(/(^|\s)is-playing(\s|$)/, { timeout: 120_000 });
     await expect(page.locator('.fx-status-msg')).not.toContainText('nowhere to stand');
@@ -197,8 +214,11 @@ test.describe('a desktop window, 1280x800', () => {
   test('a click opens the menu, a click outside closes it', async ({ page }) => {
     await padStub(page, false);
     await page.goto('/forge');
-    await menuBtn(page).click({ timeout: 30_000 });
-    await expect(menu(page)).toBeVisible();
+    // FC2-4 (EDITOR-MAP T1, M3): Controls > Forge menu (M), pressed ONCE as soon as Controls takes a press, as main's
+    // case pressed the menu button once right after the load -- an early press is held until the page is wired (FC2-6:
+    // `earlyPresses.press`), so a press lost to the renderer's start fails here (the batch review's F2; never retried).
+    await pressForgeMenu(page, 'click');
+    await expect(menu(page)).toBeVisible({ timeout: 30_000 });
     await page.mouse.click(5, 795);
     await expect(menu(page)).toBeHidden();
   });
@@ -311,7 +331,10 @@ test.describe('FUI-3: the pad menu\'s sections, sub-screens and the legend', () 
       // archive; its props are the cells once it has loaded (its status line), read at the next press.
       await expect(onRow(page)).toHaveAttribute('data-forge-menu-row', 'props-palette');
       await press(page, RIGHT);
-      await expect(page.locator('.fx-status-msg')).toHaveText(/\(\w+\): \d+ props/, { timeout: 120_000 });
+      // FC2-4 (OT.R112): the palette's next after the floor is his All (`../src/forge/page.ts` `PALETTE_ALL`, the palette
+      // list's first row), whose loaded line reads "All: <n> props from <m> maps" (`page.ts` `say`), not an archive's
+      // "<NAME> (<stem>): <n> props" -- either says the palette's props are the cells now.
+      await expect(page.locator('.fx-status-msg')).toHaveText(/(\(\w+\)|^All): \d+ props/, { timeout: 120_000 });
       await press(page, DOWN);
       await press(page, DOWN);                                          // past Palette and Show to the first cell
       const cell = onRow(page);

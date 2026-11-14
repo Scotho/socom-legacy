@@ -56,8 +56,8 @@ const ROWS = {
   // HD-4: Display's "Video" row (the page's picture) leads the browser's rows, under the same heading.
   // VS-2: the browser's rows from the video schema, in its order and groups (the Custom-only rows hidden under Automatic)
   display: ['BRIGHTNESS', 'BOBBING_1ST_PERSON', 'DISPLAY_MP_TEAM_NAMES', 'ScreenOriginX', 'ScreenOriginY', ...BROWSER_DISPLAY],   // SS-1 D4: Help windows not offered
-  controller: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, ...CARD_CONTROLS],
-  controllerOverlay: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, OVERLAY_BUTTON_ROW, ...CARD_CONTROLS],
+  controller: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, 'controller-labels', ...CARD_CONTROLS],
+  controllerOverlay: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, 'controller-labels', OVERLAY_BUTTON_ROW, ...CARD_CONTROLS],
   communication: ['EnableExternalWhispers', 'mic-on', 'mic-device'],
 };
 

@@ -93,7 +93,11 @@ export interface ReplaysDeps {
   frame?: (run: () => void) => void;
   /** CX-15: the page the viewer opens over; absent, the window's. */
   doc?: Document;
-  /** CX-15 (CX.R6, OT.R29): whether a key reaches the viewer; absent, a development build's only. */
+  /**
+   * CX-15 (CX.R6): whether a key reaches the viewer; absent, true -- RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The
+   * replay mode should be fully navigable with keyboard and mouse. Every view."): the viewer's keys in every build (was a
+   * development build's only, OT.R29's fold). False: the layer stops and prevents a release's keys as before (`stopAll`).
+   */
   keyboard?: boolean;
   /** CX-15: the disc's state, for the viewer's lock words; absent, never "being read". */
   disc?: () => DiscState;
@@ -105,7 +109,7 @@ export function liveReplays(notify: () => void, deps: ReplaysDeps = {}): LiveRep
   const base = accountServiceBase(win.location.search, win.location, dev);
   const source = deps.source ?? httpReplaySource(base);
   const session = deps.session ?? pageSession();
-  const keyboard = deps.keyboard ?? import.meta.env.DEV;                                     // OT.R29: folded in a build
+  const keyboard = deps.keyboard ?? true;                                                    // RVK-B: every build's
   let view: ReplaysView = { kind: 'signed-out' };
   /** CX-15: each listed row's whole record, by id (Watch opens it); SA-9b: by `replayKey`, two hosts' equal ids apart. */
   let records = new Map<string, ReplayEntry>();
@@ -236,9 +240,10 @@ export function liveReplays(notify: () => void, deps: ReplaysDeps = {}): LiveRep
       input.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    // The keyboard (CX.R6): a release build's keys stop at the layer; a development build's that the viewer took (the
-    // transport's, Escape) are not the console's keymap's too.
-    // A release build's also prevent the defaults of the keys that would press a control or move the range
+    // The keyboard (CX.R6): RVK-B -- the viewer takes its keys in every build (its one table, `../../modern/replays/
+    // viewerKeys`, prevents each key it uses), and a key the viewer took (the transport's, the cameras', Escape) is not the
+    // console's menu keys' too (`stopTaken`). Only a caller that asks for no keys (`keyboard: false`) has the layer stop
+    // them all: then the defaults of the keys that would press a control or move the range are prevented
     // (`RELEASE_PREVENTED`), on keydown and keyup (a button's Space clicks at its keyup), never with Ctrl, Meta or Alt
     // held; every other key (F5, Tab, a shortcut) keeps the browser's default. The pad is the poll's (`../input`), no key
     // event, so it is untouched.
@@ -266,7 +271,7 @@ export function liveReplays(notify: () => void, deps: ReplaysDeps = {}): LiveRep
     }) : null;
     names?.observe(layer, { subtree: true, attributes: true, attributeFilter: ['aria-label'] });
 
-    const handle: ReplayWatch = {
+    const handle: ReplayWatch & { back(): boolean } = {     // RVK-B: with the optional inner-layer back (ruling B)
       id,
       press(b: Button): void {
         if (!viewer) return;
@@ -283,6 +288,9 @@ export function liveReplays(notify: () => void, deps: ReplaysDeps = {}): LiveRep
         return { kind: 'control', label: cur.getAttribute('aria-label') ?? cur.textContent?.trim() ?? '' };
       },
       lock(): void { viewer?.lock(); },
+      // RVK-B (the controller's ruling B): the console's Circle (its Escape too) asks this first -- the viewer's open keys
+      // list takes the press and closes; nothing open, false, and the console closes the viewer as before
+      back: (): boolean => viewer?.back() ?? false,
       locked: () => viewer?.locked() ?? false,
       close(): void {
         names?.disconnect();
@@ -302,7 +310,7 @@ export function liveReplays(notify: () => void, deps: ReplaysDeps = {}): LiveRep
         devDoors: replayDevDoors(win.location.search, dev),              // SA-9b: a production build never
       },
       discReading: () => deps.disc?.() === 'reading',
-      keys: keyboard,                                          // the RV-12 review: no key named where none reaches it
+      keys: keyboard,                                          // the RV-12 review: no key named where none reaches it; RVK-B: true
       onClose: () => { if (current === handle) onClose(); },
     });
     return handle;

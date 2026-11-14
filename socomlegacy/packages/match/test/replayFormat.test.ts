@@ -11,6 +11,7 @@ import {
   ReplayWriter, seekIndex, type ReplayHeader, type ReplayRecord,
 } from '../src/replay/format';
 import { encodeSnapshot as encodeSnapshotPre337 } from '../../viewer/test/fixtures/codecPre337';
+import { withoutViewTails } from '../../viewer/test/fixtures/viewTail';
 
 const body = (id: number, x: number): BodyState => ({
   id, feet: [x, 0, 0], yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0, flags: 0, stance: 0, landing: 0, jumps: 0, ground: 1,
@@ -99,11 +100,11 @@ describe('the .s2r versions (PT-01b)', () => {
     Buffer.from(encodeRecord({ kind: 'snap', tick: 2, bodies: [body(1, 10)] })),
   ]);
   it('refuses a replay recorded under a protocol it holds no decoder for, and readReplayHeader still names it', () => {
-    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15]);
-    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15 (V19.R10): the mover's rules (LC-1, AIR-PROBE, STEEP-LAUNCH); 14 ER-2: the command's `raised` bit; 13 PLANT-AIM (F2): the plant's pick; 12 SEP-POP (B1): the command's `separate` bit
+    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15, 16]);
+    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16 (PV.R4): the player's view's bytes, a command 18 and a body 55; 15 PROTO-15 (V19.R10): the mover's rules (LC-1, AIR-PROBE, STEEP-LAUNCH); 14 ER-2: the command's `raised` bit; 13 PLANT-AIM (F2): the plant's pick; 12 SEP-POP (B1): the command's `separate` bit
     for (const protocol of [PROTOCOL_VERSION + 1, 9]) {
       const bytes = fileOf({ protocol });
-      expect(() => decodeRecords(bytes)).toThrow(`unsupported replay protocol ${protocol} (this build decodes 10, 11, 12, 13, 14, 15)`);
+      expect(() => decodeRecords(bytes)).toThrow(`unsupported replay protocol ${protocol} (this build decodes 10, 11, 12, 13, 14, 15, 16)`);
       expect(readReplayHeader(bytes)?.protocol).toBe(protocol);
       expect(readReplayHeader(bytes)?.map).toBe('MP2');
     }
@@ -141,28 +142,64 @@ describe('the .s2r versions (PT-01b)', () => {
     expect([cmd.tick, cmd.id]).toEqual([4242, 3]);
     expect(cmd.command).toMatchObject({ seq: 777, buttons: 0x223, stance: 2, weapon: 1, separate: false });
   });
+  // A protocol-15 frame, as 15's writers laid it out: the snapshot by the frozen pre-#337 writer (its body is 15's 52 bytes;
+  // no hooks named), one command by hand (`V11_COMMAND` above with the stance byte's bits 3 and 7: separate, raised).
+  const V15_COMMAND = Uint8Array.from(Buffer.from('020090844501090300007fc100401efbe20423029a', 'hex'));
+  const v15Snap = (): Uint8Array => encodeSnapshotPre337({ tick: 9, own: null, bodies: [body(1, 10), { ...body(2, -40), flags: 1 << 16 }] });
+  const fileAt = (protocol: number, snap: Uint8Array, cmd: Uint8Array): Uint8Array => Buffer.concat([
+    Buffer.from(encodeRecord({ kind: 'header', header: { ...base, protocol } })),
+    rawRecord(3, snap), rawRecord(5, cmdPayload(4242, 3, cmd)),
+    Buffer.from(encodeRecord({ kind: 'end', tick: 9, reason: 'closed' })),
+  ]);
   it('PROTO-15 (V19.R10): a protocol 14 recording and a protocol 15 one of the same bytes decode to the same records, the header\'s protocol the one difference', () => {
     // 15 changed the mover's rules alone (LC-1's press-to-mount ladder, AIR-PROBE's frame-end floor probe, STEEP-LAUNCH),
-    // never the frames: the same snap and cmd payloads under either header read identically.
-    const command: Command = { seq: 777, forward: 1, right: -63 / 127, yaw: 90, pitch: -12.5, turn: 1.25, buttons: 0x223, stance: 2, weapon: 1, separate: true, raised: true };
-    const snap = encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), { ...body(2, -40), flags: 1 << 16 }] });
-    const cmd = encodeCommands({ viewTick: 4242, commands: [command] });
-    const fileAt = (protocol: number): Uint8Array => Buffer.concat([
-      Buffer.from(encodeRecord({ kind: 'header', header: { ...base, protocol } })),
-      rawRecord(3, snap), rawRecord(5, cmdPayload(4242, 3, cmd)),
-      Buffer.from(encodeRecord({ kind: 'end', tick: 9, reason: 'closed' })),
-    ]);
-    const fourteen = decodeRecords(fileAt(14)), fifteen = decodeRecords(fileAt(15));
+    // never the frames: the same snap and cmd payloads under either header read identically (both on the frozen 15 decoders).
+    const fourteen = decodeRecords(fileAt(14, v15Snap(), V15_COMMAND)), fifteen = decodeRecords(fileAt(15, v15Snap(), V15_COMMAND));
     expect(fourteen.truncated || fifteen.truncated).toBe(false);
     expect(fourteen.records.map((r) => r.kind)).toEqual(['header', 'snap', 'cmd', 'end']);
     expect(fourteen.records.slice(1)).toEqual(fifteen.records.slice(1));
     expect([fourteen.records[0], fifteen.records[0]]).toEqual([{ kind: 'header', header: { ...base, protocol: 14 } }, { kind: 'header', header: { ...base, protocol: 15 } }]);
     expect((fourteen.records[2] as Extract<ReplayRecord, { kind: 'cmd' }>).command).toMatchObject({ seq: 777, separate: true, raised: true });
   });
+  it('WIRE-16 (PV-1): a recorded protocol-15 snapshot and cmd record (and 11 to 14\'s) decode through the table\'s frozen 15 decoders, view, clock and sway 0', () => {
+    for (const protocol of [11, 12, 13, 14, 15]) {
+      const out = decodeRecords(fileAt(protocol, v15Snap(), V15_COMMAND));
+      expect(out.truncated).toBe(false);
+      const snap = out.records[1] as Extract<ReplayRecord, { kind: 'snap' }>;
+      const cmd = out.records[2] as Extract<ReplayRecord, { kind: 'cmd' }>;
+      expect(snap.bodies.map((b) => [b.id, b.view, b.clock, b.swayX, b.swayY])).toEqual([[1, 0, 0, 0, 0], [2, 0, 0, 0, 0]]);
+      expect(snap.bodies[1]!.flags).toBe(1 << 16);
+      // The same snapshot written at 16 reads to the same bodies: the zero tail is the one difference on the wire.
+      expect(snap.bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), { ...body(2, -40), flags: 1 << 16 }] })).bodies);
+      expect([cmd.tick, cmd.id]).toEqual([4242, 3]);
+      expect(cmd.command).toEqual({ seq: 777, forward: 1, right: -63 / 127, yaw: 90, pitch: -12.5, turn: 1.25, buttons: 0x223, stance: 2, weapon: 1, separate: true, raised: true, view: 0, swayX: 0, swayY: 0 });
+    }
+  });
+  it('WIRE-16 (PV-1): a protocol-16 recording carries the view\'s tail and a body whose flags hold the reserved bit 17, every other field as given', () => {
+    // PV.R4: bit 17 is reserved for the fog of war's lane and defined by nothing; a 16 recording that holds it still decodes.
+    const marked = { ...body(2, -40), flags: (1 << 17) | (1 << 16) | (1 << 6), view: 5, clock: 13, swayX: -30, swayY: 2.5 };
+    const command: Command = { seq: 41, forward: 1, right: 0, yaw: 90, pitch: -12.5, turn: 0, buttons: 0x203, stance: 1, weapon: 1, view: 12, swayX: 59.5, swayY: -0.5 };
+    const records: ReplayRecord[] = [
+      { kind: 'header', header: { ...base, protocol: 16 } },
+      { kind: 'snap', tick: 9, bodies: [body(1, 10), marked] },
+      { kind: 'cmd', tick: 9, id: 2, command },
+      { kind: 'end', tick: 9, reason: 'closed' },
+    ];
+    const out = decodeRecords(Buffer.concat(records.map((r) => Buffer.from(encodeRecord(r)))));
+    expect(out.truncated).toBe(false);
+    const snap = out.records[1] as Extract<ReplayRecord, { kind: 'snap' }>;
+    const back = snap.bodies[1]!;
+    expect(back.flags).toBe((1 << 17) | (1 << 16) | (1 << 6));
+    expect([back.view, back.clock, back.swayX, back.swayY]).toEqual([5, 13, -30, 2.5]);
+    expect(snap.bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), marked] })).bodies);
+    const plain = decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [{ ...marked, flags: (1 << 16) | (1 << 6) }] })).bodies[0]!;
+    expect({ ...back, flags: plain.flags }).toEqual(plain);
+    expect((out.records[2] as Extract<ReplayRecord, { kind: 'cmd' }>).command).toMatchObject({ seq: 41, view: 12, swayX: 59.5, swayY: -0.5 });
+  });
   it('refuses a replay of another format', () => {
-    const bytes = fileOf({ format: 4 });
-    expect(() => decodeRecords(bytes)).toThrow('unsupported replay format 4 (this build reads 1, 2, 3)');
-    expect(readReplayHeader(bytes)?.format).toBe(4);
+    const bytes = fileOf({ format: 5 });                          // FIRE-LAYER FL-2: 4 is read now
+    expect(() => decodeRecords(bytes)).toThrow('unsupported replay format 5 (this build reads 1, 2, 3, 4)');
+    expect(readReplayHeader(bytes)?.format).toBe(5);
   });
   it('refuses a buffer whose first record is not a header', () => {
     const bytes = encodeRecord({ kind: 'snap', tick: 2, bodies: [] });
@@ -272,7 +309,10 @@ describe('#337 takeover (the wire, additive): a replay without hooks', () => {
     expect('cranes' in snap).toBe(false);
     expect(Buffer.from(encodeRecord(snap)).toString('hex')).toBe(Buffer.from(encodeRecord(snapRec)).toString('hex'));
     const payload = Buffer.from(encodeSnapshotPre337({ tick: 321, own: null, bodies: snapRec.bodies, doors, env }));
-    expect(Buffer.from(encodeRecord(snapRec)).includes(payload)).toBe(true);
+    // WIRE-16 (protocol 16): the record's frame is the pre-#337 bytes with each body's three tail bytes (zero here) added.
+    const frame = encodeRecord(snapRec).subarray(5);
+    expect(frame.byteLength - payload.byteLength).toBe(3 * snapRec.bodies.length);
+    expect(Buffer.from(withoutViewTails(frame)).equals(payload)).toBe(true);
   });
 });
 
@@ -287,19 +327,22 @@ describe('SIMDROP-INSTR: the refusal record (format 3)', () => {
     kind: 'refusal', tick: 812, seat: 3, seq: 640, why: 'fire: cone: eye', eye: [10.5, 52.25, -3], aim: [1, 0, 0],
     locus: [10.5, 12.25, -3], distance: 40, lens: false, feet: [0, 20, 0], groundNormalY: 1, airborne: false, stance: 'crouch',
   };
-  it('the format is version 3, and this build reads 1, 2 and 3', () => {
-    expect(REPLAY_FORMAT_VERSION).toBe(3);
-    expect(REPLAY_FORMATS).toEqual([1, 2, 3]);
+  // FIRE-LAYER FL-2 moved the version to 4 (its `rewind` record, `replayRewindRecord.test.ts`); format 3 is still read.
+  const v3: ReplayRecord = { kind: 'header', header: { ...base, format: 3 } };
+  it('the format the refusal came with is 3, and this build reads 1, 2 and 3 (and 4, FL-2)', () => {
+    expect(REPLAY_FORMAT_VERSION).toBeGreaterThanOrEqual(3);
+    expect(REPLAY_FORMATS.slice(0, 3)).toEqual([1, 2, 3]);
     expect(REPLAY_TAG.refusal).toBe(9);
   });
-  it('round-trips a refusal record, every field, in a format-3 file', () => {
-    const bytes = Buffer.concat([Buffer.from(encodeRecord(header)), Buffer.from(encodeRecord(refusal)), Buffer.from(encodeRecord({ kind: 'end', tick: 900, reason: 'closed' }))]);
-    const out = decodeRecords(bytes);
-    expect((out.records[0] as { header: ReplayHeader }).header.format).toBe(3);
-    expect(out.records).toEqual([header, refusal, { kind: 'end', tick: 900, reason: 'closed' }]);
-    expect(out).not.toHaveProperty('skipped');
+  it('round-trips a refusal record, every field, in a format-3 file and in the current format', () => {
+    for (const head of [v3, header]) {
+      const bytes = Buffer.concat([Buffer.from(encodeRecord(head)), Buffer.from(encodeRecord(refusal)), Buffer.from(encodeRecord({ kind: 'end', tick: 900, reason: 'closed' }))]);
+      const out = decodeRecords(bytes);
+      expect(out.records).toEqual([head, refusal, { kind: 'end', tick: 900, reason: 'closed' }]);
+      expect(out).not.toHaveProperty('skipped');
+    }
   });
-  it('a format-1 and a format-2 file still read under the format-3 reader, record for record', () => {
+  it('a format-1 and a format-2 file still read under the current reader, record for record', () => {
     for (const format of [1, 2]) {
       const file: ReplayRecord[] = [
         { kind: 'header', header: { ...base, format } }, { kind: 'event', tick: 3, event: { type: 'left', id: 1 } }, { kind: 'end', tick: 4, reason: 'closed' },

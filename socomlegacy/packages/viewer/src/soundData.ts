@@ -341,7 +341,7 @@ function silent(archive: string, missing: string[]): SoundData {
  * `cuesFrom` (the owner, 2026-11-06; a browser adaptation, FG.R2 -- the forge's game type over a map of another): the
  * round's cues -- its `objectives` script, the lines its locale ids name and the streams it plays -- read off this map
  * instead of `mapPath`'s, every other sound the map's own. The game has one script a map, its own mode's: a layout that
- * plays another mode there borrows a map of that mode's script (CUES_FROM_DONOR_READING: its generic valves --
+ * plays another mode there borrows a map of that mode's script (CUES_FROM_DONOR_ADAPTATION: its generic valves --
  * `mp_bomb`, `bomb_owner`, `mp_winner`, `player_team` -- drive it as on its own map; a line testing one of its own map's
  * names -- a VIP's valve, a tent -- may not fire on this one [reading: not run against the original]).
  *

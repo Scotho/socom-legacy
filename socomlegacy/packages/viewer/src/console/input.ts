@@ -1,4 +1,5 @@
 import { onInstallClick } from '../pwa/install';
+import { PAD_REPEAT_ATTR, PAD_REPEAT_EVENT, REPEAT_DELAY, REPEAT_EVERY } from './padRepeat';
 import type { ConsoleController } from './grammar';
 import { createMenuRumble, menuVibrationEnabled } from './menuRumble';
 import { FIELD_ID, NAME_ID, PASSWORD_ID, SEARCH_ID } from './render/overlay';
@@ -61,8 +62,8 @@ export const PADMAP: Readonly<Record<number, Button>> = {
 };
 /** The left stick's circular dead zone (XInput's 7849 / 32767, about 0.24; "Controller UI" 1). */
 export const DEAD = 0.24;
-export const REPEAT_DELAY = 400;
-export const REPEAT_EVERY = 100;
+/** The held-press repeat, 400 ms then every 100 ms (RVK-A: written once, in `./padRepeat`, and exported from here as before). */
+export { PAD_REPEAT_ATTR, PAD_REPEAT_EVENT, REPEAT_DELAY, REPEAT_EVERY };
 /** A trigger (or any analogue button) counts as pressed above this. */
 export const TRIGGER_PRESS = 0.6;
 
@@ -80,8 +81,11 @@ export interface PadLike { index?: number; axes: readonly number[]; buttons: rea
  * until it is let go (CX-14's batch A review F2). */
 export type Held = Record<string, { t: number; last: number; spent?: boolean }>;
 
-/** One frame's presses, in PADMAP order. The optional source map retains the physical pad for launcher feedback. */
-export function padFrame(pads: readonly PadLike[], held: Held, now: number, sources?: Partial<Record<Button, PadLike>>): Button[] {
+/**
+ * One frame's presses, in PADMAP order. The optional source map retains the physical pad for launcher feedback. `also`
+ * (RVK-A): buttons that repeat this frame beside `REPEATS`, at the same cadence (the poll's Cross on a control that asks).
+ */
+export function padFrame(pads: readonly PadLike[], held: Held, now: number, sources?: Partial<Record<Button, PadLike>>, also?: readonly Button[]): Button[] {
   const down: Partial<Record<Button, PadLike>> = {};
   for (const p of pads) {
     p.buttons.forEach((bt, i) => {
@@ -103,7 +107,7 @@ export function padFrame(pads: readonly PadLike[], held: Held, now: number, sour
       if (sources) sources[b] = down[b];
       const h = held[b];
       if (!h) { held[b] = { t: now, last: now }; out.push(b); }
-      else if (!h.spent && REPEATS.includes(b) && now - h.t > REPEAT_DELAY && now - h.last > REPEAT_EVERY) { h.last = now; out.push(b); }
+      else if (!h.spent && (REPEATS.includes(b) || (also?.includes(b) ?? false)) && now - h.t > REPEAT_DELAY && now - h.last > REPEAT_EVERY) { h.last = now; out.push(b); }
     } else delete held[b];
   }
   return out;
@@ -545,13 +549,18 @@ export function attachInput(doc: Document, win: Window, ctl: ConsoleController, 
       if (!read && pads.length && !ctl.A.pad.connected()) { ctl.A.pad.setConnected(true); ctl.render(); }
       const report = ctl.A.report?.isOpen() ?? false;              // OVERLAY-CONSOLE: the Report's open: no press of the console's
       const sources: Partial<Record<Button, PadLike>> = {};
-      const presses = padFrame(pads, held, now, sources);
+      // RVK-A (`./padRepeat`): Cross held on a focused control that asks (`PAD_REPEAT_ATTR`) repeats as a direction does;
+      // its first press is the press as before, each repeat one `PAD_REPEAT_EVENT` on that control, not a press
+      const repeater = (doc.activeElement as Element | null)?.closest?.(`[${PAD_REPEAT_ATTR}]`) ?? null;
+      const crossHeld = held['cross'] !== undefined;
+      const presses = padFrame(pads, held, now, sources, repeater ? ['cross'] : undefined);
       // B61 F3: attached again after a page dialog that read the pad itself (the touch layout editor's Circle), the
       // buttons held at the first frame are no press until let go (`settle`), as a stand-down's are.
       if (settling) { settling = false; for (const h of Object.values(held)) h.spent = true; }
       else for (const b of presses) {
         if (standDown || report || ctl.capturing()) break;       // a press that began a listen ends this frame's
         rumble.pulse(sources[b]?.index, now);
+        if (repeater && b === 'cross' && crossHeld) { repeater.dispatchEvent(new CustomEvent(PAD_REPEAT_EVENT)); continue; }
         ctl.padPress(b);
         if (!attached) return;                                   // a hand-over owns no later press, pulse or frame
         rumble.sync(now);                                        // a menu action may itself turn vibration off

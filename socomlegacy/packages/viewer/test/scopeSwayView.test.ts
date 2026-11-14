@@ -134,3 +134,49 @@ describe('the scoped sway on the view (research 381)', () => {
     expect(hand).toBeLessThan(src.indexOf('const [sx, sy] = fly.screenShift();'));
   });
 });
+
+/**
+ * PV-5b (the player's-view lane; product track, a labelled browser adaptation -- research 402 s2, plan PV.R3): the
+ * watched player's sway (`PovPose.offset`, `scopeViewOffset` of the carried view state and sway) on the watcher's camera,
+ * which is not walking -- `FlyCamera.setSubjectOffset`, the one seam beside the walk's `setKitOffset`. It does nothing to a
+ * walking camera (the kit's and the look's offsets stay the walk's own) and is cleared by (0, 0).
+ */
+describe("PV-5b: the subject's offset on a camera that is not walking (FlyCamera.setSubjectOffset)", () => {
+  it('not walking: drawn at once as the screen offset; (0, 0) clears it', () => {
+    const fly = new FlyCamera(canvas());
+    fly.setPose({ yaw: 0, pitch: 0 });
+    fly.setAspect(4 / 3);
+    fly.setSubjectOffset(12, -9);
+    expect(fly.lookState().screen).toEqual([12, -9]);
+    expect(fly.camera.view?.enabled).toBe(true);
+    expect(fly.screenShift()[1]).toBeCloseTo(-9 / 448, 9);
+    fly.update(TICK);
+    expect(fly.lookState().screen).toEqual([12, -9]);                 // the fly camera's frame keeps it
+    fly.setSubjectOffset(0, 0);
+    expect(fly.lookState().screen).toEqual([0, 0]);
+    expect(fly.camera.view?.enabled ?? false).toBe(false);
+  });
+
+  it("walking: nothing -- the kit's offset and the look's stay the walk's own", () => {
+    const fly = new FlyCamera(canvas());
+    fly.setPose({ yaw: 0, pitch: 0 });
+    fly.setWalking(true);
+    fly.setAspect(4 / 3);
+    fly.setKitOffset(12, -9);
+    fly.setSubjectOffset(5, 5);
+    expect(fly.lookState().screen).toEqual([12, -9]);
+    fly.setSubjectOffset(0, 0);
+    expect(fly.lookState().screen).toEqual([12, -9]);
+    fly.update(TICK);
+    expect(fly.lookState().screen).toEqual([12, -9]);
+  });
+
+  it('a walk begun after it: the walk\'s look writes its own offset on its first frame', () => {
+    const fly = new FlyCamera(canvas());
+    fly.setPose({ yaw: 0, pitch: 0 });
+    fly.setSubjectOffset(7, 7);
+    fly.setWalking(true);
+    fly.update(TICK);
+    expect(fly.lookState().screen).toEqual([0, 0]);
+  });
+});

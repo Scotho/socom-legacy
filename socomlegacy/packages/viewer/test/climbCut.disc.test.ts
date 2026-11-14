@@ -152,7 +152,11 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
     }
     expect(over).toEqual([]);
     // R4B-09 (research 383; OT.R97): 1450 as read, 1441 with r0004's MP8 rewrite of `land43/climber1` (r4 0x2d9884, appflags 4
-    // -> 0): its nine faces are no longer climbed.
+    // -> 0): its nine faces are no longer climbed. CLUTTER (LATER 997, research 422 s6): the hull now carries the clutter
+    // after the worldmodel, and every change below is a `clutter/...` owner (no worldmodel wall's crossings moved; read off
+    // the box run rq-cl2 at c122d0043c): faces 1441 -> 1615 (+174 clutter climb faces, appflags 4/5), four M81
+    // `obligitory_crate` tops with 4 crossings on a level face (`level`, not a wall: `over` stays empty), and 44 more
+    // walls whose column writes the fifth slot (78 -> 122: M73's chairs, garbage cans and tables, an M81 and a Sujo barrel).
     expect({ faces, ladders, level, wideWalls, wide: wide.sort(), endWrite: endWrite.sort() }).toMatchInlineSnapshot(`
       {
         "endWrite": [
@@ -168,9 +172,13 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
           "MP73 worldmodel/aagun/aagun_zpu4=aagun_zpu4/good_parts/di_wheels",
           "MP73 worldmodel/aagun/aagun_zpu4=aagun_zpu4/good_parts/di_wheels",
         ],
-        "faces": 1441,
+        "faces": 1615,
         "ladders": 158,
         "level": [
+          "M81 clutter/obligitory_crate#123 app 4: 4",
+          "M81 clutter/obligitory_crate#125 app 4: 4",
+          "M81 clutter/obligitory_crate#126 app 4: 4",
+          "M81 clutter/obligitory_crate#128 app 4: 4",
           "MP1 worldmodel/alaska4d_fence01 app 5: 4",
           "MP1 worldmodel/alaska4d_fence01=alaska4d_fence01 app 5: 4",
           "MP1 worldmodel/alaska4d_fence01 app 5: 4",
@@ -205,14 +213,58 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
           "M72 worldmodel/g942",
           "M72 worldmodel/g944",
           "M72 worldmodel/g944",
+          "M73 clutter/chair1#100",
+          "M73 clutter/chair1#100",
+          "M73 clutter/chair1#90",
+          "M73 clutter/chair1#90",
+          "M73 clutter/chair1#91",
+          "M73 clutter/chair1#91",
+          "M73 clutter/chair1#92",
+          "M73 clutter/chair1#92",
+          "M73 clutter/chair1#93",
+          "M73 clutter/chair1#93",
+          "M73 clutter/chair1#94",
+          "M73 clutter/chair1#94",
+          "M73 clutter/chair1#95",
+          "M73 clutter/chair1#95",
+          "M73 clutter/chair1#96",
+          "M73 clutter/chair1#96",
+          "M73 clutter/chair1#98",
+          "M73 clutter/chair1#98",
+          "M73 clutter/garbagecan1#22",
+          "M73 clutter/garbagecan1#22",
+          "M73 clutter/garbagecan1#26",
+          "M73 clutter/garbagecan1#26",
+          "M73 clutter/garbagecan1#27",
+          "M73 clutter/garbagecan1#27",
+          "M73 clutter/garbagecan1#28",
+          "M73 clutter/garbagecan1#28",
+          "M73 clutter/garbagecan1#29",
+          "M73 clutter/garbagecan1#29",
+          "M73 clutter/garbagecan1#30",
+          "M73 clutter/garbagecan1#30",
+          "M73 clutter/garbagecan1#33",
+          "M73 clutter/garbagecan1#33",
+          "M73 clutter/tabel1#79",
+          "M73 clutter/tabel1#79",
+          "M73 clutter/tabel1#83",
+          "M73 clutter/tabel1#83",
+          "M73 clutter/tabel1#85",
+          "M73 clutter/tabel1#85",
+          "M73 clutter/tabel1#87",
+          "M73 clutter/tabel1#87",
+          "M73 clutter/tabel1#88",
+          "M73 clutter/tabel1#88",
           "M73 worldmodel/ballroom_wall/ballroom_breach=ballroom_breach/ballroom_down/g44",
           "M73 worldmodel/g734",
           "M73 worldmodel/g747",
+          "M81 clutter/barrelclosed#158",
           "MP1 worldmodel/pipe/dicamonly",
           "MP1 worldmodel/pipe/dipip",
           "MP1 worldmodel/pipe/dipip",
           "MP53 worldmodel/bunker1",
           "MP53 worldmodel/bunker3",
+          "MP61 clutter/barrel_open#79/barrel_di",
           "MP61 worldmodel/g1902/di_ext01",
           "MP61 worldmodel/g1914/di26",
           "MP7 worldmodel/dishnetwork/seal_comm_dish=seal_comm_dish/dish_di",
@@ -244,7 +296,7 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
           "MP82 worldmodel/wc",
           "MP82 worldmodel/wc",
         ],
-        "wideWalls": 78,
+        "wideWalls": 122,
       }
     `);
   }, 300_000);

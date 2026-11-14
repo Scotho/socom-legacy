@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { matchLoader, type MatchWorker } from '../src/matchMount';
+import { pageMatchDiag, resetPageMatchDiagForTest } from '../src/matchDiagPage';
+import { markLoad } from '../src/loadMarks';
 import type { ViewerRequest, ViewerResponse } from '../src/worker';
 
 /**
@@ -52,6 +54,44 @@ const SOURCE = { kind: 'http', baseUrl: '/maps' } as never;
 afterEach(() => { window.history.replaceState(null, '', '/'); });
 
 describe('matchLoader under the Xbox preset lets its worker go once a load is in (browser adaptation, PR #631)', () => {
+  it('Xbox decoding releases each asset decoder before the next one, retaining both sound replies', async () => {
+    window.history.replaceState(null, '', '/?renderer=xbox');
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make);
+    const loaded = loader.load('mp2');
+    expect(made[0]!.asked.map((r) => r.kind)).toEqual(['load']);
+    made[0]!.say({ kind: 'map', id: made[0]!.asked[0]!.id, map: { path: 'RUN/MP2.ZDB', archive: 'MP2' } });
+    await flush();
+    expect(made[0]!.terminated).toBe(1);
+    expect(made[1]!.asked[0]!.kind).toBe('play');
+    made[1]!.say({ kind: 'play', id: made[1]!.asked[0]!.id, data: null });
+    await flush();
+    expect(made[1]!.terminated).toBe(1);
+    expect(made[2]!.asked[0]!.kind).toBe('effects');
+    made[2]!.say({ kind: 'effects', id: made[2]!.asked[0]!.id, data: null });
+    await flush();
+    const w = made[3]!, id = w.asked[0]!.id;
+    expect(w.asked[0]!.kind).toBe('sound');
+    w.say({ kind: 'sound', id, data: { banks: [] } });
+    expect(w.terminated).toBe(0);
+    w.say({ kind: 'soundLoops', id, loops: [] });
+    expect((await loaded)?.sound).toEqual({ data: { banks: [] }, loops: [] });
+    expect(made.map((w) => w.terminated)).toEqual([1, 1, 1, 1]);
+    loader.dispose();
+  });
+
+  it('disposal during a staged load cannot launch another decoder', async () => {
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make, { serialWorkerRequests: true });
+    const loaded = loader.load('mp2');
+    made[0]!.say({ kind: 'map', id: made[0]!.asked[0]!.id, map: { path: 'RUN/MP2.ZDB', archive: 'MP2' } });
+    loader.dispose();
+    await loaded;
+    await flush();
+    expect(made).toHaveLength(1);
+    expect(made[0]!.terminated).toBe(1);
+  });
+
   it('the worker is terminated after the load settles, and a later load makes a fresh one', async () => {
     const { made, make } = fakeWorkers();
     const loader = matchLoader(SOURCE, make, { releaseWorkerAfterLoad: true });
@@ -111,7 +151,7 @@ describe('matchLoader under the Xbox preset lets its worker go once a load is in
   it('the preset is read off ./graphicsBackend: ?renderer=xbox lets the worker go', async () => {
     window.history.replaceState(null, '', '/?renderer=xbox');
     const { made, make } = fakeWorkers();
-    const loader = matchLoader(SOURCE, make);
+    const loader = matchLoader(SOURCE, make, { serialWorkerRequests: false });
     const a = loader.load('mp2');
     await answer(made[0]!);
     await a;
@@ -162,5 +202,88 @@ describe('matchLoader on every other preset keeps its worker for the match, as b
     expect(await b).toBeNull();
     await flush();
     expect(made[1]!.terminated).toBe(1);
+  });
+
+  it('PR #790 piece 2 (review F3): with the worker kept after loads, a worker error event terminates it and the next request makes a fresh one', async () => {
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make, { releaseWorkerAfterLoad: false, serialWorkerRequests: false, cancelSupersededLoads: false });
+    const a = loader.load('mp2');
+    expect(made).toHaveLength(1);
+    made[0]!.fail();
+    expect(await a).toBeNull();
+    await flush();
+    expect(made[0]!.terminated).toBe(1);      // by the error itself: no idle release runs with the worker kept
+    const b = loader.load('mp3');
+    expect(made).toHaveLength(2);             // the broken worker is never asked again
+    expect(made[0]!.asked.filter((r) => r.kind === 'load')).toHaveLength(1);
+    await answer(made[1]!);
+    expect(await b).not.toBeNull();
+    expect(made[1]!.terminated).toBe(0);      // the fresh one kept, as every other preset keeps it
+    loader.dispose();
+    expect(made[1]!.terminated).toBe(1);
+  });
+});
+
+/**
+ * XBOX-790-LOADDIAG review M1 (product track, an instrument): the page's diagnostic keeps a load's stage lane until the
+ * match's end -- so a load that settles with no mount closes it, or a later loss in the menus would report stale stages
+ * and a stuck `lt`. A load that goes on (another mission's `load` after a drop) keeps it.
+ */
+describe('XBOX-790-LOADDIAG review M1: the loader closes the diagnostic\'s load lane when it settles with no mount', () => {
+  beforeEach(() => { resetPageMatchDiagForTest(); });
+  afterEach(() => { resetPageMatchDiagForTest(); });
+  const KEPT = { releaseWorkerAfterLoad: false, serialWorkerRequests: false, cancelSupersededLoads: false } as const;
+
+  it('(a) a lobby prepare that decodes and is let go (dropPrepared: the lobby left, or a load ended with no match): the lane closed', async () => {
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make, KEPT);
+    void loader.prepare('mp2');
+    expect(made[0]!.asked.map((r) => r.kind)).toEqual(['load', 'play']);
+    expect(pageMatchDiag().loadOpen).toBe(true);                // the decode opened it (no load-start before a lobby prepare)
+    loader.dropPrepared();
+    expect(pageMatchDiag().loadOpen).toBe(false);
+    loader.dispose();
+    await flush();
+  });
+
+  it("LATER 987: a lobby prepare let go, then its worker's late replies -- the lane stays closed (a later loss reports no load)", async () => {
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make, KEPT);
+    void loader.prepare('mp2');
+    expect(pageMatchDiag().loadOpen).toBe(true);
+    loader.dropPrepared();                                       // the lobby left while the prepare still decoded
+    expect(pageMatchDiag().loadOpen).toBe(false);
+    await answer(made[0]!);                                      // the pending requests answer late, and succeed
+    expect(pageMatchDiag().loadOpen).toBe(false);
+    loader.dispose();
+    await flush();
+  });
+
+  it('(b) a load that fails (its map answered with an error): the lane closed once it settles', async () => {
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make, KEPT);
+    const a = loader.load('mp2');
+    expect(pageMatchDiag().loadOpen).toBe(true);
+    for (const r of made[0]!.asked) made[0]!.say({ kind: 'error', id: r.id, message: 'no map' });
+    expect(await a).toBeNull();
+    await flush();
+    expect(pageMatchDiag().loadOpen).toBe(false);
+    loader.dispose();
+  });
+
+  it('(c) the loader disposed mid-load: the lane closed; before that, a hand-off\'s load of another mission (a drop with a load after it) and the older load\'s failure keep it', async () => {
+    const { made, make } = fakeWorkers();
+    const loader = matchLoader(SOURCE, make, KEPT);
+    void loader.prepare('mp2');
+    const mp2 = [...made[0]!.asked];
+    markLoad('load-start', null);                                // the hand-off's, as the front end marks it
+    void loader.load('mp3');                                     // lets mp2's prepare go; mp3's decode follows
+    expect(pageMatchDiag().loadOpen).toBe(true);
+    for (const r of mp2) made[0]!.say({ kind: 'error', id: r.id, message: 'no map' });
+    await flush();
+    expect(pageMatchDiag().loadOpen).toBe(true);                // mp2's failure is no longer the kept load's
+    loader.dispose();
+    expect(pageMatchDiag().loadOpen).toBe(false);
+    await flush();
   });
 });

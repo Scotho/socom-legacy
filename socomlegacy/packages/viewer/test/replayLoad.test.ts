@@ -35,12 +35,12 @@ describe('loadSegment: fetch, gunzip by DecompressionStream when the bytes are g
     expect(seg.records).toHaveLength(records.length);
     expect(seg.records.some((r) => r.kind === 'hostages')).toBe(false);
   });
-  it('a recording of protocol 999 is refused with a message in plain words, never decoded (PT.R10)', async () => {
-    const bytes = concat([encodeRecord({ kind: 'header', header: header({ protocol: 999 }) })]);
+  it('a recording of an older protocol (9) is refused in plain words, never decoded (PT.R10; FL-2b: a newer one, ./replay/newerVersion)', async () => {
+    const bytes = concat([encodeRecord({ kind: 'header', header: header({ protocol: 9 }) })]);
     const err = await loadSegment('http://localhost:5303/segments/0.s2r', { fetch: fakeFetch(bytes) }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ReplayLoadError);
-    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15]);     // SEP-POP's 12, PLANT-AIM's 13, ER-2's 14 and PROTO-15's 15 beside the kept 10 and 11
-    expect((err as Error).message).toBe('This recording was made with network protocol 999; this build plays protocols 10, 11, 12, 13, 14 and 15.');
+    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15, 16]); // SEP-POP's 12, PLANT-AIM's 13, ER-2's 14, PROTO-15's 15 and WIRE-16's 16 beside the kept 10 and 11
+    expect((err as Error).message).toBe('This recording was made with network protocol 9; this build plays protocols 10, 11, 12, 13, 14, 15 and 16.');
   });
   it('another format, no header, an empty file, a failed fetch, a bad gzip: each a ReplayLoadError in words', async () => {
     const url = 'http://localhost:5303/segments/0.s2r';
@@ -49,7 +49,7 @@ describe('loadSegment: fetch, gunzip by DecompressionStream when the bytes are g
       expect(e).toBeInstanceOf(ReplayLoadError);
       return (e as Error).message;
     };
-    expect(await fails(encodeRecord({ kind: 'header', header: header({ format: 4 }) }))).toBe('This recording\'s file format is version 4; this build reads versions 1, 2 and 3.');
+    expect(await fails(encodeRecord({ kind: 'header', header: header({ format: 0 }) }))).toBe('This recording\'s file format is version 0; this build reads versions 1, 2, 3 and 4.');   // FL-2: 4 read
     expect(await fails(encodeRecord({ kind: 'end', tick: 1, reason: 'x' }))).toBe('This file is not a replay recording (it has no header).');
     expect(await fails(new Uint8Array(0))).toBe('The recording is empty.');
     expect(await fails(null, 404)).toBe('The recording could not be fetched (HTTP 404).');

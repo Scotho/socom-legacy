@@ -18,7 +18,11 @@ describe('the Inspector data', () => {
   it('shows the rows under the transform, hidden with none', () => {
     const dom = buildInspector(document);
     expect(dom.body.contains(dom.data)).toBe(true);
-    expect([...dom.body.children].indexOf(dom.data)).toBeGreaterThan([...dom.body.children].indexOf(dom.fields));
+    // FC2-4: his Inspector holds each in a fold of its own -- Transform, then Properties (inspectorPanel.ts:118; EDITOR-MAP
+    // I2) -- where the rows were the body's own children: the rows still come under the transform.
+    expect([...dom.body.children].indexOf(dom.data.closest('details.fx-inspect-section')!))
+      .toBeGreaterThan([...dom.body.children].indexOf(dom.fields.closest('details.fx-inspect-section')!));
+    expect(dom.fields.compareDocumentPosition(dom.data) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     showInspectorData(dom, [['name', 'Safety'], ['kind', '1 (EXTRACT_ZONE)']]);
     expect(dom.data.hidden).toBe(false);
     expect([...dom.data.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['name', 'kind']);

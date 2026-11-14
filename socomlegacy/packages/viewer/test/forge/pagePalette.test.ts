@@ -10,6 +10,7 @@ import type { LoadedBody } from '../../src/body';
 import type { LoadedMap } from '../../src/loadMap';
 import { pageSettings } from '../../src/pageStore';
 import { freshSavesDb } from './fakeSaves';
+import { pressForgeMenu } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * R6 (the UI seat's palette seam to dot, 2026-10-25 17:23Z / 17:24Z; a browser adaptation, FG.R2 -- the game has no
@@ -85,7 +86,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect(based, JSON.stringify(based)).toMatchObject({ ok: true });
     return api;
   }
-  const pageRows = (): string[] => [...document.querySelectorAll('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li .fx-asset-name')].map((n) => n.textContent ?? '');
+  const pageRows = (): string[] => [...document.querySelectorAll('[data-forge-panel="asset-browser"] ul.fx-assets > li .fx-asset-name')].map((n) => n.textContent ?? '');
 
   it('1: a panel sees the page\'s filtered rows, toggles a favourite, chooses a row (the page places it), lists and chooses the characters', async () => {
     const probe = probePanel();
@@ -96,7 +97,9 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     if (!palette) return;
     await vi.waitFor(() => expect(palette.rows().map((r) => r.assetId)).toEqual(['MP2:barrel', 'MP2:crate']));
     expect(palette.rows()[0]).toEqual({ assetId: 'MP2:barrel', name: 'barrel', archive: 'MP2', group: null, placed: 1, favourite: false, chosen: false });
-    expect(palette.archives()).toEqual([{ id: 'MP2', label: 'Frostfire · MP2', chosen: true }, { id: 'MP3', label: 'Other · MP3', chosen: false }]);
+    // FC2-4: his archive list begins with All, every map's props and objects (page.ts:13784, `PALETTE_ALL`).
+    expect(palette.archives()).toEqual([{ id: '*all', label: 'All · every map’s props and objects', chosen: false },
+      { id: 'MP2', label: 'Frostfire · MP2', chosen: true }, { id: 'MP3', label: 'Other · MP3', chosen: false }]);
     expect(palette.state()).toEqual({ loading: false, emptyReason: null });
     expect(palette.filter()).toEqual({ query: '', favouritesOnly: false });
     const heard = vi.fn();
@@ -106,7 +109,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect(palette.rows().map((r) => r.name)).toEqual(['crate']);
     expect(palette.filter()).toEqual({ query: 'cra', favouritesOnly: false });
     // FUI-22 (D3): the search sits in the filter row now, the dock's own field still
-    expect(document.querySelector<HTMLInputElement>('.fx-left [data-forge-panel="asset-browser"] .fx-asset-filters > input.fx-search')!.value).toBe('cra');
+    expect(document.querySelector<HTMLInputElement>('[data-forge-panel="asset-browser"] .fx-asset-filters > input.fx-search')!.value).toBe('cra');
     expect(pageRows()).toEqual(['crate']);
     expect(heard).toHaveBeenCalled();
     palette.setQuery('');
@@ -130,7 +133,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect(palette.chosen()).toBe('MP2:crate');
     expect(palette.rows().find((r) => r.assetId === 'MP2:crate')!.chosen).toBe(true);
     expect((api.read().view as { tool: string }).tool).toBe('place');
-    expect(document.querySelector('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li.is-on .fx-asset-name')?.textContent).toBe('crate');
+    expect(document.querySelector('[data-forge-panel="asset-browser"] ul.fx-assets > li.is-on .fx-asset-name')?.textContent).toBe('crate');
     // the characters: the base's player models, each side's in order, and the NPC tool
     expect(palette.characters()).toEqual([
       { id: 'terrorist:0', name: 'Terrorist 1 · terror_a', side: 'terrorist', group: 'Terrorists', type: 0, model: 'terror_a_model', chosen: false },
@@ -161,8 +164,8 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
   // FUI-22 (D5, FUI.R21): the asset browser is a movable tab group; its list scrolls inside the panel and its filter row never shrinks.
   it('2: the Assets tab holds one list; the list scrolls within the dock and the filter row never shrinks', async () => {
     await mounted();
-    await vi.waitFor(() => expect(document.querySelector('.fx-right [data-forge-panel="creator-assets"]')).not.toBeNull());
-    const assetsPanel = document.querySelector<HTMLElement>('.fx-left > details.fx-panel[data-forge-panel="asset-browser"]');
+    await vi.waitFor(() => expect(document.querySelector('[data-forge-panel="creator-assets"]')).not.toBeNull());
+    const assetsPanel = document.querySelector<HTMLElement>('details.fx-panel[data-forge-panel="asset-browser"]');
     expect(assetsPanel).not.toBeNull();
     const css = readFileSync(resolve(here, '../../src/forge/forge.css'), 'utf-8').replace(/\r\n/g, '\n');
     const list = /\n\.fx-assets \{([^}]*)\}/.exec(css);
@@ -177,13 +180,13 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
 
   it('3: the Assets tab switches between list and thumbnail grid and remembers the chosen size', async () => {
     await mounted();
-    const list = document.querySelector<HTMLElement>('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets')!;
-    const listButton = document.querySelector<HTMLButtonElement>('.fx-left [aria-label="List view"]')!;
-    const gridButton = document.querySelector<HTMLButtonElement>('.fx-left [aria-label="Grid view"]')!;
-    const optionsButton = document.querySelector<HTMLButtonElement>('.fx-left [aria-label="Asset view options"]')!;
-    const popup = document.querySelector<HTMLElement>('.fx-left #fx-asset-view-popup')!;
-    const slider = document.querySelector<HTMLInputElement>('.fx-left input[aria-label="Grid size"]')!;
-    const hoverToggle = document.querySelector<HTMLInputElement>('.fx-left input[aria-label="Asset preview on hover"]')!;
+    const list = document.querySelector<HTMLElement>('[data-forge-panel="asset-browser"] ul.fx-assets')!;
+    const listButton = document.querySelector<HTMLButtonElement>('[data-forge-panel="asset-browser"] [aria-label="List view"]')!;
+    const gridButton = document.querySelector<HTMLButtonElement>('[data-forge-panel="asset-browser"] [aria-label="Grid view"]')!;
+    const optionsButton = document.querySelector<HTMLButtonElement>('[data-forge-panel="asset-browser"] [aria-label="Asset view options"]')!;
+    const popup = document.querySelector<HTMLElement>('[data-forge-panel="asset-browser"] #fx-asset-view-popup')!;
+    const slider = document.querySelector<HTMLInputElement>('[data-forge-panel="asset-browser"] input[aria-label="Grid size"]')!;
+    const hoverToggle = document.querySelector<HTMLInputElement>('[data-forge-panel="asset-browser"] input[aria-label="Asset preview on hover"]')!;
     expect(popup.hidden).toBe(true);
     optionsButton.click();
     expect(popup.hidden).toBe(false);
@@ -213,7 +216,8 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     slider.value = '160';
     slider.dispatchEvent(new Event('input'));
     expect(list.style.getPropertyValue('--fx-asset-tile-size')).toBe('160px');
-    expect(document.querySelector('.fx-asset-size-value')?.textContent).toBe('160px');
+    // FC2-4: dropped -- the size's word beside the slider: his slider stands alone, `sizeValue` off the page (page.ts:1121).
+    expect(document.querySelector('.fx-asset-size-value')?.isConnected ?? false).toBe(false);
     expect(JSON.parse(pageSettings.get('s2u-forge-assets-browser') ?? '{}')).toEqual({ mode: 'grid', size: 160 });
     listButton.click();
     expect(list.dataset['view']).toBe('list');
@@ -229,7 +233,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect([...document.querySelectorAll('header.fx-top button')].some((b) => /Starter/.test(b.textContent ?? '') || /starter/i.test(b.getAttribute('aria-label') ?? ''))).toBe(false);
     const starters = document.querySelector<HTMLDetailsElement>('[data-forge-panel="starters"]')!;
     expect(starters.open).toBe(false);
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     const row = await vi.waitFor(() => {
       const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="panel-starters"]');
       expect(r).not.toBeNull();
@@ -241,7 +245,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
 
   it('6: the Props screen open over a palette that loads shows its props without another press', async () => {
     await mounted();
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     const props = await vi.waitFor(() => {
       const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="props"]');
       expect(r).not.toBeNull();
@@ -250,7 +254,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     props.click();
     const cells = (): string[] => [...document.querySelectorAll<HTMLElement>('.fx-menu li[data-forge-menu-row^="prop-"]')].map((r) => r.dataset['forgeMenuRow']!);
     await vi.waitFor(() => expect(cells()).toEqual(['prop-MP2:barrel', 'prop-MP2:crate']));
-    const select = document.querySelector<HTMLSelectElement>('.fx-left [data-forge-panel="asset-browser"] select.fx-select')!;
+    const select = document.querySelector<HTMLSelectElement>('[data-forge-panel="asset-browser"] select.fx-select')!;
     select.value = 'MP3';
     select.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(mp3).not.toBeNull());

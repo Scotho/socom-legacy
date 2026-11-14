@@ -307,8 +307,11 @@ export type EffectOp =
    * multiplayer maps (byte +0xb is 1 on all of them); the bytes +8..+0xa (`c8 c8 c8`) are never read.
    * `colour` (FORGE_MESSAGE_COLOUR_ADAPTATION, the owner, 2026-11-10; a browser adaptation): a Forge switch's script's
    * window colour index (`../../viewer/src/matchMessages` `MESSAGE_COLOURS`, `FUN_002b7530`'s six); never a disc one's.
+   * `forge` (never decoded off the disc; a browser adaptation): a Forge switch's script's line -- the one MESSAGE the world
+   * runner posts to the page's window. A disc program's raw-text MESSAGE has the same shape (a text, no `locId`) and is
+   * not posted. A marker of where the command came from, as `fireWeapon`'s.
    */
-  | { op: 'message'; text: string | null; locId: number | null; scale: number; colour?: number }
+  | { op: 'message'; text: string | null; locId: number | null; scale: number; colour?: number; forge?: true }
   /** `CALL_SEQUENCE` (50): starts this animation's sequence named at +4 (a name index) over from its top. */
   | { op: 'callSequence'; sequence: string }
   /** `STOP_ANIMATION` (46): stops the running animation named at +4 (a name index). */

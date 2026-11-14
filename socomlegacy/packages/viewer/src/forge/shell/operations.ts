@@ -211,6 +211,12 @@ export interface ForgeEditOperation {
   id: string;
   domain: HistoryDomain;
   label(args: Record<string, unknown>): string;
+  /**
+   * An edit a person makes that no agent may: absent from the agent's dispatch allowlist (`@s2u/forge-agent-protocol`
+   * `FORGE_OPERATIONS`) by the main controller's call of 2026-11-13, the owner's to overturn (FC2). A browser adaptation.
+   * The page still registers it (`personEdit`); the facade refuses an operation with no allowlist entry before the registry.
+   */
+  personOnly?: true;
 }
 const countOf = (args: Record<string, unknown>, key: string): number => (Array.isArray(args[key]) ? (args[key] as unknown[]).length : 0);
 /** `Delete`, `Delete 2`: a count past one. */
@@ -248,12 +254,12 @@ export const FORGE_EDIT_OPERATIONS: readonly ForgeEditOperation[] = [
   { id: 'door.place', domain: 'layout', label: fixed('Place door') },   // a browser adaptation: `Layout.doors`
   { id: 'gate.place', domain: 'layout', label: fixed('Place gate') },   // a browser adaptation: `Layout.gates`
   { id: 'barrier.place', domain: 'layout', label: fixed('Place damage trigger') },
-  { id: 'switch.place', domain: 'layout', label: fixed('Place switch') },   // a browser adaptation: `Layout.switches`   // a browser adaptation: `Layout.barriers`
+  { id: 'switch.place', domain: 'layout', label: fixed('Place switch'), personOnly: true },   // a browser adaptation: `Layout.switches`   // a browser adaptation: `Layout.barriers`
   { id: 'turret.place', domain: 'layout', label: fixed('Place turret') },   // a browser adaptation: `Layout.turrets`
   { id: 'flare.place', domain: 'layout', label: fixed('Place flare') },   // a browser adaptation: `Layout.flares`
   { id: 'respawn.place', domain: 'layout', label: (args) => (args['team'] === 'A' || args['team'] === 'B' ? `Place respawn point ${args['team']}` : 'Place respawn point') },   // a browser adaptation: `Layout.respawns`
   { id: 'point.place', domain: 'layout', label: fixed('Place tactical point') },
-  { id: 'object.place', domain: 'layout', label: fixed('Place object') },   // a browser adaptation: `Layout.objects`   // a browser adaptation: `Layout.tacPoints`
+  { id: 'object.place', domain: 'layout', label: fixed('Place object'), personOnly: true },   // a browser adaptation: `Layout.objects`   // a browser adaptation: `Layout.tacPoints`
   { id: 'view.place', domain: 'layout', label: fixed('Place spectator view') },   // a browser adaptation: `Layout.scenicViews`
   { id: 'placement.set', domain: 'layout', label: (args) => `Set ${String(args['field'] ?? 'a field')}` },   // the Inspector's Data   // a browser adaptation: `Layout.extractionZones`   // a browser adaptation: `Layout.hostages`
   { id: 'bomb.place', domain: 'layout', label: (args) => BOMB_WORDS[String(args['kind'])] ?? 'Place a bomb marker' },

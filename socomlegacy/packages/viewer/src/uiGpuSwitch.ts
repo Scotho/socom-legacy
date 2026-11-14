@@ -245,7 +245,8 @@ export function isSoftwareAdapter(renderer: string | null | undefined): boolean 
  * 6000 box gets the software menus too) and Windows Chrome forced to `--use-angle=gl`; there the cost is speed only. Not
  * its Metal back end, not another Intel GPU, until a report says more. Read from `readUiGpuCaps`' string: the unmasked
  * renderer where the browser gives it, else the plain `RENDERER`; a masked one ("WebKit WebGL") names no GPU and is not
- * gated. A gated device sends no row, so central cannot count them.
+ * gated. A gated device sends one `uigpufallback` row a page (L4 `renderer-gate`, UIGPU-FALLBACK-ROWS), so central
+ * counts them.
  * The general catch is the self-check at each link (UIGPU-SELFCHECK, `./uiGpuSelfCheck`).
  */
 export const UI_GPU_RENDERER_GATE_ADAPTATION: readonly RegExp[] = Object.freeze([/Intel\(R\) HD Graphics 6000\b.*\bOpenGL\b/]);

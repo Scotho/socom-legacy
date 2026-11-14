@@ -113,13 +113,14 @@ export interface SwitchLook {
 }
 
 /**
- * LEVER_MOUNT_HEIGHT_READING (the owner, 2026-11-10: "by default it is impossible for a player to see the prompt"): how
+ * LEVER_MOUNT_HEIGHT_ADAPTATION (the owner, 2026-11-10: "by default it is impossible for a player to see the prompt"): how
  * far above the floor a placed lever's handle stands -- Death Trap's `lever_2` over its floor, measured off the disc
  * (2026-11-10; its `lever_1` stands 52.7 on a raised ledge, Enowapi's 6 and 8.4). The lever's pick plate (`epanel_diN`'s
  * one polygon, 5.3 by 5.6 round the handle) is what the use prompt's ray must strike: anchored at the handle, a placed
- * lever stood with its plate half under the floor.
+ * lever stood with its plate half under the floor. Ours (FC2), an adaptation: the original places no lever; the disc's
+ * measurement is its cited basis, the placing at that height is the editor's.
  */
-export const LEVER_MOUNT_HEIGHT_READING = 12.7;
+export const LEVER_MOUNT_HEIGHT_ADAPTATION = 12.7;
 
 /**
  * A Forge switch's reach where it runs no map action of its own (a script, a gate's lever, a look's record): Sujo's and
@@ -128,12 +129,12 @@ export const LEVER_MOUNT_HEIGHT_READING = 12.7;
  */
 export const FORGE_SWITCH_REACH = 30;
 
-/** A gate's lever as a look: its handle's props and its plate, the handle `LEVER_MOUNT_HEIGHT_READING` above where it stands; `plateOnly`, the plate alone. */
+/** A gate's lever as a look: its handle's props and its plate, the handle `LEVER_MOUNT_HEIGHT_ADAPTATION` above where it stands; `plateOnly`, the plate alone. */
 export function leverLook(part: SwitchPart, lib: LoadedMap, plateOnly = false): SwitchLook {
   return {
     lib, pieces: plateOnly ? [] : part.pieces, owners: part.plate,
     instances: plateOnly ? part.instances.filter((i) => under(i.path, part.action.path)) : part.instances,
-    anchor: [part.anchor[0], part.anchor[1] - LEVER_MOUNT_HEIGHT_READING, part.anchor[2]], prefixes: [[part.handle, ''], [part.action.path, '/panel_di']], record: part.action,
+    anchor: [part.anchor[0], part.anchor[1] - LEVER_MOUNT_HEIGHT_ADAPTATION, part.anchor[2]], prefixes: [[part.handle, ''], [part.action.path, '/panel_di']], record: part.action,
   };
 }
 
@@ -237,7 +238,7 @@ export function scriptPrograms(name: string, path: string, script: SwitchScript,
         return p ? [{ op: 'active', node: node(p), on: st.do === 'show' }] : [];
       }
       case 'wait': return [{ op: 'wait', seconds: st.seconds, range: 0, frames: null }];
-      case 'message': return [{ op: 'message', text: st.text, locId: null, scale: 1 }];
+      case 'message': return [{ op: 'message', text: st.text, locId: null, scale: 1, forge: true }];
       case 'sound': {
         const p = st.at ? r.target(st.at) : path;
         return p ? [{ op: 'sound', sound: st.name, node: node(p), volume: 1, newPlay: true }] : [];
@@ -418,7 +419,16 @@ export function accessTemplates(lib: LoadedMap, source: string): AccessTemplate[
     // Its drawing where it is the map's own geometry (Desert Glory's wall): the world chunks under it, kept apart by their
     // node (`LoadedMesh.switchPath`, as the world's state shows and hides them), each a piece in world space.
     pieces.push(...worldPiecesUnder(lib, root));
-    if (!pieces.length) return [];
+    // FC2 B(1), ours (not the imported commit's): a library with no drawn world -- the match server's
+    // (`match/src/forgeSimMap.ts` `libraryView`: the room draws nothing) -- cannot tell a root drawn only as the map's
+    // geometry from one drawn by nothing, and the page's catalogue offers the first (its world chunks); so there a
+    // root with no prop is kept, as the page keeps it, or the room leaves out what the page places and the wire's
+    // gate and action indices part. A library with a world (the page's) drops it as before.
+    // FC2-6 (ours; B(1)'s unchecked case): without a world, the room keeps such a root only where the page could draw it:
+    // a world chunk's node (`LoadedMesh.switchPath`) is always one of `meta.initial`'s paths (`loadMap.ts` `switchPath`),
+    // so a root with no initial path under it draws nothing on the page either. Else a root the page drops, sharing a
+    // kind and a last name with one it keeps, is the one the room's `find` takes (the wire's indices part).
+    if (!pieces.length && (lib.world || !meta.initial.some((e) => under(e.path, root)))) return [];
     return [{
       kind: gate ? 'gate' : 'barrier', source, name: lastName(root), root, lib,
       anchor: [(minX + maxX) / 2, minY, (minZ + maxZ) / 2],
@@ -437,9 +447,10 @@ const IDENTITY_16 = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0,
  * wreck), its parts the chunks, its one placement the identity (the chunks are in world space already), its path the
  * node -- so `copiedPieces` moves and renames it, and the world's state shows and hides it, as a prop's.
  */
-export function worldPiecesUnder(lib: Pick<LoadedMap, 'world'>, root: string): AccessTemplate['pieces'] {
+export function worldPiecesUnder(lib: Partial<Pick<LoadedMap, 'world'>>, root: string): AccessTemplate['pieces'] {
   const groups = new Map<string, LoadedMap['world']>();
-  for (const mesh of lib.world) {
+  // FC2 B(1), ours: no world (the match server's library, which draws nothing) has no chunk to draw.
+  for (const mesh of lib.world ?? []) {
     const path = mesh.switchPath;
     if (!path || !under(path, root)) continue;
     const key = `${path}\u0000${mesh.alternate ? 1 : 0}`;
@@ -574,6 +585,18 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       if (textureMips && lib.textureMips?.[tex]) textureMips[key] = lib.textureMips[tex]!;
     }
   };
+  /**
+   * A gate's switch's look and the gate's lever it copies, or null when the switches' loop below leaves it out for want of
+   * one (the gate has no complete disc lever; the look asked for is not given) -- the one test that loop and a placed
+   * gate's `named` share (the review's B-2), so a gate whose only switch is left out keeps its disc lever.
+   */
+  const gateSwitchLook = (sw: SwitchPlacement, gt: AccessTemplate): { part: SwitchPart; look: SwitchLook } | null => {
+    const part = gt.gate?.switches[0];
+    if (!part) return null;
+    // The gate's own lever when it asks for the lever panel; else the look asked for (the lever: `lookOf`'s default).
+    const look = sw.look === undefined ? leverLook(part, gt.lib) : lookOf(sw.look);
+    return look ? { part, look } : null;
+  };
   for (const marker of placed ?? []) {
     const t = templateOf(marker);
     if (!t || t.kind !== marker.kind) { unplaced++; (marker.kind === 'gate' ? placedGates : placedBarriers).push(null); continue; }
@@ -664,12 +687,25 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       const shift = new Vector3(...g.open).applyMatrix4(new Matrix4().fromArray(parent).setPosition(0, 0, 0));
       const sweep: Footprint = { minX: Math.min(minX, minX + shift.x), maxX: Math.max(maxX, maxX + shift.x), minZ: Math.min(minZ, minZ + shift.z), maxZ: Math.max(maxZ, maxZ + shift.z) };
       for (const i of leafIdx) owners[i]!.sweep = sweep;
-      const at: [number, number, number] = [(minX + maxX) / 2, minY + Math.min(10, (maxY - minY) / 2), (minZ + maxZ) / 2];
-      void at;
+      const at: [number, number, number] = [(minX + maxX) / 2, minY + Math.min(FORGE_GATE_LEVER_HEIGHT_ADAPTATION, (maxY - minY) / 2), (minZ + maxZ) / 2];
       // No lever of its own (the owner, 2026-11-08): the disc's gate itself has no prompt -- its levers are panels apart
       // (research 174 s5) -- so a copy opens only by a placed switch (below) and is otherwise C4's or an RPG's.
+      // FC2-6 (ours; H424 (b)'s default, HUMAN_TASKS H424, a browser adaptation): where no placed switch names this gate,
+      // it keeps its disc gate's levers at the gate itself, as before the import (`589f4565f0`) -- so a saved layout's
+      // gate still opens, and an online one can (a layout with switches is refused online; the room's call passes none).
+      // The record names the copy's root: the game picks an action by the node under the reticle or a parent of it
+      // (`../mapActions` `actionForNode`, `FUN_005aa240`), and every polygon of the copy lies under its root.
+      const named = switches.some((sw) => sw.gate === placedGates.length && gateSwitchLook(sw, t) !== null);
+      // A lever whose record the template lacks is left out (before the import it kept an index naming no record).
+      const levers = named ? [] : g.levers.flatMap((l, k) => {
+        const disc = t.gate!.levers[k];
+        if (!disc) return [];
+        const index = actions.length;
+        actions.push({ ...disc, node: name, path: rootPath, valve: pick(renames.valves, l.valve), anims: disc.anims.map((a) => pick(renames.anims, a)), at });
+        return [{ action: index, node: name, path: rootPath, valve: pick(renames.valves, l.valve), program: renamedProgram(l.program, renames) }];
+      });
       placedGates.push({ name, t, renames, spec: gates.length });
-      gates.push({ ...g, index: gates.length, path: rename(g.path), parent, owners: leafIdx, sweep, levers: [] });
+      gates.push({ ...g, index: gates.length, path: rename(g.path), parent, owners: leafIdx, sweep, levers });
     }
   }
   // The switches: each a copy of its look (`SwitchLook`: a gate's lever panel, Sujo's radio, or the lever's plate alone)
@@ -683,10 +719,11 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
   const baseActions = [...actions];
   switches.forEach((sw, n) => {
     const g = sw.gate === undefined ? null : placedGates[sw.gate] ?? null;
-    const part = g?.t.gate?.switches[0] ?? null;
+    // A gate's: its look and lever (`gateSwitchLook`, the test the gate's `named` made); else the look asked for.
+    const ofGate = g ? gateSwitchLook(sw, g.t) : null;
+    const part = ofGate?.part ?? null;
     const target = sw.action !== undefined && !g ? baseActions.find((a) => a.valve.toLowerCase() === sw.action!.toLowerCase()) ?? null : null;
-    // A gate's own lever when it asks for the lever panel; else the look asked for (the lever: `lookOf`'s default).
-    const look = sw.look === undefined && part && g ? leverLook(part, g.t.lib) : lookOf(sw.look ?? 'lever');
+    const look = g ? ofGate?.look ?? null : lookOf(sw.look ?? 'lever');
     const scripted = !g && !target && sw.script !== undefined;
     if (!look || (g ? !part : !target && !scripted)) { unplaced++; return; }
     const sname = `forge_switch_${n + 1}`;

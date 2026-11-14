@@ -41,10 +41,13 @@ it('cancels touches at match entry, restores them on return, and removes the ove
   expect(t.a.page.read().down.size).toBe(0);
   t.a.detach(); expect(document.getElementById('menu-touch')).toBeNull();
 });
-it('hides for a connected controller and restores touch after disconnect without a held button', () => {
+it('hides the pad but keeps fullscreen for a connected controller and restores touch after disconnect', () => {
   const t = mount(); t.pointer('tw-cross', 'pointerdown');
   vi.mocked(navigator.getGamepads).mockReturnValue([{ id: 'test', index: 0, connected: true, mapping: 'standard', timestamp: 1, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) } as unknown as Gamepad]);
-  expect(t.a.page.read().down.size).toBe(0); expect(t.root().hidden).toBe(true);
+  expect(t.a.page.read().down.size).toBe(0); expect(t.root().hidden).toBe(false);
+  expect(t.root().querySelector<HTMLElement>('#touch')!.hidden).toBe(true);
+  expect(t.button('fullscreen')).not.toBeNull();
+  t.pointer('tw-cross', 'pointerdown'); expect(t.a.page.read().down.size).toBe(0);
   vi.mocked(navigator.getGamepads).mockReturnValue([]);
   expect(t.a.page.read().down.size).toBe(0); expect(t.root().hidden).toBe(false);
   t.pointer('tw-cross', 'pointerdown'); expect(t.a.page.read().down.has('CROSS')).toBe(true);

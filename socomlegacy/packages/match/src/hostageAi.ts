@@ -325,6 +325,8 @@ export interface HostageWorldBody {
   id: number; feet: V3; alive: boolean; team: number;
   /** The room supplies these from the leader's mover; watch-only fixtures need none. */
   yaw?: number; velocity?: V3; topSpeed?: number; stance?: 0 | 1 | 2;
+  /** LATER 960: the body's placement stamp (`Walker.placement`); a change is a placement, which zeroes its trail. */
+  placement?: number;
 }
 
 /** What a frame of the AI sees: the hostage's own feet and every other body in the round (players and hostages). */

@@ -361,6 +361,7 @@ export class WalkMode {
     if (this.moves && (this.moves.busy() || this.moves.pose())) this.moves.reset();
     w.restoreState(at.walker);
     w.state.x += at.shift[0]; w.state.y += at.shift[1]; w.state.z += at.shift[2];
+    w.shiftAirHit(at.shift[0], at.shift[2]);                    // LATER 890 (review F1): the kept last hit with the body
     w.state.yaw = look.ref.yaw; w.state.pitch = look.ref.pitch;
     if (base) this.flinchLay(base);
     // LATER 551: what was laid between the commands (`flinchLaid`), before command `seq` -- a told window's cover read
@@ -526,6 +527,8 @@ export class WalkMode {
   private binoculars_ = false;
   /** ENEMY-RAISE ER-2: the page's own raise state, read at each command (`setRaiseSource`); none, down. */
   private raiseSource: (() => boolean) | null = null;
+  /** PV-3 (WIRE-16): the page's view state and scope sway, read at each command (`setViewSource`); none, the fields absent. */
+  private viewSource: (() => { view: number; swayX: number; swayY: number }) | null = null;
   /** MULTIPLAYER: a hold the mover took since the last tick (`hold`), as its bits on the next command. */
   private pressedHold = 0;
   /**
@@ -1777,10 +1780,12 @@ export class WalkMode {
     if (this.actionCancelled) this.actionCancelled = false;    // XR-06: the command after a cancel holds nothing
     else if ((this.moves as { actionHeldNow?: () => boolean } | null)?.actionHeldNow?.()) buttons |= Button.ActionHeld;
     const q = quantiseCommand({ seq: 0, forward: wish.forward, right: wish.right, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+    const view = this.viewSource?.();                          // PV-3: read once per command built, as it stands
     const cmd: Omit<Command, 'seq'> = {
       forward: q.forward, right: q.right, yaw: this.tickLook[0], pitch: this.tickLook[1], turn: this.tickLook[2],
       buttons, stance: this.pressedStance, weapon: this.weapon_, separate: this.stanceMode_ === 'separate',   // SEP-POP: the room's rule
       ...(this.raiseSource?.() ? { raised: true } : {}),       // ER-2: the owner's raise state (byte +0x7e, D:L161978)
+      ...(view ? { view: view.view, swayX: view.swayX, swayY: view.swayY } : {}),   // PV-3 (WIRE-16): reported, never clamped here
     };
     this.netTap(cmd, [w.state.x, w.state.y, w.state.z], [w.state.yaw, w.state.pitch]);   // protocol 11: the gated facing, reconciled
     // PAR-37: the command kept with the mover after its tick, for a victory dance's run under it (`replayVictory`).
@@ -2202,6 +2207,7 @@ export class WalkMode {
     const w = this.walker;
     if (!w) return;
     w.state.x += dx; w.state.y += dy; w.state.z += dz;
+    w.shiftAirHit(dx, dz);                                       // LATER 890: the airborne probe's last hit with the body
     const t = this.takeKept, hold = t !== null && ack !== undefined && ack > t.taps ? t.taps : null;
     for (const k of this.kept) {
       if (hold !== null && k.seq <= hold) continue;              // LATER 528: the hold's correction, not the body's before M
@@ -2322,6 +2328,17 @@ export class WalkMode {
    */
   setRaiseSource(read: (() => boolean) | null): void {
     this.raiseSource = read;
+  }
+
+  /**
+   * PV-3 (WIRE-16, protocol 16; research 402 section 3; the player's view, a browser adaptation with no original, product
+   * track): where each command's view state and scope sway are read (`Command.view`, `swayX`, `swayY`) -- the page's own
+   * `../zoom` state and `../accuracy` sway (`./matchFirearm`), sent as they stand and never clamped here (the codec's
+   * `viewState` and `qSway` are the one rule). Read once per command built (`send`); a kept command is re-sent as built.
+   * Nothing the mover, the fire or the reticle reads comes from it. Null, none: the fields absent, the wire's three bytes 0.
+   */
+  setViewSource(read: (() => { view: number; swayX: number; swayY: number }) | null): void {
+    this.viewSource = read;
   }
 
   /** The binoculars up (`setBinoculars`): the room fires no round of the command (`fire`'s gate, a turret's too). */
@@ -2464,6 +2481,7 @@ export class WalkMode {
     if (!this.walking || !w) return null;
     const s = moverSnapshot(w, this.moves, this.jumps, this.turnRate);
     s.drawnFeet = w.drawnFeet();                                // MISSION R8: the body's place; `feet` stays the simulated
+    if (w.dead) s.dead = true;                     // DEAD-HEAD-LOOK: FUN_00587b40 refuses the head look in state 8
     if (this.deathPose) s.traversal = this.deathPose();     // MULTIPLAYER: the death clip in place of the mover's play
     else if (this.flinchPose && this.flinchAir < 0) {          // MULTIPLAYER: the own flinch, unless FUN_005a2690 refuses it (PF-21); PAR-65, PAR-71: not under the fall
       const pose = (this.flinchPushed ? pushPopped(s) : flinchRefused(s)) ? null : this.flinchPose();   // DOORS: a push has no FUN_005a2690 gate; the stack's pops take it (#485 F3)
@@ -2525,7 +2543,7 @@ export class WalkMode {
     w.turn = this.turnRate;
     w.scoped = this.scopedMove;
     w.stanceCut = true;                                        // COMBINED-CUT (OT.R93): the player's stick cuts the stance clips, both modes
-    w.stanceSeparate = this.stanceMode_ === 'separate';        // SEP-POP: SEPARATE's push leaves the velocity
+    w.stanceSeparate = this.stanceMode_ === 'separate';        // SEP-POP: the button's mode (every push leaves the velocity, H392)
     const wish = this.locked ? { forward: 0, right: 0, boost: false } : this.camera.groundWish();
     // NET-LOOK round 3 (finding 2): the frame's look spread evenly over the ticks it runs, so a long frame (a hitch, a slow
     // device) lays each tick a tick's share of the turn -- the law's step -- not the whole frame's on its first.

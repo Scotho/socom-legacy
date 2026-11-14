@@ -90,7 +90,14 @@ goes to the match at the room's next round (`LATE_JOINER_NEXT_ROUND_READING`). *
 
 **A host handed on (SVC-07b)**: the bridge moves the star; `IsSessionMaster` turns true and `Session_master_migration`'s
 watcher gives the seat the host's buttons (`EnableButton(Lock)` -- the layout has no `Lock` control --, `OnStartGameLock`,
-`Watch45SecClock`), with no message, as research 159 §2 reads it.
+`Watch45SecClock`), with no message, as research 159 §2 reads it. *Corrected 2026-11-13 (LOBBY-START, research 159 §10.1 item 5): the host gains no launch control here. The shipped
+dialog has three buttons -- ARMORY, SWITCH TEAMS, READY -- and no `Lock`, `ForceLaunch` or `MasterText` widget (a build
+box's listing with the repository's dump tool, the screen's full parsed tree of every object type; and the archive's one
+string pool, which places `Lock` and `ForceLaunch` in the order `SetupLateJoiner` names them -- symbols, not widget
+records, an inference from order; research 159 §10.1 item 5 gives both and the limit; a capture would prove it); `OnStartGameLock` is defined nowhere; and #359 "Launch all players, ready or not." is the body of
+`OnSMlaunchstart`, an animation no binding runs -- not a `Lock` button's hint. The host cannot force the launch from the
+retail lobby: the only ready-or-not launch is the 80 per cent countdown's end, which a side emptied under it does not
+call off (research 159 §10).*
 
 ## 3. The closes (R165.8)
 

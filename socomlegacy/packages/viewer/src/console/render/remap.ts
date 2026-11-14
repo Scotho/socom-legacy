@@ -1,3 +1,4 @@
+import { controllerLabelFamily, isSteamFamily } from '../../controllerLabels';
 import { CROUCH_BIND, EXTRA_COMBO_LISTEN, EXTRA_DOUBLE_LISTEN, PRONE_BIND, TEACH_IDLE_MS_ADAPTATION, type ExtraRow, type PadBinding } from '../../padBinding';
 import type { ExtraAction } from '../../padExtras';
 import { TEACH_STEPS } from '../../padLayout';
@@ -13,6 +14,8 @@ import { PAD_ART } from './padArt';
  * card's Dead zone (CONTROLLER OPTIONS' DEAD ZONE, "In the game"). The controller's taste call, 2026-11-07.
  */
 export const PAD_DEAD_ZONE_LABEL = 'Pad dead zone (this browser)';
+/** PZG (finding 14): what the browser's zone does -- a pure drift guard (`../../controllerInput` `calibrateStick`). */
+export const PAD_DEAD_ZONE_ABOUT = 'Ignores stick drift; does not change the game’s response. A push inside it reads as nothing; past it the game gets the push as it is. Raise it if you move or aim on your own.';
 
 /**
  * The button mapping screen (CX-14 of the console launcher plan; CX.R13, OT.R60: the overlay is this console, and its
@@ -112,6 +115,8 @@ const FACE: readonly FaceButton[] = ['cross', 'circle', 'square', 'triangle'];
 
 /** A standard button as the console draws it: a face glyph, a shoulder key, the d-pad's glyph, or its name. */
 export function buttonGlyph(b: PadBinding, physical: number): string {
+  const family = controllerLabelFamily(b.raw?.id ?? '');
+  if ((isSteamFamily(family) || family === 'xbox') && physical >= 0 && physical <= 11) return shoulder(b.label(physical).split(' / ')[0]!);
   const face = FACE[physical];
   if (face) return btn(face);
   if (physical >= 4 && physical <= 7) return shoulder(['L1', 'R1', 'L2', 'R2'][physical - 4]!);
@@ -259,7 +264,7 @@ function asideHtml(s: ConsoleState, b: PadBinding, lock: { line: string } | null
           ? [extraName(b, x), x.warning === 'same-thumb' ? `${REMAP_SAME_THUMB_WARNING} Cross removes it.` : 'Cross removes it.', EXTRAS_NOTE]
           : extra ? [EXTRA_WORDS[extra as FixedExtra].title, EXTRA_WORDS[extra as FixedExtra].about, EXTRA_WORDS[extra as FixedExtra].note]
     : r === remapDeadRow()
-    ? [PAD_DEAD_ZONE_LABEL, 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', 'Saved to this browser, for this controller.']
+    ? [PAD_DEAD_ZONE_LABEL, PAD_DEAD_ZONE_ABOUT, 'Saved to this browser, for this controller.']
     : r === REMAP_STANCE_ROW
       ? ['Stance mode', STANCE_MODE_ABOUT, 'Saved to this browser, for every controller.']
       : bind === CROUCH_BIND

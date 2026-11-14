@@ -101,6 +101,12 @@ const PLAYER_SETTINGS_CENSUS: readonly Row[] = [
     id, label: id, main: { reads: [MM, "import { GamePad } from './setupPad';"] },
     testRoom: { reads: [TR, "import { GamePad } from './setupPad';"] }, forgePlay: viaMount("import { GamePad } from './setupPad';"),
   })),
+  // Presentation only: every match surface shares the Home overlay's saved label resolver.
+  // Steam Input can report Xbox hardware; this changes the shown names, never the action map.
+  { id: 'controller-labels', label: 'Controller labels',
+    main: { reads: ['modern/overlay/binding.ts', 'const family = controllerLabelFamily(padId);'] },
+    testRoom: { reads: ['modern/overlay/binding.ts', 'const family = controllerLabelFamily(padId);'] },
+    forgePlay: { reads: ['modern/overlay/binding.ts', 'const family = controllerLabelFamily(padId);'] } },
   { id: OVERLAY_BUTTON_ROW, label: 'Overlay button', main: { reads: ['modern/overlay/binding.ts', 'readOverlayButton'] },
     testRoom: { reads: ['modern/overlay/binding.ts', 'readOverlayButton'] }, forgePlay: { reads: ['modern/overlay/binding.ts', 'readOverlayButton'] } },
   // PR #765 (Chris's unified controller settings): the launcher's Controller layout row writes the original's

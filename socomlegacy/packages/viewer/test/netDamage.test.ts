@@ -156,6 +156,44 @@ describe('falls and blasts (research 91 section 5)', () => {
   });
 });
 
+/**
+ * FRAG-COUNT (LATER 996's first term; simulation track, reading, pending review): `FUN_005a18b0` D:L459396-459474 adds
+ * its base 8 only within 30 u -- `iVar5 = 0; if (d^2 < 900) iVar5 = 8;` (D:L459428-459431) -- then one draw's 1/2/4/5/6/7
+ * (D:L459433-459451), the posture's -1 / -3 unless the round's item is in category 0x51 (the shotguns, `FUN_003d1a60`:
+ * D:L459452-459461), clamped at 0; and only past 30 (`d^2 > 900`) and with a count over 0, x 900 / d^2 truncated toward
+ * zero plus 1 if a second draw <= the fraction (D:L459462-459472). The port carried the 8 past 30. Red on the base.
+ */
+describe('FRAG-COUNT: the base 8 only within 30 u (FUN_005a18b0 D:L459428-459431)', () => {
+  /** Draws in turn; a further draw throws, so a draw the original does not make fails the case. */
+  const seq = (...v: number[]) => () => { if (v.length === 0) throw new Error('an extra draw'); return v.shift()!; };
+
+  it('RED: at 60 u standing the count is the extra x 900/3600 alone -- 4 -> 1, 1 -> 0 (the base had 3 and 2)', () => {
+    expect(fragmentCount(60, 'stand', seq(0.3, 0.99))).toBe(1);     // extra 4: 4 x 0.25 = 1.0, the second draw over 0
+    expect(fragmentCount(60, 'stand', seq(0.01, 0.5))).toBe(0);     // extra 1: 0.25 -> 0, 0.5 > 0.25
+    expect(fragmentCount(60, 'stand', seq(0.01, 0.2))).toBe(1);     // 0.2 <= 0.25: plus 1
+    expect(fragmentCount(60, 'stand', seq(0.99, 0.99))).toBe(1);    // extra 7: 1.75 -> 1
+  });
+
+  it('RED: at exactly 30 u (d^2 = 900) neither the base nor the scaling applies -- the extra alone', () => {
+    expect(fragmentCount(30, 'stand', seq(0.3))).toBe(4);
+    expect(fragmentCount(30, 'stand', seq(0.99))).toBe(7);
+  });
+
+  it('within 30 u the base 8 stands, as before', () => {
+    expect(fragmentCount(29.9, 'stand', seq(0.3))).toBe(12);
+    expect(fragmentCount(10, 'crouch', seq(0))).toBe(8);
+  });
+
+  it('RED: a count clamped to 0 past 30 makes no second draw (prone, extra 2: 2 - 3 -> 0)', () => {
+    expect(fragmentCount(45, 'prone', seq(0.1))).toBe(0);
+  });
+
+  it('RED: a round whose item is a shotgun (category 0x51) takes no posture term', () => {
+    expect(fragmentCount(10, 'prone', seq(0), 0x51)).toBe(9);
+    expect(fragmentCount(10, 'prone', seq(0), 0x79)).toBe(6);
+  });
+});
+
 describe('the part a fragment strikes (FUN_005a0e70 L459240-459252; .data DAT_006508e0 / DAT_006508d0)', () => {
   it('reads the tables in the ELF: head 30 %, body 30 %, left arm, right arm, left leg, right leg 10 % each', () => {
     expect(FRAGMENT_ROLLS).toEqual([0.3, 0.6, 0.7, 0.8, 0.9, 1.0]);

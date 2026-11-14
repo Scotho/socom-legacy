@@ -2901,6 +2901,8 @@ export const RECORD_CODES = {
   onlineObjects: "record.ONLINE_OBJECTS",
   /** FCW-10, H273/H274: an online lobby plays the disc's own maps (`maps.ts` `CONTENT_MAP_CODES.onlineContentMap`). */
   onlineContentMap: "record.ONLINE_CONTENT_MAP",
+  /** FC2.R8: a Map Setting the match server does not apply yet (`ONLINE_HELD_SETTINGS_ADAPTATION`), held back online. */
+  onlineHeldSettings: "record.ONLINE_HELD_SETTINGS",
 } as const;
 
 export interface ReadRecordOptions extends CheckRecordOptions {
@@ -2974,7 +2976,8 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", r.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", r.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", r.triggers?.length ?? 0, "damage triggers on props"),
-    ...placedRefusal(RECORD_CODES.onlineObjects, "objects", r.objects?.filter((o) => o[0] !== "ambient").length ?? 0, "cranes")];
+    ...placedRefusal(RECORD_CODES.onlineObjects, "objects", r.objects?.filter((o) => o[0] !== "ambient").length ?? 0, "cranes"),
+    ...heldRefusal(r)];
 }
 
 /** A placed kind the online room does not compose (a browser adaptation) plays locally only. */
@@ -2982,6 +2985,54 @@ function placedRefusal(code: string, field: string, count: number, words: string
   return count ? [diagnostic({
     source: "check", severity: "error", code, field, actual: String(count),
     text: `An online lobby plays the disc's own ${words}: this layout places its own. Play it locally.`,
+  })] : [];
+}
+
+/**
+ * ONLINE_HELD_SETTINGS_ADAPTATION (FC2.R8; a hold of ours with no original, product track): the layout's Map Settings
+ * the match server does not apply yet (its `forgeGame.ts` `roomOptions` and `forgeSimMap.ts` read none of them), so an
+ * online lobby neither sends nor applies them, and a layout carrying one is refused online (`onlineRecordRefusal`,
+ * `onlineCreatorLayoutRefusal`); they play in local Forge Play. A name is lifted from the list as the server learns that
+ * setting (FC2-5), with a test that page and server agree on it.
+ */
+export const ONLINE_HELD_SETTINGS_ADAPTATION = Object.freeze(
+  ["arsenal", "characters", "defaultMaterial", "reverb", "fov", "loading", "eqLimit", "respawn"] as const,
+);
+export type HeldSetting = (typeof ONLINE_HELD_SETTINGS_ADAPTATION)[number];
+
+/** A held setting's value as "unset": absent or null; `eqLimit` 0 (none) and `respawn` false (off) too. */
+const heldIsSet = (s: Partial<LayoutSettings>, k: HeldSetting): boolean =>
+  k === "eqLimit" || k === "respawn" ? !!s[k] : s[k] !== undefined && s[k] !== null;
+
+/** The held settings (`ONLINE_HELD_SETTINGS_ADAPTATION`) a layout or a record sets to other than unset, in the list's order. */
+export function heldSettingsOf(l: { readonly settings?: Partial<LayoutSettings> | undefined }): HeldSetting[] {
+  const s = l.settings;
+  return s ? ONLINE_HELD_SETTINGS_ADAPTATION.filter((k) => heldIsSet(s, k)) : [];
+}
+
+/**
+ * A copy of `l` with each held setting unset (the optional ones removed, `eqLimit` 0, `respawn` false; a settings left
+ * empty removed), what a Forge lobby sends and plays. The input is never written; one holding none is returned itself.
+ */
+export function withoutHeldSettings<T extends { readonly settings?: Partial<LayoutSettings> | undefined }>(l: T): T {
+  const held = heldSettingsOf(l);
+  if (!held.length) return l;
+  const settings: Partial<LayoutSettings> = { ...l.settings };
+  for (const k of held) {
+    if (k === "eqLimit") settings.eqLimit = 0;
+    else if (k === "respawn") settings.respawn = false;
+    else delete settings[k];
+  }
+  const { settings: _held, ...rest } = l;
+  return (Object.keys(settings).length ? { ...rest, settings } : rest) as unknown as T;
+}
+
+/** A layout or record carrying a held setting: refused online, in the policy's own form, the settings named. */
+function heldRefusal(l: { readonly settings?: Partial<LayoutSettings> | undefined }): Diagnostic[] {
+  const held = heldSettingsOf(l);
+  return held.length ? [diagnostic({
+    source: "check", severity: "error", code: RECORD_CODES.onlineHeldSettings, field: "settings", actual: held.join(", "),
+    text: `This layout's Map Settings ${held.join(", ")} ${held.length === 1 ? "is" : "are"} not played in an online lobby yet: play it locally, or clear ${held.length === 1 ? "it" : "them"} for a lobby.`,
   })] : [];
 }
 
@@ -3002,7 +3053,9 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", l.triggers?.length ?? 0, "damage triggers on props"),
     // An ambient effect plays online (the owner, 2026-11-10: "make it ... such that they will load in online games"): the
     // disc's own program and sounds, each page drawing and sounding it from its own disc, nothing of the room's; a crane not.
-    ...placedRefusal(RECORD_CODES.onlineObjects, "objects", l.objects?.filter((o) => o.kind !== "ambient").length ?? 0, "cranes")];
+    ...placedRefusal(RECORD_CODES.onlineObjects, "objects", l.objects?.filter((o) => o.kind !== "ambient").length ?? 0, "cranes"),
+    // FC2.R8: the Map Settings the match server does not apply yet (`ONLINE_HELD_SETTINGS_ADAPTATION`), as the record's.
+    ...heldRefusal(l)];
 }
 
 /** FCW-07a's name for the layout's online policy: `onlineCreatorLayoutRefusal`, the one body (a content base refused too). */

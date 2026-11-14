@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expect, test, type APIRequestContext, type APIResponse, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import { withCallbackServer } from '../../../tools/forge-agent-probe/callback';
 import { e2ePort } from './ports';
+import { panel as dockPanel, showTab } from './forgeBase';
 import { beginPair, pairBody, PROBE_PAIR_TIMEOUT_MS } from '../../../tools/forge-agent-probe/pairing';
 
 /**
@@ -127,10 +128,11 @@ async function openConsent(context: BrowserContext, page: Page, pageOrigin: stri
   // (91's box run of FCW-34's f435c4783 found the same click hidden in forgeCtf.spec). At 760 px and under the docks
   // are closed drawers first.
   if ((page.viewportSize()?.width ?? 1440) <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
-  await page.locator('.fx-right [data-forge-tab="agent"]').click();
+  // FC2-4 (EDITOR-MAP D2, D6): his dock shell has no one right dock; the Agent tab is a tab of the group over the Inspector.
+  await showTab(page, 'agent');
   // Choosing the tab opens its section when nothing of it is kept open (FUI-22's shell, `tabShows`), so a click on the
   // summary then shut it again (91's box run of e1f217063: the Copy button never showed): open it only if it is shut.
-  const agentSection = page.locator('.fx-right details[data-forge-panel="agent"]');
+  const agentSection = dockPanel(page, 'agent');
   if (!(await agentSection.evaluate((d) => (d as HTMLDetailsElement).open))) await page.getByText('Connect your agent', { exact: true }).click();
   const panel = agentPanel(page);
   // AX-U: one card; the Connect moment's one primary button copies the one connect line.

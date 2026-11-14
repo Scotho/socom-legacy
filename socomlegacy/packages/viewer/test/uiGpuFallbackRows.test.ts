@@ -6,7 +6,7 @@ import type { UiDrawItem } from '@s2u/ui';
 import { ClientErrorBeacon, DIAG_KINDS, type BeaconReport } from '../src/clientErrorBeacon';
 import type { RasterOptions, UiTextures } from '../src/uiCompositorView';
 import type { UiPresenter, UiPresented } from '../src/uiPresenter';
-import { UiGpuSurfacePresenter, resetUiGpuFallbackRowsForTest, type UiGpuSurfaceOptions } from '../src/uiGpuPresenter';
+import { UI_GPU_RESTORE_WAIT_MS_ADAPTATION, UiGpuSurfacePresenter, resetUiGpuFallbackRowsForTest, type UiGpuSurfaceOptions } from '../src/uiGpuPresenter';
 import { UiGpuSwitch, type UiGpuSurface } from '../src/uiGpuSwitch';
 import { fakeGl, type FakeGlOptions } from './uiGpuFakeGl';
 
@@ -67,6 +67,22 @@ describe('UIGPU-FALLBACK-ROWS: the surface', () => {
     expect(rows.map((r) => JSON.parse(r))).toEqual([{ v: 1, s: 'front', lv: 'L4', why: 'max-texture-size', r: GPU, src: 'unmasked' }]);
   });
 
+  it('LATER 950 (3): no WebGL2 -- one row, with no renderer to name (no context was made)', () => {
+    const rows: string[] = [];
+    const { s } = surface(rows, { noContext: true });
+    expect(s.create()).toEqual({ ok: false, reason: 'no-webgl2' });
+    expect(rows.map((r) => JSON.parse(r))).toEqual([{ v: 1, s: 'front', lv: 'L4', why: 'no-webgl2', r: null, src: null }]);
+  });
+
+  it('LATER 950 (3): a program that does not link, found by the link poll -- one row, the device named', () => {
+    const rows: string[] = [];
+    const { s } = surface(rows, { unmaskedRenderer: GPU, failLink: true });
+    expect(s.create()).toEqual({ ok: true });
+    s.present([{ kind: 'clear', rgb: [1, 2, 3] }], () => null, { scale: 2 });
+    expect(s.state).toBe('unavailable');
+    expect(rows.map((r) => JSON.parse(r))).toEqual([{ v: 1, s: 'front', lv: 'L4', why: 'program-link', r: GPU, src: 'unmasked' }]);
+  });
+
   it('once a page per level and reason: a second surface refused for the same reason sends nothing more', () => {
     const rows: string[] = [];
     surface(rows, { unmaskedRenderer: REPORTED }).s.create();
@@ -95,6 +111,19 @@ describe('UIGPU-FALLBACK-ROWS: the surface', () => {
     expect(s.state).toBe('dead');
     // Review F1: exactly this one row (a kill that sent two would have passed `toContainEqual`).
     expect(rows.map((r) => JSON.parse(r))).toEqual([{ v: 1, s: 'front', lv: 'L3', why: 'loss-limit', r: GPU, src: 'unmasked' }]);
+  });
+
+  it('MATCH-RENDERER-RETRY A: an L3 restore-timeout row carries the loss\'s status message (st)', () => {
+    const rows: string[] = [];
+    const timers: { cb: () => void; ms: number }[] = [];
+    const timed = { now: () => 0, setTimeout: (cb: () => void, ms: number) => { timers.push({ cb, ms }); return timers.length; }, clearTimeout: () => undefined };
+    const { f, s } = surface(rows, { unmaskedRenderer: GPU }, { clock: timed });
+    s.present([{ kind: 'clear', rgb: [1, 2, 3] }], () => null, { scale: 2 });
+    f.loss.lose('Unknown reason'); f.events.flush();
+    expect(s.state).toBe('lost');
+    timers.filter((t) => t.ms === UI_GPU_RESTORE_WAIT_MS_ADAPTATION).at(-1)!.cb();
+    expect(s.state).toBe('dead');
+    expect(rows.map((r) => JSON.parse(r))).toEqual([{ v: 1, s: 'front', lv: 'L3', why: 'restore-timeout', r: GPU, src: 'unmasked', st: 'Unknown reason' }]);
   });
 
   it('review F2: the renderer gate gives exactly one row', () => {

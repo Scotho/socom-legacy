@@ -509,6 +509,30 @@ function hostageHealth(): Health {
 
 const POSTURES = ['stand', 'crouch', 'prone'] as const;
 
+/**
+ * LEADER_TRAIL_LIFE_READING (LATER 960; research 404 s26 and s35; a reading, pending review; not measured beyond the
+ * rig's two follows): a human's trail -- what a follower's start gate measures (`FollowTrail.length`, `trailStart`) --
+ * lives from the body's build and is zeroed at each placement of the body, and is kept through followers coming and
+ * going. The build `FUN_00599f00` (from the creation `FUN_005999e0` D:L455570 and the rebuild `FUN_00599b60`
+ * D:L455674) ends by calling the controller's slot `+0x40` (D:L455842), which for a CSealCtrl is r1 0x597e80 (a
+ * function the decompilation never recovered, research 419 s22.12): a tail jump into the enable `FUN_00546c40`(body,
+ * 1, 75), which never wipes the entries (D:L412460). Each placement zeroes the entry count and keeps the enable
+ * (`FUN_00525200` D:L392488, from the body's slots `+0x40` and `+0x3c`, `FUN_00546cf0` D:L412512 and `FUN_00546e40`
+ * D:L412556). The append needs only the enabled bit (`FUN_005b7ba0` D:L471319-471324): no follower. The only
+ * switch-off, `FUN_005fcc40` (D:L509398), never fires for a CSealCtrl (slot `+0x2c` answers 1). Each function shown
+ * in r0004 by an exact or unique twin or read there (research 404 s35). The room's adaptation of it: every seated
+ * body's trail is made at its first frame here, its entries zeroed whenever its placement stamp changes (each
+ * `Walker.place`: a spawn, a dead-at-load entry, any placing), and its cells laid each game frame; the heading stays
+ * the follow tick's (`FUN_005fc970`, run for a led body only). Not in this reading, each named apart in research 404
+ * s35: the gate's re-arm on a leader change (research 404 s24.4, departure 6); a remote human's trail (CRemoteCtrl,
+ * open -- and in the room most leaders stand where the original has a CRemoteCtrl, so this rests on the local human's
+ * case the rig measured); a CPU seat's (CSealCtrlAi: on only at a follow start, off with no follower; the room gives
+ * it a human's); the online jump's emptying (LATER 957, research 417 s25); the 0.6 s placement in the local human's
+ * tick (research 404 s26.2); the first entry's cell at a placement (s24.4, departure 3); the heading timer (body
+ * `+0x510`) at a build.
+ */
+export const LEADER_TRAIL_LIFE_READING = 'from the build, zeroed at each placement, never switched off for a human';
+
 /** The wire's opacity: the AI word's nibble (`HOSTAGE_STATE_RATE_READING`, D:L432905-432913, read back D:L432833). */
 function wireOpacity(ai: HostageAi): number {
   const n = ai.hidden || ai.opacity <= 0 ? 15 : Math.min(15, Math.trunc((1 - ai.opacity) * 15));
@@ -541,6 +565,8 @@ export class ExtractionAuthority {
   private readonly yieldRandom = new HostageYieldRandom(HOSTAGE_YIELD_SEED_PLACEHOLDER);
   private readonly occupiedActors = new Set<number>();
   private readonly trails = new Map<number, FollowTrail>();
+  /** LEADER_TRAIL_LIFE_READING: each seat's body's placement stamp as last seen (`HostageWorldBody.placement`). */
+  private readonly placements = new Map<number, number>();
   private frameBodies: readonly HostageWorldBody[] = [];
   /**
    * EXTRACTION (game type 4) or ESCORT (game type 3). Escort plays research 175 §4 with the map's script
@@ -636,11 +662,8 @@ export class ExtractionAuthority {
       id: h.id, random: () => this.host.random(),
       signal: (state, signal) => {
         if (state.id === 9 && (signal === 1 || signal === 2)) h.motion?.stop();
-        if (state.id === 9 && signal === 1 && h.leader !== null) {
-          const old = h.leader;
-          this.leaders.controlHostageAction(h, null);
-          if (!this.hostages.some(other => other !== h && other.alive && other.leader === old)) this.trails.delete(old);
-        }
+        // The leader's trail is kept with no follower left (`LEADER_TRAIL_LIFE_READING`).
+        if (state.id === 9 && signal === 1 && h.leader !== null) this.leaders.controlHostageAction(h, null);
       },
       follow: (dt, id) => {
         const body = this.frameBodies.find(b => b.id === id && b.alive), trail = this.trails.get(id);
@@ -684,7 +707,7 @@ export class ExtractionAuthority {
   reset(tell = true): void {
     for (const k of Object.keys(this.valves) as (keyof ExtractionValves)[]) this.valves[k] = 0;
     this.leaders.clear();
-    this.trails.clear(); this.frameBodies = [];
+    this.trails.clear(); this.placements.clear(); this.frameBodies = [];
     this.obstacles.clear(); this.occupiedActors.clear(); this.rawCells.clear();
     this.fired = { hostKill: 0, sealKill: 0, rescue: new Set() };
     this.pending = [];
@@ -734,18 +757,32 @@ export class ExtractionAuthority {
       this.frameBodies = players;
       for (let k = 0; k < frames; k++) {
         this.unitTick();                                          // HX-4a: the UnitTick (FUN_005e8060), every frame online
-        for (const id of new Set(this.hostages.filter(h => h.alive && h.leader !== null).map(h => h.leader!))) {
-          const leader = players.find(p => p.id === id && p.alive);
-          const loc = leader && this.planner?.locate(leader.feet);
+        // LEADER_TRAIL_LIFE_READING: every seated body's trail, led or not -- on from its build, its entries zeroed at
+        // each placement (a new `placement` stamp: FUN_00525200 D:L392488, the count only), never deleted with a last
+        // follower; a departed seat's goes with it.
+        for (const id of this.trails.keys()) {
+          if (!players.some(p => p.id === id)) { this.trails.delete(id); this.placements.delete(id); }
+        }
+        const led = new Set(this.hostages.filter(h => h.alive && h.leader !== null).map(h => h.leader!));
+        const located = new Map<number, AiLoc | null>();
+        for (const body of players) {
+          let trail = this.trails.get(body.id);
+          if (!trail) this.trails.set(body.id, trail = new FollowTrail());
+          if (body.placement !== undefined && this.placements.get(body.id) !== body.placement) {
+            this.placements.set(body.id, body.placement);
+            trail.points.length = 0;
+          }
+          if (!body.alive) continue;
+          const loc = this.planner?.locate(body.feet) ?? null;
+          located.set(body.id, loc);
           if (!loc) continue;
-          let trail = this.trails.get(id);
-          if (!trail) this.trails.set(id, trail = new FollowTrail());
-          if (leader.yaw !== undefined && leader.velocity && leader.topSpeed !== undefined)
-            trail.updateHeading(GAME_FRAME_DT, { id, feet: leader.feet, yaw: leader.yaw, velocity: leader.velocity, topSpeed: leader.topSpeed, stance: leader.stance ?? 0 });
+          // The heading is the follow tick's (FUN_005fc970 D:L509297-509347), run for a led body only.
+          if (led.has(body.id) && body.yaw !== undefined && body.velocity && body.topSpeed !== undefined)
+            trail.updateHeading(GAME_FRAME_DT, { id: body.id, feet: body.feet, yaw: body.yaw, velocity: body.velocity,
+              topSpeed: body.topSpeed, stance: body.stance ?? 0 });
           // FUN_005b7ba0 D:L471291-471324: a trail point only on a traversable cell (FUN_0052a090); a blocked frame adds nothing.
           if (this.planner!.traversable(loc)) trail.add(loc, this.planner!.width(loc));
         }
-        for (const id of this.trails.keys()) if (!this.hostages.some(h => h.alive && h.leader === id)) this.trails.delete(id);
         const bodies: HostageWorldBody[] = [...players, ...this.hostages.map((h) => ({ id: h.id, feet: h.at, alive: h.alive, team: h.start.team }))];
         // FUN_005b7ba0 updates the last navigable actor cell; raw blocked cells retain the old stamp.
         const active = new Set(bodies.filter(b => b.alive).map(b => b.id));
@@ -753,7 +790,8 @@ export class ExtractionAuthority {
           this.obstacles.removeActor(id); this.occupiedActors.delete(id);
         }
         for (const body of bodies) if (body.alive) {
-          const loc = this.planner?.locate(body.feet);
+          // A seat's cell is the one its trail was laid from this frame (the same feet; the trail's cost, LATER 960).
+          const loc = located.has(body.id) ? located.get(body.id) : this.planner?.locate(body.feet);
           if (loc && this.planner!.traversable(loc)) {
             this.obstacles.moveActor(body.id, loc); this.occupiedActors.add(body.id);
           }
@@ -1081,11 +1119,12 @@ export class ExtractionAuthority {
 
   /**
    * HX-4a (`LEADER_RELEASE_READING`): a seat's death or departure releases every hostage it leads (`releaseLeader`), and
-   * the UnitTick's HOLD follows at once (`UNIT_TICK_HOLD_READING`): back in unit 17 with YES -- every page told.
+   * the UnitTick's HOLD follows at once (`UNIT_TICK_HOLD_READING`): back in unit 17 with YES -- every page told. The
+   * seat's trail is not switched off (`LEADER_TRAIL_LIFE_READING`): a dead body lays no cells and its respawn zeroes
+   * them (a placing); a departed seat's goes at the next frame, with its body.
    */
   release(seat: number): void {
     for (const h of releaseLeader(this.hostages.filter((h) => h.alive), seat, this.leaders)) (h as Hostage).motion?.stop();
-    this.trails.delete(seat);
     this.unitTick();
     this.publish();
   }
@@ -1104,8 +1143,9 @@ export class ExtractionAuthority {
    */
   rekey(old: number, id: number): void {
     this.leaders.rekey(old, id);
-    const trail = this.trails.get(old);
+    const trail = this.trails.get(old), stamp = this.placements.get(old);
     if (trail) { this.trails.delete(old); this.trails.set(id, trail); }
+    if (stamp !== undefined) { this.placements.delete(old); this.placements.set(id, stamp); }
     for (const h of this.hostages) {
       h.motion?.rekey(old, id);
       if (h.leader === old) h.leader = id;

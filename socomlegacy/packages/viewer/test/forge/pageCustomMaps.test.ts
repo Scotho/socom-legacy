@@ -11,6 +11,7 @@ import type { CustomMapRecord } from '../../src/packs/customMaps';
 import type { LoadedMap } from '../../src/loadMap';
 import { MAP_PACK, minimalMapJson } from '../../../creator-contracts/test/contentMapFixtures';
 import { freshSavesDb, readStoredList, storedSaves, writeStoredSaves } from './fakeSaves';
+import { pressNew, pressSaves } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FP-6 (FP.R4, FP.R12; product track, a browser adaptation with no original -- the Forge's picker is Crispy's, OT.R112):
@@ -50,7 +51,7 @@ function source(opts: { records?: CustomMapRecord[]; index?: IndexRow[] } = {}):
 const RECT = { left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
 const newCardSel = (): HTMLSelectElement | null => document.querySelector<HTMLSelectElement>('.fx-card select[aria-label="New layout"]');
 const openNew = async (): Promise<HTMLSelectElement> => {
-  document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+  pressNew(document);                                           // EDITOR-MAP T2: File > New...
   await vi.waitFor(() => expect(newCardSel()).not.toBeNull());
   return newCardSel()!;
 };
@@ -141,7 +142,7 @@ describe('FP-6: Custom Maps on the mounted Forge', () => {
     expect(row.title).toBe('Ready');
   }, 90_000);
 
-  const saveButton = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!;
+  // FC2-4: the toolbar's Saves button and its word (Saves / Save as) are off his page (EDITOR-MAP T4): Saves is File > Saves...
 
   it('3 (PR #756 P2): a bundle chosen and its "Save this layout first?" cancelled marks nothing -- the next open is an ordinary layout', async () => {
     await writeStoredSaves((list) => saveNamed(list, 'My floor', recordOfLayout(emptyLayout({ kind: 'blank', library: 'MP2' }), 'My floor'), 5, 's1').saves);
@@ -163,7 +164,7 @@ describe('FP-6: Custom Maps on the mounted Forge', () => {
     await vi.waitFor(() => expect(button('Don’t save')).toBeDefined());
     button('Don’t save').click();
     await vi.waitFor(() => expect(api.read().layout!.name).toBe('My floor'));
-    expect(saveButton().textContent).toBe('Saves');                    // not "Save as": no bundle was opened
+    // FC2-4: dropped -- the toolbar button's word 'Saves' (EDITOR-MAP T4: no such button on his page).
     // Its autosave on: the save chip is never the read-only "Host’s layout" a bundle's open turns it to (autosaveOff).
     expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [8, 0, 8] }, api.read().revision)).toMatchObject({ ok: true });
     const chip = (): string => document.querySelector('[data-forge-chip="save"]')?.textContent ?? '';
@@ -178,12 +179,12 @@ describe('FP-6: Custom Maps on the mounted Forge', () => {
     const before = (await readStoredList('autosave')).text;
     choose(await openNew(), 'custom:abc123');
     await vi.waitFor(() => expect(api.status().map).toBe(`content:${MAP_PACK.id}@${MAP_PACK.version}/yard`));
-    expect(saveButton().textContent).toBe('Save as');
+    // FC2-4: dropped -- the toolbar button's word 'Save as' (EDITOR-MAP T4); Save as is what the press below opens.
     // Item 6's development hook (`__forgeContentProps`): the yard's own content props drawn -- the fixture's map has none.
     expect((globalThis as { __forgeContentProps?: () => number }).__forgeContentProps?.()).toBe(0);
     await new Promise((r) => setTimeout(r, 500));                    // past the autosave's 300 ms
     expect((await readStoredList('autosave')).text).toBe(before);   // the bundle is never autosaved
-    saveButton().click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves... (Save as for a bundle)
     await vi.waitFor(() => expect(document.querySelector('.fx-card input')).not.toBeNull());
     const card = document.querySelector('.fx-card input')!.closest('.fx-card')!;
     expect(document.querySelector<HTMLInputElement>('.fx-card input')!.value).toBe('Sample Yard');
@@ -195,7 +196,7 @@ describe('FP-6: Custom Maps on the mounted Forge', () => {
     expect((copy!.record as CreatorLayoutRecord).requires).toEqual(records[0]!.layout.requires);
     expect((copy!.record as CreatorLayoutRecord).contentBase).toEqual(records[0]!.layout.contentBase);
     // The copy is open: an ordinary layout, Saves again, its autosave on.
-    await vi.waitFor(() => expect(saveButton().textContent).toBe('Saves'));
+    // FC2-4: dropped -- the toolbar button's word back to 'Saves' (EDITOR-MAP T4).
     await vi.waitFor(async () => expect((await readStoredList('autosave')).text).toContain('Sample Yard'));
     // The record removed in MODS: the save stays, the group lists it alone.
     records.length = 0;

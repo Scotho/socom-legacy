@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { existsSync, openAsBlob, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { DirectoryAssetSource, HttpAssetSource, IsoAssetSource, SOCOM2_US_BOOT } from '@s2u/archive';
+import { DirectoryAssetSource, HttpAssetSource, IsoAssetSource, SOCOM2_RELEASES, SOCOM2_US_BOOT } from '@s2u/archive';
 import { buildIso } from '../../archive/test/isoImage';
 import { listDiscMaps } from '../src/discIndex';
 import { dirRequest, discName, isDiscRequest, openDisc, requestLabel, sourceCache, sourceKey, type DiscEntry } from '../src/discSource';
@@ -140,6 +140,17 @@ describe.skipIf(!HAVE_FIXTURES)('a dir request reads the disc as an iso request 
 });
 
 describe('openDisc: validated once, on the page, before any request reaches a worker (DA.R8)', () => {
+  /** The words a player is shown (after "failed while reading <the disc>: ") for an image with no SYSTEM.CNF. */
+  const REFUSED_NO_CNF = "no SYSTEM.CNF here, so this is not a PS2 disc's root: choose the disc itself, or the folder that holds its files "
+    + '(ISO: no SYSTEM.CNF on the disc image)';
+  /** The words for an image that boots SOCOM U.S. Navy SEALs (USA). */
+  const REFUSED_SOCOM1 = 'this disc boots SCUS_971.34; this game needs a SOCOM U.S. Navy SEALs II disc '
+    + '(any release: SCUS_972.75, SCES_519.04, SCES_523.06, SCPS_150.65, SCKA_200.20)';
+  /** The words for an image whose SYSTEM.CNF has no BOOT2 line (an empty one too). */
+  const REFUSED_NO_BOOT2 = 'SYSTEM.CNF has no BOOT2 line, so it names no game to boot: this is not a PS2 game disc';
+  /** The words a refusal carries, whole: equal, not merely contained. */
+  const refusal = (p: Promise<unknown>): Promise<string> =>
+    p.then(() => 'resolved instead of rejecting', (e: unknown) => (e instanceof Error ? e.message : String(e)));
   const good = [{ path: 'SYSTEM.CNF', bytes: systemCnf(SOCOM2_US_BOOT) }, { path: 'RUN/UI/READERC.ZAR', bytes: text('four') }];
 
   it('a folder whose SYSTEM.CNF boots another game is refused in discIdentity\'s words, before the probe', async () => {
@@ -152,14 +163,67 @@ describe('openDisc: validated once, on the page, before any request reaches a wo
     await expect(openDisc(dirOf([good[0]!]), 'RUN/UI/READERC.ZAR')).rejects.toThrow(/disc folder: no RUN\/UI\/READERC\.ZAR/);
   });
 
-  it('a good folder resolves with its source and identity; an image keeps today\'s check, its identity not read', async () => {
+  it('a good folder resolves with its source and identity; a good image the same (identified by title, DA.R8)', async () => {
     const d = await openDisc(dirOf(good), 'RUN/UI/READERC.ZAR');
     expect(d.source).toBeInstanceOf(DirectoryAssetSource);
     expect(d.identity).toEqual({ boot: SOCOM2_US_BOOT, ver: '1.00', vmode: 'NTSC' });
     const i = await openDisc(isoOf(good), 'RUN/UI/READERC.ZAR');
     expect(i.source).toBeInstanceOf(IsoAssetSource);
-    expect(i.identity).toBeNull();
+    expect(i.identity).toEqual({ boot: SOCOM2_US_BOOT, ver: '1.00', vmode: 'NTSC' });
     await expect(openDisc({ kind: 'iso', file: new File([new Uint8Array(40 * 2048)], 'x.iso') }, 'RUN/UI/READERC.ZAR')).rejects.toThrow(/not an ISO9660 image/);
+  });
+
+  // The probe alone does not tell the titles apart: a SOCOM U.S. Navy SEALs (USA) image holds RUN/UI/READERC.ZAR too.
+  // An image is identified by the title its SYSTEM.CNF boots before the probe (DA.R8), as a folder is.
+  it('an image whose SYSTEM.CNF boots SOCOM (USA) (SCUS_971.34) is refused by title, though it holds the probed file', async () => {
+    const socom1 = isoOf([{ path: 'SYSTEM.CNF', bytes: systemCnf('SCUS_971.34') }, good[1]!], 'SOCOM.iso');
+    expect(await refusal(openDisc(socom1, 'RUN/UI/READERC.ZAR'))).toBe(REFUSED_SOCOM1);
+    expect(await refusal(openFrontEndDisc(socom1))).toBe(REFUSED_SOCOM1);
+    expect(await refusal(openFrontEndImage(socom1.file))).toBe(REFUSED_SOCOM1);
+  });
+
+  it('an image with no SYSTEM.CNF is refused, before the probe, in these exact words', async () => {
+    expect(await refusal(openDisc(isoOf([good[1]!]), 'RUN/UI/READERC.ZAR'))).toBe(REFUSED_NO_CNF);
+    expect(await refusal(openFrontEndImage(isoOf([good[1]!]).file))).toBe(REFUSED_NO_CNF);
+  });
+
+  it('an image whose SYSTEM.CNF has no BOOT2 line, or is empty, is refused in these exact words', async () => {
+    const noBoot = isoOf([{ path: 'SYSTEM.CNF', bytes: text('VER = 1.00\r\nVMODE = NTSC\r\n') }, good[1]!]);
+    expect(await refusal(openDisc(noBoot, 'RUN/UI/READERC.ZAR'))).toBe(REFUSED_NO_BOOT2);
+    const empty = isoOf([{ path: 'SYSTEM.CNF', bytes: text('') }, good[1]!]);
+    expect(await refusal(openFrontEndImage(empty.file))).toBe(REFUSED_NO_BOOT2);
+  });
+
+  // A file the image reader cannot read at all is refused in the reader's own words, as before: discIdentity's advice
+  // ("choose the disc itself") is for an image that reads but has no SYSTEM.CNF, not for one that is not an image.
+  it('a file that is not an ISO9660 image, a raw 2352-byte image and a truncated image keep the reader\'s own words', async () => {
+    const notIso = new File([new Uint8Array(40 * 2048)], 'x.iso');
+    const NOT_ISO = 'not an ISO9660 image: no CD001 volume descriptor at sector 16';
+    expect(await refusal(openDisc({ kind: 'iso', file: notIso }, 'RUN/UI/READERC.ZAR'))).toBe(NOT_ISO);
+    expect(await refusal(openFrontEndImage(notIso))).toBe(NOT_ISO);
+    const short = new File([new Uint8Array(100)], 'short.iso');
+    expect(await refusal(openDisc({ kind: 'iso', file: short }, 'RUN/UI/READERC.ZAR'))).toMatch(/^not an ISO9660 image/);
+    const whole = buildIso(good, 'SCUS_97275');
+    const cut = new File([whole.subarray(0, whole.length - 2048)], 'cut.iso');
+    const truncated = await refusal(openDisc({ kind: 'iso', file: cut }, 'RUN/UI/READERC.ZAR'));
+    expect(truncated).toMatch(/^ISO: the volume is \d+ bytes but the image is \d+: /);
+    expect(truncated).not.toMatch(/SYSTEM\.CNF/);
+    // A raw image (2352-byte sectors, the 16-byte sync and header before each 2048 bytes) is no 2048-byte ISO.
+    const raw = new Uint8Array((whole.length / 2048) * 2352);
+    for (let s = 0; s < whole.length / 2048; s++) raw.set(whole.subarray(s * 2048, (s + 1) * 2048), s * 2352 + 16);
+    expect(await refusal(openDisc({ kind: 'iso', file: new File([raw], 'raw.bin') }, 'RUN/UI/READERC.ZAR'))).not.toMatch(/SYSTEM\.CNF/);
+  });
+
+  it('an image of each of the five releases of SOCOM II opens, with its identity, through openDisc and the front end', async () => {
+    const boots = ['SCUS_972.75', 'SCES_519.04', 'SCES_523.06', 'SCPS_150.65', 'SCKA_200.20'];
+    expect([...boots].sort()).toEqual(Object.keys(SOCOM2_RELEASES).sort());
+    for (const boot of boots) {
+      const image = isoOf([{ path: 'SYSTEM.CNF', bytes: systemCnf(boot) }, good[1]!]);
+      const opened = await openDisc(image, 'RUN/UI/READERC.ZAR');
+      expect(opened.source, boot).toBeInstanceOf(IsoAssetSource);
+      expect(opened.identity, boot).toEqual({ boot, ver: '1.00', vmode: 'NTSC' });
+      expect(await openFrontEndImage(image.file), boot).toBeInstanceOf(IsoAssetSource);
+    }
   });
 
   it('a folder of another release of SOCOM II (the European SCES_519.04) resolves the same (DA.R8 as amended)', async () => {

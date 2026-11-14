@@ -25,6 +25,9 @@ export const clampTo = (v: number, lim: number): number => (v > lim ? lim : v < 
  * A body's torso: with a skeleton, its idle's aim point (`StanceVolumes.torso`, the mean of the BODY bones' middles as
  * the hit capsules fitted them before BONE-BOXES -- kept so a bot aims where it aimed; the hit volumes are the bone boxes
  * now, research 398 s1) placed at the feet and yaw; else the mean of the placeholder's BODY capsules' middles.
+ * SCUBA-BAND (`BOT_AIM_ADAPTATION`): the idle's point always lies in a BODY box (`hitVolumes.ts` `torsoOf`; unchanged
+ * where the plain mean already did) -- MP2's scuba SEALs' `spinelo` box is zero (shadow's live node read, 2026-11-11: the
+ * scuba SEAL's spinelo box is zero, as on disc), so the plain mean fell in the band no trunk box covers.
  */
 export function torsoPoint(body: { feet: readonly number[]; yaw: number; posture: CameraBody['posture'] }, volumes: StanceVolumes | null): V3 {
   const at = volumes?.torso?.[body.posture];

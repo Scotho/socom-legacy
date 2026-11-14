@@ -4,6 +4,7 @@ import type { ForgeAgentApi } from '../src/forge/agent/api';
 import { saveNamed } from '../src/forge/saves';
 import { freshSavesDb, storedSaves, writeStoredSaves } from './forge/fakeSaves';
 import type { LoadedMap } from '../src/loadMap';
+import { pressSaves } from './forge/helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * PAD-1 (FUI.R2; the review's IA-2; a browser adaptation, FG.R2): the Saves card is not a pad dead end. Opened from
@@ -104,7 +105,7 @@ describe('the Saves card on the pad (PAD-1)', () => {
     expect(menuShown()).toBe(false);
 
     // Esc closes it as well (OT.R68), from the toolbar's button.
-    document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     expect(savesShown()).toBe(true);
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
     expect(savesShown()).toBe(false);

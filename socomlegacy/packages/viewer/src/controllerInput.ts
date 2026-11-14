@@ -26,15 +26,17 @@ export function connectedPads(source: PadSource): PadLike[] {
     return pressure && !pads.some((p) => p.id === pressure.id && p.index === pressure.index) ? [...pads, pressure] : pads;
   } catch { return []; }
 }
-/** Calibrate relative to the existing 0.15 adapter. Its inverse in camera.ts still feeds the original game curve.
- * At the default this is exactly identity, including diagonal corners. No second game-curve dead zone is added.
+/**
+ * The browser's Pad dead zone (this browser) on one stick: a pure drift guard (PZG, finding 14; a browser adaptation).
+ * Inside the zone the pair is zero; past it the pair is the pad's own, unchanged -- no floor, no rescale, the corners
+ * kept. The zone rides on to the shaping (`./gamepad` `padStick`, the pad's `stickZone`) and its inverse (`padRaw`), so
+ * the game reads the push itself, and the original's own per-axis zone stays the only one past it. At the default
+ * (`PAD_DEAD_ZONE`) the pair is untouched, as before PZG: the 0.15 adapter guards the walk, and the menus' readers keep
+ * their raw pair. Before PZG a zone off the default floored every push past it at 0.15 (0.15 + 0.85 (d - z) / (1 - z)).
  */
 export function calibrateStick(x: number, y: number, zone: number): [number, number] {
   if (zone === PAD_DEAD_ZONE) return [x, y];
-  const d = Math.hypot(x, y);
-  if (d <= zone || d === 0) return [0, 0];
-  const factor = (PAD_DEAD_ZONE + (1 - PAD_DEAD_ZONE) * (d - zone) / (1 - zone)) / d;
-  return [x * factor, y * factor];
+  return Math.hypot(x, y) <= zone ? [0, 0] : [x, y];
 }
 
 /**
@@ -460,14 +462,18 @@ export class ControllerInput {
     // Prone button (the fold's review F1: the console dispatches every logical button down, so a button with its own job
     // keeps it alone; cloned on Triangle's own button, nothing changes).
     const proneFree = this.releaseCrouch || !c.bindings.some((ph, lg) => ph === c.prone && lg !== PAD_BUTTON.Triangle);
+    let triangleFromProneOnly = false;
     if (triangleOff && proneFree) {
       const p = pad.buttons[c.prone];
       const proneDown = !!p && (buttonDown(p) || (this.pressureCapable() && p.value > STANCE_PRESS_ACTIVE_PLACEHOLDER));
       const own = c.bindings[PAD_BUTTON.Triangle] ?? -1;
       const ownDown = own >= 0 && (!this.releaseCrouch || (own !== c.prone && own !== c.crouch)) && held(own);
+      triangleFromProneOnly = proneDown && !ownDown;
       buttons[PAD_BUTTON.Triangle] = proneDown ? { pressed: true, value: p!.value } : ownDown ? pad.buttons[own]! : released;
     }
     return { ...pad, id: pad.id, index: pad.index, connected: pad.connected, mapping: pad.mapping, nativePressure, stanceCancelled: pad.stanceCancelled, axes,
-      ...(this.releaseCrouch && triangleOff ? { stanceOff: true } : {}), buttons };
+      stickZone: this.config.deadZone,   // PZG: the zone the sticks were guarded with, for `padStick` and `padRaw`
+      ...(this.releaseCrouch && triangleOff ? { stanceOff: true } : {}),
+      ...(this.releaseCrouch && triangleFromProneOnly ? { triangleFromProneOnly: true } : {}), buttons };
   }
 }

@@ -6,7 +6,10 @@ import { createAssetPreview, type AssetPreviewOptions } from './assetPreview';
  * asset list's one tooltip. One overlay and one preview (`./assetPreview`, its one renderer) for every tile, never one a
  * tile. It is shown beside a hovered tile after `ASSET_TIP_HOVER_MS`, and beside the active one -- the keyboard's or the
  * pad's focus, or the asset picked for placement (`activate`) -- at once; it sits past the tile's edge, never over the
- * tile or its focus ring; it hides on leave, blur, the list's scroll and `hide()` (the page's Escape). Touch: a long
+ * tile or its focus ring; it hides on leave, blur, the list's scroll (but the scroll its own active show caused, FC2)
+ * and `hide()` (the page's Escape); a user's scroll of the list cancels a hover's pending show too (FC2, the review's
+ * B-4: else the tip came up beside a tile the wheel had moved from under a still pointer), but the scroll that lands in
+ * the hover's own first two frames (the one that brought its tile into view). Touch: a long
  * press (`ASSET_TIP_LONG_PRESS_MS`) shows it, the lift keeps it and is not a tap, the next tap hides it and is the list's
  * own. `allowed()` is the Forge setting and the page's admission: while false nothing shows. A tile is any
  * `[data-asset]` element of an attached list; it takes no key listener (the list's Escape is its owner's).
@@ -50,6 +53,34 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
   let anchor: HTMLElement | null = null, asset: string | null = null, disposed = false;
   let hoverTimer: ReturnType<typeof setTimeout> | null = null, pressTimer: ReturnType<typeof setTimeout> | null = null;
   let press: { x: number; y: number } | null = null, pinned = false, eatClick = false;
+  /**
+   * FC2 (ours): the scroll the tooltip's own show caused. The contributor's dock gives the asset list a short height,
+   * so the prop step's `scrollIntoView` (`page.ts` `stepAsset`, just before `activate`) and a keyboard or pad focus
+   * scroll the list, and the browser dispatches that scroll event at the next frame -- after the tip was shown -- where
+   * the scroll handler hid it: the active tile's tooltip never stayed. Until two frames have run (the scroll steps come
+   * before a frame's animation callbacks) a scroll of the list re-places the tip instead; after them it is the user's.
+   */
+  let ownScroll = 0;
+  const twoFrames = (cb: () => void): void => {
+    const raf = typeof requestAnimationFrame === 'function'
+      ? (f: () => void): void => { requestAnimationFrame(f); } : (f: () => void): void => { setTimeout(f, 16); };
+    raf(() => raf(cb));
+  };
+  const expectOwnScroll = (): void => {
+    ownScroll++;
+    twoFrames(() => { ownScroll = Math.max(0, ownScroll - 1); });
+  };
+  /**
+   * FC2 (ours; the review's B-4): a hover's own scroll -- the one that brought its tile into view (Playwright's hover on
+   * the short list) can land just after the pointer entered -- keeps its pending show, for the same two frames; a scroll
+   * after them is the user's (a wheel under a still pointer) and cancels it, so no tip comes up beside a tile no longer
+   * under the pointer.
+   */
+  let hoverScroll = 0;
+  const expectHoverScroll = (): void => {
+    hoverScroll++;
+    twoFrames(() => { hoverScroll = Math.max(0, hoverScroll - 1); });
+  };
 
   const tileOf = (list: HTMLElement, target: EventTarget | null): HTMLElement | null => {
     const Node = win?.Node;
@@ -121,6 +152,7 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
         if (!tile || tile === anchor || pinned) return;
         stopHover();
         hoverTimer = setTimeout(() => { hoverTimer = null; show(tile); }, ASSET_TIP_HOVER_MS);
+        expectHoverScroll();                                           // FC2 (ours): its tile's own scroll keeps it
       }, on);
       list.addEventListener('pointerout', (e) => {
         if (e.pointerType === 'touch') return;
@@ -129,12 +161,27 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
         stopHover();
         if (anchor === tile && !pinned && !tile.contains(doc.activeElement)) hide();
       }, on);
-      list.addEventListener('focusin', (e) => { const tile = tileOf(list, e.target); if (tile) show(tile); }, on);
+      list.addEventListener('focusin', (e) => {
+        const tile = tileOf(list, e.target);
+        if (!tile) return;
+        show(tile);
+        if (anchor === tile) expectOwnScroll();                        // FC2 (ours): the focus's own scroll keeps it
+      }, on);
       list.addEventListener('focusout', (e) => {
         const tile = tileOf(list, e.target);
         if (tile && tile === anchor && tileOf(list, e.relatedTarget) !== tile) hide();
       }, on);
-      list.addEventListener('scroll', () => hide(), on);
+      list.addEventListener('scroll', () => {
+        // FC2 (ours): the show's own scroll (above) re-places the tip beside its tile, which moved with the list.
+        if (ownScroll > 0 && anchor?.isConnected) { place(anchor); return; }
+        // A user's scroll hides a shown tip, as before, and cancels a hover's pending show (the review's B-4). FC2 (ours):
+        // but the hover's own scroll, in its first two frames (`hoverScroll`), keeps that pending show.
+        if (hoverScroll === 0) { hide(); return; }                    // `hide` clears the pending show's timer
+        const pending = hoverTimer;
+        hoverTimer = null;
+        hide();
+        hoverTimer = pending;
+      }, on);
       list.addEventListener('pointerdown', (e) => {
         if (e.pointerType !== 'touch') return;
         if (pinned) hide();                                            // the next tap: away, and the tap is the list's
@@ -158,6 +205,7 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
       if (!id) { hide(); return; }
       const tile = tileFor(id);
       if (tile) show(tile); else hide();
+      if (tile && anchor === tile) expectOwnScroll();                  // FC2 (ours): the step's scrollIntoView keeps it
     },
     hide,
     /** The tile the tooltip hangs off was redrawn (its owner's list): it follows the new one, or goes. */

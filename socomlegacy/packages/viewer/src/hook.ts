@@ -234,6 +234,8 @@ export interface ViewerHook {
     mode: 'reticle' | 'scope' | 'binoculars'; size: number; offset: [number, number]; colour: ReticleColour;
     /** WEAPON: the reticle set drawn (1 the rifle's, 0 the sidearm's) and the accuracy pip (alpha 0..128, PS2 px offset). */
     type: number; pip: { alpha: number; offset: [number, number] | null };
+    /** OT.R124's browser proof (a test instrument): this frame's aim point as handed to the reticle, 0..1 of the frame. */
+    aim: [number, number];
   };
   /**
    * Research 84 (`./zoom`): the view state (`body+0x200`: 0 third person, 1 first person, 3 night vision, 4 the 9x view, 5+

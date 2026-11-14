@@ -5,6 +5,7 @@ import type { ForgePanel, ForgeShellPage } from '../../src/forge/shell/panel';
 import type { ForgePageContext, ForgePanelContext } from '../../src/forge/shell/context';
 import { forgeKeyAction, type ForgeKeyState } from '../../src/forge/keys';
 import type { LoadedMap } from '../../src/loadMap';
+import { pressForgeMenu, menuOpen as menuCardOpen } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FUI-2 (the review's PAD-4, principle 2; a browser adaptation, FG.R2): one pad focus walker over `[data-pad-item]` in
@@ -255,10 +256,10 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     c.ui.focus.take('lease');
     const staged = await c.editor!.stagePiece('MP84:synthetic');
     expect(staged).not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     expect(c.state().canPlace).toBe(false);
     expect(staged!.disposed).toBe(true);
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     // The panel's signal (unregister) lets it go.
     c.ui.focus.take('lease');
     expect(c.ui.focus.holder()).toBe('lease');
@@ -271,7 +272,7 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     target.dispatchEvent(e);
     return e;
   };
-  const menuOpen = (): boolean => document.querySelector('[data-forge="menu"]')!.getAttribute('aria-expanded') === 'true';
+  const menuOpen = (): boolean => menuCardOpen(document);   // EDITOR-MAP T1: the button is off his page; the card's presence
 
   it('R3-A (3): the lease has a keyboard exit -- Escape lets it go (as the pad\'s Circle), M lets it go and opens the menu; a panel\'s own key handler sees them first', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -336,12 +337,12 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     expect(c.ui.focus.holder()).toBeNull();
     const lapsed = await c.editor!.stagePiece('MP84:synthetic');
     expect(lapsed).not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     expect(c.state().canPlace).toBe(false);
     expect(lapsed!.disposed).toBe(true);
     // Its place still answers why: the admission lapsed.
     expect(await c.editor!.place(lapsed!, [0, 0, 0])).toMatchObject({ ok: false, code: 'ADMISSION_LOST' });
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     // The panel unregistered: its staged drop goes with it.
     const held = await c.editor!.stagePiece('MP84:synthetic');
     expect(held).not.toBeNull();

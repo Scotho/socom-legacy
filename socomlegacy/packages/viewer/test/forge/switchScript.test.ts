@@ -33,7 +33,7 @@ describe('scriptPrograms', () => {
     expect(main.nodes).toEqual(['NA', 'worldmodel/forge_switch_1', 'forge/piece_3', 'worldmodel/x']);
     expect(main.root).toBe(1);
     expect(ops(main)).toEqual([
-      { op: 'message', text: 'INBOUND', locId: null, scale: 1 },
+      { op: 'message', text: 'INBOUND', locId: null, scale: 1, forge: true },
       { op: 'wait', seconds: 2, range: 0, frames: null },
       { op: 'executeAction', anim: 'seal_strike1' },
       { op: 'executeAction', anim: 'forge_barrier_1_wreck' },
@@ -63,7 +63,7 @@ describe('scriptPrograms', () => {
 
   it("a message is the window's own, as the round start's", () => {
     const { main } = scriptPrograms('forge_switch_1', 'worldmodel/forge_switch_1', { steps: [{ do: 'message', text: 'PLAIN' }] }, resolve);
-    expect(ops(main)).toEqual([{ op: 'message', text: 'PLAIN', locId: null, scale: 1 }]);
+    expect(ops(main)).toEqual([{ op: 'message', text: 'PLAIN', locId: null, scale: 1, forge: true }]);
   });
 
   it('a step whose object or action is not here is left out', () => {

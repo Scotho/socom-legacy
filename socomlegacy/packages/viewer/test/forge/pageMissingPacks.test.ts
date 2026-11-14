@@ -10,6 +10,7 @@ import { recordOfLayout } from '../../src/forge/record';
 import { FORGE_LAYOUT_KEY } from '../../src/pageStore';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb, readStoredList } from './fakeSaves';
+import { pressMenubar } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * R3-B (5, FUI-14/16's minimum; 6; a browser adaptation, no original -- the forge and its packs are the port's own):
@@ -110,7 +111,7 @@ describe('R3-B: missing packs and the online refusal on the mounted Forge', () =
     const piecesStored = async (): Promise<number> => ((JSON.parse((await readStoredList('autosave')).text ?? '{}') as { pieces?: unknown[] }).pieces ?? []).length;
     expect(await api.execute('selection.set', { refs: ['piece:0'] }, api.read().revision)).toMatchObject({ ok: true });
     // the person's Duplicate (the toolbar's, pad Square, C)
-    [...document.querySelectorAll<HTMLButtonElement>('button.fx-tool')].find((b) => b.title.startsWith('Duplicate'))!.click();
+    pressMenubar(document, 'Edit', 'Duplicate');                  // EDITOR-MAP T7: Edit > Duplicate
     await vi.waitFor(() => expect(api.read().layout!.pieces).toHaveLength(2));
     expect(api.read().layout!.assets).toEqual([crate]);
     await vi.waitFor(async () => expect(await piecesStored()).toBe(2), { timeout: 3000 });
@@ -141,7 +142,7 @@ describe('R3-B: missing packs and the online refusal on the mounted Forge', () =
     expect(statusLine()).not.toContain('not saved');
     // two picked: Duplicate is the group's (`duplicateGroup`, each piece through `copyOf`)
     expect(await api.execute('selection.set', { refs: ['piece:0', 'piece:1'] }, api.read().revision)).toMatchObject({ ok: true });
-    [...document.querySelectorAll<HTMLButtonElement>('button.fx-tool')].find((b) => b.title.startsWith('Duplicate'))!.click();
+    pressMenubar(document, 'Edit', 'Duplicate');                  // EDITOR-MAP T7: Edit > Duplicate
     await vi.waitFor(() => expect(api.read().layout!.pieces).toHaveLength(4));
     expect((api.read().layout as CreatorLayoutRecord).pieces.map((p) => p[0])).toEqual([0, 0, 0, 0]);
     expect(api.read().layout!.assets).toEqual([crate]);

@@ -76,9 +76,31 @@ export async function holdPad(page: PadPage, state: PadState = {}): Promise<void
   }, { buttons: state.buttons, axes: state.axes, holdMs: PAD_STATE_HOLD_MS });
 }
 
-/** Lets go, presses `button`, lets go: one press as every reader sees it. */
-export async function tapPad(page: Page, button: number): Promise<void> {
-  await holdPad(page); await holdPad(page, { buttons: [button] }); await holdPad(page);
+/**
+ * Lets go, presses `button`, lets go: one press as every reader sees it -- each state for `holdPad`'s two frames and two
+ * UI ticks, all three inside ONE `page.evaluate` (LATER 952's second form, 2026-11-13). Three `holdPad` calls left the
+ * button down across Playwright's round trip between the second and the third, unbounded; past the console's
+ * `REPEAT_DELAY` (400 ms) a held direction repeats, so one tap stepped a slider twice, once three times
+ * (`../test/padStubTapRoundTrip.test.ts`). Now the release is the page's own, on the frame the press's hold ends.
+ */
+export async function tapPad(page: PadPage, button: number): Promise<void> {
+  await page.evaluate(async ({ button, holdMs }) => {
+    const pad = (window as unknown as { __s2uPad: { axes: number[]; timestamp: number; buttons: { pressed: boolean; touched: boolean; value: number }[] } }).__s2uPad;
+    const hold = (on: boolean): Promise<void> => {
+      pad.axes = [0, 0, 0, 0];
+      pad.buttons.forEach((b, i) => { const down = on && i === button; b.pressed = down; b.touched = down; b.value = down ? 1 : 0; });
+      pad.timestamp = performance.now();
+      return new Promise<void>((done) => {
+        let first: number | null = null, frames = 0;
+        const step = (now: number): void => {
+          first ??= now;
+          if (++frames >= 2 && now - first >= holdMs) done(); else requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    };
+    await hold(false); await hold(true); await hold(false);
+  }, { button, holdMs: PAD_STATE_HOLD_MS });
 }
 
 /** The focused element's id, else its tag and first class (for a readable failure). */

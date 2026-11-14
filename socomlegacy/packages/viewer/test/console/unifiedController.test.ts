@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { codModernChosen } from '../../src/controllerModern';
 import { CardSlots } from '@s2u/card';
 import { stickTunersOfPreset, type ValveEntry } from '@s2u/ui';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
@@ -33,14 +34,28 @@ function boot() {
 }
 
 describe('one shared Controller page', () => {
-  it('offers all four original layouts and saves both original selection fields together', () => {
+  it('offers saved Steam label choices without changing the chosen action layout', () => {
+    const { options, rows, store } = boot();
+    expect(rows().find(r => r.id === 'controller-labels')?.values).toEqual(['Automatic', 'PlayStation', 'Xbox', 'Steam Controller', 'Steam Deck']);
+    options.set('SelectedControllerConfig', 4);
+    options.set('controller-labels', 4);
+    expect(options.value('controller-labels')).toBe(4);
+    expect(store.valve('SelectedControllerConfig')).toBe(1);             // V20.R4: COD Modern is the page's choice, not the card's
+    expect(rows().find(r => r.id === 'controller-labels')?.about).toContain('Steam Input');
+    options.dispose();
+    expect(boot().options.value('controller-labels')).toBe(4);
+  });
+  it('offers four original layouts plus COD Modern and saves both selection fields together', () => {
     const { slots, options, rows } = boot();
-    expect(rows().find(r => r.id === 'SelectedControllerConfig')?.values).toEqual(['Precision Shooter', 'Lefty', 'Scout', 'Sure Shot']);
-    for (const index of [3, 2, 1, 0, 2]) {
+    expect(rows().find(r => r.id === 'SelectedControllerConfig')?.values).toEqual(['Precision Shooter', 'Lefty', 'Scout', 'Sure Shot', 'COD Modern (not the original\'s)']);
+    let card = 1, chose = 0;
+    for (const index of [4, 3, 2, 1, 0, 4, 2]) {
       options.set('SelectedControllerConfig', index);
       const saved = cardOptionStore(slots);
-      expect(saved.valve('SelectedControllerConfig')).toBe(index + 1);
-      expect(saved.valve('ChosePresetOnce')).toBe(1);
+      if (index < 4) { card = index + 1; chose = 1; }                    // V20.R4: COD Modern (index 4) leaves the card -- both fields -- as it was
+      expect(saved.valve('SelectedControllerConfig')).toBe(card);
+      expect(codModernChosen()).toBe(index === 4);
+      expect(saved.valve('ChosePresetOnce')).toBe(chose);
       expect(options.value('SelectedControllerConfig')).toBe(index);
     }
   });

@@ -74,6 +74,7 @@ function readBodyV10(r: ReaderV10): BodyState {
     stance: packed & 3, landing: (packed >> 2) & 3, ground: (packed >> 4) & 3, weapon, slot: (packed >> 6) & 1, stickSnaps: (packed >> 7) & 1,
     jumps, groundForward, groundRight, groundCls, action, actionSerial, actionT, actionSeconds, overlay, overlayT, overlaySeconds,
     turnRate, trav, travFrame, travRootY, travBlend, travBlendWeight, peek,
+    view: 0, clock: 0, swayX: 0, swayY: 0,                     // WIRE-16 (the PV-1 fold): protocol 10 carried no view
   };
 }
 

@@ -18,11 +18,13 @@
  */
 import {
   checkReport, checkRulesParams, diagnostic, layoutEntityIds, rulesCatalogue, validateRules, RULE_ACTION_SPECS, RULE_CHAIN_DEPTH_ADAPTATION, RULE_EVENTS_PER_TICK_ADAPTATION,
-  RULES_CODES, type CheckReport, type Diagnostic, type LayoutMarker, type LayoutSpawner, type LayoutZone, type RuleAction, type RuleCondition,
+  RULE_EVENT_SPECS, RULES_CODES, type CheckReport, type Diagnostic, type LayoutMarker, type LayoutSpawner, type LayoutZone, type RuleAction, type RuleCondition,
   type RuleDecl, type RuleEventName, type RuleOperand, type RuleSide, type RuleSubject, type RulesItem, type RulesSpec, type RulesVariable,
 } from '@s2u/creator-contracts';
 import { TICK_HZ, type Team } from '../../../../viewer/src/net/protocol';
 import { RuleEventStream, type RuleEvent, type RuleEventInput } from './events';
+import { PLUGIN_MISSES_PER_ROUND_ADAPTATION, PLUGIN_REPLY_TICKS_ADAPTATION, type PluginHookInput, type PluginPort, type PluginRound } from '../plugin/limits';
+import { applyPluginRoomAction, pluginActionsOf } from '../plugin/reply';
 import type { RoomRuleHost, RulePlayer, RuleRoom, RulesShow, RulesWire, RuleV3 } from './seam';
 
 /** The events a host keeps for `log()` when asked to (`keepLog`), a test and playtest instrument; the oldest go first past it. */
@@ -66,6 +68,13 @@ export interface RuleHostOptions {
   npcs?: RuleNpcSeats;
   /** Keep the events heard (`log`), at most `RULE_LOG_EVENTS_ADAPTATION`. */
   keepLog?: boolean;
+  /**
+   * Community plugin (product-track adaptation; design section 4). Absent: the host is unchanged, including a retail
+   * room with the host attached and no pack. The listener knows only a port: it posts a JSON copy of `RuleRoomView`
+   * and reads `RULE_ACTIONS`. A throw, a dead worker, or three misses trips the plugin for the round and terminates
+   * the worker. The next round opens a fresh one. It does not exit 75 and it does not write last-exit.json.
+   */
+  plugin?: PluginRound;
 }
 
 /** `off`: no pack (listening only); `pending`: a pack waits for the next match or round start; `on`; `tripped`: off for the round (a budget). */
@@ -172,7 +181,50 @@ export class RuleHost implements RoomRuleHost {
   /** A `match.end` asked while `endingAt` runs: the round is the match's last. */
   private finalAsked = false;
 
-  constructor(private readonly options: RuleHostOptions = {}) {}
+  /** Events waiting to be posted to the plugin at the end of the tick. */
+  private pluginInbox: RuleEvent[] = [];
+  private pluginPosts: { tick: number; ev: RuleEvent; done: boolean; actions: RuleAction[] | null; failed: boolean }[] = [];
+  private pluginMisses = 0;
+  /** The plugin is off until the next round. The match child stays up. */
+  private pluginTripped = false;
+  /** The worker for this round. The host does not know the module. */
+  private port: PluginPort | null = null;
+  /** A worker opened before the next round, so that round's first tick is not the import. */
+  private prepared: PluginPort | null = null;
+  /** The current worker was opened ahead of the round that will take it. */
+  private heldAhead = false;
+  /** The tick that already armed a worker. `match.start` and `round.start` share it. */
+  private pluginArmTick = -1;
+  private pluginCountTick = -1;
+  private pluginCount = 0;
+  /** The game has ended. No further worker is opened. */
+  private pluginDisposed = false;
+
+  constructor(private readonly options: RuleHostOptions = {}) {
+    const ready = this.options.plugin?.takeReady?.() ?? null;
+    this.port = ready ?? this.tryOpen();
+    this.heldAhead = this.port !== null;
+  }
+
+  /** `new Worker` can throw. A failure here is no port, and the caller trips; it does not escape the tick. */
+  private tryOpen(): PluginPort | null {
+    if (this.pluginDisposed || !this.options.plugin) return null;
+    try {
+      return this.options.plugin.openRound();
+    } catch {
+      return null;
+    }
+  }
+
+  /** The game is over. Drop the worker for this round and the one opened for a map that will not start. */
+  dispose(): void {
+    this.pluginDisposed = true;
+    this.port?.terminate();
+    this.port = null;
+    this.prepared?.terminate();
+    this.prepared = null;
+    this.heldAhead = false;
+  }
 
   // ---- the lifecycle ----
 
@@ -183,6 +235,13 @@ export class RuleHost implements RoomRuleHost {
    * is switched off first.
    */
   enable(spec: unknown, seed: number, params: Readonly<Record<string, unknown>> = {}): CheckReport {
+    if (this.options.plugin) {
+      return checkReport([diagnostic({
+        source: 'pack', severity: 'error', code: RULES_CODES.schema,
+        text: 'A plugin host does not take a rules pack. A pack and a plugin together are not supported yet.',
+        field: 'rules',
+      })], { evidence: 'validation' });
+    }
     const layout = this.options.layout;
     const report = validateRules(spec, rulesCatalogue({
       ...(layout ? { layout: layoutEntityIds(layout) } : {}),
@@ -282,6 +341,7 @@ export class RuleHost implements RoomRuleHost {
       this.kept.push(ev);
       if (this.kept.length > RULE_LOG_EVENTS_ADAPTATION) this.kept.shift();
     }
+    if (this.options.plugin && (ev.name === 'match.start' || ev.name === 'round.start')) this.armPluginRound();
     if (ev.name === 'match.start' && this.state !== 'off') { this.state = 'on'; this.reset(true); this.fresh = true; }
     else if (ev.name === 'round.start' && this.state !== 'off') {
       // a round start right behind its match's start finds the state fresh, the match's start still to be handled
@@ -289,6 +349,25 @@ export class RuleHost implements RoomRuleHost {
       this.state = 'on';
       this.fresh = false;
     } else this.fresh = false;
+    if (this.options.plugin && !this.pluginTripped && ev.depth <= RULE_CHAIN_DEPTH_ADAPTATION) {
+      if (this.state !== 'on') {
+        const tick = this.room?.tick ?? 0;
+        if (tick !== this.pluginCountTick) { this.pluginCountTick = tick; this.pluginCount = 0; }
+        if (++this.pluginCount > RULE_EVENTS_PER_TICK_ADAPTATION) { this.tripPlugin(); return true; }
+      }
+      this.pluginInbox.push(ev);
+    }
+    if (this.options.plugin && ev.name === 'match.end') {
+      // The next map reuses this host. Open its worker now, in place of the one the last round opened, so that
+      // map's first events are not waiting on the import. `dispose` drops it if no map follows.
+      this.prepared?.terminate();
+      this.prepared = this.tryOpen();
+    }
+    if (this.options.plugin && !this.pluginTripped && ev.name === 'round.end' && !this.prepared) {
+      const next = this.tryOpen();
+      if (next) this.prepared = next;
+      else this.tripPlugin();
+    }
     if (this.state !== 'on') return true;
     const tick = this.room?.tick ?? 0;
     if (tick !== this.countTick) { this.countTick = tick; this.count = 0; }
@@ -400,7 +479,8 @@ export class RuleHost implements RoomRuleHost {
 
   /** The end of the room's step: the timers, the zones and the items lying in the world, then the tick's events and their chain. */
   endStep(): void {
-    if (this.state !== 'on' || !this.room) return;
+    this.pluginArrive();
+    if (this.state !== 'on' || !this.room) { this.pluginPost(); return; }
     const epoch = this.epoch;
     this.queue.push(...this.carry);
     this.carry = [];
@@ -423,6 +503,166 @@ export class RuleHost implements RoomRuleHost {
       }
     }
     if (this.state === 'on' && this.epoch === epoch) this.present();
+    this.pluginPost();
+  }
+
+  /** The plugin, for a test. A tripped plugin stays tripped until the next round or match start. */
+  pluginReport(): { readonly tripped: boolean; readonly misses: number } {
+    return { tripped: this.pluginTripped, misses: this.pluginMisses };
+  }
+
+  /**
+   * A new round arms the plugin again. The worker was opened ahead of the round (at the host, at the previous
+   * round's end, or when the last round tripped). `match.start` and the `round.start` beside it share that worker,
+   * so the match's start is posted. A later round takes the worker opened at the previous round's end.
+   */
+  private armPluginRound(): void {
+    const tick = this.room?.tick ?? 0;
+    if (this.pluginArmTick === tick && this.port) return;
+    this.pluginArmTick = tick;
+    if (this.prepared) {
+      this.port?.terminate();
+      this.port = this.prepared;
+      this.prepared = null;
+      this.heldAhead = false;
+      this.finishArm();
+      return;
+    }
+    if (this.heldAhead && this.port && !this.pluginTripped) {
+      this.heldAhead = false;
+      this.pluginMisses = 0;
+      this.pluginTripped = false;
+      return;
+    }
+    this.port?.terminate();
+    this.port = this.tryOpen();
+    this.heldAhead = false;
+    this.finishArm();
+    if (!this.port) this.pluginTripped = true;
+  }
+
+  private finishArm(): void {
+    this.pluginTripped = false;
+    this.pluginMisses = 0;
+    for (const post of this.pluginPosts) post.done = true;
+    this.pluginPosts = [];
+    this.pluginInbox = [];
+  }
+
+  /**
+   * A plugin fault for this round only. The match child stays up: no exit code, and no `last-exit.json`. A fault
+   * that still kills the process is the child's existing path, not this one.
+   */
+  private tripPlugin(): void {
+    this.pluginTripped = true;
+    this.port?.terminate();
+    this.port = null;
+    this.heldAhead = false;
+    this.pluginInbox = [];
+    for (const post of this.pluginPosts) post.done = true;
+    if (!this.prepared && this.options.plugin) this.prepared = this.tryOpen();
+  }
+
+  /** Apply replies that have arrived inside the tick bound. A reply still pending past the bound is one miss. */
+  private pluginArrive(): void {
+    if (!this.options.plugin || !this.room || this.pluginTripped) return;
+    const tick = this.room.tick;
+    for (const post of this.pluginPosts) {
+      if (post.done) continue;
+      const late = tick - post.tick > PLUGIN_REPLY_TICKS_ADAPTATION;
+      if (post.failed) { this.tripPlugin(); return; }
+      if (post.actions) {
+        if (late) { this.notePluginMiss(post); continue; }
+        post.done = true;
+        for (const action of post.actions) {
+          if (this.pluginTripped) return;
+          this.applyPlugin(action, post.ev);
+        }
+      } else if (late) this.notePluginMiss(post);
+    }
+    this.pluginPosts = this.pluginPosts.filter((post) => !post.done);
+  }
+
+  private notePluginMiss(post: { done: boolean }): void {
+    post.done = true;
+    this.pluginMisses++;
+    if (this.pluginMisses >= PLUGIN_MISSES_PER_ROUND_ADAPTATION) this.tripPlugin();
+  }
+
+  /** Post this tick's events. The room does not wait on the reply. */
+  private pluginPost(): void {
+    const batch = this.pluginInbox;
+    this.pluginInbox = [];
+    if (!this.options.plugin || !this.room || this.pluginTripped) return;
+    if (batch.length > RULE_EVENTS_PER_TICK_ADAPTATION) { this.tripPlugin(); return; }
+    for (const ev of batch) this.postPlugin(ev);
+  }
+
+  private pluginView(ev: RuleEvent): PluginHookInput {
+    const room = this.room!;
+    const spec = RULE_EVENT_SPECS[ev.name];
+    const fields: Record<string, number | string> = {};
+    for (const key of Object.keys(spec.fields)) {
+      const value = ev.fields?.[key];
+      if (typeof value === 'number' || typeof value === 'string') fields[key] = value;
+    }
+    const variables: Record<string, number | boolean | string> = {};
+    for (const [key, value] of this.values) variables[key] = value;
+    return {
+      event: ev.name,
+      fields,
+      room: {
+        tick: room.tick,
+        players: room.players().map((player) => ({
+          id: player.id, team: player.team, alive: player.alive, out: player.out,
+          feet: [player.feet[0], player.feet[1], player.feet[2]],
+        })),
+      },
+      variables,
+      phase: this.phase,
+      timers: [...this.timers.values()].map((timer) => ({ timer: timer.timer, owner: timer.owner, at: timer.at })),
+    };
+  }
+
+  private postPlugin(ev: RuleEvent): void {
+    if (!this.port && this.options.plugin && !this.pluginTripped) {
+      this.port = this.tryOpen();
+      if (!this.port) { this.tripPlugin(); return; }
+    }
+    const port = this.port;
+    const room = this.room;
+    if (!port || !room || this.pluginTripped) return;
+    const post = { tick: room.tick, ev, done: false, actions: null as RuleAction[] | null, failed: false };
+    this.pluginPosts.push(post);
+    let replied: Promise<unknown>;
+    try {
+      const input = JSON.parse(JSON.stringify(this.pluginView(ev))) as PluginHookInput;
+      replied = port.ask(input);
+    } catch {
+      this.tripPlugin();
+      return;
+    }
+    replied.then(
+      (value) => {
+        if (post.done || this.pluginTripped) return;
+        const actions = pluginActionsOf(value);
+        if (actions === null) { post.failed = true; this.tripPlugin(); return; }
+        post.actions = actions;
+      },
+      () => { if (!post.done && !this.pluginTripped) this.tripPlugin(); },
+    );
+  }
+
+  private applyPlugin(action: RuleAction, ev: RuleEvent): void {
+    if (!this.room || action.do === 'hit.scale') return;
+    this.applying = ev.depth + 1;
+    try {
+      applyPluginRoomAction(this.room, action);
+    } catch {
+      this.tripPlugin();
+    } finally {
+      this.applying = 0;
+    }
   }
 
   // ---- the host's own events: timers, zones, items ----

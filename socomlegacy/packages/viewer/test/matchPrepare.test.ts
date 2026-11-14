@@ -11,6 +11,7 @@ import { FlyCamera } from '../src/camera';
 import { WalkMode } from '../src/walk';
 import { PlayerLoadout } from '../src/loadout';
 import { GRAPHICS_BACKEND_KEY } from '../src/graphicsBackend';
+import { MATCH_RENDERER_RETRY_DELAY_MS_ADAPTATION } from '../src/matchNoBackend';
 import { matchLoader, matchRendererChoice, mountMatch, prepareMount, type MatchLoaderOptions, type MatchMountOptions, type MatchRenderer, type MatchWindow, type MatchWorker } from '../src/matchMount';
 import { silentOut, type MatchAudio } from '../src/matchSound';
 import { hdTextures } from '../src/hdTexturePack';
@@ -246,6 +247,67 @@ async function prepared(loader: ReturnType<typeof matchLoader>, w: ReturnType<ty
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
 
 describe('IP3: the prepare IS the mount, stopped before join() (5d)', () => {
+  it('a failed load stays failed through internal prepare and mount; only public load explicitly retries', async () => {
+    const f = rendererFactory(), w = fakeWindow(), asked: ViewerRequest[] = [];
+    let hear = (_event: MessageEvent<ViewerResponse>) => {};
+    const worker: MatchWorker = {
+      postMessage: (request) => {
+        asked.push(request);
+        queueMicrotask(() => hear({ data: { kind: 'error', id: request.id, doing: 'load', message: 'failed map' } } as MessageEvent<ViewerResponse>));
+      },
+      addEventListener: ((type: string, fn: typeof hear) => { if (type === 'message') hear = fn; }) as MatchWorker['addEventListener'],
+      terminate: () => {},
+    };
+    const loader = matchLoader({ kind: 'http', baseUrl: '/maps' }, () => worker,
+      { renderer: f.make, win: w.win, serialWorkerRequests: false, cancelSupersededLoads: true, releaseWorkerAfterLoad: true });
+    let mounted: ReturnType<typeof loader.mount> | undefined;
+    try {
+      const loading = loader.load('mp2'), preparing = loader.prepare('mp2');
+      expect(await loading).toBeNull(); await preparing;
+      const before = asked.length;
+      await loader.prepare('mp2');
+      mounted = loader.mount(document.body, mountOptions(handOff(), w));
+      await flush(); await flush();
+      expect(asked).toHaveLength(before);
+      mounted.close(); mounted = undefined;
+      expect(await loader.load('mp2')).toBeNull();
+      expect(asked.length).toBeGreaterThan(before);
+    } finally { mounted?.close(); loader.dispose(); }
+  });
+
+  it('PR #790 piece 2 (review F2): with both Xbox options off, a load failed by an error reply stays failed for prepare and mount on the live worker; public load decodes again', async () => {
+    const f = rendererFactory(), w = fakeWindow(), { worker: answering, asked } = answeringWorker();
+    let failMap = true, constructed = 0, terminated = 0, hear = (_event: MessageEvent<ViewerResponse>) => {};
+    const worker: MatchWorker = {
+      postMessage: (request) => {
+        if (request.kind === 'load' && failMap) {
+          asked.push(request);
+          queueMicrotask(() => hear({ data: { kind: 'error', id: request.id, doing: 'load', message: 'failed map' } } as MessageEvent<ViewerResponse>));
+        } else answering.postMessage(request);
+      },
+      addEventListener: ((type: string, fn: typeof hear) => { if (type === 'message') { hear = fn; answering.addEventListener('message', fn); } }) as MatchWorker['addEventListener'],
+      terminate: () => { terminated++; },
+    };
+    const loader = matchLoader({ kind: 'http', baseUrl: '/maps' }, () => { constructed++; return worker; },
+      { renderer: f.make, win: w.win, serialWorkerRequests: false, cancelSupersededLoads: false, releaseWorkerAfterLoad: false });
+    let mounted: ReturnType<typeof loader.mount> | undefined;
+    try {
+      const loading = loader.load('mp2'), preparing = loader.prepare('mp2');
+      expect(await loading).toBeNull(); await preparing;
+      const before = asked.length;
+      await loader.prepare('mp2');
+      mounted = loader.mount(document.body, mountOptions(handOff(), w));
+      await flush(); await flush();
+      expect(asked).toHaveLength(before);                          // (a) no second decode from prepare or the mount's fallback
+      mounted.close(); mounted = undefined;
+      failMap = false;
+      const retry = loader.load('mp2');
+      expect(asked.filter((r) => r.kind === 'load')).toHaveLength(2);   // (b) the public load posts a fresh decode
+      expect((await retry)?.map.path).toBe('RUN/MP2.ZDB');         // and it can succeed
+      expect(constructed).toBe(1); expect(terminated).toBe(0);     // all on the one live worker
+    } finally { mounted?.close(); loader.dispose(); }
+  });
+
   it('prepare runs the mount\'s stage 1 once: one buildWorld, one renderer, one scene warm holding the effects warm-up and the own body; settles at the BLACK-GAP gate', async () => {
     const f = rendererFactory(), w = fakeWindow();
     const { loader } = loaderOf(f, w);
@@ -513,24 +575,63 @@ describe('IP3: MatchLoader.prepare -- kept, let go', () => {
     loader.dispose();
   });
 
+  // MATCH-RENDERER-RETRY (#790; the interim data gate at 80d2cef37e, 2026-11-14): the prepare is the mount's own stage 1 on
+  // its own canvas, so a refused renderer is asked again once, after the retry's delay, on a fresh canvas. A prepare that
+  // FAILS is now one whose first ask and its retry are both refused; with only the first refused, the retry draws the
+  // prepared match (the next case).
   it('a prepare that fails resolves, logs once and leaves nothing prepared: the mount makes its own renderer', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const failing = rendererFactory({ fail: true }), w = fakeWindow();
-    const later = rendererFactory();
-    let calls = 0;
-    const make = (c: HTMLCanvasElement): Promise<MatchRenderer> => (++calls === 1 ? failing.make(c) : later.make(c));
-    const { worker } = answeringWorker();
-    const loader = matchLoader({ kind: 'http', baseUrl: '/maps' } as never, () => worker, { renderer: make, win: w.win });
-    await expect(loader.prepare('mp2')).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(document.querySelectorAll('canvas')).toHaveLength(0);      // its canvas removed (its teardown)
-    expect(loader.holds('mp2')).toBeNull();
-    const m = loader.mount(document.body, mountOptions(handOff('mp2'), w));
-    await flush();
-    expect(calls).toBe(2);                                            // nothing prepared: the mount made its own
-    expect(later.made[0]!.canvas).toBe(m.canvas);
-    m.close();
-    loader.dispose();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const failing = rendererFactory({ fail: true }), w = fakeWindow();
+      const later = rendererFactory();
+      let calls = 0;
+      const make = (c: HTMLCanvasElement): Promise<MatchRenderer> => (++calls <= 2 ? failing.make(c) : later.make(c));   // the first ask and the retry
+      const { worker } = answeringWorker();
+      const loader = matchLoader({ kind: 'http', baseUrl: '/maps' } as never, () => worker, { renderer: make, win: w.win });
+      const done = loader.prepare('mp2');
+      await vi.waitFor(() => { expect(calls).toBe(1); });
+      await vi.advanceTimersByTimeAsync(MATCH_RENDERER_RETRY_DELAY_MS_ADAPTATION);
+      await expect(done).resolves.toBeUndefined();
+      vi.useRealTimers();                                               // the mount below on the real clock (flush)
+      expect(calls).toBe(2);
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines.filter((l) => l === 'the match would not draw (retrying once):')).toHaveLength(1);
+      expect(lines.filter((l) => l === 'the match would not draw:')).toHaveLength(1);   // the failure logged once
+      expect(document.querySelectorAll('canvas')).toHaveLength(0);      // both canvases removed (its teardown)
+      expect(loader.holds('mp2')).toBeNull();
+      const m = loader.mount(document.body, mountOptions(handOff('mp2'), w));
+      await flush();
+      expect(calls).toBe(3);                                            // nothing prepared: the mount made its own
+      expect(later.made[0]!.canvas).toBe(m.canvas);
+      m.close();
+      loader.dispose();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a prepare whose first renderer is refused is asked again once after the retry delay: the retry prepares the match', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const failing = rendererFactory({ fail: true }), w = fakeWindow();
+      const later = rendererFactory();
+      let calls = 0;
+      const make = (c: HTMLCanvasElement): Promise<MatchRenderer> => (++calls === 1 ? failing.make(c) : later.make(c));
+      const { worker } = answeringWorker();
+      const loader = matchLoader({ kind: 'http', baseUrl: '/maps' } as never, () => worker, { renderer: make, win: w.win });
+      void loader.prepare('mp2');
+      await vi.waitFor(() => { expect(calls).toBe(1); });
+      await vi.advanceTimersByTimeAsync(MATCH_RENDERER_RETRY_DELAY_MS_ADAPTATION - 200);
+      expect(calls).toBe(1);                                            // the delay first
+      await vi.advanceTimersByTimeAsync(400);
+      await vi.waitFor(() => { expect(calls).toBe(2); });
+      expect(later.made).toHaveLength(1);
+      expect(later.made[0]!.canvas.isConnected).toBe(true);             // the fresh canvas, kept for the prepared match
+      expect(loader.holds('mp2')).toBe('preparing');                    // its frames still to draw (stage 1's end)
+      loader.dispose();
+      expect(later.made[0]!.disposed).toBe(1);
+      expect(document.querySelectorAll('canvas')).toHaveLength(0);
+    } finally { vi.useRealTimers(); }
   });
 });
 

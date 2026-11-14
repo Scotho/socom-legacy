@@ -795,13 +795,13 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-outliner-tools .fx-outliner-folder { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; }
 .fx-outliner-tools .fx-outliner-folder .fx-ico { width: 16px; height: 16px; }
 /* The Outliner's Filter: the View dropdown's look, opened to the left (the dock is at the screen's right edge). */
-.fx-outliner-filter > .fx-viewport-modes-list { left: auto; right: 0; z-index: var(--fx-z-popup, 50); }
+.fx-outliner-filter > .fx-viewport-modes-list { left: auto; right: 0; z-index: var(--fx-z-popup); }
 .fx-outliner-filter .fx-viewport-modes-summary { min-width: 72px; }
 .fx-outliner-filter .fx-viewport-modes-summary.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
 /* The Outliner's eye: a hidden placement's row dimmed (hidden in the editor only). */
 .fx-outliner li > .fx-eye { flex: none; display: inline-grid; place-items: center; width: 24px; padding: 0; }
 .fx-outliner li > .fx-eye .fx-ico { width: 14px; height: 14px; }
-.fx-outliner li.is-hidden-here > span { opacity: 0.45; }
+.fx-outliner li.is-hidden-here > span { opacity: var(--fx-disabled); }
 /* The top level's drop row: shown only while a row is dragged. */
 .fx-outliner .fx-outliner-top { display: none; justify-content: center; font-size: 11px; opacity: 0.8; border: 1px dashed var(--fx-line, rgba(255, 255, 255, 0.2)); }
 .fx-outliner.is-dragging .fx-outliner-top { display: flex; }
@@ -884,7 +884,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   color: var(--fx-text); background: var(--fx-veil); border: 1.5px solid color-mix(in srgb, var(--fx-text) 60%, transparent); border-radius: 50%; cursor: pointer;
 }
 .fx-lock-icon .fx-ico { width: 12px; height: 12px; color: inherit; stroke-width: 2.6; }
-.fx-lock-icon:hover:not(:disabled) { color: var(--fx-on-accent, #001); background: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-lock-icon:hover:not(:disabled) { color: var(--fx-on-accent); background: var(--fx-gold); border-color: var(--fx-gold); }
 .fx-lock-icon.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
 .fx-outliner li .fx-lock-icon .fx-ico { width: 12px; height: 12px; color: inherit; }   /* over the rows' dim icons */
 .fx-lock-icon:disabled { opacity: var(--fx-disabled); cursor: default; }
@@ -1898,7 +1898,7 @@ body.is-matching .fx-legend { display: none; }
 
 /* The asset browser's object tabs (`objectTabsRow`): a wrapping row of small tabs, the chosen one lit. */
 .fx-asset-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
-.fx-asset-tab { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--fx-line, rgba(255,255,255,0.15)); background: transparent; color: inherit; cursor: pointer; }
+.fx-asset-tab { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; padding: 3px 8px; border-radius: var(--fx-radius); border: 1px solid var(--fx-line, rgba(255,255,255,0.15)); background: transparent; color: inherit; cursor: pointer; }
 .fx-asset-tab:hover { background: var(--fx-hover); }
 .fx-asset-tab.is-on { border-color: var(--fx-gold); color: var(--fx-gold); }
 .fx-asset-tab .fx-ico { width: 14px; height: 14px; }
@@ -1906,7 +1906,7 @@ body.is-matching .fx-legend { display: none; }
 
 /* Other's More... (`moreTools`): its tools in a popup under the button. */
 .fx-more-tools { position: relative; display: inline-flex; }
-.fx-more-popup { position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--fx-panel, #1d2026); border: 1px solid var(--fx-divider, rgba(255,255,255,0.15)); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
+.fx-more-popup { position: fixed; z-index: var(--fx-z-more-popup); display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--fx-panel); border: 1px solid var(--fx-divider); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
 .fx-more-popup[hidden] { display: none; }
 .fx-more-popup .fx-tool { justify-content: flex-start; white-space: nowrap; }
 /* An ambient effect's tile: its sound's play button where a prop's star is. */
@@ -1928,7 +1928,7 @@ body.is-matching .fx-legend { display: none; }
 .fx-dg-split { display: flex; min-width: 0; min-height: 0; }
 .fx-dg-row { flex-direction: row; }
 .fx-dg-column { flex-direction: column; }
-.fx-dg-sash { flex: none; background: var(--fx-edge); touch-action: none; z-index: 1; }
+.fx-dg-sash { flex: none; background: var(--fx-edge); touch-action: none; z-index: var(--fx-z-raised); }
 .fx-dg-row > .fx-dg-sash { width: 4px; cursor: col-resize; }
 .fx-dg-column > .fx-dg-sash { height: 4px; cursor: row-resize; }
 .fx-dg-sash:hover, .fx-dg-sash.is-resizing { background: var(--fx-gold); }
@@ -1936,7 +1936,7 @@ body.is-matching .fx-legend { display: none; }
 .fx-dg-tabs { display: flex; flex: none; align-items: flex-end; gap: 1px; min-height: 30px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; background: var(--fx-panel-2); border-bottom: 1px solid var(--fx-edge); }
 .fx-dg-tab {
   display: inline-flex; flex: none; align-items: center; gap: 6px; height: 29px; padding: 0 10px; border: 0; border-radius: 0;
-  color: var(--fx-text-dim, var(--fx-text)); opacity: 0.75; background: transparent; font: var(--fx-type-control); white-space: nowrap; cursor: grab; touch-action: none;
+  color: var(--fx-text); opacity: 0.75; background: transparent; font: var(--fx-type-control); white-space: nowrap; cursor: grab; touch-action: none;
 }
 .fx-dg-tab:hover { opacity: 1; background: var(--fx-hover); }
 .fx-dg-tab[aria-selected="true"] { opacity: 1; color: var(--fx-text); background: var(--fx-panel); box-shadow: inset 0 2px 0 var(--fx-gold); }
@@ -2011,17 +2011,18 @@ body.is-matching .fx-legend { display: none; }
 .fx-dg-alone { position: absolute; inset: 0; }
 .fx-dg-stash { display: none; }
 /* A tab dragged: its word under the pointer, where it would dock drawn in gold. */
-.fx-dg-preview { position: absolute; z-index: var(--fx-z-menu); border: 2px solid var(--fx-gold); border-radius: 4px; background: color-mix(in srgb, var(--fx-gold) 18%, transparent); pointer-events: none; transition: left 80ms, top 80ms, width 80ms, height 80ms; }
+.fx-dg-preview { position: absolute; z-index: var(--fx-z-menu); border: 2px solid var(--fx-gold); border-radius: var(--fx-radius); background: color-mix(in srgb, var(--fx-gold) 18%, transparent); pointer-events: none; transition: left 80ms, top 80ms, width 80ms, height 80ms; }
 .fx-dg-preview[hidden] { display: none; }
 .fx-dg-preview.is-bar { border: 0; border-radius: 2px; background: var(--fx-gold); transition: none; }
-.fx-dg-ghost { position: fixed; z-index: var(--fx-z-menu); padding: 4px 10px; border: 1px solid var(--fx-gold); border-radius: 4px; color: var(--fx-text); background: var(--fx-panel); box-shadow: var(--fx-lift); font: var(--fx-type-control); pointer-events: none; }
+.fx-dg-ghost { position: fixed; z-index: var(--fx-z-menu); padding: 4px 10px; border: 1px solid var(--fx-gold); border-radius: var(--fx-radius); color: var(--fx-text); background: var(--fx-panel); box-shadow: var(--fx-lift); font: var(--fx-type-control); pointer-events: none; }
 body.fx-dg-dragging, body.fx-dg-dragging * { cursor: grabbing !important; user-select: none; }
 
 /* The docking guides: a compass of five named places over the group under a dragged tab, the lit one where it docks; the
    workbench's four edges named while a tab is dragged. */
 .fx-dg-compass {
-  position: absolute; z-index: calc(var(--fx-z-menu) + 1); display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px);
-  gap: 4px; transform: translate(-50%, -50%) scale(var(--fx-dg-compass-scale, 1)); pointer-events: none;
+  position: absolute; z-index: var(--fx-z-popup); display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px);
+  gap: 4px; transform: translate(-50%, -50%) scale(var(--fx-dg-compass-scale)); pointer-events: none;
+  --fx-dg-compass-scale: 1;   /* its scale until the shell sets its own on the element (`./shell/dockShell`) */
 }
 .fx-dg-compass[hidden] { display: none; }
 .fx-dg-target {
@@ -2039,7 +2040,7 @@ body.fx-dg-dragging, body.fx-dg-dragging * { cursor: grabbing !important; user-s
 body.fx-dg-dragging .fx-dg-edges { display: block; }
 body.fx-dg-dragging .fx-dg-edges.is-quiet { display: none; }
 .fx-dg-edge {
-  position: absolute; padding: 2px 8px; border: 1px dashed var(--fx-edge); border-radius: 4px; color: var(--fx-text);
+  position: absolute; padding: 2px 8px; border: 1px dashed var(--fx-edge); border-radius: var(--fx-radius); color: var(--fx-text);
   background: color-mix(in srgb, var(--fx-panel) 85%, transparent); font: var(--fx-type-caption); opacity: 0.75; white-space: nowrap;
 }
 .fx-dg-edge--left { left: 2px; top: 50%; writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg); }

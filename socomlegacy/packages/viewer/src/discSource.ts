@@ -79,8 +79,8 @@ export function isDiscRequest(kind: SourceRequest['kind']): boolean {
  */
 export type DiscOpen = { kind: 'iso'; file: Blob } | Extract<SourceRequest, { kind: 'dir' }>;
 
-/** A disc opened and checked on the page: its source, and what its `SYSTEM.CNF` says (null for an image, not read). */
-export type OpenedDisc = { source: AssetSource; identity: DiscIdentity | null };
+/** A disc opened and checked on the page: its source, and what its `SYSTEM.CNF` says (an image's and a folder's alike). */
+export type OpenedDisc = { source: AssetSource; identity: DiscIdentity };
 
 /**
  * The `{ kind: 'dir' }` request for the `File`s of a directory pick (`<input webkitdirectory>`): each file's
@@ -294,21 +294,46 @@ export function sourceCache(env?: ExtractEnv): SourceCache {
 }
 
 /**
- * Opens and checks a disc on the page, once, before any request for it reaches a worker. An image: `IsoAssetSource`,
- * then the size of `probe` -- one directory walk, the check the front end has always made (`openFrontEndImage`), its
- * `SYSTEM.CNF` not read. A folder: `DirectoryAssetSource`, then `discIdentity` (DA.R8: `SYSTEM.CNF` names
- * a release of SOCOM II, `SOCOM2_RELEASES`, checked before any other read), then the same probe. Resolving means the disc is ready; a rejection
- * carries the reader's own words (`not an ISO9660 image ...`, `this disc boots ...`, `disc folder: no ...`), the one
- * error shape both kinds share.
+ * Opens and checks a disc on the page, once, before any request for it reaches a worker. Either kind --
+ * `IsoAssetSource` over an image, `DirectoryAssetSource` over a folder -- is identified by `discIdentity` first (DA.R8:
+ * `SYSTEM.CNF` names a release of SOCOM II, `SOCOM2_RELEASES`, checked before any other read), then the size of `probe`.
+ * Resolving means the disc is ready; a rejection carries the readers' own words, the one error shape both kinds share:
+ * `discIdentity`'s (`no SYSTEM.CNF here ...`, `SYSTEM.CNF has no BOOT2 line ...`, `this disc boots ...`), the image
+ * reader's when the file is no readable image (`not an ISO9660 image ...`, `ISO: the volume is ...`; see
+ * `imageRefusal`), or the probe's (`ISO: no ...`, `disc folder: no ...`).
+ *
+ * The probe alone does not tell the titles apart: a SOCOM U.S. Navy SEALs (USA) image holds `RUN/UI/READERC.ZAR` too.
+ * The identity does, so an image whose `SYSTEM.CNF` boots no release of SOCOM II -- or that has no `SYSTEM.CNF` -- is
+ * refused before the probe, exactly as a folder is. A browser adaptation (DA.R2).
  */
 export async function openDisc(request: DiscOpen, probe: string): Promise<OpenedDisc> {
-  if (request.kind === 'iso') {
-    const source = new IsoAssetSource(request.file);
+  if (request.kind === 'dir') {
+    const source = folderSource(request.entries);
+    const identity = await discIdentity(source);
     await source.size(probe);
-    return { source, identity: null };
+    return { source, identity };
   }
-  const source = folderSource(request.entries);
-  const identity = await discIdentity(source);
+  const source = new IsoAssetSource(request.file);
+  const identity = await discIdentity(source).catch(async (e: unknown) => { throw await imageRefusal(source, e); });
   await source.size(probe);
   return { source, identity };
+}
+
+/**
+ * The words an image is refused in when `discIdentity` could not read its `SYSTEM.CNF`. When the file is no readable
+ * image -- not ISO9660, too short, a raw 2352-byte image, truncated -- the image reader fails in the same words whatever
+ * path is asked for (the volume is read before any file), so a second read, of a path that is never on a disc, failing in
+ * the words the `SYSTEM.CNF` read failed in says the image itself is at fault: its reader's own words are the refusal, as
+ * before `discIdentity` read an image, not `discIdentity`'s advice to choose the disc's root. Otherwise (the image reads
+ * and has no `SYSTEM.CNF`, or the identity refused the file's contents) `discIdentity`'s words stand.
+ */
+async function imageRefusal(source: IsoAssetSource, refusal: unknown): Promise<unknown> {
+  const cause = refusal instanceof Error ? refusal.cause : undefined;
+  if (!(cause instanceof Error)) return refusal;
+  try {
+    await source.size('SYSTEM.CNF/NOT A DISC PATH');
+  } catch (again) {
+    if (again instanceof Error && again.message === cause.message) return again;
+  }
+  return refusal;
 }
