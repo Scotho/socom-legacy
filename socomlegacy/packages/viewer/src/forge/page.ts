@@ -2724,7 +2724,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // a site this layout takes out (`./mapDataHide`) has none.
     for (const a of mapDataShown(baseMap).actions ?? []) {
       if (a.type.toUpperCase() !== 'MPBOMB') continue;
-      const g = bombSiteShapes(a.at, a.range, a.elevation);
+      const g = bombSiteShapes(a.at, a.range, a.elevation, 32, true);
       if (!g.segments.length) continue;
       const guide = guideIn(g.segments, g.triangles, null, BOMB_SITE_GUIDE_COLOUR, 'actions');
       mapAccessGuides.push(guide);
@@ -5080,7 +5080,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The one drawn before (a preview's redraw, `preview` the scrubbed value over the file's): let go first.
     for (const old of r.children.filter((c) => c.userData['forgeSiteGuide'])) { r.remove(old); disposeGuide(old); }
     const file = r.userData['forgeBombFile'] as { range?: number; elevation?: number } | undefined;
-    const g = bombSiteShapes([0, 0, 0], preview?.range ?? file?.range ?? BOMB_SITE_REACH, preview?.elevation ?? file?.elevation ?? BOMB_SITE_REACH);
+    const g = bombSiteShapes([0, 0, 0], preview?.range ?? file?.range ?? BOMB_SITE_REACH, preview?.elevation ?? file?.elevation ?? BOMB_SITE_REACH, 32, true);
     if (!g.segments.length) return;
     const guide = guideIn(g.segments, g.triangles, null, BOMB_SITE_GUIDE_COLOUR, 'userActions');
     guide.userData['forgeSiteGuide'] = true;
@@ -5444,8 +5444,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   switchLinks.userData['forgeGuideKind'] = 'userSwitches';
   scene.add(switchLinks);
   let switchLinksKey = '';
+  /**
+   * A switch on a prop's reach (the owner, 2026-11-14: "why do custom switches not draw the blue gizmo like the other
+   * switches"): its reach and height reach round the prop's middle, drawn as `addSwitchGuide` draws a switch's own --
+   * `SWITCH_REACH_COLOUR`, its floor filled -- rebuilt with the link lines (`syncSwitchLinks`).
+   */
+  let switchPropReach: Object3D | null = null;
+  let switchPropReachKey = '';
   const syncSwitchLinks = (): void => {
     const pts: number[] = [];
+    const reachSegs: number[] = [], reachTris: number[] = [];
     // No explosion step's radius drawn (the owner, 2026-11-13: "remove the mpbomb explosion gizmo": its spheres filled the view).
     const here = (r: Object3D): number[] => [r.position.x, r.position.y, r.position.z];
     for (const r of roots) {
@@ -5462,7 +5470,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (mid) {
           pts.push(r.position.x, r.position.y + SWITCH_LINK_LIFT, r.position.z, mid[0], mid[1], mid[2]);
           const opts = switchOpts.get(r) ?? {}, rec = switchOwnRecord(r);
-          pts.push(...bombSiteShapes(mid, opts.range ?? rec?.range ?? FORGE_SWITCH_REACH, opts.elevation ?? rec?.elevation ?? -1).segments);
+          const reach = bombSiteShapes(mid, opts.range ?? rec?.range ?? FORGE_SWITCH_REACH, opts.elevation ?? rec?.elevation ?? -1);
+          reachSegs.push(...reach.segments);
+          reachTris.push(...reach.triangles);
         }
       }
       const g = switchGate.get(r);
@@ -5495,6 +5505,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       switchLinks.geometry.computeBoundingSphere();
     }
     switchLinks.visible = pts.length > 0 && view.spawns && !playing && guideShown('userSwitches');
+    const reachKey = reachSegs.map((v) => v.toFixed(1)).join(',');
+    if (reachKey !== switchPropReachKey) {
+      switchPropReachKey = reachKey;
+      if (switchPropReach) { scene.remove(switchPropReach); disposeGuide(switchPropReach); switchPropReach = null; }
+      if (reachSegs.length) { switchPropReach = guideIn(reachSegs, reachTris, null, SWITCH_REACH_COLOUR, 'userSwitches'); scene.add(switchPropReach); }
+    }
+    if (switchPropReach) switchPropReach.visible = view.spawns && !playing && guideShown('userSwitches');
   };
   /** The placed gates, in the order the layout writes them, and a gate's words for the Inspector's Gate. */
   const gateRootsNow = (): Object3D[] => roots.filter((r) => r.userData['forgeGate']);
@@ -5531,6 +5548,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (g) return { kind: 'gate', source: g.source, name: g.name };
     const b = r.userData['forgeBarrier'] as { source: string; name: string } | undefined;
     return b ? { kind: 'barrier', source: b.source, name: b.name } : null;
+  };
+  /** A switch on a prop's words (it has no model of its own to be named by): the prop it is on, else "Switch". */
+  const switchPropLabel = (r: Object3D): string => {
+    const link = switchLink.get(r);
+    const on = typeof link === 'string' ? link.split('/').pop()?.split('=')[0]
+      : link ? parseAssetId(String(link.userData['forgePiece'] ?? ''))?.model : undefined;
+    return on ? `Switch · on ${on}` : 'Switch';
   };
   const accessLabel = (r: Object3D): string => { const a = accessOwnOf(r)!; return `${a.kind === 'gate' ? 'Gate' : 'C4 barrier'} · ${a.source} ${a.name}`; };
   /** A placed turret's words: its node name and its weapon. */
@@ -5642,6 +5666,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (r.userData['forgeTrigger']) return triggerLabel(r);
     if (r.userData['forgeRespawn']) return `Respawn ${r.userData['forgeRespawn'] as string}`;
     if (r.userData['forgeFlare']) return `Flare · ${(r.userData['forgeFlare'] as { name: string }).name}`;
+    if (r.userData['forgeSwitch'] && r.userData['forgePiece'] === undefined) return switchPropLabel(r);
     return (r.userData['forgePiece'] as string | undefined) ?? `Spawn ${r.userData['forgeSpawn'] as string}`;
   };
   /** FUI-22 (D2): the Inspector head's kind word for a placement. */
@@ -8093,6 +8118,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (r.userData['forgeTrigger']) return triggerLabel(r);
     if (r.userData['forgeRespawn']) return `Respawn ${r.userData['forgeRespawn'] as string}`;
     if (r.userData['forgeFlare']) return `Flare · ${(r.userData['forgeFlare'] as { name: string }).name}`;
+    if (r.userData['forgeSwitch'] && r.userData['forgePiece'] === undefined) return switchPropLabel(r);
     return bomb ? bombLabel(bomb) : npc ? `NPC · ${npc.side === 'seal' ? 'SEAL' : 'Terrorist'} ${npc.type + 1}` : team ? `Spawn ${team}` : (parseAssetId(nameOf(r))?.model ?? nameOf(r));
   };
   /** Lock a placement, or unlock it (the outliner's Lock button; FUI-3: the menu's Square on its row). */
