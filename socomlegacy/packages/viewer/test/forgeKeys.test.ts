@@ -21,7 +21,8 @@ describe('OT.R68: the forge editor\'s keys', () => {
       .toEqual(['spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'gate', 'barrier', 'ladder', 'turret', 'flare'].map((tool) => ({ tool })));
     expect(['Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'].map((c) => press(c, { shift: true })))
       .toEqual(['hostage', 'zone', 'point', 'view', 'npc'].map((tool) => ({ tool })));
-    expect([press('Digit9', { shift: true }), press('Digit0', { shift: true })], 'past the last tool, none').toEqual([null, null]);
+    expect(press('Digit9', { shift: true }), 'the cut box, last (`./cuts`)').toEqual({ tool: 'cut' });
+    expect(press('Digit0', { shift: true }), 'past the last tool, none').toBeNull();
     expect(['KeyG', 'KeyC', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
       .toEqual(['snap', 'duplicate', 'delete', 'delete', 'frame', 'docks', 'deselect']);
   });
@@ -128,7 +129,7 @@ describe("FP-1b: the help card's tool keys read the real order (FORGE_TOOL_ORDER
     const rows = forgeToolKeyHelp((t) => NAMES[t]!);
     expect(rows[0]).toEqual(['Q', 'Tool: <select>']);
     expect(rows[1]).toEqual(['1 … 0', `Tools: ${FORGE_TOOL_ORDER.slice(0, 10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
-    expect(rows[2]).toEqual(['Shift+1 … Shift+8', `Tools: ${FORGE_TOOL_ORDER.slice(10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
+    expect(rows[2]).toEqual(['Shift+1 … Shift+9', `Tools: ${FORGE_TOOL_ORDER.slice(10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
     expect(rows).toHaveLength(3);
     // Every tool the keys choose is named once; the Place tool, which has no key, is not.
     const told = rows.map(([, v]) => v).join(', ');

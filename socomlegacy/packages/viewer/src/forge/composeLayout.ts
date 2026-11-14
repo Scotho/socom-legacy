@@ -8,6 +8,7 @@ import { composeMatchMap } from './matchMap';
 import { breachReady } from './objectives';
 import { withLayoutEnvironment } from './ownEnvironment';
 import { withPlacedAccess, type AccessTemplate } from './placedAccess';
+import { withLayoutCuts } from './cuts';
 import { withPlacedDoors, type DoorTemplate } from './placedDoors';
 import { withPlacedFlares, type FlareTemplate } from './placedFlares';
 import { withPlacedPoints, withPlacedViews } from './placedPoints';
@@ -20,7 +21,7 @@ import { withPlacedTurrets, type TurretTemplate } from './turrets';
  * The pure chain Play composes a layout's match map by (`./page` `composeForMatch`; a browser adaptation, FG.R2 -- the
  * game has no editor), moved out of the page unchanged (FP-1b, the review's F1) so one test runs the SAME steps in the
  * SAME order: `composeLayoutObjects` (the pieces, then the placed hostages' bodies, the objectives, the points and views,
- * the turrets, the doors, the gates and barriers, the flares), `layoutOwnSites`, then `composeLayoutFinish` (the site
+ * the turrets, the doors and their openings, the gates and barriers, the flares), `layoutOwnSites`, then `composeLayoutFinish` (the site
  * outlines and the environment). The page does only the loading between them (templates, the outline donor, the sky).
  */
 export interface LayoutObjectsInput {
@@ -66,7 +67,9 @@ export function composeLayoutObjects(i: LayoutObjectsInput) {
   // The layout's placed turrets, doors, gates and C4 barriers, and flares beside the map's own: each its disc copy.
   const turreted = withPlacedTurrets(pointed, layout.turrets, i.turretOf);
   const doored = withPlacedDoors(turreted.map, layout.doors, i.doorOf);
-  const accessed = withPlacedAccess(doored.map, [
+  // Each placed door opens a hole in the wall it stands in, and each free cut box its own (`./cuts`).
+  const opened = withLayoutCuts(doored.map, layout.cuts).map;
+  const accessed = withPlacedAccess(opened, [
     ...(layout.gates ?? []).map((t) => ({ kind: 'gate' as const, ...t })), ...(layout.barriers ?? []).map((t) => ({ kind: 'barrier' as const, ...t })),
   ], i.accessOf);
   const flared = withPlacedFlares(accessed.map, layout.flares, i.flareOf).map;

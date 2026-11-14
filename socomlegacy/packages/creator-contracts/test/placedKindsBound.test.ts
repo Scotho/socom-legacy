@@ -16,6 +16,7 @@ const marker = (kind: (typeof PLACED_KINDS)[number], i: number): unknown => {
     case "respawns": return { team: "A", p: at, yaw: 0 };
     case "flares": return { source: "MP2", name: "flare_1", at };
     case "scenicViews": return { name: `view${i}`, at, yaw: 0, pitch: 0 };
+    case "cuts": return { at, yaw: 0, size: [14, 24, 10] };
     default: return { source: "MP2", name: "bdoor_4", at, yaw: 0 };
   }
 };
@@ -26,7 +27,7 @@ describe("placed kinds: one bound, the record's", () => {
   it("the bound is the record's marker bound, and every placed kind is listed", () => {
     expect(FORGE_PLACED_MAX_ADAPTATION).toBe(RECORD_LIMITS.spawns);
     expect(FORGE_PLACED_MAX_ADAPTATION).toBe(48);
-    expect([...PLACED_KINDS].sort()).toEqual(["barriers", "doors", "extractionZones", "flares", "gates", "hostages", "respawns", "scenicViews", "tacPoints", "turrets"]);
+    expect([...PLACED_KINDS].sort()).toEqual(["barriers", "cuts", "doors", "extractionZones", "flares", "gates", "hostages", "respawns", "scenicViews", "tacPoints", "turrets"]);
   });
 
   for (const kind of PLACED_KINDS) {

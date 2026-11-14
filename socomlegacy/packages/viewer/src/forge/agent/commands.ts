@@ -1,7 +1,7 @@
 import { Matrix4, Vector3 } from 'three';
 import { bombOfMarkerStates, bombRestOf, markersOfBomb } from '../bombMarkers';
 import { RULES_SCHEMA, RULES_VOCABULARY_VERSION, type InstalledRulesPack, type LayoutMarker, type LayoutSpawner, type LayoutZone, type RuleDecl, type RulesSpec, type RulesVariable } from '@s2u/creator-contracts';
-import { emptyLayout, newLayout, parseAssetId, parseSettings, serializeLayout, type Layout } from '../layout';
+import { CUT_FACES, CUT_SIZE_MIN_ADAPTATION, emptyLayout, newLayout, parseAssetId, parseSettings, RECORD_LIMITS, serializeLayout, type Layout } from '../layout';
 import { checkRecord, layoutOfRecord, recordOfLayout, type LayoutRecord } from '../record';
 import {
   checkForgeRules, FORGE_AUTHORING_SCHEMA, forgeLayoutModes, layoutOfAuthoring, parseForgeLayout, readForgeAuthoring, refusalWords, UNSEALED_HASH,
@@ -9,6 +9,7 @@ import {
 } from '../rulesAuthoring';
 import { ForgeAgentError, validateForgeAgentArguments } from './api';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from '../extractionZones';
+import { CUT_DEFAULT_SIZE_ADAPTATION } from '../cuts';
 import { nextHostageName } from '../hostages';
 import { bombMarkerPlaysIn } from '../objectives';
 import { nextNavName, nextViewName } from '../placedPoints';
@@ -28,7 +29,7 @@ export const FORGE_RULES_EDITS: readonly string[] = ['zone.place', 'marker.place
 /** Browser adaptation: prepare a recipe using the existing serializer; the page stages its real pieces before commit. */
 export const FORGE_LAYOUT_OPERATIONS = new Set(['layout.import', 'layout.new', 'layout.base', 'layout.name', 'layout.batch', 'piece.place', 'piece.move',
   'piece.rotate', 'piece.delete', 'piece.lock', 'piece.unlock', 'piece.hide', 'piece.restore', 'selection.move', 'selection.rotate',
-  'selection.duplicate', 'spawn.place', 'respawn.place', 'flare.place', 'npc.place', 'hostage.place', 'extraction.place', 'point.place', 'view.place', 'turret.place', 'door.place', 'gate.place', 'barrier.place', 'placement.set', 'bomb.place', 'settings.set', 'objectives.set', 'type.set',
+  'selection.duplicate', 'spawn.place', 'respawn.place', 'flare.place', 'npc.place', 'hostage.place', 'extraction.place', 'point.place', 'view.place', 'turret.place', 'door.place', 'cut.place', 'gate.place', 'barrier.place', 'placement.set', 'bomb.place', 'settings.set', 'objectives.set', 'type.set',
   // FCW-32 (a browser adaptation, the Forge's own authoring): the rules entities and the layout's rules pack.
   ...FORGE_RULES_EDITS]);
 const fail = (code: string, message: string): never => { throw new ForgeAgentError(code, message); };
@@ -102,6 +103,12 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
     rows.set(`door:${i}`, { locked: !!t.locked, p: [...t.at], move: (p) => { t.at = p as [number, number, number]; }, turn: (r) => { t.yaw += r; },
       lock: (on) => { if (on) t.locked = true; else delete t.locked; }, remove: () => { l.doors!.splice(l.doors!.indexOf(t), 1); },
       duplicate: (d) => { l.doors!.push({ ...t, at: t.at.map((v, k) => v + d[k]!) as [number, number, number] }); } });
+  }
+  // A free cut box (`../cuts`): moved (its centre), turned, locked, removed and copied as a marker.
+  for (const [i, c] of (l.cuts ?? []).entries()) {
+    rows.set(`cut:${i}`, { locked: !!c.locked, p: [...c.at], move: (p) => { c.at = p as [number, number, number]; }, turn: (r) => { c.yaw += r; },
+      lock: (on) => { if (on) c.locked = true; else delete c.locked; }, remove: () => { l.cuts!.splice(l.cuts!.indexOf(c), 1); },
+      duplicate: (d) => { l.cuts!.push({ ...c, size: [...c.size], at: c.at.map((v, k) => v + d[k]!) as [number, number, number] }); } });
   }
   for (const [i, t] of (l.turrets ?? []).entries()) {
     rows.set(`turret:${i}`, { locked: !!t.locked, p: [...t.at], move: (p) => { t.at = p as [number, number, number]; }, turn: (r) => { t.yaw += r; },
@@ -183,6 +190,24 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
         else if (field === 'width') z.size = [above0(), z.size[1]];
         else if (field === 'depth') z.size = [z.size[0], above0()];
         else bad('is not a zone\'s');
+      } else if (kind === 'cut') {
+        // A free cut box's size and the surfaces it takes (`../cuts`): its width, height and depth; its faces, of "xyz".
+        // A side is the record's to bound (`CUT_SIZE_MIN_ADAPTATION` to `RECORD_LIMITS.coord`); a new height keeps the
+        // box's foot where it stands (the page draws it from its foot), its centre `at` moving by half the change.
+        const c = l.cuts![Number(a)]!;
+        const side = (): number => (typeof value === 'number' && Number.isFinite(value) && value >= CUT_SIZE_MIN_ADAPTATION && value <= RECORD_LIMITS.coord
+          ? value : bad(`must be a number from ${CUT_SIZE_MIN_ADAPTATION} to ${RECORD_LIMITS.coord}`));
+        if (field === 'width') c.size = [side(), c.size[1], c.size[2]];
+        else if (field === 'height') {
+          const h = side();
+          c.at = [c.at[0], c.at[1] + (h - c.size[1]) / 2, c.at[2]];
+          c.size = [c.size[0], h, c.size[2]];
+        } else if (field === 'depth') c.size = [c.size[0], c.size[1], side()];
+        else if (field === 'faces') {
+          if (typeof value !== 'string' || !CUT_FACES.test(value)) bad('must be one to three of x, y, z, in that order');
+          else if (value === 'xyz') delete c.faces;
+          else c.faces = value;
+        } else bad('is not a cut box\'s');
       } else if (kind === 'piece') {
         // A placed ladder's Map and Ladder (the owner, 2026-11-06): the disc prop it is, `<archive>:<model>`.
         // FC-1 (`../transformStubs`): a piece's tilt is not kept by the record (v3 keeps its yaw alone) -- said, not dropped.
@@ -253,6 +278,16 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
     case 'turret.place': {
       // A copy of a disc turret (a browser adaptation, `../turrets`), in any game type: Crossroads' RMG unless named.
       (l.turrets ??= []).push({ source: (args['source'] as string | undefined) ?? DEFAULT_TURRET.source, name: (args['name'] as string | undefined) ?? DEFAULT_TURRET.name, at, yaw }); break;
+    }
+    case 'cut.place': {
+      // A free cut box (a browser adaptation, `../cuts`), in any game type: centred at `at`, a doorway's size unless given.
+      const size = (args['size'] as [number, number, number] | undefined) ?? CUT_DEFAULT_SIZE_ADAPTATION;
+      const faces = args['faces'] as string | undefined;
+      if (!Array.isArray(size) || size.length !== 3 || !size.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= CUT_SIZE_MIN_ADAPTATION && n <= RECORD_LIMITS.coord)) {
+        fail('INVALID_ARGUMENT', `size must be three numbers from ${CUT_SIZE_MIN_ADAPTATION} to ${RECORD_LIMITS.coord}`);
+      }
+      if (faces !== undefined && (typeof faces !== 'string' || !CUT_FACES.test(faces))) fail('INVALID_ARGUMENT', 'faces must be one to three of x, y, z, in that order');
+      (l.cuts ??= []).push({ at, yaw, size: [size[0], size[1], size[2]], ...(faces && faces !== 'xyz' ? { faces } : {}) }); break;
     }
     case 'point.place': {
       // A tactical point, in any game type (a browser adaptation): kind 1, a nav point the compass marks, by default.

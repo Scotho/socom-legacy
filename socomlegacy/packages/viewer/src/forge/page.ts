@@ -10,7 +10,7 @@ import { createLocalPackApi, type LocalPackApi } from '../agent/localPacks';
 import { forgeMapPackDrivers } from '../agent/forgePacks';
 import { checkStarterLayout } from '../creator/examples/validation';
 import {
-  Box3, Box3Helper, BoxGeometry, BufferAttribute, BufferGeometry, Color, GridHelper, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix3, Matrix4, Mesh,
+  Box3, Box3Helper, BoxGeometry, BufferAttribute, BufferGeometry, Color, EdgesGeometry, GridHelper, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix3, Matrix4, Mesh,
   MeshBasicMaterial, Euler, MathUtils, Object3D, PlaneGeometry, Quaternion, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -131,7 +131,8 @@ import { turretModelMap, turretMove, turretTemplates, withPlacedTurrets, type Tu
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from './agent/commands';
 import { RADIO_LOOK_SOURCES } from './copyDefaults';
 import { accessGizmo, accessModelMap, accessMove, accessTemplates, calledOf, withPlacedAccess, type AccessTemplate } from './placedAccess';
-import { doorModelMap, doorMove, doorTemplates, withPlacedDoors, type DoorTemplate } from './placedDoors';
+import { CUT_DEFAULT_SIZE_ADAPTATION, cutCaps, cutMesh, doorCutAt, freeCutBox, snapDoor, wallFaces, type CutBox, type WallFace } from './cuts';
+import { doorFramePoints, doorModelMap, doorMove, doorTemplates, withPlacedDoors, type DoorTemplate } from './placedDoors';
 import { ACTION_LINK_COLOUR, sphereSegments, BARRIER_GUIDE_COLOUR, BOMB_SITE_GUIDE_COLOUR, SWITCH_REACH_COLOUR, DAMAGE_LINK_COLOUR, LINK_NEAR, overlayLines, SWITCH_LINK_LIFT, bombSiteShapes, DOOR_SWING_COLOUR, GATE_GUIDE_COLOUR, guideGroup, HOSTAGE_GUIDE_COLOUR, keepWorldTurn, VIEW_GUIDE_COLOUR, viewShapes, yawWay, LADDER_CLIMB_COLOUR, TURRET_GUIDE_COLOUR, turretShapes, ladderSegments, ladderTriangles, swingOf, swingSegments, swingTriangles } from './interactOverlay';
 import { playObjectives } from './playObjectives';
 import {
@@ -356,7 +357,7 @@ const parseObjectAsset = (asset: string): { kind: ObjectKind; source: string; na
 const SWITCH_LOOK_SOURCE = 'LOOK';
 const SWITCH_LOOK_TILES: readonly (readonly [SwitchLookId, string])[] = [['lever', "Lever panel (Death Trap's)"], ['radio', "Radio (Sujo's)"]];
 
-type Mode = 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'ladder' | 'gate' | 'barrier' | 'flare' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'switch' | 'ambient';
+type Mode = 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'cut' | 'ladder' | 'gate' | 'barrier' | 'flare' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'switch' | 'ambient';
 
 /**
  * The placing tools a game type alone plays (a browser adaptation, FG.R2; the owner, 2026-11-06): the bomb's start and
@@ -795,7 +796,7 @@ export function newLayoutDropWords(pieces: number, rules: boolean, entities: num
 }
 
 /** Each tool's name as the page says it (the status line, the pad's pop, the help card's key rows: `forgeToolKeyHelp`). */
-const TOOL_NAMES: Record<Mode, string> = { ambient: 'Effect', select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', gate: 'Gate', barrier: 'Damage trigger', switch: 'Switch', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
+const TOOL_NAMES: Record<Mode, string> = { ambient: 'Effect', select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', cut: 'Cut box', gate: 'Gate', barrier: 'Damage trigger', switch: 'Switch', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
 
 export async function mountForge(doc: Document = document, options?: MountForgeOptions): Promise<ForgeShell> {
   const held: { shell?: ForgeShell } = {};
@@ -863,7 +864,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     respawnA: tool('spawn', 'Respawn SEAL', "Place a team A respawn point (SEALs): where the SEALs respawn, beside the map's own", 'fx-team-a'),
     respawnB: tool('spawn', 'Respawn Terrorist', "Place a team B respawn point (Terrorists): where the Terrorists respawn, beside the map's own", 'fx-team-b'),
     npc: tool('npc', 'NPC', 'Place an NPC: the character chosen under Characters'),
-    door: tool('npc', 'Door', "Place a door: a copy of a disc map's own (the palette's, or Frostfire's), its hinge at the click"),
+    door: tool('npc', 'Door', "Place a door: a copy of a disc map's own (the palette's, or Frostfire's), its hinge at the click; dropped by a wall it sets itself into it, its frame with it, and opens its own doorway"),
+    cut: tool('npc', 'Cut', 'Place a cut box: whatever it holds is cut out of the map (walls, floors, props, collision) in Play and in this view; size it and choose the X / Y / Z faces it takes in the Inspector'),
     gate: tool('npc', 'Gate', "Place a gate: a copy of a disc map's own (Death Trap's or Enowapi's), its lever prompt at the gate; it slides on its lever and C4 wrecks it"),
     barrier: tool('npc', 'Damage trigger', "Place a damage trigger: a copy of a disc map's own destructible whose death runs its program -- a C4 barrier (C4 or an RPG wrecks it) or a hit trigger (health 0: any hit sets it off, never C4; Fish Hook's planks)"),
     switch: tool('npc', 'Switch', "Place a gate's switch: a copy of its gate's own disc lever panel (Death Trap's or Enowapi's), a SWITCH context action that slides that gate -- the gate itself has no prompt, as on the disc; the Inspector's Gate links it"),
@@ -883,7 +885,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // Each tool's key in its tooltip (`./keys` `forgeToolKeyLabel`: Q, then the number keys in the tools row's order).
   for (const [m, b] of Object.entries(modeBtns)) { const k = forgeToolKeyLabel(m); if (k) b.title += key(k); }
   // The tools that place a spawn or a bomb marker wear that placement's billboard (`markBadge`), as its mark and its row do.
-  for (const [mode, kind] of [['spawnA', 'userSpawnA'], ['spawnB', 'userSpawnB'], ['respawnA', 'userRespawnA'], ['respawnB', 'userRespawnB'], ['npc', 'userNpcs'], ['hostage', 'userEscortees'], ['zone', 'userTacZones'], ['turret', 'userTurrets'], ['door', 'userDoors'], ['ladder', 'userLadders'], ['flare', 'userFlares'], ['gate', 'userGates'], ['barrier', 'userBarriers'], ['switch', 'userSwitches'], ['point', 'userTacPoints'], ['view', 'userScenicViews'], ['bomb', 'userBombStart'], ['siteSeal', 'userSiteSeal'],
+  for (const [mode, kind] of [['spawnA', 'userSpawnA'], ['spawnB', 'userSpawnB'], ['respawnA', 'userRespawnA'], ['respawnB', 'userRespawnB'], ['npc', 'userNpcs'], ['hostage', 'userEscortees'], ['zone', 'userTacZones'], ['turret', 'userTurrets'], ['door', 'userDoors'], ['cut', 'userCuts'], ['ladder', 'userLadders'], ['flare', 'userFlares'], ['gate', 'userGates'], ['barrier', 'userBarriers'], ['switch', 'userSwitches'], ['point', 'userTacPoints'], ['view', 'userScenicViews'], ['bomb', 'userBombStart'], ['siteSeal', 'userSiteSeal'],
     ['siteTerrorist', 'userSiteTerrorist'], ['ambient', 'userAmbients']] as const) {
     modeBtns[mode].querySelector('svg.fx-ico')?.insertAdjacentHTML('beforebegin', markBadge(kind));
     modeBtns[mode].querySelector('svg.fx-ico')?.remove();
@@ -938,6 +940,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     'A click or a selection box picks your placements (props, spawns, objectives, objects...); off, they are passed over (the Outliner still selects them)');
   selectSettings.append(el(doc, 'div', 'fx-tool-popup-note',
     'Off, a click looks through them to what is behind. A kind switched off in the Overlays dropdown (its billboards) is passed over too; props always follow these two. The Outliner selects any.'));
+  const snapDoorsIn = selectToggle('snapDoors', 'Snap doors into walls',
+    'A door placed or let go by a wall turns square to it and sets its frame in the wall (`./cuts`); off, it stays exactly where it is dropped');
   const moveBtn = tool('move', 'Move', `Move with the gizmo${key('W')}`);
   const turnBtn = tool('turn', 'Rotate', `Rotate with the gizmo${key('E')}`);
   const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo (not wired yet)${key('R')}`);
@@ -2147,7 +2151,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   toolsRow.append(
     modeSection('Spawn', 'spawn', group(modeBtns.spawnA, modeBtns.spawnB), group(modeBtns.respawnA, modeBtns.respawnB)),
     // Ambient with the objects (the owner, 2026-11-11).
-    modeSection('Objects', 'objects', group(modeBtns.door, modeBtns.ladder, modeBtns.turret, modeBtns.barrier, modeBtns.switch, modeBtns.gate, modeBtns.flare, modeBtns.ambient)),
+    modeSection('Objects', 'objects', group(modeBtns.door, modeBtns.cut, modeBtns.ladder, modeBtns.turret, modeBtns.barrier, modeBtns.switch, modeBtns.gate, modeBtns.flare, modeBtns.ambient)),
     // Breach plays the bomb's start and the SEALs' site too (`./objectives` `breachReady`): one section, both modes named.
     modeSection(`${FORGE_GAME_TYPE_NAME[2]} · ${FORGE_GAME_TYPE_NAME[1]}`, 'demolition', group(modeBtns.bomb, modeBtns.siteSeal, modeBtns.siteTerrorist)),
     modeSection(`${FORGE_GAME_TYPE_NAME[3]} · ${FORGE_GAME_TYPE_NAME[4]}`, 'escort', group(modeBtns.hostage, modeBtns.zone)),
@@ -2894,6 +2898,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     const group = dragFrom !== null;
     dragFrom = null;
+    // A door let go after a move or a turn snaps into the wall it was dropped by (`./cuts`), in the same step.
+    if ((gizmo.mode === 'translate' || gizmo.mode === 'rotate') && selected && gizmo.object === selected && selected.userData['forgeDoor']) {
+      const d = selected.userData['forgeDoor'] as { source: string; name: string };
+      const t = doorCutTemplates.get(`${d.source}:${d.name}`);
+      if (t && snapPlacedDoor(selected, t)) { refreshBox(); say(`${doorLabel(selected)} set into the wall`); }
+    }
     // A drag is one step (FUI-6: the move's or the turn's entry; the drag already moved, so it is only recorded).
     personEdit(gizmo.mode === 'rotate' ? 'piece.rotate' : 'piece.move', { refs: selectionIds() }, () => edit(), true);
     if (group) placePivot();
@@ -3189,6 +3199,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * (`selectMapProps`), the user's placements (`selectUserProps`) -- either, both or neither.
    */
   let selectMapProps = true;
+  /** Doors dropped by a wall snap into it (`./cuts` `snapDoor`; a browser adaptation): the Select settings' switch, kept with the view. */
+  let snapDoors = true;
   /** The Play settings (the Play button's gear): where round 1 stands the player, and its side. Browser adaptations. */
   let playSpawn: 'camera' | 'random' = 'camera';
   let playSide: 'auto' | 'seal' | 'terrorist' = 'auto';
@@ -3333,6 +3345,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (raw['assetHoverSound'] === false) assetHoverSound = false;
       if (raw['assetLoopSounds'] === false) assetLoopSounds = false;
       if (raw['selectMapProps'] === false) selectMapProps = false;
+      if (raw['snapDoors'] === false) snapDoors = false;
       if (raw['selectUserProps'] === false) selectUserProps = false;
       if (raw['playSpawn'] === 'random') playSpawn = 'random';
       if (raw['playSide'] === 'seal' || raw['playSide'] === 'terrorist') playSide = raw['playSide'];
@@ -3366,7 +3379,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const main = (splitNow && split!.active() !== 0 ? splitNow.views[0]?.look : null) ?? lookNow();
     // The Draw switches kept at the top are the first view's too (its own, `VIEW_DRAW_OWN`, while another has the menus).
     const mainDraw = splitNow && split!.active() !== 0 ? splitNow.views[0]?.look?.draw ?? {} : {};
-    writeKey(VIEW_KEY, JSON.stringify({ ...(splitNow ? { split: splitNow } : keptSplit ? { split: keptSplit } : {}), ...view, ...mainDraw, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, turnSnap, ...(surfaceSnap ? {} : { surfaceSnap: false }), ...(surfaceOffset ? { surfaceOffset } : {}), ...(assetTips ? {} : { assetTips: false }), ...(assetHoverSound ? {} : { assetHoverSound: false }), ...(assetLoopSounds ? {} : { assetLoopSounds: false }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), ...(playLoading === 'loading' ? { playLoading } : {}), ...(gizmoSpace === 'local' ? { space: 'local' } : {}), billboards: { on: main.on, top: billboardsOnTop, glows: main.glows, arrows: main.arrows, ...(main.onlyUser ? { onlyUser: true } : {}), off: [...main.off], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
+    writeKey(VIEW_KEY, JSON.stringify({ ...(splitNow ? { split: splitNow } : keptSplit ? { split: keptSplit } : {}), ...view, ...mainDraw, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, turnSnap, ...(surfaceSnap ? {} : { surfaceSnap: false }), ...(surfaceOffset ? { surfaceOffset } : {}), ...(assetTips ? {} : { assetTips: false }), ...(assetHoverSound ? {} : { assetHoverSound: false }), ...(assetLoopSounds ? {} : { assetLoopSounds: false }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(snapDoors ? {} : { snapDoors: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), ...(playLoading === 'loading' ? { playLoading } : {}), ...(gizmoSpace === 'local' ? { space: 'local' } : {}), billboards: { on: main.on, top: billboardsOnTop, glows: main.glows, arrows: main.arrows, ...(main.onlyUser ? { onlyUser: true } : {}), off: [...main.off], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
   };
   const drawPlacement = (): void => {
     viewportGridIn.value = String(gridStep);
@@ -4198,6 +4211,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       } else if (r.userData['forgeGate'] || r.userData['forgeBarrier']) {
         const a = accessOwnOf(r)!;
         (l[a.kind === 'gate' ? 'gates' : 'barriers'] ??= []).push({ source: a.source, name: a.name, at: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeCut']) {
+        const c = r.userData['forgeCut'] as { w: number; h: number; d: number; faces: string };
+        (l.cuts ??= []).push({ at: cutCentre(r), yaw: r.rotation.y, size: [c.w, c.h, c.d], ...(c.faces !== 'xyz' ? { faces: c.faces } : {}), ...(locked ? { locked: true } : {}) });
       } else if (r.userData['forgeDoor']) {
         const t = r.userData['forgeDoor'] as { source: string; name: string };
         (l.doors ??= []).push({ source: t.source, name: t.name, at: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}) });
@@ -4317,7 +4333,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const placementIds = (): Map<string, Object3D> => {
     const map = new Map<string, Object3D>();
-    let piece = 0, spawn = 0, respawn = 0, flare = 0, npc = 0, hostage = 0, zone = 0, point = 0, views = 0, turret = 0, door = 0, gate = 0, barrier = 0, switches = 0, triggers = 0, objects = 0;
+    let piece = 0, spawn = 0, respawn = 0, flare = 0, npc = 0, hostage = 0, zone = 0, point = 0, views = 0, turret = 0, door = 0, cut = 0, gate = 0, barrier = 0, switches = 0, triggers = 0, objects = 0;
     const bombs = { start: 0, seal: 0, terrorist: 0 };
     for (const r of roots) {
       const bomb = bombKindOf(r);
@@ -4331,6 +4347,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       else if (r.userData['forgeZone']) map.set(`xzone:${zone++}`, r);   // `xzone:`, a rules zone's `zone:<id>` apart (FP-1b)
       else if (r.userData['forgeTurret']) map.set(`turret:${turret++}`, r);
       else if (r.userData['forgeDoor']) map.set(`door:${door++}`, r);
+      else if (r.userData['forgeCut']) map.set(`cut:${cut++}`, r);
       else if (r.userData['forgeGate']) map.set(`gate:${gate++}`, r);
       else if (r.userData['forgeBarrier']) map.set(`barrier:${barrier++}`, r);
       else if (r.userData['forgeSwitch']) map.set(`switch:${switches++}`, r);
@@ -4446,7 +4463,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return o.geometry.boundingBox!.clone().applyMatrix4(m);
   };
   /** FG-47: a member's place and turn (`./group` `Pose`); a marker's turn is its yaw. */
-  const isMarker = (r: Object3D): boolean => !!r.userData['forgeObject'] || !!r.userData['forgeSpawn'] || !!r.userData['forgeRespawn'] || !!r.userData['forgeFlare'] || !!r.userData['forgeNpc'] || !!r.userData['forgeBomb'] || !!r.userData['forgeHostage'] || !!r.userData['forgeZone'] || !!r.userData['forgePoint'] || !!r.userData['forgeView'] || !!r.userData['forgeTurret'] || !!r.userData['forgeDoor'] || !!r.userData['forgeGate'] || !!r.userData['forgeBarrier'] || !!r.userData['forgeSwitch'] || !!r.userData['forgeTrigger'];
+  const isMarker = (r: Object3D): boolean => !!r.userData['forgeObject'] || !!r.userData['forgeSpawn'] || !!r.userData['forgeRespawn'] || !!r.userData['forgeFlare'] || !!r.userData['forgeNpc'] || !!r.userData['forgeBomb'] || !!r.userData['forgeHostage'] || !!r.userData['forgeZone'] || !!r.userData['forgePoint'] || !!r.userData['forgeView'] || !!r.userData['forgeTurret'] || !!r.userData['forgeDoor'] || !!r.userData['forgeCut'] || !!r.userData['forgeGate'] || !!r.userData['forgeBarrier'] || !!r.userData['forgeSwitch'] || !!r.userData['forgeTrigger'];
   const poseOf = (r: Object3D): Pose => ({
     p: [r.position.x, r.position.y, r.position.z],
     q: isMarker(r) ? yawQuat(r.rotation.y) : [r.quaternion.x, r.quaternion.y, r.quaternion.z, r.quaternion.w],
@@ -4627,9 +4644,38 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     return null;
   };
+  /**
+   * A free cut box's marker (`./cuts`): a see-through box with its edges, its origin at its foot (the layout keeps its
+   * centre: `cutCentre`), sized and faced as its record says; the box itself is what a click picks.
+   */
+  const CUT_COLOUR = new Color(MAP_DATA_MARKS['userCuts']!.colour);
+  /** How see-through a cut box's fill is drawn (an editor's value): the hole behind it shows. */
+  const CUT_BOX_OPACITY_ADAPTATION = 0.12;
+  function newCut(size: readonly [number, number, number], faces?: string): Object3D {
+    const r = new Group();
+    const box = new BoxGeometry(size[0], size[1], size[2]).translate(0, size[1] / 2, 0);
+    const fill = new Mesh(box, new MeshBasicMaterial({ color: CUT_COLOUR, transparent: true, opacity: CUT_BOX_OPACITY_ADAPTATION, depthWrite: false }));
+    fill.name = 'cut box';
+    const edges = new LineSegments(new EdgesGeometry(box), new LineBasicMaterial({ color: CUT_COLOUR }));
+    edges.name = 'cut edges';
+    r.add(fill, edges);
+    r.userData['forgeCut'] = { w: size[0], h: size[1], d: size[2], faces: faces ?? 'xyz' };
+    r.name = 'cut box';
+    return r;
+  }
+  /** A cut marker's centre (the layout's `at`): its foot raised half its height. */
+  const cutCentre = (r: Object3D): [number, number, number] => {
+    const c = r.userData['forgeCut'] as { h: number };
+    return [r.position.x, r.position.y + c.h / 2, r.position.z];
+  };
+  const cutLabel = (r: Object3D): string => {
+    const c = r.userData['forgeCut'] as { w: number; h: number; d: number; faces: string };
+    return `Cut box · ${c.w} x ${c.h} x ${c.d} · ${c.faces.toUpperCase()}`;
+  };
   /** A placed door's marker: its template's leaf and frame as the disc draws them, its hinge at the origin; else a stand-in. */
   async function newDoor(source: string, name: string, preview = false): Promise<Object3D> {
     const t = await doorTemplate(source, name);
+    if (t) doorCutTemplates.set(`${source}:${name}`, t);          // the preview's and the release snap's, at once
     const r = (t ? pieces.modelOf(`door:${source}:${name}`, doorModelMap(t), preview) : null) ?? pointMarker('point');
     r.userData['forgeDoor'] = { source, name, ...(t ? { swing: t.spec.programs.map((p) => p.name), range: t.spec.range, elevation: t.spec.elevation } : { missing: true }) };
     r.name = `door ${name}`;
@@ -4638,6 +4684,68 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (t && swing) r.add(guideIn(swingSegments(swing), swingTriangles(swing), doorMove(t, [0, 0, 0], 0), DOOR_SWING_COLOUR, 'userDoors'));
     return r;
   }
+  /**
+   * The placed doors' openings and the free cut boxes previewed in the editor (`./cuts`; a browser adaptation): the base
+   * world's chunks redrawn with each hole cut as Play will cut it, again whenever a door or a box is placed, moved,
+   * turned, sized or removed (looked at every `DOOR_CUT_PREVIEW_MS_ADAPTATION`). The world's own chunks only: a prop or a placed
+   * piece a hole reaches opens in Play.
+   */
+  const DOOR_CUT_PREVIEW_MS_ADAPTATION = 150;
+  const doorCutTemplates = new Map<string, DoorTemplate | null>();
+  let doorCutKey = '', doorCutLookedAt = 0, doorCutView: WorldView | null = null;
+  const previewDoorCuts = (now: number): void => {
+    if (!baseView?.recutWorld || now - doorCutLookedAt < DOOR_CUT_PREVIEW_MS_ADAPTATION) return;
+    doorCutLookedAt = now;
+    const placed = roots.filter((r) => r.userData['forgeDoor'] && !(r.userData['forgeDoor'] as { missing?: boolean }).missing);
+    const freeCuts = roots.filter((r) => r.userData['forgeCut']);
+    const where = (r: Object3D): string => `${r.position.x.toFixed(2)},${r.position.y.toFixed(2)},${r.position.z.toFixed(2)},${r.rotation.y.toFixed(4)}`;
+    const key = [...placed.map((r) => {
+      const d = r.userData['forgeDoor'] as { source: string; name: string };
+      return `${d.source}:${d.name}@${where(r)}`;
+    }), ...freeCuts.map((r) => {
+      const c = r.userData['forgeCut'] as { w: number; h: number; d: number; faces: string };
+      return `cut:${c.w},${c.h},${c.d},${c.faces}@${where(r)}`;
+    })].join('|');
+    if (key === doorCutKey && doorCutView === baseView) return;
+    const cuts: CutBox[] = [];
+    let waiting = false;
+    for (const r of placed) {
+      const d = r.userData['forgeDoor'] as { source: string; name: string };
+      const id = `${d.source}:${d.name}`;
+      if (!doorCutTemplates.has(id)) {
+        waiting = true;
+        doorCutTemplates.set(id, null);
+        void doorTemplate(d.source, d.name).then((t) => { doorCutTemplates.set(id, t); doorCutKey = ''; })
+          .catch(() => { doorCutTemplates.delete(id); });            // a failed read is asked again; a door the disc lacks stays null
+        continue;
+      }
+      const t = doorCutTemplates.get(id);
+      const cut = t ? doorCutAt(t, doorMove(t, [r.position.x, r.position.y, r.position.z], r.rotation.y), doorFramePoints(t)) : null;
+      if (cut) cuts.push(cut);
+    }
+    for (const r of freeCuts) {
+      const c = r.userData['forgeCut'] as { w: number; h: number; d: number; faces: string };
+      cuts.push(freeCutBox({ at: cutCentre(r), yaw: r.rotation.y, size: [c.w, c.h, c.d], faces: c.faces }));
+    }
+    if (!waiting) { doorCutKey = key; doorCutView = baseView; }
+    baseView.recutWorld(cuts.length ? (part) => cutMesh(part, cuts) : (part) => part);
+    // Each hole's lining (`./cuts` `cutCaps`), read off the base map before its cut, as Play reads it.
+    baseView.setExtraWorld?.(cuts.length && baseMap ? cutCaps(baseMap, cuts).meshes : []);
+  };
+  /** The base map's walls a door snaps to (`./cuts`), read once a map. */
+  const snapWalls = new WeakMap<LoadedMap, WallFace[]>();
+  /** A placed door turned square into the wall it was dropped by and set in its middle; false when no wall is in reach. */
+  const snapPlacedDoor = (r: Object3D, t: DoorTemplate): boolean => {
+    if (!snapDoors || !baseMap?.ground) return false;
+    let walls = snapWalls.get(baseMap);
+    if (!walls) { walls = wallFaces(baseMap.ground); snapWalls.set(baseMap, walls); }
+    const s = snapDoor([r.position.x, r.position.y, r.position.z], r.rotation.y, (at, yaw) => doorMove(t, at, yaw), t.owners.flatMap((o) => o.polys), walls, doorFramePoints(t));
+    if (!s) return false;
+    r.position.set(s.at[0], s.at[1], s.at[2]);
+    r.rotation.y = s.yaw;
+    r.updateMatrixWorld();
+    return true;
+  };
   const doorLabel = (r: Object3D): string => `Door · ${(r.userData['forgeDoor'] as { name?: string } | undefined)?.name ?? ''}`;
   /** The gates and C4 barriers each archive holds (`./placedAccess` `accessTemplates`), read once a stem. */
   const accessCatalogue = new Map<string, Promise<AccessTemplate[]>>();
@@ -5139,6 +5247,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (r.userData['forgePoint'] || r.userData['forgeView']) return pointNameOf(r);
     if (r.userData['forgeTurret']) return turretLabel(r);
     if (r.userData['forgeDoor']) return doorLabel(r);
+    if (r.userData['forgeCut']) return cutLabel(r);
     if (accessOwnOf(r)) return accessLabel(r);
     if (r.userData['forgeTrigger']) return triggerLabel(r);
     if (r.userData['forgeRespawn']) return `Respawn ${r.userData['forgeRespawn'] as string}`;
@@ -5146,7 +5255,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return (r.userData['forgePiece'] as string | undefined) ?? `Spawn ${r.userData['forgeSpawn'] as string}`;
   };
   /** FUI-22 (D2): the Inspector head's kind word for a placement. */
-  const kindOf = (r: Object3D): string => (objectOf(r) ? 'Ambient effect' : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
+  const kindOf = (r: Object3D): string => (objectOf(r) ? 'Ambient effect' : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeCut'] ? 'Cut box' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
   /**
    * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2): drawn, not yet wired. A single piece shows its
    * own values (pitch and roll read in the `YXZ` order, so yaw stays the turn about Y); anything else -- a group, a map
@@ -5960,6 +6069,26 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       out.push({ label: 'Width', kind: 'number', value: zone.w, covers: ['zone.w'], disabled: off, title: 'Along x, world units', set: set('width'), preview: sized('x', zone.w) });
       out.push({ label: 'Depth', kind: 'number', value: zone.d, covers: ['zone.d'], disabled: off, title: 'Along z, world units', set: set('depth'), preview: sized('z', zone.d) });
     }
+    const cutOwn = s.userData['forgeCut'] as { w: number; h: number; d: number; faces: string } | undefined;
+    if (cutOwn) {
+      // A scrub's live size: the box stretched about its foot (no edit; put back at 1 before the release's).
+      const sized = (axis: 'x' | 'y' | 'z', own: number) => (v: number | null): void => {
+        for (const c of s.children) c.scale[axis] = v === null || !(own > 0) ? 1 : Math.max(v, 0.01) / own;
+      };
+      out.push({ label: 'Width', kind: 'number', value: cutOwn.w, covers: ['cut.w'], disabled: off, title: 'Along its own x, world units (10 is about a metre)', set: set('width'), preview: sized('x', cutOwn.w) });
+      out.push({ label: 'Height', kind: 'number', value: cutOwn.h, covers: ['cut.h'], disabled: off, title: 'Up, world units, from its foot', set: set('height'), preview: sized('y', cutOwn.h) });
+      out.push({ label: 'Depth', kind: 'number', value: cutOwn.d, covers: ['cut.d'], disabled: off, title: 'Along its own z, world units', set: set('depth'), preview: sized('z', cutOwn.d) });
+      // Which surfaces it takes, by the axis of its own frame their normals run along; one at least stays on.
+      for (const [axis, label, title] of [
+        ['x', 'Cut X faces', 'Surfaces facing along its width: walls side-on to it'],
+        ['y', 'Cut Y faces', 'Surfaces facing up or down: floors, ceilings, stair treads. Off, a hole through a wall keeps its floor'],
+        ['z', 'Cut Z faces', 'Surfaces facing along its depth: walls it passes through'],
+      ] as const) {
+        const on = cutOwn.faces.includes(axis);
+        const next = (['x', 'y', 'z'] as const).filter((a) => (a === axis ? !on : cutOwn.faces.includes(a))).join('');
+        out.push({ label, kind: 'check', value: on, covers: [`cut.${axis}`], disabled: off || (on && next === ''), title, set: () => { if (next) void entityEdit('placement.set', { ref, field: 'faces', value: next }); } });
+      }
+    }
     if (s.userData['forgeHostage']) {
       const own = hostageOf(s);
       // The characters a hostage can wear here: the base's own hostages' (a blank floor's: its library's), each once.
@@ -6471,6 +6600,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (r.userData['forgePoint'] || r.userData['forgeView']) return pointNameOf(r);
     if (r.userData['forgeTurret']) return turretLabel(r);
     if (r.userData['forgeDoor']) return doorLabel(r);
+    if (r.userData['forgeCut']) return cutLabel(r);
     if (accessOwnOf(r)) return accessLabel(r);
     if (r.userData['forgeTrigger']) return triggerLabel(r);
     if (r.userData['forgeRespawn']) return `Respawn ${r.userData['forgeRespawn'] as string}`;
@@ -7235,6 +7365,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     hostage: 'A hostage, beside the map\'s own: Escort and Extraction play them',
     zone: 'An extraction zone (Safety, Safety2...), beside the map\'s own: Extraction plays them',
     door: "A door: a copy of a disc map's own (its swing, its reach), its hinge at the click; the rotate gizmo turns it",
+    cut: 'A cut box: its foot at the click; what it holds is cut out of the map. The Inspector sizes it and picks its X / Y / Z faces',
     turret: "A turret: a copy of a disc map's own (its definition, weapon and limits), facing the way you look",
     ladder: "A ladder: a disc map's own ladder prop, its foot at the click, facing the way you look; climbable in Play",
     flare: "A flare: one of a disc map's glows (its facade node alone), turned to the camera; the Inspector's Map and Flare change it",
@@ -7272,7 +7403,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawLegendNow();
     statusChips.update();                                     // FUI-4: Build / Walk / Play
     sMode.textContent = playing ? 'PLAY' : entityTool ? `PLACE ${entityTool.toUpperCase()}`
-      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'EFFECT' } as const)[mode];
+      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', cut: 'CUT', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'EFFECT' } as const)[mode];
   };
   /**
    * The selection drawn (FG-47): the single selection's `selected` / `baseSelected` derived, the gizmo on the one
@@ -8475,7 +8606,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   function userKindOfRoot(r: Object3D): string | null {
     return userMarkKind({
       piece: !!r.userData['forgePiece'], npc: !!npcOf(r), bomb: bombKindOf(r), hostage: !!r.userData['forgeHostage'], zone: !!r.userData['forgeZone'],
-      point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'],
+      point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'], cut: !!r.userData['forgeCut'],
       ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'] || !!r.userData['forgeTrigger'], switch: !!r.userData['forgeSwitch'], object: objectOf(r)?.kind,
       ...(r.userData['forgeSpawn'] === 'A' || r.userData['forgeSpawn'] === 'B' ? { team: r.userData['forgeSpawn'] as 'A' | 'B' } : {}),
       ...(r.userData['forgeRespawn'] === 'A' || r.userData['forgeRespawn'] === 'B' ? { respawn: r.userData['forgeRespawn'] as 'A' | 'B' } : {}),
@@ -8951,6 +9082,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (t.locked) r.userData['forgeLock'] = true;
       staged.push(r);
     }
+    for (const c of l.cuts ?? []) {
+      const r = newCut(c.size, c.faces);
+      r.position.set(c.at[0], c.at[1] - c.size[1] / 2, c.at[2]);
+      r.rotation.y = c.yaw;
+      if (c.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
     for (const t of l.turrets ?? []) {
       const r = await newTurret(t.source, t.name);
       r.position.set(...t.at);
@@ -9327,7 +9465,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   function ghostYaw(): number {
     if (mode === 'place') return placementYaw();
     // A plant site starts square (the owner, 2026-11-06): its outline then lies square to the world (`./siteOutlines`).
-    const own = mode === 'door' || mode === 'gate' || mode === 'barrier' || mode === 'zone' || mode === 'point' || mode === 'flare'
+    const own = mode === 'door' || mode === 'cut' || mode === 'gate' || mode === 'barrier' || mode === 'zone' || mode === 'point' || mode === 'flare'
       || mode === 'siteSeal' || mode === 'siteTerrorist' ? 0 : facing();
     // The Place settings, a prop's alike (`placementYaw`): the turn on the turn step with the turn snap on, the wheel's on top.
     return (turnSnap ? snapYawRadians(own, turnStep) : own) + (wheelTurns(mode) ? (queuedTurn * Math.PI) / 180 : 0);
@@ -9349,6 +9487,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       case 'bomb': case 'siteSeal': case 'siteTerrorist':
         return { key: mode, source: bombMarker(mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist') };
       case 'door': { const d = await defaultDoor(); return d ? { key: `door:${d.source}:${d.name}`, source: await newDoor(d.source, d.name) } : null; }
+      case 'cut': return { key: 'cut', source: newCut(CUT_DEFAULT_SIZE_ADAPTATION) };
       case 'turret': { const t = await defaultTurret(); return t ? { key: `turret:${t.source}:${t.name}`, source: await newTurret(t.source, t.name) } : null; }
       case 'switch': { const look = objectChoice.switch; return { key: `switch:${look ?? 'lever'}`, source: await newSwitch(null, null, look && look !== 'lever' ? { look } : {}) }; }
       case 'gate': case 'barrier': { const k = mode; const a = await defaultAccess(k); return a ? { key: `${k}:${a.source}:${a.name}`, source: await newAccess(k, a.source, a.name) } : null; }
@@ -9451,6 +9590,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return;
     }
     if (entityTool !== null && !toggle) { placeEntity(entityTool, placeAt(hit)); return; }   // FCW-32 step 4 (D4)
+    // The Cut tool: a click on a cut box (or its X mark) selects it to move, turn and size, where one elsewhere places another.
+    if (mode === 'cut' && !toggle) {
+      const mark = mapBillboards.pick(ray);
+      const marked = mark ? rootOfUserMark(mark.key) : null;
+      const onBox = forgeRootOf(hit?.object ?? null);
+      const box = marked?.userData['forgeCut'] ? marked : onBox?.userData['forgeCut'] ? onBox : null;
+      if (box && !lockedOf(box)) { select(box); return; }
+    }
     if (mode === 'select' || toggle) {
       // The Select tool's settings: a kind switched off is looked through -- map props off, a click finds the placements
       // behind the map; user props off, the map behind the placements; both off, nothing.
@@ -9561,19 +9708,37 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }, true);
       return;
     }
+    if (mode === 'cut') {
+      // A free cut box, its foot at the click (any game type; `./cuts`): a doorway's size, taking every face.
+      const yaw = ghostYaw();
+      personEdit('cut.place', {}, (step) => {
+        const before = selectionIds();
+        const r = newCut(CUT_DEFAULT_SIZE_ADAPTATION);
+        r.rotation.y = yaw;
+        r.position.copy(at);
+        addRoot(r);
+        select(r);
+        say('Cut box placed: what it holds is cut out of the map');
+        edit(before, step);
+      }, true);
+      return;
+    }
     if (mode === 'door') {
       // A copy of a disc door, its hinge at the click, in its own turn (any game type): the palette's archive's first
       // door, else Frostfire's bdoor_4 (`DEFAULT_DOOR`); the Inspector's Model changes it, the rotate gizmo turns it.
       const yaw = ghostYaw();
       void defaultDoor().then((which) => {
         if (!which) { notifier.refused("No door to copy: the palette's archive has none, nor Frostfire (MP2) on this disc"); return; }
-        personEdit('door.place', {}, (step) => void newDoor(which.source, which.name).then((r) => {
+        personEdit('door.place', {}, (step) => void newDoor(which.source, which.name).then(async (r) => {
           const before = selectionIds();
           r.rotation.y = yaw;
           seatOn(r, at);
+          // Dropped by a wall, it turns square into it and sits in its middle (`./cuts`).
+          const t = await doorTemplate(which.source, which.name);
+          const snapped = !!t && snapPlacedDoor(r, t);
           addRoot(r);
           select(r);
-          say(`${doorLabel(r)} placed: a copy of the disc's door`);
+          say(`${doorLabel(r)} placed: a copy of the disc's door${snapped ? ', set into the wall' : ''}`);
           edit(before, step);
         }), true);
       });
@@ -10272,7 +10437,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   function cloneable(s: Object3D): boolean {
     const u = s.userData;
-    return !!(u['forgeFlare'] || u['forgeDoor'] || u['forgeTurret'] || u['forgeGate'] || u['forgeBarrier'] || u['forgeHostage'] || u['forgeZone'] || u['forgePoint'] || u['forgeView']
+    return !!(u['forgeFlare'] || u['forgeDoor'] || u['forgeCut'] || u['forgeTurret'] || u['forgeGate'] || u['forgeBarrier'] || u['forgeHostage'] || u['forgeZone'] || u['forgePoint'] || u['forgeView']
       || u['forgeSwitch'] || u['forgeTrigger']);
   }
   /**
@@ -11667,6 +11832,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!open) return;
     selectMapPropsIn.checked = selectMapProps;
     selectUserPropsIn.checked = selectUserProps;
+    snapDoorsIn.checked = snapDoors;
     placeSelectSettings();
     selectMapPropsIn.focus();
   };
@@ -11686,6 +11852,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     selectMapProps = selectMapPropsIn.checked;
     writeView();
     say(selectMapProps ? 'Select: map data can be selected' : 'Select: map data is passed over');
+  });
+  snapDoorsIn.addEventListener('change', () => {
+    snapDoors = snapDoorsIn.checked;
+    writeView();
+    say(snapDoors ? 'Doors snap into the walls they are dropped by' : 'Doors stay where they are dropped');
   });
   selectUserPropsIn.addEventListener('change', () => {
     selectUserProps = selectUserPropsIn.checked;
@@ -13347,6 +13518,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The split viewport (`./splitViews`): one view under Walk, Play or a shot, the active one; else each drawn below.
     split?.setSuspended(playing || shot.driver.active());
     const splitDraws = split?.drawList() ?? [];
+    if (!playing) previewDoorCuts(now);                      // the placed doors' holes and the cut boxes', as Play will cut them
     if (!splitDraws.length) {
       baseView?.frame(fly.viewportCamera(), dt);
       skyView?.frame(fly.viewportCamera(), dt);             // a new empty map's copied sky: its clouds' scroll

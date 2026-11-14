@@ -359,7 +359,7 @@ export function forgeRootOf(o: Object3D | null): Object3D | null {
   for (let at = o; at; at = at.parent) {
     if (at.userData['forgeGhost']) return null;
     if (at.userData['forgePiece'] || at.userData['forgeSpawn'] || at.userData['forgeRespawn'] || at.userData['forgeFlare'] || at.userData['forgeNpc'] || at.userData['forgeBomb']
-      || at.userData['forgeHostage'] || at.userData['forgeZone'] || at.userData['forgePoint'] || at.userData['forgeView'] || at.userData['forgeTurret'] || at.userData['forgeDoor'] || at.userData['forgeGate'] || at.userData['forgeBarrier'] || at.userData['forgeTrigger']) return at;
+      || at.userData['forgeHostage'] || at.userData['forgeZone'] || at.userData['forgePoint'] || at.userData['forgeView'] || at.userData['forgeTurret'] || at.userData['forgeDoor'] || at.userData['forgeCut'] || at.userData['forgeGate'] || at.userData['forgeBarrier'] || at.userData['forgeTrigger']) return at;
   }
   return null;
 }

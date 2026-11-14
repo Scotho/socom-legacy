@@ -266,6 +266,14 @@ export interface WorldView {
    * neither drawn nor picked, whatever else shows or hides the mesh. Shown, the game's own picture.
    */
   setFlaresShown?(on: boolean): void;
+  /**
+   * The Forge's (a browser adaptation): each world chunk drawn as `cut` returns it -- the chunk itself, or a copy with
+   * a placed door's opening clipped out (`./forge/cuts`) -- so the editor shows the doorways Play will open. Only the
+   * chunks whose answer changed are rebuilt; the chunk itself again puts the disc's geometry back.
+   */
+  recutWorld?(cut: (part: LoadedMesh) => LoadedMesh): void;
+  /** The Forge's (a browser adaptation): world chunks drawn beside the map's own -- the cut holes' linings (`./forge/cuts`) -- each call replacing the last. */
+  setExtraWorld?(parts: readonly LoadedMesh[]): void;
   /** Each line-strip group's texture and world-space extent -- for aiming a camera at a rope. */
   lineGroups(): { texture: string | null; min: [number, number, number]; max: [number, number, number] }[];
   /**
@@ -1179,6 +1187,10 @@ export function buildWorld(map: LoadedMap): WorldView {
   /** PB-9b: the meshes `setNodeOpacity` reaches, by their node's path. */
   const faded: { path: string; object: Mesh }[] = [];
 
+  /** The world's chunks, each with its draw and what it draws now (`recutWorld`). */
+  const worldDraws: { part: LoadedMesh; mesh: Mesh; shown: LoadedMesh; original?: BufferGeometry }[] = [];
+  /** The extra chunks `setExtraWorld` draws. */
+  let extraWorld: Mesh[] = [];
   for (const part of map.world) {
     const mesh = new Mesh(geometryOf(part, lighting, lit), materialFor(part.textureName, part.fog, 'mesh', part.cull, part.scroll, true, part.vertexAlpha === true, part.alphaPass === true, part.scrollPath ?? null));
     mesh.name = part.textureName ?? 'untextured';
@@ -1189,6 +1201,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     // The marks' clip (`./markClip` `entryOf`) keys this draw as the world's one node; it read that off `frustumCulled`
     // false until the cull above (PR #672) could turn it on, so the world's draws are named outright.
     mesh.userData.worldDraw = true;
+    worldDraws.push({ part, mesh, shown: part });
     later(revealWorld, mesh, part.order, part.cells ?? [], part.alternate, part.textureName, false, null, part.alphaPass === true, part.alphaPass ? part.centre ?? null : null);
     switchMesh(part.switchPath ? `w:${part.switchPath}` : undefined, part.switchPath, mesh);
     // OBF-22: the marks' clip files a mark on it under its switch path (`./markClip`, `lastNodePath`), so `setNodeActive`
@@ -1701,6 +1714,51 @@ export function buildWorld(map: LoadedMap): WorldView {
       unlitOn = on;
       for (const { part, attribute } of lit) relight(part, attribute);
       lightingStamp++;
+    },
+    setExtraWorld: (parts) => {
+      for (const m of extraWorld) {
+        group.remove(m);
+        const at = lit.findIndex((l) => l.attribute === m.geometry.getAttribute('color'));
+        if (at >= 0) lit.splice(at, 1);
+        m.geometry.dispose();
+      }
+      extraWorld = parts.map((part) => {
+        const mesh = new Mesh(geometryOf(part, lighting, lit), materialFor(part.textureName, part.fog, 'mesh', part.cull, part.scroll, true, part.vertexAlpha === true, part.alphaPass === true, null));
+        const entry = lit[lit.length - 1];
+        if (entry) relight(entry.part, entry.attribute);
+        mesh.name = `${part.textureName ?? 'untextured'} (lining)`;
+        mesh.userData.worldDraw = true;
+        group.add(mesh);
+        return mesh;
+      });
+    },
+    recutWorld: (cut) => {
+      for (const d of worldDraws) {
+        const next = cut(d.part);
+        if (next === d.shown) continue;
+        const old = d.mesh.geometry;
+        // The disc's own geometry is kept for when the chunk is whole again; only a cut copy is let go.
+        d.original ??= old;
+        let geometry: BufferGeometry;
+        if (next === d.part) geometry = d.original;
+        else {
+          geometry = geometryOf(next, lighting, lit);
+          const entry = lit[lit.length - 1];
+          if (entry) relight(entry.part, entry.attribute);          // the page's unlit switch and rig, as every draw has them
+          // The passes hung under the draw share its geometry: carry what they added (`addDetail`, `addEnv`).
+          if (d.original.getAttribute('detailCentroid')) geometry.setAttribute('detailCentroid', new BufferAttribute(next.centroids ?? centroidsOf(next, next.centre ?? centreOf(next)), 3));
+          if (d.original.getAttribute('normal') && next.normals) geometry.setAttribute('normal', new BufferAttribute(next.normals, 3));
+        }
+        d.mesh.geometry = geometry;
+        for (const child of d.mesh.children) if (child instanceof Mesh && child.geometry === old) child.geometry = geometry;
+        prepareWorldFrustum(d.mesh);
+        if (old !== d.original) {
+          const at = lit.findIndex((l) => l.attribute === old.getAttribute('color'));
+          if (at >= 0) lit.splice(at, 1);
+          old.dispose();
+        }
+        d.shown = next;
+      }
     },
     setLighting: (next) => {
       brighten.value = brightenOf(next);

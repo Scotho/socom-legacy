@@ -459,6 +459,7 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
       else if (operation === 'respawn.place') picked = [`respawn:${(next.respawns?.length ?? 1) - 1}`];
       else if (operation === 'npc.place') picked = [`npc:${(next.npcs?.length ?? 1) - 1}`];
       else if (operation === 'door.place') picked = [`door:${(next.doors?.length ?? 1) - 1}`];
+      else if (operation === 'cut.place') picked = [`cut:${(next.cuts?.length ?? 1) - 1}`];
       else if (operation === 'gate.place') picked = [`gate:${(next.gates?.length ?? 1) - 1}`];
       else if (operation === 'barrier.place') picked = [`barrier:${(next.barriers?.length ?? 1) - 1}`];
       else if (operation === 'turret.place') picked = [`turret:${(next.turrets?.length ?? 1) - 1}`];

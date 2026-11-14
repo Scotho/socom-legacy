@@ -31,6 +31,8 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   // A placed flare: a disc facade prop (`./mapCensus` `flarePropsOf`), the map's flares' F.
   userFlares: { glyph: 'F', colour: '#fff2a8', word: 'Flare' },
   userNpcs: { glyph: 'N', colour: '#b9a6ff', word: 'NPC' },
+  // A free cut box (`./cuts`): no map counterpart, the box's own colour.
+  userCuts: { glyph: 'X', colour: '#ff5577', word: 'Cut box' },
   // The bomb's markers as `./pieces` colours them: the start sand, a site its planting team's (`SIDE_COLOUR`).
   userEscortees: { glyph: 'H', colour: MAP_HOSTAGE_COLOUR, word: 'Hostage' },
   userTacZones: { glyph: 'Z', colour: '#3fb58a', word: 'Extraction zone' },
@@ -106,6 +108,7 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
   { id: 'damage', label: 'Damage triggers', kinds: ['damage', 'userBarriers'] },
   { id: 'cranes', label: 'Cranes', kinds: ['cranes'] },
   { id: 'ambients', label: 'Effects', kinds: ['ambients', 'userAmbients'] },
+  { id: 'userCuts', label: 'Cut boxes', kinds: ['userCuts'] },
   { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'] },
 ];
 
@@ -113,7 +116,7 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
 export const isUserMarkKind = (kind: string): boolean => kind.startsWith('user');
 
 /** A user placement's mark kind by what it is (the page's `userData`: a piece, a spawn's team, an NPC, a bomb marker's kind). */
-export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: 'ambient' }): string | null {
+export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; cut?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: 'ambient' }): string | null {
   if (r.object) return 'userAmbients';   // a Forge object (`./forgeObjects`)
   if (r.hostage) return 'userEscortees';
   if (r.zone) return 'userTacZones';
@@ -121,6 +124,7 @@ export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: '
   if (r.view) return 'userScenicViews';
   if (r.turret) return 'userTurrets';
   if (r.door) return 'userDoors';
+  if (r.cut) return 'userCuts';
   if (r.ladder) return 'userLadders';
   if (r.flare) return 'userFlares';
   if (r.gate) return 'userGates';
@@ -400,7 +404,7 @@ type KindToggle = (typeof MAP_DATA_KIND_TOGGLES)[number];
  */
 export const BILLBOARD_SECTIONS: readonly { heading: string; ids: readonly string[] }[] = [
   { heading: 'Spawn', ids: ['slots', 'respawns'] },
-  { heading: 'Objects', ids: ['mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares', 'damage'] },
+  { heading: 'Objects', ids: ['mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares', 'damage', 'userCuts'] },
   { heading: 'Demolition · Breach', ids: ['bombStart', 'actions'] },
   { heading: 'Escort · Extraction', ids: ['escortees', 'tacZones'] },
   { heading: 'Info', ids: ['tacPoints', 'scenicViews'] },
