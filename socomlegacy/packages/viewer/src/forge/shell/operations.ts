@@ -246,6 +246,7 @@ export const FORGE_EDIT_OPERATIONS: readonly ForgeEditOperation[] = [
   { id: 'hostage.place', domain: 'layout', label: fixed('Place hostage') },
   { id: 'extraction.place', domain: 'layout', label: fixed('Place extraction zone') },
   { id: 'door.place', domain: 'layout', label: fixed('Place door') },   // a browser adaptation: `Layout.doors`
+  { id: 'cut.place', domain: 'layout', label: fixed('Place cut box') },   // a browser adaptation: `Layout.cuts`
   { id: 'gate.place', domain: 'layout', label: fixed('Place gate') },   // a browser adaptation: `Layout.gates`
   { id: 'barrier.place', domain: 'layout', label: fixed('Place damage trigger') },
   { id: 'switch.place', domain: 'layout', label: fixed('Place switch') },   // a browser adaptation: `Layout.switches`   // a browser adaptation: `Layout.barriers`

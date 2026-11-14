@@ -16,10 +16,11 @@ import { DEFAULT_SETTINGS, LAYOUT_NAME_MAX, LAYOUT_VERSION, type ForgeGameType, 
 export {
   BOMB_SITE_REACH, BOMB_SITES_MAX, DEFAULT_SETTINGS, FORGE_GAME_TYPES, isContentLayout, LAYOUT_NAME_MAX, LAYOUT_VERSION, layoutIds, NPC_BEHAVIOURS, onlineCreatorLayoutRefusal,
   onlineLayoutRefusal, parseAssetId, parseCamera, parseLayout, parseSettings, SETTINGS_BOUNDS, withIds,
+  CUT_FACES, CUT_SIZE_MIN_ADAPTATION, RECORD_LIMITS,
 } from '@s2u/creator-contracts';
 export type {
   BombObjectives, BombSite, ContentLayout, ContentLayoutBase, ForgeGameType, ForgeObjectives, Layout, LayoutBase, LayoutCamera, LayoutObjectiveIds,
-  ArsenalPick, ArsenalSetting, CharacterRoster, LoadingSetting, ReverbSetting, RosterPick, ExtractionZone, FlareMarker, HostageMarker, LayoutSettings, LightRigSetting, ScenicViewMarker, TacPointMarker, TurretMarker, DoorMarker, NpcBehaviour, NpcMarker, Piece, RetailLayoutBase, SpawnMarker,
+  ArsenalPick, ArsenalSetting, CharacterRoster, LoadingSetting, ReverbSetting, RosterPick, ExtractionZone, FlareMarker, HostageMarker, LayoutSettings, LightRigSetting, ScenicViewMarker, TacPointMarker, TurretMarker, DoorMarker, CutMarker, NpcBehaviour, NpcMarker, Piece, RetailLayoutBase, SpawnMarker,
 } from '@s2u/creator-contracts';
 
 /** The layout's settings whole: what it names over the disc's defaults. */

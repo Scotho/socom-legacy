@@ -70,7 +70,7 @@ export const OBJECTIVE_TYPES = {
 /** The placed kinds' words, plural (`placed-bound`). */
 const PLACED_WORD: Readonly<Record<ReturnType<typeof placedKindsPast>[number]['kind'], string>> = {
   hostages: 'hostages', extractionZones: 'extraction zones', tacPoints: 'tactical points', respawns: 'respawn points', flares: 'flares',
-  scenicViews: 'spectator views', turrets: 'turrets', doors: 'doors', gates: 'gates', barriers: 'barriers',
+  scenicViews: 'spectator views', turrets: 'turrets', doors: 'doors', gates: 'gates', barriers: 'barriers', cuts: 'cut boxes',
 };
 
 const TYPE_WORD: Readonly<Record<number, string>> = { 1: 'Breach', 2: 'Demolition', 3: 'Escort', 4: 'Extraction', 5: 'Suppression' };

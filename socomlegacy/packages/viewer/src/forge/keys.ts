@@ -76,7 +76,7 @@ export function forgeLeaseExit(e: ForgeKeyEvent, s: ForgeKeyState): ForgeLeaseEx
  */
 export const FORGE_TOOL_ORDER = [
   'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate', 'flare',
-  'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc',
+  'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc', 'cut',
 ] as const;
 export type ForgeToolKey = 'select' | (typeof FORGE_TOOL_ORDER)[number];
 

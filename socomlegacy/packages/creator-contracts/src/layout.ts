@@ -236,6 +236,12 @@ export interface Layout {
   /** The layout's Forge objects (`ForgeObject`): ambient effects, cranes. Absent: none. A crane refused online. */
   objects?: ForgeObject[];
   /**
+   * FORGE CUTS (a browser adaptation, FG.R2; no original): the layout's free cut boxes, each clipping what it holds out of
+   * the map -- the world's, the props' and the placed pieces' triangles and the hull's polygons -- in Play and in the
+   * editor's view (`viewer/src/forge/cuts`). Absent: none. A placed door cuts its own opening without one.
+   */
+  cuts?: CutMarker[];
+  /**
    * FG-24 (FG.R18; the owner, 2026-10-14: "a map settings that includes day/night slider, fog distance slider, max
    * players (up to 32 max)"; an adaptation, no original): the layout's settings, each optional -- absent, the disc's
    * value stands (`DEFAULT_SETTINGS`). Bounded by `SETTINGS_BOUNDS`; a value outside is refused.
@@ -1030,6 +1036,26 @@ export interface ScenicViewMarker {
   locked?: boolean;
 }
 
+/**
+ * A free cut box (`Layout.cuts`): its centre, its turn about y (radians), its width (x), height (y) and depth (z) in its
+ * own frame, and which surfaces it takes -- by the axis of its frame their normals run along, `faces` a subset of "xyz"
+ * (absent: all three; "xz" leaves floors and ceilings whole).
+ */
+export interface CutMarker {
+  at: [number, number, number];
+  yaw: number;
+  size: [number, number, number];
+  faces?: string;
+  locked?: boolean;
+}
+/** A cut's faces (`CutMarker.faces`): one to three of x, y, z, in that order. */
+export const CUT_FACES = /^(?=.)x?y?z?$/;
+/**
+ * A cut box's smallest side, world units (a browser adaptation, FG.R2: a cut is never flat); its largest is the record's
+ * coordinate bound (`RECORD_LIMITS.coord`).
+ */
+export const CUT_SIZE_MIN_ADAPTATION = 0.1;
+
 /** A placed extraction zone (`Layout.extractionZones`): its name (Safety, Safety2...), its centre, its width (x) and depth (z). */
 export interface ExtractionZone {
   name: string;
@@ -1427,6 +1453,22 @@ export function parseLayout(text: string): Layout {
           ...(v["audio"] !== undefined ? { audio: JSON.parse(JSON.stringify(v["audio"])) as AudioStep[] } : {}) };
       }),
     }),
+    ...(raw["cuts"] === undefined ? {} : {
+      cuts: (Array.isArray(raw["cuts"]) ? raw["cuts"] : [null]).map((t, i): CutMarker => {
+        if (!isObj(t) || !isNum(t["yaw"]) || !Array.isArray(t["at"]) || t["at"].length !== 3 || !t["at"].every(isNum)
+          || !Array.isArray(t["size"]) || t["size"].length !== 3 || !t["size"].every((n) => isNum(n) && n >= CUT_SIZE_MIN_ADAPTATION && n <= RECORD_LIMITS.coord)
+          || (t["faces"] !== undefined && (typeof t["faces"] !== "string" || !CUT_FACES.test(t["faces"])))) {
+          throw new Error(`cut ${i} is not a centre, a yaw, a size and its faces`);
+        }
+        const [x, y, z] = t["at"] as number[];
+        const [w, h, d] = t["size"] as number[];
+        const locked = lockedFlag(t["locked"], `cut ${i} lock`);
+        return {
+          at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"], size: [w!, h!, d!] as [number, number, number],
+          ...(typeof t["faces"] === "string" && t["faces"] !== "xyz" ? { faces: t["faces"] } : {}), ...(locked ? { locked: true as const } : {}),
+        };
+      }),
+    }),
     ...(raw["turrets"] === undefined ? {} : {
       turrets: (Array.isArray(raw["turrets"]) ? raw["turrets"] : [null]).map((t, i): TurretMarker => {
         if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
@@ -1716,7 +1758,7 @@ export const RECORD_LIMITS = { name: 48, assets: 256, pieces: 2000, spawns: 48, 
  * (`RECORD_ENTITIES_MAX`, `BOMB_SITES_MAX`); the NPC markers by central (`FORGE_NPCS_MAX`).
  */
 export const PLACED_KINDS = [
-  "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers",
+  "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "cuts",
 ] as const satisfies readonly (keyof Layout)[];
 /** Each placed kind's most copies or markers: the record's marker bound (`RECORD_LIMITS.spawns`, 48), so the two paths agree. */
 export const FORGE_PLACED_MAX_ADAPTATION = RECORD_LIMITS.spawns;
@@ -1769,6 +1811,8 @@ const HOSTAGE_CHARACTER = /^[A-Za-z0-9_]{1,32}$/;
 /** A placed tactical point's record row (`Layout.tacPoints`). */
 /** A placed turret's record row (`Layout.turrets`): its source and name, place, and yaw in whole degrees. */
 export type TurretRow = [source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: true];
+/** A free cut's record row (`Layout.cuts`): its centre, its yaw in whole degrees, its size, its faces ("xyz" when all), its lock. */
+export type CutRow = [x: number, y: number, z: number, yaw: number, w: number, h: number, d: number, faces?: string, locked?: true];
 export type TacPointRow = [name: string, x: number, y: number, z: number, kind: number, locked?: true];
 /**
  * A placed switch's record row (`Layout.switches`): its gate's index in `gates` (-1 none), its place, its yaw in degrees,
@@ -1898,6 +1942,8 @@ export interface CreatorLayoutRecord {
   triggers?: TriggerRow[];
   /** The Forge objects (`Layout.objects`), present only when the layout has some. */
   objects?: ObjectRow[];
+  /** The free cut boxes (`Layout.cuts`), present only when the layout has some. */
+  cuts?: CutRow[];
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
   missing?: number[];
@@ -1990,7 +2036,7 @@ const HIDDEN_DATA_KEY = /^(hostage|site|zone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:st
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
   "objectives", "requires", "mode", "legacyCarry", "hiddenData", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
-  "poses"];
+  "cuts", "poses"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -2201,6 +2247,12 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     if (o.audio) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.audio)) as AudioStep[]; }
     return row;
   });
+  if (l.cuts?.length) record.cuts = l.cuts.map((c): CutRow => {
+    const row: CutRow = [tenth(c.at[0]), tenth(c.at[1]), tenth(c.at[2]), wholeDeg(c.yaw), tenth(c.size[0]), tenth(c.size[1]), tenth(c.size[2])];
+    if (c.faces !== undefined && c.faces !== "xyz") row[7] = c.faces;
+    if (c.locked === true) { row[7] = c.faces ?? "xyz"; row[8] = true; }
+    return row;
+  });
   if (l.turrets?.length) record.turrets = l.turrets.map((t): TurretRow => {
     const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
     if (t.locked === true) row[6] = true;
@@ -2313,6 +2365,9 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, audio]): ForgeObject => ({
     kind, source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
     ...(audio ? { audio: JSON.parse(JSON.stringify(audio)) as AudioStep[] } : {}),
+  }));
+  if (!isV2(r) && r.cuts?.length) layout.cuts = r.cuts.map(([x, y, z, yaw, w, h, d, faces, locked]): CutMarker => ({
+    at: [x, y, z], yaw: rad(yaw), size: [w, h, d], ...(faces !== undefined && faces !== "xyz" ? { faces } : {}), ...(locked === true ? { locked: true as const } : {}),
   }));
   if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
     source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
@@ -2559,6 +2614,16 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
         || !switchLinkOk(t[14] >= 0 ? t[14] : undefined, t[15] || undefined, Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0))) {
         return `switch ${i} lock or prop link is not valid`;
       }
+    }
+  }
+  if (r["cuts"] !== undefined) {
+    const cuts = r["cuts"];
+    if (!Array.isArray(cuts) || cuts.length === 0 || cuts.length > RECORD_LIMITS.spawns) return "cuts is not a list";
+    for (const [i, t] of cuts.entries()) {
+      if (!Array.isArray(t) || t.length < 7 || t.length > 9 || !inBound(t[0]) || !inBound(t[1]) || !inBound(t[2]) || !isDeg(t[3])
+        || ![t[4], t[5], t[6]].every((n) => inBound(n) && (n as number) >= CUT_SIZE_MIN_ADAPTATION)) return `cut ${i} is not [x, y, z, yaw, w, h, d]`;
+      if (t.length >= 8 && (typeof t[7] !== "string" || !CUT_FACES.test(t[7]))) return `cut ${i} faces are not a subset of xyz`;
+      if (t.length === 9 && t[8] !== true) return `cut ${i} lock is not true`;
     }
   }
   if (r["turrets"] !== undefined) {
