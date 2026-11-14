@@ -112,8 +112,9 @@ import { blankFloorOf, bombMarkerPlaysIn, breachReady, forgeTypeUnplayable, type
 import { under as mapUnder } from '../mapMeta';
 import type { WeaponSoundEntry } from '../soundData';
 import { COMMON_SCRIPT_EFFECTS, commonScriptNames, lentAccessAssets, lentScriptAssets, mergeLent, scriptEffectsOf, scriptSoundsOf, scriptSteps, type LentScriptAssets } from './scriptAssets';
-import { ambientProgramsOf, EFFECT_ASSET_PREFIX, effectOfAssetName, FORGE_SCRIPT_OBJECT, forgeAmbientEmitters, isScriptObject, scriptOfProgram, SOUND_ASSET_PREFIX, scriptObjectData, soundOfAssetName, withForgeObjects, type AmbientProgram } from './forgeObjects';
+import { ambientProgramsOf, programRepeatOf, programWorkOf, EFFECT_ASSET_PREFIX, effectOfAssetName, FORGE_SCRIPT_LOOP_WAIT_ADAPTATION, FORGE_SCRIPT_OBJECT, forgeAmbientEmitters, isScriptObject, withMapScript, scriptOfProgram, SOUND_ASSET_PREFIX, scriptObjectData, soundOfAssetName, withForgeObjects, type AmbientProgram } from './forgeObjects';
 import { ambientPreview, playAmbientSounds, previewSounds } from './previewAssets';
+import { createAssetPreview } from './assetPreview';
 import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
 import { turnFacade } from '../facade';
 import { flareModelMap, flareTemplates, withPlacedFlares, type FlareTemplate } from './placedFlares';
@@ -132,7 +133,7 @@ import {
   describeAiCellAt, drawAiMapLegend, drawAiRouteLegend, type AiRouteGoal, type AiRouteStart,
 } from './aiMapOverlay';
 import { aiMapsWithPieces } from './aiPieceBlock';
-import type { AiMaps } from '@s2u/scene';
+import type { AiMaps, EffectCondition, EffectOp } from '@s2u/scene';
 import { nextNavName, nextViewName, withPlacedPoints, withPlacedViews } from './placedPoints';
 import { turretModelMap, turretMove, turretTemplates, withPlacedTurrets, type TurretTemplate } from './turrets';
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from './agent/commands';
@@ -161,14 +162,15 @@ import { PAD_FOCUS_INPUT } from './shell/padFocus';
 import { holdEarlyPresses } from './shell/earlyPress';
 import { agentModeOf, FORGE_REFUSALS, forgeBusyRefusal, forgeEditRefusal, forgeSurfaceState, type ForgeBusyCause, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
+import { buildScriptGraph, type FlagUse, type GraphStep, type LegendFlag, type LegendSequence, type ScriptView } from './panels/scriptGraph';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
 import { scrubAllNumbers, wheelAllNumbers, type ScrubDetail } from './scrub';
 import { buildOutliner, OUTLINER_KINDS, outlinerPanel, spawnSlotRows } from './panels/outlinerPanel';
 import { mapDataGroups, type MapDataSource } from './mapData';
 import { aimPointOf, linkSegments, linkTargets, programEffects } from './actionSummary';
 import { FORGE_SWITCH_REACH, leverLook, SCRIPT_BLAST_DAMAGE, SCRIPT_BLAST_RADIUS, lookModelMap, mapActionTargets, radioLook, withPieceInstances, type SwitchLook, type SwitchLookId } from './placedAccess';
-import type { ScriptStep, ScriptSteps, ScriptTarget } from '@s2u/creator-contracts';
-import { AUDIO_LOOP_MAX, AUDIO_VOLUME_MAX, SWITCH_WAIT_MAX } from '@s2u/creator-contracts';
+import type { ScriptFlagTest, ScriptGameValue, ScriptLogic, ScriptSequence, ScriptStep, ScriptSteps, ScriptTarget, ScriptTerm } from '@s2u/creator-contracts';
+import { AUDIO_LOOP_MAX, AUDIO_VOLUME_MAX, SCRIPT_BRACKETS_MAX, SCRIPT_FLAG_TESTS, SCRIPT_GAME_VALUES, SCRIPT_SEQUENCE_NAME, SCRIPT_SEQUENCES_MAX, SCRIPT_TERMS_MAX, SWITCH_WAIT_MAX } from '@s2u/creator-contracts';
 import { ACTION_ICONS } from '../hud';
 import { bitmapWords } from './actionSummary';
 import { environmentSections } from './environment';
@@ -214,7 +216,7 @@ import { ASSET_DRAG_MIME } from './assetDrag';
 import { FORGE_TOOL_ORDER, forgeKeyAction, forgeLeaseExit, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from './keys';
 import { servedTreeFallsBackToDisc } from './servedFallback';
 import {
-  blockPiece, bombMarker, disposeGhost, extractionZoneMarker, ghostIcon, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
+  blockPiece, bombMarker, disposeGhost, extractionZoneMarker, ghostIcon, ghostRing, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
 } from './pieces';
 import {
   boundStep, clipOf, DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, GRID_STEP_MAX, GRID_STEP_MIN, pastedPlaces, placementGridOf,
@@ -289,9 +291,12 @@ function paintGhost(root: Object3D, admitted: boolean): void {
  * the bomb's start and its sites, a tactical point -- and a hostage, whose faint cell is hard to see.
  */
 const GHOST_ICON_KINDS: Partial<Record<string, string>> = {
-  ambient: 'userAmbients',
   bomb: 'userBombStart', siteSeal: 'userSiteSeal', siteTerrorist: 'userSiteTerrorist', point: 'userTacPoints', hostage: 'userEscortees',
 };
+
+/** The object pickers' two headed sections (an At, an Object, a linked Prop: the owner, 2026-11-14). */
+const OWN_OBJECTS_GROUP = 'Your objects';
+const MAP_OBJECTS_GROUP = 'Map objects';
 
 /** The asset browser's tabs (`objectTab`): the props, then the objects the Place tool places, in the toolbar's order. */
 /**
@@ -328,7 +333,7 @@ const scriptBlock = (l: readonly { do: string }[], k: number): number[] => {
   }
   return out;
 };
-/** An ambient effect's hearing guide's colour (`syncAmbientGuides`): its billboard's orange (`userAmbients`). */
+/** An emitter's hearing guide's colour (`syncAmbientGuides`). */
 const AMBIENT_GUIDE_COLOUR = 0xe08a2c;
 /** A sound's RANGE where its script names none: `@s2u/sound` `SOUND_DEFAULT_RANGE` (`FUN_00342670`'s defaults, 160 to 430). */
 const AMBIENT_DEFAULT_RANGE: [number, number] = [160, 430];
@@ -341,7 +346,7 @@ const PALETTE_ALL = '*all';
  * with them), the called effects every map has. A scene object (a door, a gate...) is a copy of one map's own: none.
  */
 const PALETTE_COMMON = '*common';
-type ObjectTab = 'props' | 'characters' | 'sound' | 'ambient' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare';
+type ObjectTab = 'props' | 'characters' | 'sound' | 'effect' | 'ambient' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare';
 /**
  * The asset browser's tabs (the owner, 2026-11-13: "the cleanest separations of asset/object types ... the true asset
  * engine types"): the disc's own kinds of asset -- its props (models), its characters (`chartype`), its sounds (the
@@ -354,13 +359,13 @@ const OBJECT_TABS: readonly (readonly [ObjectTab, string])[] = [
   // Characters hidden for now (the owner, 2026-11-13: placed NPCs are the Forge's own, not a disc object; `CHARACTERS_TAB_SHOWN`).
   ['props', 'Props'], ...(CHARACTERS_TAB_SHOWN ? [['characters', 'Characters'] as const] : []),
   ['door', 'Door'], ['ladder', 'Ladder'], ['turret', 'Turret'], ['barrier', 'Damage trigger'], ['switch', 'Switch'], ['gate', 'Gate'], ['flare', 'Flare'],
-  // The sounds and the programs last (the owner, 2026-11-13).
-  ['sound', 'Sounds'], ['ambient', 'Programs'],
+  // The sounds, the effects and the programs last (the owner, 2026-11-13; the effects a tab of their own, 2026-11-14:
+  // "split out the effects from the programs asset").
+  // The self-starting programs called Emitters (the owner, 2026-11-14: "use emitters").
+  ['sound', 'Sounds'], ['effect', 'Effects'], ['ambient', 'Emitters'],
 ];
 /** A tab's things, plural, as the list's words say them ("doors", "sounds", "programs"). */
 const tabWords = (word: string): string => { const w = word.toLowerCase(); return w.endsWith('s') ? w : /(ch|sh|x)$/.test(w) ? `${w}es` : `${w}s`; };
-/** The Programs tab's filter (the owner, 2026-11-13): every program, the self-starting ambient ones, or the called effects. */
-type ProgramFilter = 'all' | 'ambient' | 'effect';
 
 /** A disc object a tile names: its map and its name there. */
 type ObjectRef = { source: string; name: string };
@@ -468,6 +473,8 @@ const WHEEL_LINE_PX = 40;
 
 /** Small line icons, the forge's own drawing on a 24 grid (no third-party set). */
 const ICON: Record<string, string> = {
+  // The Script panel's node view (`./panels/scriptGraph`): three nodes wired.
+  nodes: '<rect x="3" y="4" width="7" height="5" rx="1"/><rect x="14" y="10" width="7" height="5" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/><path d="M10 6.5h2a2 2 0 0 1 2 2v1.5M10 18.5h2a2 2 0 0 0 2-2V15"/>',
   // The split viewport's layouts (`./splitViews`), each the viewport's outline and its dividers; and Maximize.
   'split-1': '<rect x="3" y="4" width="18" height="16" rx="1"/>',
   'split-2-side': '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/>',
@@ -534,6 +541,8 @@ const ICON: Record<string, string> = {
   panelRules: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   panelStarters: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
   panelContent: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M4 7v14h11"/>',
+  // The Script editor: nodes joined by wires, one splitting into two (its If's lanes).
+  panelScript: '<rect x="2.5" y="9" width="6" height="6" rx="1.5"/><rect x="15.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="15.5" y="14.5" width="6" height="6" rx="1.5"/><path d="M8.5 12h3c1.5 0 1.5-5.5 4-5.5M11.5 12c1.5 0 1.5 5.5 4 5.5"/>',
   panelAgent: '<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h0M15 13h0"/><circle cx="12" cy="3.5" r="1"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/>',
   angleSnap: '<path d="M4 20h16M4 20L15 5"/><path d="M11 20a7 7 0 0 0-2.4-5.3"/>',
   billboard: '<circle cx="12" cy="9" r="6"/><path d="M12 15v6M9 21h6"/><path d="M10 9h4"/>',
@@ -823,7 +832,7 @@ export function newLayoutDropWords(pieces: number, rules: boolean, entities: num
 }
 
 /** Each tool's name as the page says it (the status line, the pad's pop, the help card's key rows: `forgeToolKeyHelp`). */
-const TOOL_NAMES: Record<Mode, string> = { ambient: 'Effect', select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', gate: 'Gate', barrier: 'Damage trigger', switch: 'Switch', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
+const TOOL_NAMES: Record<Mode, string> = { ambient: 'Emitter', select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', gate: 'Gate', barrier: 'Damage trigger', switch: 'Switch', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
 
 export async function mountForge(doc: Document = document, options?: MountForgeOptions): Promise<ForgeShell> {
   const held: { shell?: ForgeShell } = {};
@@ -906,13 +915,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     siteSeal: tool('bomb', 'Site SEAL', 'Place the site the SEALs plant at', 'fx-side-seal'),
     siteTerrorist: tool('bomb', 'Site Terrorist', 'Place the site the Terrorists plant at', 'fx-side-terrorist'),
     // The Forge objects (`../forge/forgeObjects`), under Other's More...: a disc map's ambient effect.
-    ambient: tool('place', 'Effect', "Place an effect (an ambient effect): one of a disc map's own -- its fire, smoke, waterfall, torch, rain, bugs, with its sound and light -- playing from the round's start where it stands"),
+    ambient: tool('place', 'Emitter', "Place an emitter: one of a disc map's own -- its fire, smoke, waterfall, torch, rain, bugs, with its sound and light -- or a sound or effect, playing from the round's start where it stands"),
   };
   // Each tool's key in its tooltip (`./keys` `forgeToolKeyLabel`: Q, then the number keys in the tools row's order).
   for (const [m, b] of Object.entries(modeBtns)) { const k = forgeToolKeyLabel(m); if (k) b.title += key(k); }
   // The tools that place a spawn or a bomb marker wear that placement's billboard (`markBadge`), as its mark and its row do.
   for (const [mode, kind] of [['spawnA', 'userSpawnA'], ['spawnB', 'userSpawnB'], ['respawnA', 'userRespawnA'], ['respawnB', 'userRespawnB'], ['npc', 'userNpcs'], ['hostage', 'userEscortees'], ['zone', 'userTacZones'], ['turret', 'userTurrets'], ['door', 'userDoors'], ['ladder', 'userLadders'], ['flare', 'userFlares'], ['gate', 'userGates'], ['barrier', 'userBarriers'], ['switch', 'userSwitches'], ['point', 'userTacPoints'], ['view', 'userScenicViews'], ['bomb', 'userBombStart'], ['siteSeal', 'userSiteSeal'],
-    ['siteTerrorist', 'userSiteTerrorist'], ['ambient', 'userAmbients']] as const) {
+    ['siteTerrorist', 'userSiteTerrorist'], ['ambient', 'userEmitters']] as const) {
     modeBtns[mode].querySelector('svg.fx-ico')?.insertAdjacentHTML('beforebegin', markBadge(kind));
     modeBtns[mode].querySelector('svg.fx-ico')?.remove();
   }
@@ -1027,8 +1036,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   playSettings.append(el(doc, 'div', 'fx-tool-popup-title', 'Play'));
   const playSpawnIn = playChoice('playSpawn', 'Spawn at', 'Where round 1 stands you: the floor under the camera, or one of your side’s spawns at random',
     [['camera', 'Camera location'], ['random', 'Random spawn']]);
-  const playSideIn = playChoice('playSide', 'Spawn as', 'The side you play; Auto takes the side the NPCs leave you',
-    [['auto', 'Auto (from the NPCs)'], ['seal', 'SEAL'], ['terrorist', 'Terrorist']]);
+  const playSideIn = playChoice('playSide', 'Spawn as', 'The side you play; Auto takes the side the NPCs leave you; Spectator watches the round (the NPCs play it), as an online spectator does',
+    [['auto', 'Auto (from the NPCs)'], ['seal', 'SEAL'], ['terrorist', 'Terrorist'], ['spectator', 'Spectator (watch)']]);
   // The original's loading screen over the match's load (research 125; the layout's Loading screen setting picks it).
   const playLoadingIn = playChoice('playLoading', 'Start', 'Straight into the match, or through the original’s loading screen while it loads',
     [['direct', 'Straight in'], ['loading', 'Loading screen']]);
@@ -1157,28 +1166,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const assetHoverSoundToggle = el(doc, 'input');
   assetHoverSoundToggle.type = 'checkbox';
   assetHoverSoundToggle.setAttribute('aria-label', 'Sound on hover');
-  assetHoverSoundLabel.title = "An ambient effect's sounds play while its preview shows";
+  assetHoverSoundLabel.title = "An emitter's sounds play while its preview shows";
   assetHoverSoundLabel.append(assetHoverSoundToggle, el(doc, 'span', '', 'Sound on hover'));
   assetViewPopup.append(assetHoverSoundLabel);
   // Loop sounds (the owner, 2026-11-11): a previewed effect's sounds round again until stopped; off, played once.
   const assetLoopSoundsLabel = el(doc, 'label', 'fx-asset-preview-toggle');
   const assetLoopSoundsToggle = el(doc, 'input');
   assetLoopSoundsToggle.type = 'checkbox';
-  assetLoopSoundsToggle.setAttribute('aria-label', 'Loop sounds');
-  assetLoopSoundsLabel.title = "A previewed ambient effect's sounds play round again until stopped; off, once";
-  assetLoopSoundsLabel.append(assetLoopSoundsToggle, el(doc, 'span', '', 'Loop sounds'));
+  assetLoopSoundsToggle.setAttribute('aria-label', 'Loop sounds & effects');
+  assetLoopSoundsLabel.title = "Previewed sounds, effects and emitters play round again until stopped; off, once";
+  // Its effects too (the owner, 2026-11-14: "make the loop setting affect the effect as well"): a previewed effect plays again at its end.
+  assetLoopSoundsLabel.append(assetLoopSoundsToggle, el(doc, 'span', '', 'Loop sounds & effects'));
   assetViewPopup.append(assetLoopSoundsLabel);
+  // Preview volume (the owner, 2026-11-14: "a slider to control the sound preview volume ... some assets are really
+  // loud"): every sound the asset browser and the Inspector's previews play, 0 to 100 %; kept with the view.
+  const assetVolumeLabel = el(doc, 'label', 'fx-asset-preview-toggle fx-asset-preview-volume');
+  const assetVolumeSlider = el(doc, 'input');
+  assetVolumeSlider.type = 'range';
+  assetVolumeSlider.min = '0';
+  assetVolumeSlider.max = '100';
+  assetVolumeSlider.step = '1';
+  assetVolumeSlider.setAttribute('aria-label', 'Preview volume');
+  const assetVolumeValue = el(doc, 'span', 'fx-dim fx-asset-preview-volume-value');
+  assetVolumeLabel.title = 'How loud previewed sounds play (the game itself unchanged)';
+  assetVolumeLabel.append(el(doc, 'span', '', 'Preview volume'), assetVolumeSlider, assetVolumeValue);
+  assetViewPopup.append(assetVolumeLabel);
   chipChars.hidden = true;                                     // a tab now (the owner, 2026-11-13): Characters
-  // The Programs tab's filter chips: every program, the ambient ones, the called effects.
-  const programChips = (['all', 'ambient', 'effect'] as const).map((f) => {
-    const c = el(doc, 'button', 'fx-chip', f === 'all' ? 'All' : f === 'ambient' ? 'Ambient' : 'Effects');
-    c.type = 'button';
-    c.title = f === 'all' ? 'Every program' : f === 'ambient' ? "Self-starting ambient programs: they run from the round's start as the map runs them" : 'Called effects (explosions, dust, sparks): placed, they run again and again';
-    c.dataset['programFilter'] = f;
-    c.addEventListener('click', () => { programFilter = f; drawAssets(); });
-    return c;
-  });
-  chips.append(chipFav, chipChars, ...programChips, assetViewPopupButton, assetViewPopup);
+  chips.append(chipFav, chipChars, assetViewPopupButton, assetViewPopup);
   filters.append(search, chips);
   const assetsFoot = el(doc, 'div', 'fx-assets-foot');
   assetsFoot.append(displayModes, sizeLabel);
@@ -1196,13 +1210,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     b.type = 'button';
     // Its icon beside its word (the owner, 2026-11-10: "add the icons next to the text"): its toolbar button's own
     // (`markBadge`, the placement's billboard), the props' their mark.
-    const own = key === 'props' ? markBadge('userProps') : key === 'characters' ? icon('npc') : key === 'sound' ? icon('sound')
-      : modeBtns[key].querySelector('.fx-billboard-icon, svg.fx-ico')?.outerHTML ?? '';
+    const own = key === 'props' ? markBadge('userProps') : key === 'characters' ? icon('npc') : key === 'sound' ? icon('sound') : key === 'effect' ? icon('particles')
+      : key === 'ambient' ? markBadge('userEmitters') : modeBtns[key].querySelector('.fx-billboard-icon, svg.fx-ico')?.outerHTML ?? '';
     b.innerHTML = `${own}<span>${word}</span>`;
     b.setAttribute('role', 'tab');
     b.title = key === 'props' ? "The map's props" : key === 'characters' ? "The base map's own player models, placed as NPCs"
-      : key === 'sound' ? "The map's sounds: each placed as an effect object that plays it (its script yours to change)"
-      : key === 'ambient' ? "The map's programs (zAnim): its self-starting ambient effects and its called effects, each placed as an effect object"
+      : key === 'sound' ? "The map's sounds: each placed as an emitter that plays it (its program yours to change)"
+      : key === 'effect' ? "The map's called effects (explosions, dust, sparks): each placed as an emitter that plays it (its program yours to change)"
+      : key === 'ambient' ? "The map's emitters: its self-starting programs (fire, smoke, water, torches, weather) with their particles, sounds and lights, each placed as an emitter"
       : `The map's ${tabWords(word)}: click one to place it, or drag it onto the world`;
     // Characters: the list the chip showed (`showChars`); any other tab its own list.
     b.addEventListener('click', () => { if (key === 'characters') showChars = true; else { objectTab = key; showChars = false; } search.value = ''; drawAssets(); });
@@ -1306,7 +1321,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (o?.kind !== 'ambient' || ambientPlaying !== `${o.source}:${o.name}`) return null;
         return ambientAudio?.timeline?.()?.fraction ?? null;
       },
-      stagePiece: (asset) => (shellEditor ? shellEditor.stagePiece(asset) : Promise.resolve(null)),
+      soundCard: (asset) => {
+        const o = parseObjectAsset(asset);
+        const solo = o?.kind === 'ambient' ? soundOfAssetName(o.name) : null;
+        return solo === null ? null : { name: solo.trim(), art: icon('sound') };
+      },
+      stagePiece: (asset, options) => (shellEditor ? shellEditor.stagePiece(asset, options) : Promise.resolve(null)),
+      // A drag over the viewport is the Place tool's (`dragPlaceEnter`): its ghost, its click's placing.
+      dragPlace: {
+        enter: (asset) => dragPlaceEnter(asset),
+        over: (x, y) => { const n = ndcAtClient(x, y); lastNdc = n; pointerClient = { x, y }; moveGhost(n); return !playing; },
+        drop: (x, y) => { const n = ndcAtClient(x, y); lastNdc = n; const was = mode; if (was !== 'select') act(n); dragPlaceLeave(); return was !== 'select'; },
+        leave: () => dragPlaceLeave(),
+      },
       place: (staged, at, yaw) => (shellEditor ? shellEditor.place(staged, at, yaw) : Promise.resolve({ ok: false, code: 'NOT_READY', revision: 0 })),
       viewport: () => viewport,
       projectDrop: (x, y) => (shellEditor ? shellEditor.projectDrop(x, y) : { reason: FORGE_REFUSALS.busy }),
@@ -1359,6 +1386,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     viewport: 'panelViewport', assets: 'panelAssets', 'asset-browser': 'panelAssets', object: 'panelObject', outliner: 'panelOutliner',
     inspector: 'panelInspector', map: 'panelMap', view: 'view', settings: 'gear', environment: 'panelLight', rules: 'panelRules',
     starters: 'panelStarters', content: 'panelContent', 'creator-assets': 'panelContent', agent: 'panelAgent',
+    script: 'panelScript', 'script-editor': 'panelScript', 'program-editor': 'panelScript',
   };
   const panelIcon = (key: string): string => { const name = PANEL_ICONS[key]; return name ? icon(name) : ''; };
   const shell: ForgeShellPage = createDockShell({
@@ -3314,7 +3342,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const objectChoice: { door?: ObjectRef; turret?: ObjectRef; gate?: ObjectRef; barrier?: ObjectRef; flare?: ObjectRef; ambient?: ObjectRef; ladder?: string; switch?: SwitchLookId } = {};
   /** FG-21: the assets dock lists the base map's characters (its player models) instead of its props. */
   let showChars = false;
-  let programFilter: ProgramFilter = 'all';
 
   /** FG-21: the character the NPC tool places: a side and its type on the map (`LoadedMap.types`). */
   let npcChoice: { side: 'seal' | 'terrorist'; type: number } | null = null;
@@ -3350,6 +3377,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let assetHoverSound = true;
   /** The asset browser's Loop sounds (`playAmbientSounds`' `loop`): on unless the view kept it off. */
   let assetLoopSounds = true;
+  /** The previews' sound volume, 0 to 1 (`playAmbientSounds`' `volume`). */
+  let assetPreviewVolume = 1;
   /**
    * The Select tool's settings (its gear), kept with the view: a click or a selection box picks the base map's own props
    * (`selectMapProps`), the user's placements (`selectUserProps`) -- either, both or neither.
@@ -3357,7 +3386,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let selectMapProps = true;
   /** The Play settings (the Play button's gear): where round 1 stands the player, and its side. Browser adaptations. */
   let playSpawn: 'camera' | 'random' = 'camera';
-  let playSide: 'auto' | 'seal' | 'terrorist' = 'auto';
+  let playSide: 'auto' | 'seal' | 'terrorist' | 'spectator' = 'auto';
   /** Whether Play starts through the original's loading screen (`./match` `forgeLoadingScreen`; a browser adaptation). */
   let playLoading: 'direct' | 'loading' = 'direct';
   let selectUserProps = true;
@@ -3656,11 +3685,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (raw['assetTips'] === false) assetTips = false;
       if (raw['assetHoverSound'] === false) assetHoverSound = false;
       if (raw['assetLoopSounds'] === false) assetLoopSounds = false;
+      if (typeof raw['assetPreviewVolume'] === 'number' && Number.isFinite(raw['assetPreviewVolume'])) assetPreviewVolume = Math.max(0, Math.min(1, raw['assetPreviewVolume']));
       if (raw['selectMapProps'] === false) selectMapProps = false;
       if (raw['selectUserProps'] === false) selectUserProps = false;
       if (raw['selectHidden'] === false) selectHidden = false;
       if (raw['playSpawn'] === 'random') playSpawn = 'random';
-      if (raw['playSide'] === 'seal' || raw['playSide'] === 'terrorist') playSide = raw['playSide'];
+      if (raw['playSide'] === 'seal' || raw['playSide'] === 'terrorist' || raw['playSide'] === 'spectator') playSide = raw['playSide'];
       if (raw['playLoading'] === 'loading') playLoading = 'loading';
       if (raw['space'] === 'local') gizmoSpace = 'local';
       keptSplit = raw['split'] ?? null;
@@ -3691,7 +3721,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const main = lookNow();                                    // the overlays: one setting for every view
     // The Draw switches kept at the top are the first view's too (its own, `VIEW_DRAW_OWN`, while another has the menus).
     const mainDraw = splitNow && split!.active() !== 0 ? splitNow.views[0]?.look?.draw ?? {} : {};
-    writeKey(VIEW_KEY, JSON.stringify({ ...(splitNow ? { split: splitNow } : keptSplit ? { split: keptSplit } : {}), ...view, ...mainDraw, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, turnSnap, ...(surfaceSnap ? {} : { surfaceSnap: false }), ...(surfaceOffset ? { surfaceOffset } : {}), ...(assetTips ? {} : { assetTips: false }), ...(assetHoverSound ? {} : { assetHoverSound: false }), ...(assetLoopSounds ? {} : { assetLoopSounds: false }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(selectHidden ? {} : { selectHidden: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), ...(playLoading === 'loading' ? { playLoading } : {}), ...(gizmoSpace === 'local' ? { space: 'local' } : {}), billboards: { on: main.on, top: billboardsOnTop, glows: main.glows, arrows: main.arrows, ...(main.onlyUser ? { onlyUser: true } : {}), off: [...main.off], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
+    writeKey(VIEW_KEY, JSON.stringify({ ...(splitNow ? { split: splitNow } : keptSplit ? { split: keptSplit } : {}), ...view, ...mainDraw, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, turnSnap, ...(surfaceSnap ? {} : { surfaceSnap: false }), ...(surfaceOffset ? { surfaceOffset } : {}), ...(assetTips ? {} : { assetTips: false }), ...(assetHoverSound ? {} : { assetHoverSound: false }), ...(assetLoopSounds ? {} : { assetLoopSounds: false }), ...(assetPreviewVolume === 1 ? {} : { assetPreviewVolume }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(selectHidden ? {} : { selectHidden: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), ...(playLoading === 'loading' ? { playLoading } : {}), ...(gizmoSpace === 'local' ? { space: 'local' } : {}), billboards: { on: main.on, top: billboardsOnTop, glows: main.glows, arrows: main.arrows, ...(main.onlyUser ? { onlyUser: true } : {}), off: [...main.off], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
   };
   const drawPlacement = (): void => {
     viewportGridIn.value = String(gridStep);
@@ -3707,6 +3737,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     assetPreviewToggle.checked = assetTips;
     assetHoverSoundToggle.checked = assetHoverSound;
     assetLoopSoundsToggle.checked = assetLoopSounds;
+    assetVolumeSlider.value = String(Math.round(assetPreviewVolume * 100));
+    assetVolumeValue.textContent = `${Math.round(assetPreviewVolume * 100)}%`;
   };
   /** The world switches on one view (the base's, or a piece template's), as the test room puts them (`applyToggle`). */
   const applyWorld = (v: WorldView): void => {
@@ -4487,6 +4519,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * of a fly under way.
    */
   const settledLayout = (): Layout | null => { const l = layoutNow(false); return l && viewCamera ? { ...l, camera: viewCamera } : l; };
+  /**
+   * The map script (`Layout.mapScript`; the owner, 2026-11-13: "the native style map script ... the same node script ui"):
+   * the editor's copy, keyed in its store by an object of its own (`scriptEditors` keys a script by its owner). The Script
+   * editor shows it (`scriptView` 'map'); the Map panel's Script button opens it there.
+   */
+  const mapScriptOwner = new Object3D();
+  const mapScriptStore = new WeakMap<Object3D, EditorScript>();
+  const mapScriptNow = (): EditorScript => mapScriptStore.get(mapScriptOwner) ?? { steps: [] };
+  let scriptView = 'selection' as ScriptView;
+  /** The Original map tab's program and sequence (its first: `objectives` where the map has it). */
+  let discAt: { program: string; sequence: number } | null = null;
+  /** The Map panel's Script row's count (set once its row is made). */
+  let mapScriptCount: () => void = () => undefined;
   const layoutNow = (withCamera = true): ForgeLayout | null => {
     if (!base) return null;
     const delta = settingsDelta(settings);
@@ -4521,11 +4566,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // path; a prop since deleted, none), its numbers and its death's steps.
         const t = pieceTrigger.get(r);
         const sc = triggerScript.get(r);
-        const steps = sc ? scriptToFile({ steps: sc.steps }).steps : [];
+        const file = sc ? scriptToFile(sc) : { steps: [] };
         const link = triggerLink.get(r);
         const piece = link && typeof link !== 'string' ? ownLists().pieces.indexOf(link) : -1;
         if (t) (l.triggers ??= []).push({ ...(typeof link === 'string' ? { node: link } : piece >= 0 ? { piece } : {}), ...t,
-          ...(steps.length ? { script: { steps } } : {}), at: [r.position.x, r.position.y, r.position.z] });
+          ...(file.steps.length || file.sequences?.length ? { script: file } : {}), at: [r.position.x, r.position.y, r.position.z] });
       } else if (r.userData['forgeSwitch']) {
         const gate = gateRoots.indexOf(switchGate.get(r) ?? r);
         const sc = gate < 0 ? switchScript.get(r) : undefined;
@@ -4595,6 +4640,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const order = outlineSorted([...roots, ...folders]).flatMap((o) => { const id = idOfRoot.get(o); return id ? [id] : []; });
       if (order.length) l.order = order;
     }
+    // The map script (its steps, their objects by their places as every script's).
+    const mapFile = scriptToFile(mapScriptNow());
+    if (mapFile.steps.length || mapFile.sequences?.length) l.mapScript = mapFile;
     const out: ForgeLayout = withIds(l);
     // the ids written back on their objects: a row placed since keeps the one it took now
     let pi = 0, si = 0, ni = 0;
@@ -5106,8 +5154,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   type EditorStep = {
     do: ScriptStep['do']; action?: string; run?: Object3D; target?: EditorTarget; at?: EditorTarget; seconds?: number; random?: number;
     text?: string; name?: string; from?: string; volume?: number; flag?: string; value?: number; chance?: number; times?: number;
+    /** A set's add or subtract (absent: set); an if's test (absent: equal); a fade's start and end opacity (0-1). */
+    op?: 'add' | 'sub'; test?: ScriptFlagTest; fadeFrom?: number; fadeTo?: number;
+    /** An if's or a while's game value (`SCRIPT_GAME_VALUES`), in a flag's stead. */
+    game?: ScriptGameValue;
+    /** A Call sequence's or a Stop sequence's sequence: one of the script's by its name, or `main`. */
+    sequence?: string;
+    /** A test's logic (`ScriptLogic`): its first test's NOT and brackets, its further tests. */
+    not?: boolean; open?: number; close?: number; more?: EditorTerm[];
   };
-  type EditorScript = { steps: EditorStep[] };
+  /** A test step's further test (`ScriptTerm`): its join, NOT and brackets, then its test as a step's own fields. */
+  type EditorTerm = {
+    join: 'and' | 'or'; not?: boolean; open?: number; close?: number;
+    flag?: string; game?: ScriptGameValue; value?: number; test?: ScriptFlagTest; chance?: number;
+  };
+  /** A script as the editor holds it: its own steps and its named sequences (`ScriptSteps.sequences`). */
+  type EditorScript = { steps: EditorStep[]; sequences?: { name: string; steps: EditorStep[] }[] };
   const switchScript = new WeakMap<Object3D, EditorScript>();
   /**
    * A custom damage trigger (the owner, 2026-11-10: "make our own custom damage triggers ... patch a satchel on any prop";
@@ -5138,13 +5200,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * The Prop choice of a custom trigger or a switch on a prop: none, one of your props, or one of the map's own objects --
    * never one `taken` holds (another trigger's or switch's), nor a map object `refused` names.
    */
-  const propLinkOptions = (taken: readonly (Object3D | string | undefined)[], refused: (path: string) => boolean): (readonly [string, string])[] => {
+  const propLinkOptions = (taken: readonly (Object3D | string | undefined)[], refused: (path: string) => boolean): (readonly [string, string, boolean?, string?])[] => {
     const own = ownLists();
     const lib = baseMap ? scriptLibOf(baseMap) : { objects: [] as { path: string; label: string }[] };
     const modelOfPiece = (x: Object3D): string => parseAssetId(String(x.userData['forgePiece'] ?? ''))?.model ?? 'prop';
     return [['', 'Not linked yet'] as const,
-      ...own.pieces.flatMap((x, i) => (taken.includes(x) ? [] : [[`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOfPiece(x)}`] as const])),
-      ...lib.objects.filter((o) => !taken.includes(o.path) && !refused(o.path)).map((o) => [`map:${o.path}`, `Map \u00b7 ${o.label}`] as const)];
+      ...own.pieces.flatMap((x, i) => (taken.includes(x) ? [] : [[`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOfPiece(x)}`, false, OWN_OBJECTS_GROUP] as const])),
+      ...lib.objects.filter((o) => !taken.includes(o.path) && !refused(o.path)).map((o) => [`map:${o.path}`, o.label, false, MAP_OBJECTS_GROUP] as const)];
   };
   const propLinkValue = (link: Object3D | string | undefined): string => {
     const own = ownLists();
@@ -5188,13 +5250,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * A step list as the file writes it: a step whose object is gone, or whose words do not read, left out; the ifs kept
    * whole (a stray else or end dropped, an open if closed), so a file always reads back.
    */
-  const stepsToFile = (list: readonly EditorStep[], own: ReturnType<typeof ownLists>): ScriptStep[] => {
+  const stepsToFile = (list: readonly EditorStep[], own: ReturnType<typeof ownLists>, names: ReadonlySet<string> = new Set()): ScriptStep[] => {
     const out: ScriptStep[] = [];
     // The open blocks, innermost last: a while, an if before its else, an if after it.
     const open: ('while' | 'if' | 'else')[] = [];
     const n10k = (v: unknown): number => Math.min(9999, Math.max(0, Math.round(Number(v) || 0)));
-    const test = (st: EditorStep): { flag: string; equals: number } | { chance: number } | null =>
-      (st.chance !== undefined ? { chance: Math.min(1, Math.max(0, Number(st.chance) || 0)) } : st.flag && SCRIPT_FLAG.test(st.flag) ? { flag: st.flag, equals: n10k(st.value) } : null);
+    const test = (st: Pick<EditorStep, 'game' | 'chance' | 'flag' | 'value' | 'test'>): { flag: string; equals: number; test?: ScriptFlagTest } | { game: ScriptGameValue; equals: number; test?: ScriptFlagTest } | { chance: number } | null =>
+      (st.game !== undefined ? (SCRIPT_GAME_VALUES.includes(st.game) ? { game: st.game, equals: n10k(st.value), ...(st.test && SCRIPT_FLAG_TESTS.includes(st.test) ? { test: st.test } : {}) } : null)
+        : st.chance !== undefined ? { chance: Math.min(1, Math.max(0, Number(st.chance) || 0)) }
+        : st.flag && SCRIPT_FLAG.test(st.flag) ? { flag: st.flag, equals: n10k(st.value), ...(st.test && SCRIPT_FLAG_TESTS.includes(st.test) ? { test: st.test } : {}) } : null);
+    const unit = (v: unknown, none: number): number => { const x = Number(v); return Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : none; };
+    // A test step's logic (`ScriptLogic`): each further test a good one, the brackets 1 to 3 and balanced -- else none kept.
+    const brackets = (n: unknown): number => Math.min(SCRIPT_BRACKETS_MAX, Math.max(0, Math.round(Number(n) || 0)));
+    const logic = (st: EditorStep): ScriptLogic => {
+      const more: ScriptTerm[] = [];
+      for (const m of st.more ?? []) {
+        const t = test(m);
+        if (!t || more.length >= SCRIPT_TERMS_MAX) continue;
+        more.push({ join: m.join === 'or' ? 'or' : 'and', ...(m.not ? { not: true as const } : {}),
+          ...(brackets(m.open) ? { open: brackets(m.open) } : {}), ...(brackets(m.close) ? { close: brackets(m.close) } : {}), ...t } as ScriptTerm);
+      }
+      let depth = brackets(st.open) - brackets(st.close), ok = depth >= 0;
+      for (const m of more) { depth += (m.open ?? 0) - (m.close ?? 0); if (depth < 0) ok = false; }
+      const keep = ok && depth === 0;
+      if (!keep) for (const m of more) { delete m.open; delete m.close; }
+      return { ...(st.not ? { not: true as const } : {}), ...(keep && brackets(st.open) ? { open: brackets(st.open) } : {}),
+        ...(keep && brackets(st.close) ? { close: brackets(st.close) } : {}), ...(more.length ? { more } : {}) };
+    };
     for (const st of list) {
       switch (st.do) {
         case 'run': {
@@ -5225,12 +5307,30 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           out.push({ do: 'blast', ...(at ? { at } : {}) });
           break;
         }
-        case 'set': if (st.flag && SCRIPT_FLAG.test(st.flag)) out.push({ do: 'set', flag: st.flag, value: Math.min(9999, Math.max(0, Math.round(Number(st.value) || 0))) }); break;
-        case 'if': { const t = test(st); if (t) { out.push({ do: 'if', ...t }); open.push('if'); } break; }
-        case 'elseif': { const t = test(st); if (t && open[open.length - 1] === 'if') out.push({ do: 'elseif', ...t }); break; }
+        case 'set':
+          if (st.flag && SCRIPT_FLAG.test(st.flag)) out.push({ do: 'set', flag: st.flag, value: n10k(st.value), ...(st.op === 'add' || st.op === 'sub' ? { op: st.op } : {}) });
+          break;
+        // A sequence called or stopped: `main`, or one the script has (a removed one's steps dropped).
+        case 'callSequence': case 'stopSequence':
+          if (st.sequence && (st.sequence === 'main' || names.has(st.sequence))) out.push({ do: st.do, sequence: st.sequence });
+          break;
+        case 'fade': {
+          const t = targetToFile(st.target, own);
+          const from = st.fadeFrom === undefined ? undefined : unit(st.fadeFrom, 1);
+          if (t) out.push({ do: 'fade', target: t, to: unit(st.fadeTo, 0), ...(from !== undefined && from !== 1 ? { from } : {}), seconds: Math.min(SWITCH_WAIT_MAX, Math.max(0, Number(st.seconds) || 0)) });
+          break;
+        }
+        case 'if': { const t = test(st); if (t) { out.push({ do: 'if', ...t, ...logic(st) } as ScriptStep); open.push('if'); } break; }
+        case 'elseif': { const t = test(st); if (t && open[open.length - 1] === 'if') out.push({ do: 'elseif', ...t, ...logic(st) } as ScriptStep); break; }
         case 'else': if (open[open.length - 1] === 'if') { open[open.length - 1] = 'else'; out.push({ do: 'else' }); } break;
         case 'end': if (open[open.length - 1] === 'if' || open[open.length - 1] === 'else') { open.pop(); out.push({ do: 'end' }); } break;
-        case 'while': out.push({ do: 'while' }); open.push('while'); break;
+        case 'while': {
+          // For ever, or while its flag's test holds.
+          const t = st.flag !== undefined || st.game !== undefined ? test(st) : null;
+          out.push(t && 'flag' in t ? { do: 'while', ...t, ...logic(st) } : t && 'game' in t ? { do: 'while', ...t, ...logic(st) } : { do: 'while' });
+          open.push('while');
+          break;
+        }
         case 'endWhile': if (open[open.length - 1] === 'while') { open.pop(); out.push({ do: 'endWhile' }); } break;
         case 'loop': {
           const times = st.times !== undefined ? Math.min(AUDIO_LOOP_MAX, Math.max(1, Math.round(Number(st.times) || 1))) : undefined;
@@ -5248,7 +5348,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const scriptToFile = (sc: EditorScript): ScriptSteps => {
     const own = ownLists();
-    return { steps: stepsToFile(sc.steps, own) };
+    // Its sequences: each a good name, once (never `main`), as many as a file holds.
+    const seqs = (sc.sequences ?? []).filter((q, i, all) => SCRIPT_SEQUENCE_NAME.test(q.name) && q.name !== 'main'
+      && all.findIndex((x) => x.name === q.name) === i).slice(0, SCRIPT_SEQUENCES_MAX);
+    const names = new Set(seqs.map((q) => q.name));
+    const sequences: ScriptSequence[] = seqs.map((q) => ({ name: q.name, steps: stepsToFile(q.steps, own, names) }));
+    return { steps: stepsToFile(sc.steps, own, names), ...(sequences.length ? { sequences } : {}) };
   };
   /** A file's script for the editor, its objects the staged ones (`prepareLayout`'s lists, in the file's order). */
   const scriptFromFile = (sc: ScriptSteps, own: { pieces: Object3D[]; barriers: Object3D[]; gates: Object3D[]; objects?: Object3D[] }): EditorScript => {
@@ -5258,6 +5363,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const obj = 'piece' in t ? own.pieces[t.piece] : 'barrier' in t ? own.barriers[t.barrier] : 'object' in t ? own.objects?.[t.object] : own.gates[t.gate];
       return obj ? { obj } : undefined;
     };
+    const logicFromFile = (st: ScriptLogic): Pick<EditorStep, 'not' | 'open' | 'close' | 'more'> => ({
+      ...(st.not ? { not: true } : {}), ...(st.open ? { open: st.open } : {}), ...(st.close ? { close: st.close } : {}),
+      ...(st.more?.length ? { more: st.more.map((m): EditorTerm => ({
+        join: m.join, ...(m.not ? { not: true } : {}), ...(m.open ? { open: m.open } : {}), ...(m.close ? { close: m.close } : {}),
+        ...('chance' in m ? { chance: m.chance } : 'game' in m ? { game: m.game, value: m.equals } : { flag: m.flag, value: m.equals }),
+        ...('test' in m && m.test ? { test: m.test } : {}),
+      })) } : {}),
+    });
     const steps = (list: readonly ScriptStep[]): EditorStep[] => list.map((st): EditorStep => {
       switch (st.do) {
         case 'run': return 'action' in st ? { do: 'run', action: st.action } : { do: 'run', ...(own.barriers[st.barrier] ? { run: own.barriers[st.barrier]! } : {}) };
@@ -5266,14 +5379,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         case 'message': return { do: 'message', text: st.text };
         case 'sound': return { do: 'sound', name: st.name, ...(target(st.at) ? { at: target(st.at)! } : {}), ...(st.from ? { from: st.from } : {}), ...(st.volume !== undefined ? { volume: st.volume } : {}) };
         case 'effect': return { do: 'effect', name: st.name, ...(target(st.at) ? { at: target(st.at)! } : {}), ...(st.from ? { from: st.from } : {}) };
-        case 'set': return { do: 'set', flag: st.flag, value: st.value };
-        case 'if': case 'elseif': return 'chance' in st ? { do: st.do, chance: st.chance } : { do: st.do, flag: st.flag, value: st.equals };
+        case 'set': return { do: 'set', flag: st.flag, value: st.value, ...(st.op ? { op: st.op } : {}) };
+        case 'if': case 'elseif': return { ...('chance' in st ? { do: st.do, chance: st.chance }
+          : 'game' in st ? { do: st.do, game: st.game, value: st.equals, ...(st.test ? { test: st.test } : {}) }
+          : { do: st.do, flag: st.flag, value: st.equals, ...(st.test ? { test: st.test } : {}) }), ...logicFromFile(st) };
+        case 'while': return 'game' in st ? { do: 'while', game: st.game, value: st.equals, ...(st.test ? { test: st.test } : {}), ...logicFromFile(st) }
+          : st.flag !== undefined ? { do: 'while', flag: st.flag, value: st.equals ?? 0, ...(st.test ? { test: st.test } : {}), ...logicFromFile(st) } : { do: 'while' };
+        case 'fade': return { do: 'fade', ...(target(st.target) ? { target: target(st.target)! } : {}), fadeTo: st.to, ...(st.from !== undefined ? { fadeFrom: st.from } : {}), seconds: st.seconds };
+        case 'callSequence': case 'stopSequence': return { do: st.do, sequence: st.sequence };
         case 'loop': return { do: 'loop', ...(st.times !== undefined ? { times: st.times } : {}), ...(st.seconds !== undefined ? { seconds: st.seconds } : {}) };
         case 'blast': return { do: 'blast', ...(target(st.at) ? { at: target(st.at)! } : {}) };
         default: return { do: st.do };
       }
     });
-    return { steps: steps(sc.steps) };
+    return { steps: steps(sc.steps), ...(sc.sequences?.length ? { sequences: sc.sequences.map((q) => ({ name: q.name, steps: steps(q.steps) })) } : {}) };
   };
   /**
    * The base map's objects a script can show or hide, each a placed node of the world model's own (`worldmodel/<name>`)
@@ -5327,28 +5446,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let switchLinksKey = '';
   const syncSwitchLinks = (): void => {
     const pts: number[] = [];
-    // Each explosion step's radius round its place (MPBOMB Ammo's 300 u): its object's, else `home` -- the switch (its
-    // prop when on one) or the trigger's prop, where the match fires it.
-    const blastRings = (sc: EditorScript | undefined, home: readonly number[]): void => {
-      for (const st of sc ? sc.steps : []) {
-        if (st.do !== 'blast') continue;
-        const at = (st.at ? targetPlace(st.at) : null) ?? home;
-        // Its reach a sphere (the owner, 2026-11-10: "draw the radius sphere"), its full-strength half a ring inside.
-        const r = SCRIPT_BLAST_RADIUS;
-        pts.push(...sphereSegments([at[0]!, at[1]!, at[2]!], r), ...bombSiteShapes([at[0]!, at[1]!, at[2]!], r / 2, -1).segments);
-      }
-    };
+    // No explosion step's radius drawn (the owner, 2026-11-13: "remove the mpbomb explosion gizmo": its spheres filled the view).
     const here = (r: Object3D): number[] => [r.position.x, r.position.y, r.position.z];
     for (const r of roots) {
       // A custom damage trigger's line to its prop (`triggerLinkPlace`).
       if (r.userData['forgeTrigger']) {
         const end = triggerLinkPlace(r);
         if (end) pts.push(r.position.x, r.position.y + SWITCH_LINK_LIFT, r.position.z, end[0], end[1], end[2]);
-        blastRings(triggerScript.get(r), linkCentre(triggerLink.get(r)) ?? here(r));
         continue;
       }
       if (!r.userData['forgeSwitch']) continue;
-      blastRings(switchScript.get(r), (switchPropMode.has(r) ? linkCentre(switchLink.get(r)) : null) ?? here(r));
       // On a prop: its line to the prop, and its reach and height reach round the prop's middle (`bombSiteShapes`).
       if (switchPropMode.has(r)) {
         const mid = linkCentre(switchLink.get(r));
@@ -5451,8 +5558,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const r = pointMarker('point');
     // Its script the editor's (`objectScript`): what it starts with, its targets none yet (a loaded one's set by `prepareLayout`).
     if (o.script) objectScript.set(r, scriptFromFile(o.script, ownLists()));
-    // Its look its billboard (`userAmbients`), its View switch theirs; its audio script its own copy.
+    // Its look its billboard (`userEmitters`), its View switch theirs; its audio script its own copy.
     r.userData['forgeObject'] = { kind: o.kind, source: o.source, name: o.name };
+    // Its gizmo (the owner, 2026-11-14: "make that gizmo stay, even after I drop it ... a permanent gizmo, just like the
+    // rest of the gizmos"): the small ring its ghost shows (`ghostRing`), kept on it -- the Gizmos switch and the View's
+    // Emitters switch show and hide it as every guide (`applyGuides`); never picked (its pick box is the marker's).
+    const ring = ghostRing(MAP_DATA_MARKS['userEmitters']?.colour ?? '#38d0e8');
+    delete ring.userData['forgeGhostRing'];                    // its own, let go with the object (a ghost's copy shares it)
+    ring.userData['forgeGuideKind'] = 'userEmitters';
+    ring.raycast = () => {};
+    r.add(ring);
     r.name = `${o.kind} ${o.name}`;
     return r;
   };
@@ -5462,9 +5577,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (o && isScriptObject(o)) {
       // Named by what it runs first: its first effect, else its first sound.
       const first = sc?.steps.find((x) => x.do === 'effect') ?? sc?.steps.find((x) => x.do === 'sound');
-      return `Effect \u00b7 ${first?.name ? `${first.name.trim()} (${first.from ?? o.source})` : 'empty'}`;
+      return `Emitter \u00b7 ${first?.name ? `${first.name.trim()} (${first.from ?? o.source})` : 'empty'}`;
     }
-    return !o ? '' : `Ambient \u00b7 ${o.name} (${o.source})${sc ? ' \u00b7 its own script' : ''}`;
+    return !o ? '' : `Emitter \u00b7 ${o.name} (${o.source})${sc ? ' \u00b7 its own program' : ''}`;
   };
   /** The ambient effect the Ambient tool places: the asset browser's tile, else the palette map's first. */
   const defaultAmbient = async (): Promise<ObjectRef | null> => {
@@ -5530,7 +5645,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return (r.userData['forgePiece'] as string | undefined) ?? `Spawn ${r.userData['forgeSpawn'] as string}`;
   };
   /** FUI-22 (D2): the Inspector head's kind word for a placement. */
-  const kindOf = (r: Object3D): string => (objectOf(r) ? (isScriptObject(objectOf(r)!) ? 'Effect' : 'Ambient effect') : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
+  const kindOf = (r: Object3D): string => (objectOf(r) ? 'Emitter' : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
   /**
    * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2): drawn, not yet wired. A single piece shows its
    * own values (pitch and roll read in the `YXZ` order, so yaw stays the turn about Y); anything else -- a group, a map
@@ -5775,7 +5890,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const got = scriptNameLists.get(stem);
     if (got) return got;
     if (absent.has(stem)) return { sounds: [], effects: [] };
-    void archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); if (objectTab === 'ambient' || objectTab === 'sound') drawAssets(); } });
+    void archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); if (objectTab === 'effect' || objectTab === 'ambient' || objectTab === 'sound') drawAssets(); } });
     return null;
   };
   /** A map's own sounds or effects: its list less what every map has (`scriptCommonNow`), once that is known. */
@@ -5790,7 +5905,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     let chain: Promise<unknown> = Promise.resolve();
     for (const [stem] of copyMaps()) {
       if (absent.has(stem)) continue;
-      chain = chain.then(() => archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); if (objectTab === 'ambient' || objectTab === 'sound') drawAssets(); } }));
+      chain = chain.then(() => archives.scriptNames(stem).then((n) => { if (!scriptNameLists.has(stem)) { scriptNameLists.set(stem, n ?? { sounds: [], effects: [] }); refreshInspector(); if (objectTab === 'effect' || objectTab === 'ambient' || objectTab === 'sound') drawAssets(); } }));
     }
   };
   /**
@@ -5926,12 +6041,66 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** A script step's kinds, in the Add list's order, and each one's words. */
   const STEP_KINDS: readonly (readonly [ScriptStep['do'], string])[] = [
-    ['sound', 'Play a sound (SOUND)'], ['effect', 'Play an effect (CALL)'], ['wait', 'Wait (WAIT)'], ['loop', 'Loop from the top (LOOP)'],
-    ['while', 'While, for ever (WHILE)'], ['endWhile', 'End while'], ['if', 'If (IF)'], ['elseif', 'Else if'], ['else', 'Otherwise (ELSE)'], ['end', 'End if'],
-    ['set', 'Set a flag (VALVE)'], ['show', 'Show an object'], ['hide', 'Hide an object'], ['run', 'Run an action'], ['message', 'Show a message'],
+    ['sound', 'Play a sound (SOUND)'], ['effect', 'Play an effect'], ['wait', 'Wait (WAIT)'], ['loop', 'Loop from the top (LOOP)'],
+    ['while', 'While (WHILE)'], ['endWhile', 'End while'], ['if', 'If (IF)'], ['elseif', 'Else if'], ['else', 'Otherwise (ELSE)'], ['end', 'End if'],
+    ['set', 'Set a valve (VALVE)'], ['show', 'Show an object'], ['hide', 'Hide an object'], ['fade', 'Fade an object (OPACITY)'], ['run', 'Run an action'], ['message', 'Show a message'],
+    ['callSequence', 'Call a sequence (CALL_SEQUENCE)'], ['stopSequence', 'Stop a sequence (STOP_SEQUENCE)'],
     ['blast', "Explosion (the bomb's: MPBOMB, 300 u)"],
   ];
+  /**
+   * A game value's words (`SCRIPT_GAME_VALUES`, fed by `../gameValves` and `../bombPage`): its name, its group (the
+   * dropdown's), and its states by the game's own numbers where it has some (a count has none: a number field).
+   */
+  const TEAMS: readonly (readonly [number, string])[] = [[0, 'SEAL'], [8, 'Terrorist'], [16, 'Spectator']];
+  const YES_NO: readonly (readonly [number, string])[] = [[0, 'No'], [1, 'Yes']];
+  const ALIVE: readonly (readonly [number, string])[] = [[1, 'Alive'], [0, 'Dead']];
+  const GAME_VALUE_WORDS: Readonly<Record<ScriptGameValue, { label: string; group: string; states?: readonly (readonly [number, string])[] }>> = {
+    mp_bomb: { label: 'The bomb (mp_bomb)', group: 'Bomb', states: [[0, 'Reset'], [1, 'On the ground'], [2, 'Carried'], [3, 'Planted'], [4, 'Defused'], [5, 'Detonated']] },
+    player_team: { label: 'My team (player_team)', group: 'Teams', states: TEAMS },
+    aiteam_00: { label: 'SEALs alive (aiteam_00)', group: 'Teams' },
+    aiteam_08: { label: 'Terrorists alive (aiteam_08)', group: 'Teams' },
+    mp_timer: { label: 'Round clock (mp_timer)', group: 'Clock and rounds', states: [[1, 'Running'], [0, 'Expired (00:00)']] },
+    mp_round_count: { label: 'Rounds played (mp_round_count)', group: 'Clock and rounds' },
+    mp_max_rounds: { label: 'Rounds in the match (mp_max_rounds)', group: 'Clock and rounds' },
+    mp_score00: { label: 'SEAL round wins (mp_score00)', group: 'Score and result' },
+    mp_score08: { label: 'Terrorist round wins (mp_score08)', group: 'Score and result' },
+    mp_winner: { label: 'Round winner (mp_winner)', group: 'Score and result', states: [[0, 'SEALs'], [8, 'Terrorists'], [99, 'Draw']] },
+    mp_game_over: { label: 'Match over (mp_game_over)', group: 'Score and result', states: YES_NO },
+    mp_game_type: { label: 'Game type (mp_game_type)', group: 'Settings', states: [[1, 'Breach'], [2, 'Demolition'], [3, 'Escort'], [4, 'Extraction'], [5, 'Suppression']] },
+    mp_allow_respawn: { label: 'Respawn (mp_allow_respawn)', group: 'Settings', states: [[0, 'Off'], [1, 'On']] },
+    rescuecount: { label: 'Hostages rescued (rescuecount)', group: 'Hostages (Extraction)' },
+    hostages_rescued: { label: 'Rescue tally (hostages_rescued)', group: 'Hostages (Extraction)' },
+    mp_hostages_by_seals: { label: 'Hostages killed by SEALs (mp_hostages_by_seals)', group: 'Hostages (Extraction)' },
+    mp_hostages_by_turds: { label: 'Hostages killed by Terrorists (mp_hostages_by_turds)', group: 'Hostages (Extraction)' },
+    mp_penalty: { label: 'SEAL time penalties (mp_penalty)', group: 'Hostages (Extraction)' },
+    VIP1_valve_alive: { label: 'VIP 1 (VIP1_valve_alive)', group: 'VIPs (Escort)', states: ALIVE },
+    VIP2_valve_alive: { label: 'VIP 2 (VIP2_valve_alive)', group: 'VIPs (Escort)', states: ALIVE },
+    VIP3_valve_alive: { label: 'VIP 3 (VIP3_valve_alive)', group: 'VIPs (Escort)', states: ALIVE },
+    killcount: { label: 'VIPs killed (killcount)', group: 'VIPs (Escort)' },
+  };
+  /** A new game test's value: the bomb planted (`BOMB_STATE.planted`, the game's 3). */
+  const BOMB_PLANTED_STATE = 3;
   /** The steps the Add list starts a block with (a While with its End while, an If with its End if); the closers come with them. */
+  /** A condition's words as written (`ScriptLogic`): each test, its NOT and brackets, the joins between them. */
+  const TEST_SIGN: Readonly<Record<string, string>> = { '=': '=', '!=': '\u2260', '>': '>', '<': '<', '>=': '\u2265', '<=': '\u2264' };
+  const testWords = (t: Pick<EditorStep, 'flag' | 'game' | 'value' | 'test' | 'chance'>): string => {
+    if (t.chance !== undefined) return `${Math.round(t.chance * 1000) / 10}% chance`;
+    if (t.game !== undefined) {
+      const g = GAME_VALUE_WORDS[t.game];
+      return `${g.label.replace(/\s*\(.*\)$/, '').toLowerCase()} ${TEST_SIGN[t.test ?? '='] ?? '='} ${g.states?.find(([v]) => v === t.value)?.[1] ?? t.value ?? 0}`;
+    }
+    return `${t.flag || 'valve'} ${TEST_SIGN[t.test ?? '='] ?? '='} ${t.value ?? 0}`;
+  };
+  const conditionWords = (st: EditorStep): string => {
+    const one = (t: Pick<EditorStep, 'flag' | 'game' | 'value' | 'test' | 'chance' | 'not' | 'open' | 'close'>): string =>
+      `${'('.repeat(t.open ?? 0)}${t.not ? 'NOT ' : ''}${testWords(t)}${')'.repeat(t.close ?? 0)}`;
+    return [one(st), ...(st.more ?? []).map((m) => `${m.join === 'or' ? 'OR' : 'AND'} ${one(m)}`)].join(' ');
+  };
+  /** Whether a condition mixes AND and OR with no brackets: the game reads it left to right, no precedence. */
+  const conditionMixed = (st: EditorStep): boolean => {
+    const joins = new Set((st.more ?? []).map((m) => m.join));
+    return joins.size > 1 && !st.open && !(st.more ?? []).some((m) => m.open);
+  };
   const ADD_KINDS = STEP_KINDS.filter(([d]) => d !== 'endWhile' && d !== 'end' && d !== 'elseif' && d !== 'else');
   /**
    * A script in the Inspector -- the one script (the owner, 2026-11-13: "a fully generic scripting way of doing things that
@@ -5940,14 +6109,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * head, `self` what a step with no At acts at (the switch, the prop, the object).
    */
   function scriptEditors(s: Object3D, ref: string, sc: EditorScript, off: boolean, out: InspectorEditor[],
-    opts: { store?: WeakMap<Object3D, EditorScript>; death?: boolean; title?: string; self?: string } = {}): void {
+    opts: { store?: WeakMap<Object3D, EditorScript>; death?: boolean; title?: string; self?: string; insertAt?: number; withOtherwise?: boolean; seq?: number } = {}): void {
     const store = opts.store ?? switchScript;
     if (!store.has(s)) store.set(s, sc);                        // the steps edited are the store's own
+    // The list edited: the script's own steps, or one of its sequences' (the Script editor's tab, `seq`).
+    const listOf = (x: EditorScript): EditorStep[] => (opts.seq === undefined ? x.steps : x.sequences?.[opts.seq]?.steps ?? []);
+    const seqNames = (sc.sequences ?? []).map((q) => q.name);
     const lib = baseMap ? scriptLibOf(baseMap) : { objects: [], sounds: [], effects: [...COMMON_SCRIPT_EFFECTS] };
     // The map whose sounds and effects the match has of its own: the base's, or a blank floor's library (`charMap`, the
     // archive the match plays on: `composeGround`'s `groundMap`).
     const home = scriptHome();
     const own = ownLists();
+    // The layout's flags, every script's (the Flag fields' suggestions).
+    const flagNames = layoutFlagNames();
     const change = (field: string, fn: (sc: EditorScript) => void): void => {
       personEdit('placement.set', { ref, field: 'script', value: field }, (step) => {
         const before = selectionIds();
@@ -5958,12 +6132,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     };
     // The objects a step names: the layout's own first, then the map's; their values `piece:i`, `barrier:i`, `gate:i`, `map:path`.
     const modelOf = (r: Object3D): string => { const id = parseAssetId(String(r.userData['forgePiece'] ?? '')); return id ? id.model : 'piece'; };
-    const objectOptions: (readonly [string, string])[] = [
-      ...own.pieces.map((r, i) => [`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOf(r)}`] as const),
-      ...own.barriers.map((r, i) => [`barrier:${i}`, `Your damage trigger ${i + 1} \u00b7 ${accessLabel(r)}`] as const),
-      ...own.gates.map((r, i) => [`gate:${i}`, `Your gate ${i + 1} \u00b7 ${accessLabel(r)}`] as const),
-      ...own.objects.map((r, i) => [`object:${i}`, `Your ${objectLabel(r)}`] as const),
-      ...lib.objects.map((o) => [`map:${o.path}`, `Map \u00b7 ${o.label}`] as const),
+    // In two headed sections (the owner, 2026-11-14): Your objects, then Map objects.
+    const objectOptions: (readonly [string, string, boolean, string])[] = [
+      ...own.pieces.map((r, i) => [`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOf(r)}`, false, OWN_OBJECTS_GROUP] as const),
+      ...own.barriers.map((r, i) => [`barrier:${i}`, `Your damage trigger ${i + 1} \u00b7 ${accessLabel(r)}`, false, OWN_OBJECTS_GROUP] as const),
+      ...own.gates.map((r, i) => [`gate:${i}`, `Your gate ${i + 1} \u00b7 ${accessLabel(r)}`, false, OWN_OBJECTS_GROUP] as const),
+      ...own.objects.map((r, i) => [`object:${i}`, `Your ${objectLabel(r)}`, false, OWN_OBJECTS_GROUP] as const),
+      ...lib.objects.map((o) => [`map:${o.path}`, o.label, false, MAP_OBJECTS_GROUP] as const),
     ];
     const valueOf = (t: EditorTarget | undefined): string => {
       if (!t) return '';
@@ -5985,6 +6160,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       switch (kind) {
         case 'run': { const first = runOptions[0]?.[0] ?? ''; return first.startsWith('barrier:') ? { do: 'run', run: own.barriers[Number(first.slice(8))]! } : { do: 'run', ...(first ? { action: first.slice(7) } : {}) }; }
         case 'show': case 'hide': { const t = targetOf(objectOptions[0]?.[0] ?? ''); return { do: kind, ...(t ? { target: t } : {}) }; }
+        case 'fade': { const t = targetOf(objectOptions[0]?.[0] ?? ''); return { do: 'fade', ...(t ? { target: t } : {}), fadeFrom: 1, fadeTo: 0, seconds: 1 }; }
         case 'wait': return { do: 'wait', seconds: 1 };
         case 'message': return { do: 'message', text: 'MESSAGE' };
         // A new sound or effect: the list's last one's map again (else the match's own map's first).
@@ -5994,32 +6170,156 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         case 'if': case 'elseif': return { do: kind, flag: 'flag', value: 1 };
         case 'loop': return { do: 'loop' };
         case 'blast': return { do: 'blast' };
+        case 'callSequence': case 'stopSequence': return { do: kind, sequence: seqNames[0] ?? 'main' };
         default: return { do: kind };
       }
     };
     const list = (title: string): void => {
-      const steps = sc.steps;
-      out.push({ label: title, kind: 'select', value: '', options: [['', steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps yet']], disabled: true, set: () => undefined,
+      const steps = listOf(sc);
+      out.push({ label: title, kind: 'select', value: '', options: [['', steps.length ? `${steps.length} command${steps.length === 1 ? '' : 's'}` : 'No commands yet']], disabled: true, set: () => undefined,
         gap: true, stepsStart: true,
-        title: "Run top to bottom, as the game runs its own programs' commands. A ~ sound loops at its place from the start (the game's rule)" });
-      const at = (fn: (l: EditorStep[]) => void) => (x: EditorScript): void => { fn(x.steps); };
+        title: "Run top to bottom, as the game runs its own programs' commands. A ~ sound loops at its place from the start (the game's rule)",
+        // Its node view (the owner, 2026-11-13: "a script tab and link it to the script section in the properties panel").
+        browse: { icon: icon('nodes'), title: 'Open in the Program editor (its nodes)', open: () => { shellUi.reveal('script'); drawScriptGraph(); } } });
+      // Its sequences, named (edited in the Script editor's tabs; a Call sequence step starts one).
+      if (opts.seq === undefined && seqNames.length) {
+        out.push({ label: 'Sequences', kind: 'select', value: '', disabled: true, set: () => undefined, options: [['', `${seqNames.join(', ')} \u00b7 in the Program editor`]],
+          title: "The program's named sequences: each runs when a Call sequence command calls it. Open the Program editor to edit them" });
+      }
+      const at = (fn: (l: EditorStep[]) => void) => (x: EditorScript): void => { fn(listOf(x)); };
       let depth = 0;
-      steps.forEach((st, k) => {
+      const stepRows = (st: EditorStep, k: number): void => {
         // Its number, indented a dot a block it stands in (an else if or an else at its if's own depth).
         if (st.do === 'endWhile' || st.do === 'end') depth = Math.max(0, depth - 1);
         const inner = st.do === 'elseif' || st.do === 'else' ? Math.max(0, depth - 1) : depth;
         const n = `${'\u00b7 '.repeat(inner)}${k + 1}`;
         if (st.do === 'while' || st.do === 'if') depth++;
-        out.push({ label: `${n}.`, kind: 'select', value: st.do, disabled: off, gap: true,
+        out.push({ label: `${n}.`, kind: 'select', value: st.do, disabled: off, gap: true, stepMenu: true,
           options: [...STEP_KINDS, ...(k > 0 ? [['up', '\u2191 Move up'] as const] : []), ...(k < steps.length - 1 ? [['down', '\u2193 Move down'] as const] : []), ['remove', '\u2715 Remove'] as const],
-          title: 'What this step does; Move up, Move down or Remove (a While or an If is removed with its End, Else if and Otherwise)', set: (v) => change('step', at((l) => {
+          title: 'What this command does; Move up, Move down or Remove (a While or an If is removed with its End, Else if and Otherwise)', set: (v) => change('step', at((l) => {
             if (v === 'remove') { for (const j of scriptBlock(l, k).sort((a, b) => b - a)) l.splice(j, 1); }
             else if (v === 'up' || v === 'down') { const to = v === 'up' ? k - 1 : k + 1; const [x] = l.splice(k, 1); l.splice(to, 0, x!); }
             else if (v !== st.do) l[k] = fresh(v as ScriptStep['do']);
           })) });
         const field = (label: string, ed: Omit<InspectorEditor, 'label' | 'disabled'>): void => { out.push({ ...ed, label: `${n}. ${label}`, disabled: off }); };
+        /**
+         * An if's or a while's test: a flag (every script's), a game value (the game's own valve, `SCRIPT_GAME_VALUES`:
+         * read as the disc's `objectives` reads it), a chance (an if's), or none (a while for ever) -- then how and what.
+         */
+        const conditionRows = (mode: 'if' | 'while'): void => {
+          const kindOf = (t: Pick<EditorStep, 'game' | 'chance' | 'flag'>): string => (t.game !== undefined ? 'game' : t.chance !== undefined ? 'chance' : t.flag !== undefined ? 'flag' : 'ever');
+          const kind = kindOf(st);
+          // A test's own fields (its kind's) made afresh, its join, NOT and brackets kept.
+          const freshTest = (v: string): Pick<EditorStep, 'flag' | 'game' | 'value' | 'chance'> =>
+            (v === 'chance' ? { chance: 0.5 } : v === 'game' ? { game: 'mp_bomb', value: BOMB_PLANTED_STATE } : { flag: 'flag', value: 1 });
+          const TEST_FIELDS = ['flag', 'game', 'value', 'test', 'chance'] as const;
+          const withoutTest = <T extends object>(t: T): T => { const c = { ...t } as Record<string, unknown>; for (const f of TEST_FIELDS) delete c[f]; return c as T; };
+          const head: readonly (readonly [string, string])[] = mode === 'if'
+            ? [['flag', 'A valve is'], ['game', 'A game valve is'], ['chance', 'A random chance']]
+            : [['ever', 'For ever'], ['flag', 'While a valve is\u2026'], ['game', 'While a game valve is\u2026']];
+          // Each part its own block (the owner, 2026-11-13: "command | cond1 | join | cond2 | join | cond3").
+          field(mode === 'if' ? 'Test' : 'Runs', { kind: 'select', value: kind, options: head, groupGap: true,
+            title: mode === 'if' ? "A valve's value (every program of the layout shares its valves), one of the game's own valves (the bomb's state ...), or a random chance each time it runs (RANDOM_WEIGHT)"
+              : 'For ever (its commands run once a tick until the program is stopped), or while a test holds: tested each time round, past End while once it does not',
+            set: (v) => change('test', at((l) => {
+              const d = st.do as 'if' | 'elseif' | 'while';
+              // For ever: no test, so no logic; else the new test's fields, the rest of the condition kept.
+              l[k] = v === 'ever' ? { do: d } : { ...withoutTest(l[k]!), do: d, ...freshTest(String(v)) };
+            })) });
+          if (kind === 'ever') return;
+          // One test's rows: `j` -1 the step's own first test, else its further test `j` (labels numbered from 2).
+          const termRows = (j: number): void => {
+            const n = j < 0 ? '' : ` ${j + 2}`;
+            const t: EditorStep | EditorTerm = j < 0 ? st : st.more![j]!;
+            const put = (fn: (x: EditorStep | EditorTerm) => EditorStep | EditorTerm): (x: EditorScript) => void => at((l) => {
+              const s0 = l[k]!;
+              if (j < 0) { l[k] = fn(s0) as EditorStep; return; }
+              const more = [...(s0.more ?? [])];
+              more[j] = fn(more[j]!) as EditorTerm;
+              l[k] = { ...s0, more };
+            });
+            if (j >= 0) {
+              const m = t as EditorTerm;
+              field(`Join${n}`, { kind: 'select', value: m.join, options: [['and', 'AND (both hold)'], ['or', 'OR (either holds)'], ['remove', '\u2715 Remove this test']] as const, gap: true, groupGap: true,
+                title: 'How this test joins what comes before it (EXPRESSION 2 AND, 3 OR): read left to right, as the game reads it',
+                set: (v) => change('join', at((l) => {
+                  const s0 = l[k]!;
+                  const more = [...(s0.more ?? [])];
+                  if (v === 'remove') more.splice(j, 1); else more[j] = { ...more[j]!, join: v === 'or' ? 'or' : 'and' };
+                  const { more: _m, ...rest } = s0;
+                  l[k] = more.length ? { ...rest, more } : rest;
+                })) });
+              field(`Test${n}`, { kind: 'select', value: kindOf(m), groupGap: true, options: mode === 'if' ? [['flag', 'A valve is'], ['game', 'A game valve is'], ['chance', 'A random chance']] : [['flag', 'A valve is'], ['game', 'A game valve is']],
+                title: 'What this test reads', set: (v) => change('test', put((x) => ({ ...withoutTest(x), ...freshTest(String(v)) }))) });
+            }
+            field(`Not${n}`, { kind: 'check', value: t.not === true, title: 'NOT: this test turned round (EXPRESSION 1) -- holds when it does not',
+              set: (v) => change('not', put((x) => { const { not: _n, ...rest } = x; return v ? { ...rest, not: true } : rest; })) });
+            const tk = kindOf(t);
+            if (tk === 'chance') {
+              field(`Chance %${n}`, { kind: 'number', value: Math.round((t.chance ?? 0) * 1000) / 10, title: 'Holds this often each time it is tested (RANDOM_WEIGHT: rand() <= the chance)',
+                set: (v) => change('chance', put((x) => { const c = Number(v); return { ...x, chance: Number.isFinite(c) ? Math.min(1, Math.max(0, c / 100)) : 0.5 }; })) });
+            } else {
+              if (tk === 'game') {
+                field(`Game valve${n}`, { kind: 'select', value: t.game ?? 'mp_bomb',
+                  options: SCRIPT_GAME_VALUES.map((g) => [g, GAME_VALUE_WORDS[g].label, false, GAME_VALUE_WORDS[g].group] as const),
+                  title: "One of the game's own valves, as the map's own round program tests it (read; a program never writes it)",
+                  set: (v) => change('game', put((x) => { const g = v as ScriptGameValue; return { ...x, game: g, value: GAME_VALUE_WORDS[g].states?.[0]?.[0] ?? 0 }; })) });
+              } else {
+                field(`Valve${n}`, { kind: 'text', value: t.flag ?? '', suggest: flagNames, title: 'A name every program of the layout shares (letters, digits, _): its list the valves already named, or type a new one',
+                  set: (v) => change('flag', put((x) => ({ ...x, flag: String(v).trim() }))) });
+              }
+              // VALVE's tests: = (2), != (1), > (3), < (4), >= (5), <= (6).
+              field(`Is${n}`, { kind: 'select', value: t.test ?? '=',
+                options: [['=', 'equal to (=)'], ['!=', 'not equal to (\u2260)'], ['>', 'more than (>)'], ['<', 'less than (<)'], ['>=', 'at least (\u2265)'], ['<=', 'at most (\u2264)']] as const,
+                title: "How the value is tested (VALVE's tests)",
+                set: (v) => change('test', put((x) => { const { test: _t, ...rest } = x; return v === '=' ? rest : { ...rest, test: v as ScriptFlagTest }; })) });
+              const states = tk === 'game' ? GAME_VALUE_WORDS[t.game ?? 'mp_bomb'].states ?? null : null;
+              if (states) {
+                field(`State${n}`, { kind: 'select', value: String(t.value ?? 0), options: states.map(([v, w]) => [String(v), `${w} (${v})`] as const),
+                  title: "The game's own number for it (as the map's round program tests it)", set: (v) => change('value', put((x) => ({ ...x, value: Number(v) }))) });
+              } else {
+                field(`Value${n}`, { kind: 'number', value: t.value ?? 0, title: mode === 'if' ? 'The commands up to the next Else if, Otherwise or End if run when the condition holds' : 'Its commands run again while the condition holds',
+                  set: (v) => change('value', put((x) => ({ ...x, value: Number(v) }))) });
+              }
+            }
+            // Its brackets: a group opened before it, closed after it (EXPRESSION 4 and 5), shown only once there are two tests.
+            if (st.more?.length) {
+              const o = t.open ?? 0, c = t.close ?? 0;
+              const opts: (readonly [string, string])[] = [['0:0', 'None'], ['1:0', '( before it'], ['2:0', '(( before it'], ['0:1', ') after it'], ['0:2', ')) after it'], ['1:1', '( before, ) after']];
+              const value = `${o}:${c}`;
+              field(`Brackets${n}`, { kind: 'select', value, options: opts.some(([v]) => v === value) ? opts : [...opts, [value, `${'('.repeat(o)} \u2026 ${')'.repeat(c)}`] as const],
+                title: 'Brackets group tests: the game reads a condition left to right with no precedence, so A OR B AND C is (A OR B) AND C -- brackets make any other grouping',
+                set: (v) => change('brackets', put((x) => {
+                  const [oo, cc] = String(v).split(':').map(Number);
+                  const { open: _o, close: _c, ...rest } = x;
+                  return { ...rest, ...(oo ? { open: oo } : {}), ...(cc ? { close: cc } : {}) };
+                })) });
+            }
+          };
+          termRows(-1);
+          (st.more ?? []).forEach((_, j) => termRows(j));
+          // Another test, joined by AND or OR (as many as a file holds).
+          if ((st.more?.length ?? 0) < SCRIPT_TERMS_MAX) {
+            // Its words a greyed head (never a choice: the owner, 2026-11-13), then AND or OR.
+            field('Add a test', { kind: 'select', value: '', groupGap: true,
+              options: [['', '+ Add a test\u2026', true], ['and', 'AND another test (both hold)'], ['or', 'OR another test (either holds)']] as const,
+              title: "Another test joined to the condition: AND, both must hold; OR, either may (the game's EXPRESSION operators)",
+              set: (v) => { if (v !== 'and' && v !== 'or') return; change('more', at((l) => { const s0 = l[k]!; l[k] = { ...s0, more: [...(s0.more ?? []), { join: v, flag: s0.flag ?? 'flag', value: 1 }] }; })); } });
+          }
+          // How it reads, whole -- one test or many (the owner, 2026-11-13: "even if we only have 1 condition"): as written, and a word when AND and OR mix with no brackets.
+          {
+            const words = conditionWords(st);
+            out.push({ label: `${n}. Reads`, kind: 'select', value: 'x', disabled: true, options: [['x', conditionMixed(st) ? `${words}  \u00b7 left to right` : words]] as const,
+              title: conditionMixed(st) ? 'AND and OR mixed with no brackets: the game reads it left to right -- A OR B AND C is (A OR B) AND C. Add brackets for another grouping'
+                : 'The whole condition, as the game reads it', set: () => undefined });
+          }
+        };
+        // An emitter's own At (the owner, 2026-11-14: "remove 'the object' and just keep the emitter"): no "The object"
+        // entry -- its own row (`Your Emitter · ...`) stands for it, shown for a step that names no place.
+        const selfIndex = objectOf(s) ? own.objects.indexOf(s) : -1;
         const objectField = (label: string, key: 'target' | 'at', none: string | null): void => field(label, {
-          kind: 'select', value: valueOf(st[key]), options: [...(none ? [['', none] as const] : []), ...objectOptions],
+          kind: 'select', value: valueOf(st[key]) || (key === 'at' && selfIndex >= 0 ? `object:${selfIndex}` : ''),
+          options: [...(none && !(key === 'at' && selfIndex >= 0) ? [['', none] as const] : []), ...objectOptions],
           title: 'Your props, damage triggers and gates, then the map\'s own objects', set: (v) => change(key, at((l) => { const t = targetOf(String(v)); l[k] = { ...l[k]!, ...(t ? { [key]: t } : {}) }; if (!t) delete l[k]![key]; })),
         });
         switch (st.do) {
@@ -6027,8 +6327,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             title: "Your damage trigger's wreck, or one of the map's own actions -- run as the disc runs one (EXECUTE_ACTION)",
             set: (v) => change('run', at((l) => { const p = String(v); l[k] = p.startsWith('barrier:') ? { do: 'run', run: own.barriers[Number(p.slice(8))]! } : { do: 'run', action: p.slice(7) }; })) }); break;
           case 'show': case 'hide': objectField('Object', 'target', null); break;
+          case 'fade': {
+            // OBJECT_OPACITY_FROM_TO: its object, from and to (percent), and how long -- the script held till it is done.
+            objectField('Object', 'target', null);
+            const pct = (x: number | undefined, none: number): number => Math.round((x ?? none) * 100);
+            const toUnit = (v: string | number | boolean): number => { const x = Number(v); return Number.isFinite(x) ? Math.min(1, Math.max(0, x / 100)) : 1; };
+            field('From %', { kind: 'number', value: pct(st.fadeFrom, 1), title: 'Its opacity at the start, 0 (unseen) to 100 (as drawn)',
+              set: (v) => change('fadeFrom', at((l) => { l[k] = { ...l[k]!, fadeFrom: toUnit(v) }; })) });
+            field('To %', { kind: 'number', value: pct(st.fadeTo, 0), title: 'Its opacity at the end, 0 (unseen) to 100 (as drawn). Its collision stays as it is',
+              set: (v) => change('fadeTo', at((l) => { l[k] = { ...l[k]!, fadeTo: toUnit(v) }; })) });
+            field('Seconds', { kind: 'number', value: st.seconds ?? 1, title: `How long the fade takes; the next command waits for it (up to ${SWITCH_WAIT_MAX})`,
+              set: (v) => change('seconds', at((l) => { l[k] = { ...l[k]!, seconds: Math.max(0, Number(v) || 0) }; })) });
+            break;
+          }
           case 'wait':
-            field('Seconds', { kind: 'number', value: st.seconds ?? 0, title: `How long before the next step (up to ${SWITCH_WAIT_MAX})`, set: (v) => change('seconds', at((l) => { l[k] = { ...l[k]!, seconds: Number(v) }; })) });
+            field('Seconds', { kind: 'number', value: st.seconds ?? 0, title: `How long before the next command (up to ${SWITCH_WAIT_MAX})`, set: (v) => change('seconds', at((l) => { l[k] = { ...l[k]!, seconds: Number(v) }; })) });
             field('Random +', { kind: 'number', value: st.random ?? 0, title: "Up to this many seconds more, at random each time (WAIT's random range)",
               set: (v) => change('random', at((l) => { const x = Number(v); const next = { ...l[k]! }; if (!Number.isFinite(x) || x <= 0) delete next.random; else next.random = x; l[k] = next; })) });
             break;
@@ -6036,9 +6349,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             const how = st.times !== undefined ? 'times' : st.seconds !== undefined ? 'seconds' : 'ever';
             field('Until', { kind: 'select', value: how,
               options: [['ever', 'For ever (LOOP -1)'] as const, ['times', 'A number of runs'] as const, ['seconds', 'A time'] as const],
-              title: 'LOOP runs the script again from its first step: for ever, until it has run so many times, or until so many seconds have passed',
+              title: 'LOOP runs the program again from its first command: for ever, until it has run so many times, or until so many seconds have passed',
               set: (v) => change('loop', at((l) => { l[k] = v === 'times' ? { do: 'loop', times: 2 } : v === 'seconds' ? { do: 'loop', seconds: 30 } : { do: 'loop' }; })) });
-            if (st.times !== undefined) field('Runs', { kind: 'number', value: st.times, title: `How many times the script runs in all (1 to ${AUDIO_LOOP_MAX})`, set: (v) => change('times', at((l) => { l[k] = { do: 'loop', times: Number(v) }; })) });
+            if (st.times !== undefined) field('Runs', { kind: 'number', value: st.times, title: `How many times the program runs in all (1 to ${AUDIO_LOOP_MAX})`, set: (v) => change('times', at((l) => { l[k] = { do: 'loop', times: Number(v) }; })) });
             if (st.seconds !== undefined) field('Seconds', { kind: 'number', value: st.seconds, title: 'How long it keeps running again', set: (v) => change('seconds', at((l) => { l[k] = { do: 'loop', seconds: Number(v) }; })) });
             break;
           }
@@ -6096,13 +6409,34 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
               options: !names ? [['', pending ? `(reading ${pending === WEAPONS_CATEGORY ? 'the weapons' : pending === COMMON_CATEGORY ? 'every map' : pending}...)` : `${st.name ?? ''} (reading the maps...)`] as const]
                 : st.name && !names.some(([n]) => n === st.name) ? [[st.name, st.name] as const, ...names] : names,
               title: kind === 'sound' ? "The category's or the map's sounds" : "The category's or the map's effects (those that draw where they are called)",
-              set: (v) => { if (v) change('name', at((l) => { l[k] = { ...l[k]!, name: String(v) }; })); } });
+              set: (v) => { if (v) change('name', at((l) => { l[k] = { ...l[k]!, name: String(v) }; })); },
+              // The mini asset browser (the owner, 2026-11-13: "add the asset mini browser button in the nodes as well"): the
+              // Sounds or the Programs tab, at this step's map (Common for a category's); a tile its name and its map.
+              // Its preview beside the browse button (the owner, 2026-11-14): a sound's card with its timeline, an effect's
+              // live particles -- the From map's (the match's own for a category's).
+              ...(st.name && (st.from && !st.from.startsWith('*') ? st.from : home) ? { peek: previewIcon(kind === 'sound' ? 'sound' : 'effect',
+                st.from && !st.from.startsWith('*') ? st.from : home, st.name, `${ref}:${opts.seq ?? 'run'}:${k}`) } : {}),
+              browse: { icon: icon('panelAssets'), title: kind === 'sound' ? 'Browse sounds' : 'Browse effects and programs', disabled: off,
+                open: (anchor: HTMLElement) => openAssetPicker(s, kind === 'sound' ? 'sound' : 'effect',
+                  from.startsWith('*') ? PALETTE_COMMON : mapNow, anchor, (asset) => {
+                    const o = parseObjectAsset(asset);
+                    if (!o || o.kind !== 'ambient') return null;
+                    const sound = soundOfAssetName(o.name), effect = effectOfAssetName(o.name);
+                    // A sound's tile for a sound; an effect's, or a map's ambient program (CALLed by its name), for an effect.
+                    const name = kind === 'sound' ? sound : sound !== null ? null : effect ?? o.name;
+                    if (name === null) return null;
+                    // What every map has (or a gun's) plays out of the match's own map: no `from`; another map's lent from it.
+                    const everywhere = (kind === 'sound' && !!guns?.some((g) => g.name === name)) || !!commonNames?.includes(name);
+                    return () => change('name', at((l) => {
+                      const next: EditorStep = { ...l[k]!, name, from: o.source };
+                      if (everywhere || o.source === home) delete next.from;
+                      l[k] = next;
+                    }));
+                  }) } });
             if (kind === 'sound') {
               field('Volume', { kind: 'number', value: st.volume ?? 1,
                 title: `The command's volume (SOUND's flag 0x10): 1 the sound's own level, 0 silent, up to ${AUDIO_VOLUME_MAX} (the maps' fires play at 3)`,
                 set: (v) => change('volume', at((l) => { const x = Number(v); const next = { ...l[k]! }; if (!Number.isFinite(x) || x === 1) delete next.volume; else next.volume = x; l[k] = next; })) });
-              const fromNow = st.from ?? home;
-              if (st.name && fromNow && !fromNow.startsWith('*')) out.push({ ...previewSoundButton(fromNow, st.name), label: `${n}. Hear`, disabled: false });
             }
             objectField('At', 'at', opts.self ?? (opts.death ? 'The prop' : 'The switch'));
             break;
@@ -6115,33 +6449,53 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
               options: [['', `The bomb's: damage ${SCRIPT_BLAST_DAMAGE}, radius ${SCRIPT_BLAST_RADIUS} u (${SCRIPT_BLAST_RADIUS / 10} m), cover blocks it`] as const],
               title: "FIRE_WEAPON of MPBOMB / MPBOMB Ammo, as Crossroads' bridges and the planted bomb fire it: its fragments on every player within the radius whose head it sees. Set At on a bare place (an ambient, a map node) rather than inside a solid object" });
             break;
-          case 'if': case 'elseif': {
-            // On a flag (VALVE ==) or on a chance (RANDOM_WEIGHT).
-            const chance = st.chance !== undefined;
-            field('Test', { kind: 'select', value: chance ? 'chance' : 'flag', options: [['flag', 'A flag is'] as const, ['chance', 'A random chance'] as const],
-              title: "A flag's value (every script of the layout shares its flags), or a random chance each time it runs (RANDOM_WEIGHT)",
-              set: (v) => change('test', at((l) => { l[k] = v === 'chance' ? { do: st.do, chance: 0.5 } : { do: st.do, flag: 'flag', value: 1 }; })) });
-            if (chance) {
-              field('Chance %', { kind: 'number', value: Math.round((st.chance ?? 0) * 1000) / 10, title: 'Taken this often (rand() <= the chance); else on to the next Else if, Otherwise or End if',
-                set: (v) => change('chance', at((l) => { const x = Number(v); l[k] = { ...l[k]!, chance: Number.isFinite(x) ? Math.min(1, Math.max(0, x / 100)) : 0.5 }; })) });
-              break;
-            }
-            field('Flag', { kind: 'text', value: st.flag ?? '', title: 'A name every script of the layout shares (letters, digits, _)', set: (v) => change('flag', at((l) => { l[k] = { ...l[k]!, flag: String(v).trim() }; })) });
-            field('Is', { kind: 'number', value: st.value ?? 0, title: 'The steps up to the next Else if, Otherwise or End if run when the flag is this', set: (v) => change('value', at((l) => { l[k] = { ...l[k]!, value: Number(v) }; })) });
+          case 'if': case 'elseif': conditionRows('if'); break;
+          // WHILE: for ever (flag 1), or while its test holds -- tested each time round (`FUN_0025e630`).
+          case 'while': conditionRows('while'); break;
+          // CALL_SEQUENCE / STOP_SEQUENCE: one of the script's sequences (its tabs in the Script editor), or Main.
+          case 'callSequence': case 'stopSequence':
+            field('Sequence', { kind: 'select', value: st.sequence ?? 'main',
+              options: [['main', 'run (its own commands)'] as const, ...seqNames.map((q) => [q, q] as const),
+                ...(st.sequence && st.sequence !== 'main' && !seqNames.includes(st.sequence) ? [[st.sequence, `${st.sequence} (removed)`, true] as const] : [])],
+              title: st.do === 'callSequence' ? 'The sequence started from its top (CALL_SEQUENCE): it runs beside the rest. Add sequences in the Program editor (+ Sequence)'
+                : 'The sequence stopped where it is (STOP_SEQUENCE)',
+              set: (v) => change('sequence', at((l) => { l[k] = { ...l[k]!, sequence: String(v) }; })) });
             break;
-          }
           case 'set':
-            field('Flag', { kind: 'text', value: st.flag ?? '', title: 'A name every script of the layout shares (letters, digits, _)', set: (v) => change('flag', at((l) => { l[k] = { ...l[k]!, flag: String(v).trim() }; })) });
-            field('To', { kind: 'number', value: st.value ?? 0, title: 'The flag set to this (0 to 9999); every flag starts each round at 0', set: (v) => change('value', at((l) => { l[k] = { ...l[k]!, value: Number(v) }; })) });
+            field('Valve', { kind: 'text', value: st.flag ?? '', suggest: flagNames, title: 'A name every program of the layout shares (letters, digits, _): its list the valves already named, or type a new one', set: (v) => change('flag', at((l) => { l[k] = { ...l[k]!, flag: String(v).trim() }; })) });
+            // VALVE's set, add, subtract (0x0b, 0x0c, 0x0d).
+            field('Do', { kind: 'select', value: st.op ?? 'set', options: [['set', 'Set it to'], ['add', 'Add'], ['sub', 'Subtract (not below 0)']] as const,
+              title: "Set the valve, or add to it, or take from it (VALVE's operations); every valve starts each round at 0",
+              set: (v) => change('op', at((l) => { const { op: _o, ...rest } = l[k]!; l[k] = v === 'add' || v === 'sub' ? { ...rest, op: v } : rest; })) });
+            field(st.op === 'add' || st.op === 'sub' ? 'By' : 'To', { kind: 'number', value: st.value ?? 0, title: 'The value (0 to 9999)', set: (v) => change('value', at((l) => { l[k] = { ...l[k]!, value: Number(v) }; })) });
             break;
           default: break;
         }
+      };
+      // Each step's rows tagged with it (the Script panel's, `scriptGraph`), marked where that panel has it chosen.
+      steps.forEach((st, k) => {
+        const from = out.length;
+        stepRows(st, k);
+        const focused = scriptFocus?.ref === ref && (scriptFocus.seq ?? null) === (opts.seq ?? null) && scriptFocus.k === k;
+        for (let i = from; i < out.length; i++) { out[i] = { ...out[i]!, scriptStep: k, ...(focused ? { focus: true } : {}) }; }
       });
-      out.push({ label: 'Add a step', kind: 'select', value: '', disabled: off, gap: true,
-        options: [['', '+ Add a step\u2026'] as const, ...ADD_KINDS],
-        title: 'A step at the end of the script (a While comes with its End while, an If with its End if)',
-        set: (v) => { if (v) change('add', at((l) => { l.push(fresh(v as ScriptStep['do'])); if (v === 'while') l.push({ do: 'endWhile' }); if (v === 'if') l.push({ do: 'end' }); })); } });
+      out.push({ label: 'Add a command', kind: 'select', value: '', disabled: off, gap: true, stepMenu: true,
+        options: [['', '+ Add a command\u2026'] as const, ...ADD_KINDS],
+        title: 'A command at the end of the program (a While comes with its End while, an If with its End if)',
+        set: (v) => {
+          if (!v) return;
+          // At the end, or where the Script panel's wire is (`insertAt`): a While with its End while, an If with its End if.
+          change('add', at((l) => {
+            // An Otherwise first where the Script panel asks (an If's passing lane: `withOtherwise`).
+            const add: EditorStep[] = opts.withOtherwise && v !== 'else' && v !== 'elseif' ? [{ do: 'else' }, fresh(v as ScriptStep['do'])] : [fresh(v as ScriptStep['do'])];
+            if (v === 'while') add.push({ do: 'endWhile' });
+            if (v === 'if') add.push({ do: 'end' });
+            l.splice(Math.min(l.length, Math.max(0, opts.insertAt ?? l.length)), 0, ...add);
+          }));
+        } });
     };
+    // A sequence of the script's: its own header (it runs when called).
+    if (opts.seq !== undefined) { list(`Sequence \u201c${seqNames[opts.seq] ?? '?'}\u201d (when called)`); return; }
     if (opts.title) { list(opts.title); return; }
     // A damage trigger's death: one list, run once (its prop hidden first: `withPlacedAccess`).
     if (opts.death) { list('When destroyed'); return; }
@@ -6245,9 +6599,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const linkValue = typeof link === 'string' ? `map:${link}` : link && own.pieces.includes(link) ? `piece:${own.pieces.indexOf(link)}` : '';
     out.push({ label: 'Prop', kind: 'select', value: linkValue, disabled: off,
       options: [['', 'Not linked yet'] as const,
-        ...own.pieces.flatMap((x, i) => (others.includes(x) ? [] : [[`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOfPiece(x)}`] as const])),
+        ...own.pieces.flatMap((x, i) => (others.includes(x) ? [] : [[`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOfPiece(x)}`, false, OWN_OBJECTS_GROUP] as const])),
         ...lib.objects.filter((o) => !others.includes(o.path) && !discTargets.some((d) => mapUnder(d, o.path) || mapUnder(o.path, d)))
-          .map((o) => [`map:${o.path}`, `Map \u00b7 ${o.label}`] as const)],
+          .map((o) => [`map:${o.path}`, o.label, false, MAP_OBJECTS_GROUP] as const)],
       title: "The prop it is on, left as it is: its collision takes the satchel or the hit, and its death hides it. It must be solid to be struck",
       set: (v) => {
         const pick = String(v);
@@ -6355,6 +6709,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (access) return access.kind;
     if (pieceTrigger.has(s)) return 'barrier';
     if (s.userData['forgeSwitch']) return 'switch';
+    // An emitter: a single sound's or effect's browses its kind's tab; any other the Emitters.
     if (objectOf(s)) return 'ambient';
     if (s.userData['forgePiece']) return 'props';
     return null;
@@ -6370,6 +6725,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let assetPickSize: { w: number; h: number } | null = null;
   let assetPick: {
     s: Object3D; popup: HTMLDivElement; home: HTMLElement | null; ghost: HTMLElement | null; scroll: number;
+    /** What a pick does: the object's drop (`assetDropPlan`) unless the opener gave its own (a script step's). */
+    take: (asset: string) => (() => void) | null;
     tab: ObjectTab; source: string; query: string; filter: AssetFilter; chars: boolean;
     off: () => void;
   } | null = null;
@@ -6416,7 +6773,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     });
     return ghost;
   };
-  const openAssetPicker = (s: Object3D, tab: ObjectTab, source: string, anchor: HTMLElement): void => {
+  const openAssetPicker = (s: Object3D, tab: ObjectTab, source: string, anchor: HTMLElement, take?: (asset: string) => (() => void) | null): void => {
     closeAssetPicker();
     const popup = el(doc, 'div', 'fx-asset-picker');
     popup.setAttribute('role', 'dialog');
@@ -6475,7 +6832,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     doc.addEventListener('pointerdown', onDown, true);
     close.addEventListener('click', () => closeAssetPicker());
     assetPick = {
-      s, popup, home, ghost, scroll, tab: objectTab, source: paletteSel.value, query: search.value, filter, chars: showChars,
+      s, popup, home, ghost, scroll, take: take ?? ((asset) => assetDropPlan(s, asset)), tab: objectTab, source: paletteSel.value, query: search.value, filter, chars: showChars,
       off: () => { doc.removeEventListener('keydown', onKey, true); doc.removeEventListener('pointerdown', onDown, true); },
     };
     objectTab = tab; showChars = false; search.value = ''; filter = 'all';
@@ -6491,18 +6848,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const p = assetPick;
     if (!p) return;
     // Read while the picker's tab is the browser's; its object gone meanwhile (deleted, undone), nothing taken.
-    const plan = roots.includes(p.s) ? assetDropPlan(p.s, asset) : null;
+    // The map program's owner is no placed object (`mapScriptOwner`): its rows take a tile as any program's do.
+    const plan = roots.includes(p.s) || p.s === mapScriptOwner ? p.take(asset) : null;
     closeAssetPicker();
     if (plan) plan(); else notifier.refused('That asset cannot go on this object');
   };
   /** The object rows next to a Source that take a tile too (`assetDropPlan`). */
-  const OBJECT_ROW_LABELS = new Set(['Door', 'Turret', 'Ladder', 'Flare', 'Gate', 'Damage Trigger', 'Trigger', 'Program']);
+  const OBJECT_ROW_LABELS = new Set(['Door', 'Turret', 'Ladder', 'Flare', 'Gate', 'Damage Trigger', 'Trigger', 'Program', 'Emitter']);
   const withAssetDrop = (editors: InspectorEditor[]): InspectorEditor[] => {
     const s = isGroup() || baseSelected ? null : selected;
     if (!s) return editors;
     const drop = {
-      accepts: (): boolean => { const a = assetTiles?.dragAsset(); return !!a && assetDropPlan(s, a) !== null; },
-      take: (): void => { const a = assetTiles?.dragAsset(); const plan = a ? assetDropPlan(s, a) : null; plan?.(); },
+      // A tile's own drag (`tileDragAsset`), else the browser's (the Characters').
+      accepts: (): boolean => { const a = tileDragAsset() ?? assetTiles?.dragAsset(); return !!a && assetDropPlan(s, a) !== null; },
+      take: (): void => { const a = tileDragAsset() ?? assetTiles?.dragAsset(); const plan = a ? assetDropPlan(s, a) : null; plan?.(); },
     };
     const owner = selectionIds()[0] ?? '';
     const tab = pickTabOf(s);
@@ -6518,6 +6877,109 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return objectRow ? { ...e, drop, owner, ...(browse ? { browse } : {}) } : e;
     });
   };
+  /**
+   * A single sound's or effect's emitter (the owner, 2026-11-14: "don't call them Custom ... make the hidden repeat
+   * visible"; a browser adaptation, FG.R2 -- the editor's view, the program unchanged): its program is one SOUND or one
+   * EFFECT (CALL), alone -- once, or a `~` sound that loops by the game's own rule -- or followed by a WAIT and a LOOP (its
+   * Repeat). Null for any other program: that one is shown as its commands.
+   */
+  type SimpleEmitter = { kind: 'sound' | 'effect'; name: string; from: string | undefined; volume: number | undefined; repeat: number | null };
+  const simpleEmitterOf = (sc: EditorScript | undefined): SimpleEmitter | null => {
+    if (!sc || sc.sequences?.length) return null;
+    const [a, b, c, ...rest] = sc.steps;
+    if (!a || (a.do !== 'sound' && a.do !== 'effect') || !a.name || a.at || rest.length) return null;
+    const base = { kind: a.do, name: a.name, from: a.from, volume: a.volume } as const;
+    if (!b) return { ...base, repeat: null };
+    if (b.do === 'wait' && b.seconds !== undefined && !b.random && c?.do === 'loop' && c.times === undefined && c.seconds === undefined) return { ...base, repeat: b.seconds };
+    return null;
+  };
+  /**
+   * An emitter's rows after its Emitter, the same for a map's own and a single sound's or effect's (the owner, 2026-11-14:
+   * "unify them"): Does (its particles, sound and light), Plays at (where it stands; a map's own says where its map has
+   * it), each sound's hearing (its RANGE), then the caller's Repeat and Your program. `sounds` null while being read;
+   * `pending` (any) for a Does still being read.
+   */
+  const emitterInfoRows = (out: InspectorEditor[], work: { particles: boolean; sound: boolean; light: boolean } | null, root: string | null | undefined,
+    sounds: { name: string; range: [number, number]; loop: boolean; volume: number | null; doppler: boolean }[] | null, pending: unknown, names: string[] = []): void => {
+    const info = (label: string, text: string, title: string): void => {
+      out.push({ label, kind: 'select', value: 'x', disabled: true, options: [['x', text] as const], title, set: () => undefined });
+    };
+    info('Does', work ? [work.particles ? 'particles' : '', work.sound ? 'sound' : '', work.light ? 'light' : ''].filter(Boolean).join(' + ') || 'nothing drawn'
+      : pending === null ? 'reading…' : 'nothing drawn',
+      'What its program runs: PARTICLE_SOURCE, SOUND, LIGHT (the programs it calls too)');
+    info('Plays at', root === undefined ? 'where it stands' : root ? `where it stands (its map has it at ${root})` : 'about the camera, wherever it stands (rain, snow, bugs)',
+      "Where it plays: its own place in your map (a map's own emitter: where its map roots it, or the camera)");
+    if (sounds) for (const h of sounds) {
+      info(h.name, `${(h.range[0] / 10).toFixed(1)} m full → ${(h.range[1] / 10).toFixed(1)} m silent · ${h.loop ? 'loop' : 'once'}${h.volume !== null ? ` · vol ${h.volume}` : ''}${h.doppler ? ' · doppler' : ''}`,
+        "The sound's own script entry: RANGE (full volume inside the first, silent past the second; FUN_00342670), one-shot or a loop, VOLUME, doppler");
+    } else if (names.length) info('Sounds', `${names.join(', ')} (reading their ranges…)`, 'The sounds its program plays');
+  };
+  /**
+   * A Custom emitter's rows after its Source and Emitter (the owner, 2026-11-14: "those should say custom ... just like
+   * how damage trigger or switch works ... no matter if I place a native emitter, a sound, or an effect"): Does (what
+   * its program's SOUND and EFFECT commands draw and play), Plays at, each sound's hearing, then its Repeat -- Once or
+   * again every N seconds while its program is a single sound or effect (`simpleEmitterOf`: its WAIT and LOOP written
+   * for you), a `~` sound's own loop, else as its program runs. Its commands follow (`scriptEditors`).
+   */
+  /**
+   * A native emitter's Repeat (the owner, 2026-11-14: "for native emitters don't show any of this internal logic ...
+   * generic for all native emitters"): again and again (its own LOOP or WHILE), or once at the round's start -- its
+   * looping sounds going on all the same; reading while its map is read.
+   */
+  const nativeRepeatRow = (out: InspectorEditor[], source: string | undefined, name: string): void => {
+    const lib = source ? hostageLibNow(source) : null;
+    const r = lib ? programRepeatOf(lib, name) : null;
+    const text = !lib ? 'reading\u2026' : !r ? 'as its map plays it' : r.again ? 'Again and again (its own loop)'
+      : r.loops ? "Once, at the round's start (its sounds loop)" : "Once, at the round's start";
+    out.push({ label: 'Repeat', kind: 'select', value: 'x', disabled: true, options: [['x', text] as const],
+      title: "How its map's own program repeats: a loop of its own, or once (a looping sound still loops)", set: () => undefined });
+  };
+  const customEmitterRows = (s: Object3D, fobj: ForgeObjectData, ref: string, off: boolean, out: InspectorEditor[]): void => {
+    const sc = objectScript.get(s);
+    const steps = [...(sc?.steps ?? []), ...(sc?.sequences ?? []).flatMap((q) => q.steps)];
+    // What it does: its sounds, and each effect's own particles, sound and light (its map's program, once read).
+    let reading = false;
+    const work = { particles: false, sound: false, light: false };
+    for (const st of steps) {
+      if (st.do === 'sound' && st.name) work.sound = true;
+      if (st.do !== 'effect' || !st.name) continue;
+      const map = st.from && !st.from.startsWith('*') ? st.from : fobj.source;
+      const lib = map ? hostageLibNow(map) : null;
+      const w = lib ? programWorkOf(lib, st.name) : null;
+      if (!lib) reading = true;
+      if (w) { work.particles ||= w.particles; work.sound ||= w.sound; work.light ||= w.light; }
+    }
+    emitterInfoRows(out, reading && !work.particles && !work.sound && !work.light ? null : work, undefined, ambientSoundsOf(fobj, sc), reading ? null : []);
+    // Its Repeat.
+    const e = simpleEmitterOf(sc);
+    const write = (next: SimpleEmitter, field: string, value: string | number): void => {
+      const run: ScriptStep = next.kind === 'sound'
+        ? { do: 'sound', name: next.name, ...(next.from ? { from: next.from } : {}), ...(next.volume !== undefined ? { volume: next.volume } : {}) }
+        : { do: 'effect', name: next.name, ...(next.from ? { from: next.from } : {}) };
+      const steps2: ScriptStep[] = next.repeat === null ? [run] : [run, { do: 'wait', seconds: next.repeat }, { do: 'loop' }];
+      personEdit('placement.set', { ref, field, value }, (step) => {
+        const before = selectionIds();
+        objectScript.set(s, scriptFromFile({ steps: steps2 }, ownLists()));
+        edit(before, step);
+        refreshInspector();
+      }, true);
+    };
+    const fixed = (text: string, title: string): void => {
+      out.push({ label: 'Repeat', kind: 'select', value: 'x', disabled: true, options: [['x', text] as const], title, set: () => undefined });
+    };
+    if (!e) fixed('As your program runs (its WAIT and LOOP)', 'Your program repeats as its commands say: its WAIT, LOOP and WHILE below');
+    else if (e.kind === 'sound' && e.name.startsWith('~')) fixed('Loops by itself (a ~ sound)', "A sound named with ~ loops for as long as it plays: the game's own rule");
+    else {
+      out.push({ label: 'Repeat', kind: 'select', value: e.repeat === null ? 'once' : 'every', disabled: off,
+        options: [['once', "Once, at the round's start"] as const, ['every', 'Again and again (WAIT, LOOP)'] as const],
+        title: "Once (as the game plays a single command), or again after a wait, for ever: its program's WAIT and LOOP",
+        set: (v) => write({ ...e, repeat: v === 'every' ? e.repeat ?? FORGE_SCRIPT_LOOP_WAIT_ADAPTATION : null }, 'repeat', String(v)) });
+      if (e.repeat !== null) {
+        out.push({ label: 'Every (s)', kind: 'number', value: e.repeat, disabled: off, title: 'The WAIT between its plays, seconds',
+          set: (v) => { const n = Number(v); if (Number.isFinite(n) && n > 0) write({ ...e, repeat: n }, 'seconds', n); } });
+      }
+    }
+  };
   const inspectorEditors = (): InspectorEditor[] => {
     const s = isGroup() || baseSelected ? null : selected;
     // A map's own ambient effect (Map Data's Ambient Effects; the owner, 2026-11-10: "add play/pause to map data ambient
@@ -6526,16 +6988,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const program = (mapDataSelected.data as { program?: string } | undefined)?.program;
       if (!program) return [];
       const fo: ForgeObjectData = { kind: 'ambient', source: baseMap.archive, name: program };
-      const prog = ambientProgramNow(fo), heard = ambientSoundsOf(fo);
+      const prog = ambientProgramNow(fo);
+      // A placed emitter's rows, read only (the owner, 2026-11-14: "unify them"): its Emitter with its preview, Does,
+      // Plays at, each sound's hearing, Repeat.
       const rows: InspectorEditor[] = [];
-      const info = (label: string, text: string, title: string): void => {
-        rows.push({ label, kind: 'select', value: 'x', disabled: true, options: [['x', text] as const], title, set: () => undefined });
-      };
-      if (prog) info('Does', [prog.particles ? 'particles' : '', prog.sound ? 'sound' : '', prog.light ? 'light' : ''].filter(Boolean).join(' + '), 'What its program runs');
-      if (heard) for (const h of heard) info(h.name, `${(h.range[0] / 10).toFixed(1)} m full → ${(h.range[1] / 10).toFixed(1)} m silent · ${h.loop ? 'loop' : 'once'}`, "The sound's own RANGE (FUN_00342670) and whether it loops");
-      if (!prog || prog.sound) {
-        rows.push(ambientSoundButton(baseMap.archive, program));
-      }
+      rows.push({ label: 'Source', kind: 'select', value: 'x', disabled: true, options: [['x', `${baseMap.archive} (this map's own)`] as const],
+        title: "This map's own emitter: read only (the Emitters tab places a copy you can change)", set: () => undefined });
+      rows.push({ label: 'Emitter', kind: 'select', value: 'x', disabled: true, options: [['x', program] as const], title: "The map's emitter",
+        set: () => undefined, peek: previewIcon('program', baseMap.archive, program, `mapdata:${program}`, !prog || prog.sound) });
+      // Generic for every native emitter: what it does, where, how it repeats -- never its program's inner sounds.
+      emitterInfoRows(rows, prog, prog ? prog.root : undefined, null, prog ? [] : null);
+      nativeRepeatRow(rows, baseMap.archive, program);
       return rows;
     }
     if (!s) return [];
@@ -6722,7 +7185,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const value = linked && gates.includes(linked) ? `gate:${gates.indexOf(linked)}` : ownScript ? 'script' : ownAction ? `action:${ownAction}` : 'none';
       const known = targets.some((a) => `action:${a.valve}` === value) || !ownAction;
       out.push({ label: 'Runs', kind: 'select', value, covers: ['switch.gate', 'switch.lever'], disabled: off,
-        options: [['none', 'Nothing'] as const, ['script', 'A script (your own steps, below)'] as const,
+        options: [['none', 'Nothing'] as const, ['script', 'A program (your own commands, below)'] as const,
           ...gates.map((g, i) => [`gate:${i}`, `Gate ${i + 1} \u00b7 ${accessLabel(g)}`] as const),
           ...targets.map((a) => [`action:${a.valve}`, `Map action \u00b7 ${a.type || 'no prompt'} \u00b7 ${a.node} \u2192 ${a.anims[0] ?? ''}`] as const),
           ...(known ? [] : [[value, `Map action \u00b7 ${ownAction} (not on this map)`, true] as const])],
@@ -6797,55 +7260,54 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const scripted = isScriptObject(fobj);
       out.push({ label: 'Source', kind: 'select', value: scripted ? CUSTOM_TRIGGER : fobj.source ?? '', covers: ['ambient.source'], disabled: off,
         options: groupedMaps([[CUSTOM_TRIGGER, 'Custom', false] as const, ...mapChoices('ambient', scripted ? '' : fobj.source ?? '')]),
-        title: "Custom: a script of the game's own commands, yours to write; a disc map: that map's own ambient program copied whole",
+        title: "Custom: a program of the game's own commands, yours to write; a disc map: that map's own emitter copied whole",
         set: (v) => {
           const stem = String(v);
           if (stem === CUSTOM_TRIGGER) {
-            // A map's program made Custom: a script that CALLs that program, once, from the round's start.
-            if (!scripted) setObj('model', { kind: 'ambient', source: fobj.source, name: FORGE_SCRIPT_OBJECT, script: { steps: [{ do: 'effect', name: fobj.name, from: fobj.source }] } });
+            // Made Custom: an empty program of your own (the owner, 2026-11-14: "just make it an empty one. don't try to
+            // copy the emitter into our own script"), as a Custom damage trigger or switch starts.
+            if (!scripted) setObj('model', { kind: 'ambient', source: fobj.source, name: FORGE_SCRIPT_OBJECT, script: { steps: [] } });
             return;
           }
           void hostageLibOf(stem).then((lib) => { const first = lib ? ambientProgramsOf(lib)[0] : undefined;
-            if (!first) { notifier.refused(`${stem} has no ambient program`); return; } setObj('model', { kind: 'ambient', source: stem, name: first.name }); });
+            if (!first) { notifier.refused(`${stem} has no emitter`); return; } setObj('model', { kind: 'ambient', source: stem, name: first.name }); });
         } });
       if (scripted) {
-        out.push({ label: 'Program', kind: 'select', value: 'x', disabled: true, options: [['x', 'Your own script (below)'] as const],
-          title: 'A Custom program: its steps below', set: () => undefined });
+        // Custom (a sound's, an effect's, or a map's emitter made Custom -- one way for all): its program, its commands below.
+        out.push({ label: 'Emitter', kind: 'select', value: 'x', disabled: true, options: [['x', 'Custom program (its commands below)'] as const],
+          title: "A Custom emitter: a program of the game's own commands, below -- its Sound and Effect commands pick what it plays", set: () => undefined });
+        customEmitterRows(s, fobj, ref, off, out);
         scriptEditors(s, ref, objectScript.get(s) ?? { steps: [] }, off, out, { store: objectScript, title: "From the round's start", self: 'The object' });
       } else {
         const list = fobj.source ? copyList('ambient', fobj.source) : null;
-        out.push({ label: 'Program', kind: 'select', value: fobj.name, covers: ['ambient.name'], disabled: off || !list,
+        out.push({ label: 'Emitter', kind: 'select', value: fobj.name, covers: ['ambient.name'], disabled: off || !list,
           options: list ? (list.some(([n]) => n === fobj.name) ? list : [[fobj.name, fobj.name] as const, ...list]) : [[fobj.name, 'Loading\u2026'] as const],
-          title: "The map's ambient effect: its particles, its sound and its light, as its map plays it from the round's start",
-          set: (v) => setObj('model', { kind: 'ambient', source: fobj.source, name: String(v) }) });
+          title: "The map's emitter: its program's particles, sound and light, as its map plays it from the round's start",
+          set: (v) => setObj('model', { kind: 'ambient', source: fobj.source, name: String(v) }),
+          // Its preview beside the browse button (the owner, 2026-11-14: "move the preview button next to the asset
+          // browser button ... just like the sound and effect"): its particles live, its sounds played with them.
+          ...(fobj.source ? { peek: previewIcon('program', fobj.source, fobj.name, ref,
+            copyList('ambient', fobj.source)?.find(([n]) => n === fobj.name)?.[1].includes('sound') !== false) } : {}) });
         // What it is (read off its map: `ambientProgramsOf`, its sounds' script entries): what it does, where its map has it,
         // each sound's hearing -- full volume inside the first distance, silent past the second (10 units a metre).
+        // The rows every emitter has, in one order (`emitterInfoRows`; the owner, 2026-11-14: "unify them").
         const prog = ambientProgramNow(fobj);
-        const info = (label: string, text: string, title: string): void => {
-          out.push({ label, kind: 'select', value: 'x', disabled: true, options: [['x', text] as const], title, set: () => undefined });
-        };
-        if (prog) {
-          info('Does', [prog.particles ? 'particles' : '', prog.sound ? 'sound' : '', prog.light ? 'light' : ''].filter(Boolean).join(' + ') || 'nothing drawn',
-            'What its program runs: PARTICLE_SOURCE, SOUND, LIGHT (the programs it calls too)');
-          info('On its map', prog.root ? `at ${prog.root}` : 'about the camera (the whole map)', "Where its own map plays it: a node of that map's, or the camera (rain, snow, bugs)");
-        }
-        const heard = ambientSoundsOf(fobj, objectScript.get(s));
-        if (heard) for (const h of heard) {
-          info(h.name, `${(h.range[0] / 10).toFixed(1)} m full \u2192 ${(h.range[1] / 10).toFixed(1)} m silent \u00b7 ${h.loop ? 'loop' : 'once'}${h.volume !== null ? ` \u00b7 vol ${h.volume}` : ''}${h.doppler ? ' \u00b7 doppler' : ''}`,
-            "The sound's own script entry: RANGE (full volume inside the first, silent past the second; FUN_00342670), one-shot or a loop, VOLUME, doppler");
-        } else if (prog?.sound) info('Sounds', `${prog.sounds.join(', ')} (reading their ranges\u2026)`, "The sounds its program plays");
-        // Its sound previewed (the owner, 2026-11-10: "add a button in the inspector for sound objects to preview the
-        // sound"): Play its program's sounds here once (a loop until Stop), Stop ends them. An effect with no sound, none.
-        const sounds = fobj.source ? copyList('ambient', fobj.source)?.find(([n]) => n === fobj.name)?.[1].includes('sound') : undefined;
-        if (sounds !== false && !objectScript.has(s)) {
-          if (fobj.source) out.push(ambientSoundButton(fobj.source, fobj.name));
-        }
+        // Generic for every native emitter (the owner, 2026-11-14): what it does, where, how it repeats -- never its
+        // program's inner sounds or branches.
+        emitterInfoRows(out, prog, prog ? prog.root : undefined, null, prog ? [] : null);
+        if (objectScript.has(s)) {
+          out.push({ label: 'Repeat', kind: 'select', value: 'x', disabled: true, options: [['x', 'As your program runs (its WAIT and LOOP)'] as const],
+            title: 'Your program repeats as its commands say', set: () => undefined });
+        } else nativeRepeatRow(out, fobj.source, fobj.name);
         // Its sound: its effect's own, or its sounds written as a script of the game's own commands (the owner, 2026-11-10:
         // "make it fully scriptable ... I don't want to have any custom behaviour"). The script starts as its program's own
         // sound commands (`scriptOfProgram`) where they are those commands alone.
-        out.push({ label: 'Script', kind: 'select', value: objectScript.has(s) ? 'custom' : 'own', disabled: off,
-          options: [['own', "Its effect's own (as its map plays it)"] as const, ['custom', 'Scripted (the game\'s commands)'] as const],
-          title: "Its effect's own sounds, or a script of the game's own commands in their place -- SOUND, CALL an effect, WAIT, LOOP, WHILE, IF on a random chance -- with any map's sounds and effects (its own particles and light stay)",
+        // Shown only while it has a program of its own already (the owner, 2026-11-14: "it should not show the Your
+        // program property unless we have selected the source as custom"): your own program is Source's Custom now; this
+        // row only takes an older own program back off it.
+        if (objectScript.has(s)) out.push({ label: 'Your program', kind: 'select', value: 'custom', disabled: off,
+          options: [['own', "Its emitter's own (as its map plays it)"] as const, ['custom', 'Your own (the game\'s commands)'] as const],
+          title: "Its emitter's own sounds, or a program of the game's own commands in their place -- SOUND, CALL an effect, WAIT, LOOP, WHILE, IF on a random chance -- with any map's sounds and effects (its own particles and light stay)",
           set: (v) => {
             const own = v === 'custom' ? programScriptNow(fobj) : null;
             const next = v === 'custom' ? own?.steps ?? [] : undefined;
@@ -6957,7 +7419,364 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The record's lock and parent are the head's lock icon and the Outliner's tree: not listed again under Properties.
     const rows = dataRows(inspectorData()).filter(([k]) => k !== 'lock' && k !== 'parent' && !k.startsWith('parent.'));
     showInspectorData(inspectorDom, rows, withAssetDrop(inspectorEditors()));
+    drawScriptGraph();
   };
+  /**
+   * The Script panel (the owner, 2026-11-13: "a nice nodal ui that makes sense for our custom scripting ... a nodal view of
+   * the same underlying data. Create a script tab and link it to the script section in the properties panel"; a browser
+   * adaptation): the selection's script -- a switch's, a custom damage trigger's death, an effect object's -- as nodes
+   * (`./panels/scriptGraph`), each change made through the Inspector's own rows (`scriptEditors`): one script, two views.
+   * A node chosen marks its rows in the Inspector (`scriptFocus`); the Inspector's script header opens this panel.
+   */
+  const scriptGraph = buildScriptGraph(doc);
+  let scriptFocus: { ref: string; k: number; seq?: number | null } | null = null;
+  /** The sequence the Script editor shows of its script (null: its own steps), and whose script that is. */
+  let scriptSeq: number | null = null;
+  let scriptSeqOwner: Object3D | null = null;
+  /** The selection's script as the Script panel draws it, or why it has none (and the one press that gives it one). */
+  const scriptOfSelection = (): { s: Object3D; sc: EditorScript; event: string; opts: { store?: WeakMap<Object3D, EditorScript>; death?: boolean; title?: string; self?: string } }
+    | { none: string; act?: { label: string; run(): void } } => {
+    // The map script (the Map panel's Script button, or this editor's own Map tab): the layout's, from the round's start.
+    if (scriptView === 'map') {
+      return { s: mapScriptOwner, sc: mapScriptNow(), event: "From the round's start (the map's own program)",
+        opts: { store: mapScriptStore, title: "From the round's start", self: "The map's origin" } };
+    }
+    const s = isGroup() || baseSelected ? null : selected;
+    const pick = 'Choose a switch, a damage trigger or an effect: its program is drawn here as nodes. Or open the map program (the Map Program tab above).';
+    if (!s) return { none: pick };
+    const editorRow = (match: (e: InspectorEditor) => boolean, v: string) => (): void => { inspectorEditors().find(match)?.set(v); };
+    if (s.userData['forgeSwitch']) {
+      const sc = switchScript.get(s);
+      if (sc) return { s, sc, event: 'When pulled (once a round)', opts: {} };
+      return { none: 'This switch runs no program of its own.', act: { label: 'Give it a program', run: editorRow((e) => e.label === 'Runs' && !!e.covers?.includes('switch.gate'), 'script') } };
+    }
+    if (pieceTrigger.has(s)) return { s, sc: triggerScript.get(s) ?? { steps: [] }, event: 'When destroyed', opts: { store: triggerScript, death: true } };
+    if (accessOwnOf(s)?.kind === 'barrier') {
+      return { none: "A disc damage trigger's death is its own program.", act: { label: 'Make it Custom', run: editorRow((e) => e.label === 'Source' && !!e.covers?.includes('barrier.source'), CUSTOM_TRIGGER) } };
+    }
+    const fobj = objectOf(s);
+    if (fobj) {
+      const sc = objectScript.get(s);
+      if (sc || isScriptObject(fobj)) return { s, sc: sc ?? { steps: [] }, event: "From the round's start", opts: { store: objectScript, title: "From the round's start", self: 'The object' } };
+      // Its own program: Source's Custom (a program that plays this emitter, yours to add to).
+      return { none: "This emitter plays its map's own program.", act: { label: 'Give it a program', run: editorRow((e) => e.label === 'Source' && !!e.covers?.includes('ambient.source'), CUSTOM_TRIGGER) } };
+    }
+    return { none: pick };
+  };
+  /** A step's words on its node: what it plays, waits, tests, sets, shows or runs. */
+  const scriptTargetWords = (t: EditorTarget | undefined): string =>
+    !t ? '' : 'map' in t ? `map ${t.map.split('/').pop() ?? t.map}` : roots.includes(t.obj) ? placedLabel(t.obj) : 'a removed object';
+  const stepDetail = (st: EditorStep): string => {
+    const at = st.at ? ` @ ${scriptTargetWords(st.at)}` : '';
+    switch (st.do) {
+      case 'sound': case 'effect':
+        return `${(st.name ?? '').trim() || '(none)'}${st.from ? ` · ${st.from}` : ''}${st.volume !== undefined && st.volume !== 1 ? ` · vol ${st.volume}` : ''}${at}`;
+      case 'wait': return `${st.seconds ?? 0} s${st.random ? ` + up to ${st.random} s` : ''}`;
+      case 'loop': return st.times !== undefined ? `${st.times} times in all` : st.seconds !== undefined ? `for ${st.seconds} s` : 'for ever';
+      case 'while': return st.flag !== undefined || st.game !== undefined ? `while ${conditionWords(st)}` : 'for ever';
+      case 'if': case 'elseif': return conditionWords(st);
+      case 'set': return st.op === 'add' ? `${st.flag ?? 'flag'} + ${st.value ?? 0}` : st.op === 'sub' ? `${st.flag ?? 'flag'} \u2212 ${st.value ?? 0}` : `${st.flag ?? 'flag'} \u2190 ${st.value ?? 0}`;
+      case 'callSequence': case 'stopSequence': return st.sequence === 'main' ? 'run' : st.sequence ?? '(none)';
+      case 'fade': return `${scriptTargetWords(st.target) || '(nothing chosen)'} \u00b7 ${Math.round((st.fadeFrom ?? 1) * 100)}% \u2192 ${Math.round((st.fadeTo ?? 0) * 100)}% in ${st.seconds ?? 0} s`;
+      case 'show': case 'hide': return scriptTargetWords(st.target) || '(nothing chosen)';
+      case 'run': return st.run ? `wreck ${accessLabel(st.run)}` : st.action ? `map action ${st.action}` : '(nothing chosen)';
+      case 'message': return `“${st.text ?? ''}”`;
+      case 'blast': return `MPBOMB, 300 u${at}`;
+      default: return '';
+    }
+  };
+  /** The Script editor shows the map's script (`map`) or the selection's: its own switch, and the Map panel's button. */
+  const showScriptView = (v: ScriptView): void => {
+    scriptView = v;
+    scriptFocus = null;
+    refreshInspector();                                         // the Inspector's marks let go; the graph drawn anew
+  };
+  const drawScriptGraph = (): void => {
+    scriptGraph.setView(scriptView, showScriptView);
+    mapScriptCount();
+    if (scriptView === 'disc') { scriptGraph.setSequences(null, sequenceHooks(null, '')); drawDiscProgram(); return; }
+    const got = scriptOfSelection();
+    drawScriptLegend('none' in got ? null : got.s);
+    if ('none' in got) { scriptFocus = null; scriptGraph.setSequences(null, sequenceHooks(null, '')); scriptGraph.draw(null, scriptGraphHooks(null), got.none, got.act); return; }
+    const ref = scriptRef();
+    // Its sequence shown: Main for a script newly shown, or one since removed.
+    if (got.s !== scriptSeqOwner) { scriptSeqOwner = got.s; scriptSeq = null; }
+    if (scriptSeq !== null && !got.sc.sequences?.[scriptSeq]) scriptSeq = null;
+    const list = scriptSeq === null ? got.sc.steps : got.sc.sequences![scriptSeq]!.steps;
+    if (scriptFocus && (scriptFocus.ref !== ref || (scriptFocus.seq ?? null) !== scriptSeq || scriptFocus.k >= list.length)) scriptFocus = null;
+    const locked = editsLocked() || (got.s !== mapScriptOwner && lockedOf(got.s));
+    scriptGraph.setSequences({ names: (got.sc.sequences ?? []).map((q) => q.name), at: scriptSeq, locked }, sequenceHooks(got, ref));
+    const steps: GraphStep[] = list.map((st) => ({ do: st.do, detail: stepDetail(st) }));
+    const seqName = scriptSeq === null ? null : got.sc.sequences![scriptSeq]!.name;
+    scriptGraph.draw({
+      owner: got.s === mapScriptOwner ? 'Map' : placedLabel(got.s), event: seqName === null ? got.event : `Sequence \u201c${seqName}\u201d \u00b7 runs when a Call sequence command calls it`, steps, selected: scriptFocus?.k ?? null,
+      locked: editsLocked() || (got.s !== mapScriptOwner && lockedOf(got.s)), addKinds: ADD_KINDS,
+    }, scriptGraphHooks(got), '');
+  };
+  /** The node view's changes, each one the Inspector's own row's (`scriptEditors`), so both views edit the one script. */
+  /**
+   * Every script of the layout, with its owner and its words (the Flags legend's, the Flag fields' suggestions): the map's,
+   * then each switch's, custom damage trigger's and effect object's.
+   */
+  const layoutScripts = (): { owner: Object3D; who: string; sc: EditorScript }[] => {
+    const out: { owner: Object3D; who: string; sc: EditorScript }[] = [{ owner: mapScriptOwner, who: 'Map', sc: mapScriptNow() }];
+    for (const r of roots) {
+      const sc = switchScript.get(r) ?? (pieceTrigger.has(r) ? triggerScript.get(r) : undefined) ?? objectScript.get(r);
+      if (sc && (sc.steps.length || sc.sequences?.length)) out.push({ owner: r, who: placedLabel(r), sc });
+    }
+    return out;
+  };
+  /** The valves one command names: a set's, or each test's of its condition (`more` too), each once. */
+  const stepFlags = (st: EditorStep): string[] => {
+    if (st.do === 'set') return st.flag ? [st.flag] : [];
+    if (st.do !== 'if' && st.do !== 'elseif' && st.do !== 'while') return [];
+    return [...new Set([st.flag, ...(st.more ?? []).map((m) => m.flag)].filter((x): x is string => !!x))];
+  };
+  /** Every flag a script names, by its name (A to Z). */
+  const layoutFlagNames = (): string[] =>
+    [...new Set(layoutScripts().flatMap(({ sc }) => [...sc.steps, ...(sc.sequences ?? []).flatMap((q) => q.steps)]
+      .flatMap((st) => stepFlags(st))))]
+      .sort((a, b) => a.localeCompare(b));
+  /** A script step shown from the legend: its owner's script in the editor, the step chosen (its rows marked). */
+  const showScriptStep = (owner: Object3D, k: number | null, seq: number | null = null): void => {
+    scriptSeqOwner = owner;
+    scriptSeq = seq;
+    if (owner === mapScriptOwner) {
+      scriptView = 'map';
+      scriptFocus = k === null ? null : { ref: 'map', k, seq };
+      refreshInspector();
+      return;
+    }
+    scriptView = 'selection';
+    select(owner);
+    const ref = selectionIds()[0];
+    scriptFocus = ref && k !== null ? { ref, k, seq } : null;
+    refreshInspector();
+  };
+  /** The Flags legend: each flag's uses everywhere, marked where the script shown names it; the game's own values. */
+  const drawScriptLegend = (shown: Object3D | null): void => {
+    const by = new Map<string, { here: boolean; uses: FlagUse[] }>();
+    for (const { owner, who, sc } of layoutScripts()) {
+      const lists: [number | null, string, EditorStep[]][] = [[null, who, sc.steps], ...(sc.sequences ?? []).map((q, i): [number, string, EditorStep[]] => [i, `${who} \u203a ${q.name}`, q.steps])];
+      for (const [seq, label, steps] of lists) {
+        steps.forEach((st, k) => {
+          // Every valve the command names: a set's, or each test's of a condition (its further tests' too).
+          for (const name of stepFlags(st)) {
+            const f = by.get(name) ?? { here: false, uses: [] };
+            f.uses.push({ who: label, k, write: st.do === 'set', go: () => showScriptStep(owner, k, seq) });
+            if (owner === shown) f.here = true;
+            by.set(name, f);
+          }
+        });
+      }
+    }
+    const flags: LegendFlag[] = [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, f]) => ({ name, here: f.here, uses: f.uses }));
+    // The program shown's own named sequences (the owner, 2026-11-13: another program's are not its to call), each with its Call and Stop commands.
+    const sequences: LegendSequence[] = layoutScripts().filter(({ owner }) => owner === shown).flatMap(({ owner, who, sc }) => {
+      const lists: [number | null, string, EditorStep[]][] = [[null, who, sc.steps], ...(sc.sequences ?? []).map((q, i): [number, string, EditorStep[]] => [i, `${who} \u203a ${q.name}`, q.steps])];
+      return (sc.sequences ?? []).map((q, i): LegendSequence => ({
+        name: q.name, who: '', here: owner === shown && scriptSeq === i, mine: owner === shown,
+        uses: lists.flatMap(([seq, label, steps]) => steps.flatMap((st, k): FlagUse[] => ((st.do === 'callSequence' || st.do === 'stopSequence') && st.sequence === q.name
+          ? [{ who: label, k, write: st.do === 'callSequence', go: () => showScriptStep(owner, k, seq) }] : []))),
+        go: () => showScriptStep(owner, null, i),
+      }));
+    });
+    scriptGraph.legend({ flags, sequences, games: SCRIPT_GAME_VALUES.map((g) => [g, GAME_VALUE_WORDS[g].label.replace(/\s*\(.*\)$/, '')] as const) });
+  };
+  /**
+   * The Original map tab (the owner, 2026-11-13: "see the official maps' map scripting node network ... how they do
+   * certain things"): the base map's own programs as `@s2u/scene` decodes them (`MapMeta.scene.programs`) -- the round's
+   * `objectives` first, then the rest by name -- one sequence at a time, each command a node in the editor's own words
+   * where a script step stands for it (IF, WHILE, WAIT, VALVE as SET, MESSAGE, SOUND, CALL ...), else the engine's own
+   * name (grey). Read only: nothing here changes the map.
+   */
+  const DISC_TEST: Readonly<Record<number, string>> = { 1: '\u2260', 2: '=', 3: '>', 4: '<', 5: '\u2265', 6: '\u2264' };
+  const DISC_OPERATOR: Readonly<Record<number, string>> = { 1: 'NOT', 2: 'AND', 3: 'OR', 4: '(', 5: ')' };
+  const discConditions = (cs: readonly EffectCondition[] | undefined): string => (cs ?? []).map((c) => {
+    switch (c.kind) {
+      case 'valve': return `${c.context ? '(its valve)' : c.valve} ${DISC_TEST[c.operation] ?? `op${c.operation}`} ${c.operand}`;
+      case 'random': return `chance ${Math.round(c.p * 1000) / 10}%`;
+      case 'range': return `in range ${Math.round(Math.sqrt(c.rangeSquared))}`;
+      case 'operator': return DISC_OPERATOR[c.operator] ?? `op${c.operator}`;
+      default: return `command ${c.cmd}`;
+    }
+  }).join(' ') || 'true';
+  const discSteps = (program: EffectProgram, ops: readonly EffectOp[]): GraphStep[] => {
+    const nodeName = (i: number): string => (i === -7 ? 'its root' : i === -6 ? 'its caller' : (program.nodes[i] ?? `node ${i}`).split('/').pop() ?? '');
+    return ops.map((op): GraphStep => {
+      switch (op.op) {
+        case 'if': case 'elseif': return { do: op.op, detail: discConditions(op.conditions) };
+        case 'else': return { do: 'else', detail: '' };
+        case 'endif': return { do: 'end', detail: '' };
+        case 'while': return { do: 'while', detail: op.forever ? 'for ever' : `while ${discConditions(op.conditions)}` };
+        case 'endWhile': return { do: 'endWhile', detail: '' };
+        case 'wait': return { do: 'wait', detail: op.frames !== null ? `${op.frames} frames` : `${op.seconds} s${op.range ? ` + up to ${op.range} s` : ''}` };
+        case 'loop': return { do: 'loop', detail: op.count === -1 || (op.count === null && op.seconds === null) ? 'for ever' : op.count !== null ? `${op.count} times` : `for ${op.seconds} s` };
+        case 'valve': {
+          const v = op.context ? '(its valve)' : op.valve;
+          const how = op.operation === 0x0b ? `${v} \u2190 ${op.operand}` : op.operation === 0x0c ? `${v} + ${op.operand}` : op.operation === 0x0d ? `${v} \u2212 ${op.operand}`
+            : op.operation === 0x0e ? `${v} \u00d7 ${op.operand}` : `${v} ${DISC_TEST[op.operation] ?? `op${op.operation}`} ${op.operand}`;
+          return { do: 'set', detail: how };
+        }
+        case 'message': return { do: 'message', detail: op.text !== null ? `\u201c${op.text}\u201d` : `locale #${op.locId ?? '?'}` };
+        case 'sound': return { do: 'sound', detail: `${op.sound} @ ${nodeName(op.node)}${op.volume !== 1 ? ` \u00b7 vol ${op.volume}` : ''}` };
+        case 'call': return { do: 'effect', detail: op.anim };
+        case 'callSequence': return { do: 'callSequence', detail: op.sequence };
+        case 'stopSequence': return { do: 'stopSequence', detail: op.sequence };
+        case 'stopAnimation': return { do: 'STOP_ANIMATION', detail: op.anim };
+        case 'pauseAnimation': return { do: 'PAUSE_ANIMATION', detail: op.anim };
+        case 'executeAction': return { do: 'run', detail: `action ${op.anim}` };
+        case 'active': return { do: op.on ? 'show' : 'hide', detail: nodeName(op.node) };
+        case 'opacity': return { do: 'fade', detail: `${nodeName(op.node)} \u00b7 ${Math.round(op.from * 100)}% \u2192 ${Math.round(op.to * 100)}% in ${op.seconds} s` };
+        case 'fireWeapon': return { do: 'blast', detail: `${op.weapon} \u00b7 ${op.ammo} @ ${nodeName(op.node)}` };
+        case 'particles': return { do: 'PARTICLE_SOURCE', detail: nodeName(op.source.node) };
+        case 'light': return { do: 'LIGHT', detail: '' };
+        case 'destruction': return { do: 'DESTRUCTION_SOURCE', detail: nodeName(op.node) };
+        case 'translate': case 'rotate': return { do: op.op === 'translate' ? 'OBJECT_TRANSLATE_STATE' : 'OBJECT_ROTATE_STATE', detail: `${nodeName(op.node)} \u00b7 ${op.xyz.map((x: number) => Math.round(x * 100) / 100).join(', ')}` };
+        case 'fromTo': return { do: 'OBJECT_MOTION_FROM_TO', detail: `${nodeName(op.node)} \u00b7 ${op.seconds} s` };
+        case 'motion': return { do: 'OBJECT_MOTION', detail: '' };
+        case 'fail': return { do: 'FAIL', detail: 'ends the program' };
+        case 'invalidate': return { do: 'INVALIDATE_ANIMATION', detail: op.anim ?? 'this one' };
+        case 'other': return { do: op.name ? op.name.toUpperCase().replace(/[^A-Z0-9_]/g, '_') : `COMMAND_${op.cmd}`, detail: op.name ? '' : `#${op.cmd}` };
+        default: return { do: op.op.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase(), detail: '' };
+      }
+    });
+  };
+  const drawDiscProgram = (): void => {
+    const all = (baseMap?.meta?.scene?.programs ?? []).map((p) => p.program).filter((p) => p.sequences.length);
+    const programs = [...all].sort((a, b) => Number(b.name.toLowerCase() === 'objectives') - Number(a.name.toLowerCase() === 'objectives') || a.name.localeCompare(b.name));
+    const none = { select: () => undefined, insert: () => undefined, remove: () => undefined, rows: (): InspectorEditor[] => [] };
+    if (!programs.length) {
+      scriptGraph.setDisc(null, { program: '', sequence: 0 }, () => undefined);
+      scriptGraph.draw(null, none, baseMap ? `${baseMap.archive} has no programs of its own to show.` : 'A blank floor has no original map programs: open a layout on a disc map.');
+      return;
+    }
+    const program = programs.find((p) => p.name === discAt?.program) ?? programs[0]!;
+    const sequence = Math.min(discAt?.program === program.name ? discAt.sequence : 0, program.sequences.length - 1);
+    discAt = { program: program.name, sequence };
+    scriptGraph.setDisc(programs.map((p) => ({ name: p.name, sequences: p.sequences.map((s) => s.name || '(unnamed)') })), discAt, (at) => { discAt = at; drawScriptGraph(); });
+    const seq = program.sequences[sequence]!;
+    scriptGraph.draw({
+      owner: `${baseMap!.archive} \u00b7 ${program.name}`, event: `Sequence \u201c${seq.name || '(unnamed)'}\u201d \u00b7 ${(seq.activation & 0x7f) === 1 ? 'runs at the start' : 'called (activation 2)'}`,
+      steps: discSteps(program, seq.ops), selected: null, locked: true, addKinds: [], readOnly: true,
+    }, none, '');
+  };
+  /**
+   * The sequence tabs' edits (`ScriptGraph.setSequences`), each one edit of the script's: a new sequence (`sequence_N`,
+   * shown), a rename (its Call and Stop steps follow it), a removal (its Call and Stop steps go with it).
+   */
+  const sequenceHooks = (got: { s: Object3D; sc: EditorScript; opts: { store?: WeakMap<Object3D, EditorScript> } } | null, ref: string) => {
+    const edit1 = (what: string, fn: (sc: EditorScript) => void): void => {
+      if (!got) return;
+      const store = got.opts.store ?? switchScript;
+      if (!store.has(got.s)) store.set(got.s, got.sc);
+      personEdit('placement.set', { ref, field: 'script', value: what }, (step) => {
+        const before = selectionIds();
+        fn(store.get(got.s) ?? got.sc);
+        edit(before, step);
+        refreshInspector();
+      }, true);
+    };
+    const everyStep = (sc: EditorScript): EditorStep[] => [...sc.steps, ...(sc.sequences ?? []).flatMap((q) => q.steps)];
+    return {
+      pick: (i: number | null): void => { scriptSeq = i; scriptFocus = null; refreshInspector(); },
+      add: (): void => {
+        if (!got) return;
+        if ((got.sc.sequences?.length ?? 0) >= SCRIPT_SEQUENCES_MAX) { notifier.refused(`A program holds ${SCRIPT_SEQUENCES_MAX} sequences at most`); return; }
+        edit1('sequence.add', (sc) => {
+          const taken = new Set((sc.sequences ?? []).map((q) => q.name));
+          let n = 1;
+          while (taken.has(`sequence_${n}`)) n++;
+          (sc.sequences ??= []).push({ name: `sequence_${n}`, steps: [] });
+          scriptSeq = sc.sequences.length - 1;
+        });
+      },
+      rename: (i: number, name: string): void => {
+        if (!got) return;
+        const old = got.sc.sequences?.[i]?.name;
+        if (old === undefined || name === old) return;
+        if (!SCRIPT_SEQUENCE_NAME.test(name) || name === 'main') { notifier.refused('A sequence name is a letter, then letters, digits or _ (24 at most), and not main'); refreshInspector(); return; }
+        if (got.sc.sequences!.some((q, j) => j !== i && q.name === name)) { notifier.refused(`This program has a sequence named ${name} already`); refreshInspector(); return; }
+        edit1('sequence.rename', (sc) => {
+          const q = sc.sequences?.[i];
+          if (!q) return;
+          q.name = name;
+          for (const st of everyStep(sc)) if ((st.do === 'callSequence' || st.do === 'stopSequence') && st.sequence === old) st.sequence = name;
+        });
+      },
+      remove: (i: number): void => {
+        edit1('sequence.remove', (sc) => {
+          const q = sc.sequences?.[i];
+          if (!q) return;
+          sc.sequences!.splice(i, 1);
+          const named = (st: EditorStep): boolean => (st.do === 'callSequence' || st.do === 'stopSequence') && st.sequence === q.name;
+          sc.steps = sc.steps.filter((st) => !named(st));
+          for (const other of sc.sequences!) other.steps = other.steps.filter((st) => !named(st));
+          if (!sc.sequences!.length) delete sc.sequences;
+          scriptSeq = null;
+        });
+      },
+    };
+  };
+  /** The script shown's reference: the map's own (`map`), else the selection's. */
+  const scriptRef = (): string => (scriptView === 'map' ? 'map' : selectionIds()[0] ?? '');
+  const scriptGraphHooks = (got: { s: Object3D; sc: EditorScript; opts: { store?: WeakMap<Object3D, EditorScript>; death?: boolean; title?: string; self?: string } } | null) => {
+    const ref = scriptRef();
+    const rowsOf = (insertAt?: number, withOtherwise = false): InspectorEditor[] => {
+      if (!got) return [];
+      const tmp: InspectorEditor[] = [];
+      scriptEditors(got.s, ref, got.sc, editsLocked() || (got.s !== mapScriptOwner && lockedOf(got.s)), tmp,
+        { ...got.opts, ...(insertAt !== undefined ? { insertAt } : {}), ...(withOtherwise ? { withOtherwise } : {}), ...(scriptSeq !== null ? { seq: scriptSeq } : {}) });
+      return tmp;
+    };
+    return {
+      select: (k: number | null): void => { scriptFocus = k === null ? null : { ref, k, seq: scriptSeq }; refreshInspector(); },
+      insert: (at: number, kind: string, otherwise = false): void => {
+        const add = rowsOf(at, otherwise).find((e) => e.label === 'Add a command');
+        if (!add) return;
+        // The new step chosen (after its Otherwise, where one came with it).
+        scriptFocus = { ref, k: otherwise && kind !== 'else' && kind !== 'elseif' ? at + 1 : at, seq: scriptSeq };
+        add.set(kind);
+      },
+      remove: (k: number): void => {
+        const row = rowsOf().find((e) => e.scriptStep === k && /\.$/.test(e.label));
+        if (!row) return;
+        scriptFocus = null;
+        row.set('remove');
+      },
+      rows: (): InspectorEditor[] => rowsOf(),
+    };
+  };
+  /**
+   * The Map panel's Script row (the owner, 2026-11-13: "add a script button in the map panel so that we can see it
+   * easily"): the map script in the Script editor, with its count of steps.
+   */
+  {
+    const row = el(doc, 'div', 'fx-map-script-row');
+    const label = el(doc, 'span', 'fx-dim', 'Program');
+    const open = el(doc, 'button', 'fx-tool fx-map-script-open');
+    open.type = 'button';
+    open.title = "The map's own program, in the Program editor: run from the round's start, reacting to the game's own valves (the bomb ...) and yours";
+    const words = el(doc, 'span', '', 'Map Program');
+    const count = el(doc, 'span', 'fx-dim fx-map-script-count', '');
+    open.innerHTML = icon('nodes');
+    open.append(words, count);
+    open.addEventListener('click', () => { showScriptView('map'); shellUi.reveal('script'); });
+    row.append(label, open);
+    const heading = settingsDom.body.querySelector('h3');
+    if (heading) heading.after(row); else settingsDom.body.prepend(row);
+    // Its count kept with the script: each redraw of the graph (every edit's) says it again.
+    mapScriptCount = (): void => { const n = mapScriptNow().steps.length; count.textContent = n ? `${n} command${n === 1 ? '' : 's'}` : 'empty'; };
+  }
+  shell.register({
+    // In the centre, a tab beside the Viewport (the owner, 2026-11-13: "move the script editor to the center panel by
+    // default"); its tab's own name, so a layout kept from before places it there anew.
+    id: 'script', title: 'Program editor', dock: 'center', order: 1, defaultOpen: true, tab: 'Program editor', padLegend: [],
+    mount(host) {
+      host.append(scriptGraph.root);
+      return { dispose: () => { scriptGraph.root.remove(); }, update: () => drawScriptGraph() };
+    },
+  });
   resetPosition.addEventListener('click', () => {
     if (!selected && !isGroup() && !baseSelected && mapDataSelected && mapDataMovable()) { commitMapDataMove(null); return; }
     const entity = inspectedEntity();
@@ -7585,6 +8404,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         e.preventDefault();
         moveInOutline(dragged, null, 'top');
       });
+      // A tile's own drag let go on the empty space (or a user row taking none): placed, at the top's end.
+      outliner.addEventListener('pointerup', (e) => {
+        const asset = tileDragAsset();
+        if (!asset) return;
+        const li = (e.target as HTMLElement).closest<HTMLLIElement>('li');
+        if (li && li.dataset['outlinerSection'] !== 'user' && li.dataset['userEmpty'] === undefined) return;
+        endTileDrag();
+        dropTileInOutline(asset, null, 'top');
+      });
       // A click on the list's empty space, past every row: nothing selected (the owner, 2026-11-11).
       outliner.addEventListener('click', (e) => {
         if ((e.target as HTMLElement | null)?.closest('li')) return;
@@ -7671,7 +8499,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         });
         li.addEventListener('dragend', endOutlinerDrag);
       }
-      const zoneOf = (e: DragEvent): 'before' | 'after' | 'inside' => {
+      const zoneOf = (e: MouseEvent): 'before' | 'after' | 'inside' => {
         const b = li.getBoundingClientRect();
         const y = (e.clientY - b.top) / Math.max(1, b.height);
         return y < 0.28 ? 'before' : y > 0.72 ? 'after' : 'inside';
@@ -7696,6 +8524,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       li.addEventListener('dragleave', () => {
         li.classList.remove('is-drop', 'is-drop-before', 'is-drop-after');
         if (dragOpenTimer !== null) { clearTimeout(dragOpenTimer); dragOpenTimer = null; }
+      });
+      // A tile's own drag (`tileDragAsset`): its marks as the browser's drag draws them, its release placed here.
+      li.addEventListener('pointermove', (e) => {
+        if (!tileDragAsset()) return;
+        const zone = zoneOf(e);
+        li.classList.toggle('is-drop', zone === 'inside');
+        li.classList.toggle('is-drop-before', zone === 'before');
+        li.classList.toggle('is-drop-after', zone === 'after');
+      });
+      li.addEventListener('pointerleave', () => { if (tileDragAsset()) li.classList.remove('is-drop', 'is-drop-before', 'is-drop-after'); });
+      li.addEventListener('pointerup', (e) => {
+        const asset = tileDragAsset();
+        if (!asset) return;
+        e.stopPropagation();
+        const zone = zoneOf(e);
+        endTileDrag();
+        dropTileInOutline(asset, o, zone);
       });
       li.addEventListener('drop', (e) => {
         const dragged = outlinerDrag;
@@ -8137,7 +8982,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const padConnected = (): boolean => [...(globalThis.navigator?.getGamepads?.() ?? [])].some((g) => g?.connected === true);
   /** What a marker tool places, said before the prompts (the hint's words before FUI-3). */
   const TOOL_NOTES: Partial<Record<Mode, string>> = {
-    ambient: 'An ambient effect: the map\'s fire, smoke, water or weather, playing from the round\'s start',
+    ambient: 'An emitter: the map\'s fire, smoke, water or weather (or a sound or an effect), playing from the round\'s start',
     spawnA: 'A team A spawn: it faces the way you look',
     spawnB: 'A team B spawn: it faces the way you look',
     hostage: 'A hostage, beside the map\'s own: Escort and Extraction play them',
@@ -8180,7 +9025,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawLegendNow();
     statusChips.update();                                     // FUI-4: Build / Walk / Play
     sMode.textContent = playing ? 'PLAY' : entityTool ? `PLACE ${entityTool.toUpperCase()}`
-      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'EFFECT' } as const)[mode];
+      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'EMITTER' } as const)[mode];
   };
   /**
    * The selection drawn (FG-47): the single selection's `selected` / `baseSelected` derived, the gizmo on the one
@@ -8546,6 +9391,142 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const chooseCharacterRow = (c: { side: 'seal' | 'terrorist'; type: number }): void => {
     npcChoice = c; setMode('npc'); drawAssets(); say(`placing NPCs: ${charLabel(c.side, c.type)}`);
   };
+  /**
+   * A drag from the asset browser over the viewport (the owner, 2026-11-14: "when I click an asset the place tool works
+   * smoothly, but when I do a drag and drop, it is super janky ... the drag and drop is just an interaction
+   * abstraction"; a browser adaptation, FG.R2): the asset picked as its tile's click picks it -- the Place tool, its own
+   * ghost -- with no list redrawn (the dragged tile must stay, or the browser loses the drag), and the tool put back as it
+   * was when the drag leaves or drops (a drag never changes your tool). False: not this way (the characters' tiles,
+   * Play, a held layout) -- the staged ghost instead.
+   */
+  let dragPlaceKept: { mode: Mode; chosen: string | null; choice: typeof objectChoice } | null = null;
+  const dragPlaceEnter = (asset: string): boolean => {
+    if (playing || editsLocked() || showChars) return false;
+    const kept = dragPlaceKept ?? { mode, chosen, choice: { ...objectChoice } };
+    const o = parseObjectAsset(asset);
+    if (o) {
+      if (o.kind === 'switch') objectChoice.switch = o.name as SwitchLookId;
+      else objectChoice[o.kind] = { source: o.source, name: o.name };
+      setMode(o.kind);
+    } else if (objectTab === 'ladder') { objectChoice.ladder = asset; setMode('ladder'); }
+    else { newAssetChosen(asset); chosen = asset; setMode('place'); }
+    if (mode === 'select') return false;                     // the tool refused (its game type's off)
+    dragPlaceKept = kept;
+    return true;
+  };
+  const dragPlaceLeave = (): void => {
+    const k = dragPlaceKept;
+    if (!k) return;
+    dragPlaceKept = null;
+    for (const key of Object.keys(objectChoice) as (keyof typeof objectChoice)[]) delete objectChoice[key];
+    Object.assign(objectChoice, k.choice);
+    chosen = k.chosen;
+    setMode(k.mode);
+  };
+  /**
+   * The asset tiles' own drag (the owner, 2026-11-14: "drag and drop still feels janky and slow"; a browser adaptation,
+   * FG.R2): the pointer's, never the browser's -- a native drag runs in the system's drag loop (Windows': its frames and
+   * its events throttled), so a tile is dragged by its pointer moves as the Place tool's ghost follows any move. Over the
+   * viewport the asset is the Place tool's (`dragPlaceEnter`: its ghost, moved by the viewport's own pointermove) and a
+   * release places as a click does; over an Outliner row or an Inspector row with a drop, a release drops it there
+   * (`tileDragAsset`); anywhere else, or Escape, nothing. The Characters' tiles keep the browser's drag.
+   */
+  let tileDrag: { asset: string; pointerId: number; x: number; y: number; started: boolean; overView: boolean } | null = null;
+  /** The pointer moved this far (CSS pixels) from its press: a tile's drag, not its click. */
+  const TILE_DRAG_PX = 6;
+  /** The asset a tile's drag carries now (started), or null. */
+  const tileDragAsset = (): string | null => (tileDrag?.started ? tileDrag.asset : null);
+  /** Its chip by the pointer (the asset's name) while it is off the viewport (over it, the Place tool's ghost shows). */
+  const tileDragChip = el(doc, 'div', 'fx-tile-drag-chip');
+  tileDragChip.hidden = true;
+  tileDragChip.setAttribute('aria-hidden', 'true');
+  doc.body.append(tileDragChip);
+  const endTileDrag = (): void => {
+    const d = tileDrag;
+    tileDrag = null;
+    tileDragChip.hidden = true;
+    doc.body.classList.remove('fx-tile-dragging');
+    for (const x of outliner.querySelectorAll('.is-drop, .is-drop-before, .is-drop-after')) x.classList.remove('is-drop', 'is-drop-before', 'is-drop-after');
+    for (const x of doc.querySelectorAll('.is-asset-drop')) x.classList.remove('is-asset-drop');
+    if (d?.overView) dragPlaceLeave();
+    if (d?.started) {
+      // The click a release makes after a drag is the drag's, not a tile's pick (nor anything under it).
+      const swallow = (e: Event): void => { e.stopPropagation(); e.preventDefault(); };
+      doc.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => doc.removeEventListener('click', swallow, true), 0);
+    }
+  };
+  const overViewport = (t: EventTarget | null): boolean => t instanceof Node && (t === input || input.contains(t));
+  // No browser drag from a tile (the Characters' aside): the pointer's own instead.
+  list.addEventListener('dragstart', (e) => { if (!showChars) { e.preventDefault(); e.stopPropagation(); } }, true);
+  list.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || showChars || assetPick || playing) return;
+    const t = e.target as Element | null;
+    const tile = t?.closest<HTMLElement>('[data-asset]');
+    if (!tile || !list.contains(tile) || t?.closest('.fx-star, .fx-asset-play')) return;
+    tileDrag = { asset: tile.dataset['asset'] ?? '', pointerId: e.pointerId, x: e.clientX, y: e.clientY, started: false, overView: false };
+    if (!tileDrag.asset) tileDrag = null;
+  });
+  doc.addEventListener('pointermove', (e) => {
+    const d = tileDrag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (!(e.buttons & 1)) { endTileDrag(); return; }           // released where no pointerup reached the page
+    if (!d.started) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < TILE_DRAG_PX) return;
+      d.started = true;
+      assetTiles?.escape();                                    // its hover preview away: the ghost or the chip is the drag's
+      doc.body.classList.add('fx-tile-dragging');
+      tileDragChip.textContent = d.asset.slice(d.asset.indexOf(':') + 1).replace(/^=(sound|effect):/, '');
+    }
+    const over = overViewport(e.target);
+    if (over !== d.overView) {
+      if (over) d.overView = dragPlaceEnter(d.asset);
+      else { d.overView = false; dragPlaceLeave(); }
+    }
+    // The chip off the viewport (the ghost on it); the viewport's own pointermove moves the ghost.
+    tileDragChip.hidden = d.overView;
+    if (!d.overView) { tileDragChip.style.left = `${e.clientX + 14}px`; tileDragChip.style.top = `${e.clientY + 10}px`; }
+  }, true);
+  doc.addEventListener('pointerup', (e) => {
+    const d = tileDrag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (d.started && d.overView && overViewport(e.target)) {
+      // Placed as a click in the world places (its own refusals said); the tool put back by `endTileDrag`.
+      const n = ndcAtClient(e.clientX, e.clientY);
+      lastNdc = n;
+      act(n);
+    }
+    endTileDrag();
+  });
+  doc.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !tileDrag?.started) return;
+    e.stopImmediatePropagation();
+    endTileDrag();
+  }, true);
+  /**
+   * A tile's drag let go on the Outliner: placed at the view's centre as the Place tool places there, then put before,
+   * after or inside `target` (null: left at the top's end) once it is in.
+   */
+  const dropTileInOutline = (asset: string, target: Object3D | null, where: 'before' | 'after' | 'inside' | 'top'): void => {
+    const had = new Set(roots);
+    if (!dragPlaceEnter(asset)) return;
+    act(new Vector2(0, 0));
+    dragPlaceLeave();
+    const settle = (frames: number): void => {
+      const made = roots.filter((r) => !had.has(r));
+      if (made.length) {
+        if (target && where !== 'top' && (roots.includes(target) || folders.includes(target))) moveInOutline(made, target, where);
+        return;
+      }
+      if (frames > 0) requestAnimationFrame(() => settle(frames - 1));
+    };
+    settle(600);
+  };
+  /** A point of the window (a drag's) as the viewport's NDC, as `ndcOf` reads a pointer's. */
+  const ndcAtClient = (x: number, y: number): Vector2 => {
+    const r = input.getBoundingClientRect();
+    return new Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+  };
   /** FUI-22 review F1 (all routes): a newly chosen asset arrives unturned (the wheel's turn belongs to the prop it turned); the same asset keeps it. */
   const newAssetChosen = (asset: string): void => {
     if (chosen !== asset) { queuedTurn = 0; wheelTravel = 0; }
@@ -8666,8 +9647,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * distance (RANGE max: heard nowhere past it) and a ring at its full-volume distance (RANGE min) -- `FUN_00342670`'s
    * falloff, the sound's own; shown with the View's Ambient effects switch (`userAmbients`), never in Play.
    */
-  const ambientGuides = overlayLines([], AMBIENT_GUIDE_COLOUR, 'forge guide userAmbients');
-  ambientGuides.userData['forgeGuideKind'] = 'userAmbients';
+  const ambientGuides = overlayLines([], AMBIENT_GUIDE_COLOUR, 'forge guide userEmitters');
+  ambientGuides.userData['forgeGuideKind'] = 'userEmitters';
   scene.add(ambientGuides);
   let ambientGuideKey = '';
   /**
@@ -8694,12 +9675,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ambientGuides.geometry.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3));
       ambientGuides.geometry.computeBoundingSphere();
     }
-    ambientGuides.visible = pts.length > 0 && view.spawns && !playing && guideShown('userAmbients');
+    ambientGuides.visible = pts.length > 0 && view.spawns && !playing && guideShown('userEmitters');
   };
-  let ambientAudio: { stop(): void; timeline?(): { fraction: number } | null } | null = null;
+  let ambientAudio: { stop(): void; timeline?(): { fraction: number } | null; setVolume?(volume: number): void } | null = null;
   /** The ambient effect sounding now (`<map>:<program>`): what the Inspector's one Play / Stop button reads. */
   let ambientPlaying: string | null = null;
-  const stopAmbientPreview = (): void => { ambientAudio?.stop(); ambientAudio = null; ambientPlaying = null; drawAmbientPlayButtons(); };
+  /**
+   * Each play's turn (the owner, 2026-11-14: "sometimes ... it gets stuck playing looping"): a play still reading its
+   * sounds when another starts, or a stop comes, is let go on arrival -- never left sounding with no handle to stop it.
+   */
+  let ambientTurn = 0;
+  const stopAmbientPreview = (): void => { ambientTurn++; ambientAudio?.stop(); ambientAudio = null; ambientPlaying = null; drawAmbientPlayButtons(); };
   /**
    * The asset browser's ambient tiles' sound buttons (the owner, 2026-11-11: "when they are playing change the button to
    * a stop"): ■ on the effect sounding now (a press stops it), ▶ on every other (a press plays it, any other stopped).
@@ -8714,42 +9700,153 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       b.setAttribute('aria-pressed', String(on));
     }
   };
-  /**
-   * The Inspector's one sound button (the owner, 2026-11-10: "make the play/pause button a single button"): Play while
-   * this effect is silent, Stop while it sounds; a press plays it (any other stopped) or stops it.
-   */
-  const ambientSoundButton = (source: string, name: string): InspectorEditor => {
-    const key = `${source}:${name}`, on = ambientPlaying === key;
-    return { label: 'Sound', kind: 'button', value: on ? '■ Stop' : '▶ Play', title: on ? 'Stop its sound' : 'Play its sounds here (a loop plays until Stop)',
-      set: () => { if (ambientPlaying === key) { stopAmbientPreview(); refreshInspector(); } else void previewAmbientSound(source, name).then(() => refreshInspector()); } };
-  };
   /** One sound of a map's played here (`playAmbientSounds`): a loop until Stop, a one-shot once. */
   const previewSoundNamed = async (source: string, sound: string): Promise<void> => {
     stopAmbientPreview();
-    const h = await playAmbientSounds(archives.sourceRequest(), source, [sound]);
+    const turn = ambientTurn;
+    const h = await playAmbientSounds(archives.sourceRequest(), source, [sound], {
+      loop: assetLoopSounds,
+      volume: assetPreviewVolume,
+      onEnd: () => { if (ambientAudio === h) { ambientAudio = null; ambientPlaying = null; drawAmbientPlayButtons(); } },
+    });
+    if (turn !== ambientTurn) { h.stop(); return; }           // stopped, or another started, while it was read
     ambientAudio = h;
     ambientPlaying = h.played ? `${source}:${sound}#sound` : null;
     say(h.played ? `${source}: playing ${sound}` : `${source}: ${sound} would not play`, !h.played);
   };
-  /** A sound's Play / Stop button (`previewSoundNamed`), as the ambient effect's one. */
-  const previewSoundButton = (source: string, sound: string): InspectorEditor => {
-    const key = `${source}:${sound}#sound`, on = ambientPlaying === key;
-    return { label: 'Hear', kind: 'button', value: on ? '\u25a0 Stop' : '\u25b6 Play', title: on ? 'Stop it' : 'Play this sound here (a loop plays until Stop)',
-      set: () => { if (ambientPlaying === key) { stopAmbientPreview(); refreshInspector(); } else void previewSoundNamed(source, sound).then(() => refreshInspector()); } };
+  /**
+   * A Sound or Effect command's preview (the owner, 2026-11-14: "a preview button ... live in the ui, not in game"; "a
+   * preview window for the sound as well ... the progress bar"; a browser adaptation, FG.R2 -- the editor's own look): a
+   * small card beside its icon -- an effect's particles live (`ambientPreview`, the asset browser's hover preview's own
+   * runner and picture), a sound's card (its speaker) played with its timeline under it (`previewSoundNamed`) -- until
+   * its icon again, its x, Escape or a press elsewhere; one at a time.
+   */
+  let assetPreviewCard: { key: string; close(): void } | null = null;
+  // `program`: a placed ambient program's -- its particles as an effect's, its sounds played beside them (`previewAmbientSound`).
+  const previewCard = (kind: 'sound' | 'effect' | 'program', source: string, name: string, key: string, anchor: Element | null, sounds = kind === 'sound'): void => {
+    assetPreviewCard?.close();
+    const soundKey = kind === 'program' ? `${source}:${name}` : `${source}:${name}#sound`;
+    const playSound = (): Promise<void> => (kind === 'program' ? previewAmbientSound(source, name, true) : previewSoundNamed(source, name));
+    const card = el(doc, 'div', 'fx-asset-tip fx-effect-preview');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', `${name} preview`);
+    const head = el(doc, 'div', 'fx-effect-preview-head');
+    const x = el(doc, 'button', 'fx-tool fx-effect-preview-close', '\u2715') as HTMLButtonElement;
+    x.type = 'button';
+    x.title = 'Close the preview';
+    x.setAttribute('aria-label', 'Close the preview');
+    const tools = el(doc, 'span', 'fx-effect-preview-tools');
+    // A sound's own play and stop (it plays once its card opens; again, or stopped, here).
+    let play: HTMLButtonElement | null = null;
+    const drawPlay = (): void => {
+      if (!play) return;
+      const on = ambientPlaying === soundKey;
+      play.innerHTML = icon(on ? 'stop' : 'play');
+      play.title = on ? 'Stop the sound' : 'Play the sound again';
+      play.setAttribute('aria-label', play.title);
+    };
+    if (sounds) {
+      play = el(doc, 'button', 'fx-tool fx-effect-preview-close') as HTMLButtonElement;
+      play.type = 'button';
+      play.addEventListener('click', () => {
+        if (ambientPlaying === soundKey) { stopAmbientPreview(); drawPlay(); } else void playSound().then(drawPlay);
+      });
+      tools.append(play);
+    }
+    tools.append(x);
+    head.append(el(doc, 'span', 'fx-dim', kind === 'sound' ? 'Sound preview' : kind === 'program' ? 'Emitter preview' : 'Effect preview'), tools);
+    card.append(head);
+    doc.body.append(card);
+    const preview = createAssetPreview(card, kind !== 'sound' ? {
+      clearColor: [64, 64, 64],
+      resolve: async () => {
+        // A placed program settled first (its fire already burning, as the asset browser's hover shows it).
+        const live = await ambientPreview(archives.sourceRequest(), source, name, kind === 'program', () => assetLoopSounds).catch(() => null);
+        return live ? { object: live.object, name, source, collision: 'particles', dispose: live.dispose, progress: live.progress } : null;
+      },
+      // A program's bar (the owner, 2026-11-14: "a progress bar in the preview for program assets ... link it to the loop
+      // settings"): its sounds' timeline while they play (looped or once, as Loop sounds & effects says), else its
+      // particles' own (`ambientPreview`'s: replayed at its end while looping; none for one that burns for ever).
+      ...(kind === 'program' ? { progress: () => (ambientPlaying === soundKey ? ambientAudio?.timeline?.()?.fraction ?? null : null) } : {}),
+    } : {
+      resolve: async () => null,
+      sound: () => ({ name: name.trim(), art: icon('sound') }),
+      progress: () => (ambientPlaying === soundKey ? ambientAudio?.timeline?.()?.fraction ?? null : null),
+    });
+    void preview.show(`${kind}:${source}:${name}`, kind === 'effect' ? `${source} \u00b7 its particles, as the command plays them (no sound)`
+      : kind === 'program' ? `${source} \u00b7 its particles${sounds ? ' and its sounds' : ''}, as its map plays them` : source);
+    if (sounds) void playSound().then(drawPlay);
+    // Beside its icon: to its left where there is room (the Inspector docked right), else its right; inside the window.
+    const r = anchor?.getBoundingClientRect() ?? null;
+    const win = doc.defaultView, vw = win?.innerWidth ?? 1280, vh = win?.innerHeight ?? 800;
+    const w = card.offsetWidth || 300, h = card.offsetHeight || 300;
+    const left = !r ? (vw - w) / 2 : r.left - w - 12 >= 8 ? r.left - w - 12 : Math.min(vw - w - 8, r.right + 12);
+    card.style.left = `${Math.max(8, left)}px`;
+    card.style.top = `${Math.max(8, Math.min(vh - h - 8, r ? r.top - 40 : (vh - h) / 2))}px`;
+    // Drawn each frame while open (the preview draws, and its timeline moves, only when asked: `frame`).
+    let raf = 0, last = performance.now(), open = true, wasOn = false;
+    const tick = (now: number): void => {
+      if (!open) return;
+      preview.frame(Math.min(0.1, (now - last) / 1000), true);
+      last = now;
+      const on = ambientPlaying === soundKey;
+      if (on !== wasOn) { wasOn = on; drawPlay(); }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); refreshInspector(); } };
+    const onDown = (e: PointerEvent): void => {
+      const t = e.target as Node | null;
+      // A preview icon's press is its own (its row redrawn, the anchor may be another element now): it closes or swaps.
+      if (t && (card.contains(t) || (anchor && anchor.contains(t)) || (t instanceof Element && t.closest('.fx-inspect-preview')))) return;
+      close(); refreshInspector();
+    };
+    const close = (): void => {
+      if (!open) return;
+      open = false;
+      cancelAnimationFrame(raf);
+      doc.removeEventListener('keydown', onKey, true);
+      doc.removeEventListener('pointerdown', onDown, true);
+      if (ambientPlaying === soundKey || !ambientAudio) stopAmbientPreview();   // its own, or one still being read
+      preview.dispose();
+      card.remove();
+      if (assetPreviewCard?.key === key) assetPreviewCard = null;
+    };
+    x.addEventListener('click', () => { close(); refreshInspector(); });
+    doc.addEventListener('keydown', onKey, true);
+    doc.addEventListener('pointerdown', onDown, true);
+    assetPreviewCard = { key, close };
+  };
+  /** A Sound or Effect row's preview icon (`previewCard`): drawn pressed while its card shows; a press opens or closes it. */
+  const previewIcon = (kind: 'sound' | 'effect' | 'program', source: string, name: string, key: string, sounds = kind === 'sound'): NonNullable<InspectorEditor['peek']> => {
+    const k2 = `${kind}:${key}:${source}:${name}`;
+    const on = assetPreviewCard?.key === k2;
+    return { icon: icon(kind === 'sound' ? 'sound' : 'eye'), on,
+      title: on ? 'Close the preview' : kind === 'sound' ? 'Preview this sound (its card and its timeline)'
+        : kind === 'program' ? `Preview this emitter (its particles live${sounds ? ', its sounds played' : ''})` : 'Preview this effect (its particles, live)',
+      open: (anchor) => {
+        if (assetPreviewCard?.key === k2) { assetPreviewCard.close(); refreshInspector(); return; }
+        previewCard(kind, source, name, k2, anchor, sounds);
+        refreshInspector();
+      } };
   };
   /** `quiet`: no line said (a hover's: a silent effect is no news). */
   const previewAmbientSound = async (source: string, name: string, quiet = false): Promise<void> => {
     stopAmbientPreview();
+    const turn = ambientTurn;
     // A Sound tile's (`=sound:<sound>`): that sound alone.
     const solo = soundOfAssetName(name);
     const lib = solo === null ? await hostageLibOf(source) : null;
     const p = solo !== null ? { sounds: [solo] } : lib ? ambientProgramsOf(lib).find((x) => x.name === name) : undefined;
+    if (turn !== ambientTurn) return;
     if (!p?.sounds.length) { if (!quiet) say(`${name} plays no sound of its own`); return; }
     // Looped or once, as the asset browser's Loop sounds says; once run out, its ■ a ▶ again.
     const h = await playAmbientSounds(archives.sourceRequest(), source, p.sounds, {
       loop: assetLoopSounds,
+      volume: assetPreviewVolume,
       onEnd: () => { if (ambientAudio === h) { ambientAudio = null; ambientPlaying = null; drawAmbientPlayButtons(); refreshInspector(); } },
     });
+    if (turn !== ambientTurn) { h.stop(); return; }           // stopped, or another started, while it was read
     ambientAudio = h;
     ambientPlaying = h.played ? `${source}:${name}` : null;
     drawAmbientPlayButtons();
@@ -8767,7 +9864,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const o = asset ? parseObjectAsset(asset) : null;
     const key = o?.kind === 'ambient' && assetHoverSound ? `${o.source}:${o.name}` : null;
     if (key === hoverSoundKey) return;
-    if (hoverSoundKey && ambientPlaying === hoverSoundKey) stopAmbientPreview();   // the last hover's, and only that
+    // The last hover's, and only that -- sounding, or still being read (nothing sounding yet).
+    if (hoverSoundKey && (ambientPlaying === hoverSoundKey || !ambientAudio)) stopAmbientPreview();
     hoverSoundKey = null;
     if (!key || !o || ambientPlaying === key) return;          // nothing to play, or already playing from its ▶
     hoverSoundKey = key;
@@ -8797,8 +9895,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const objectTiles = (kind: Exclude<ObjectTab, 'props' | 'characters'>): { id: string; name: string; meta: string }[] | null => {
     if (kind === 'sound') return soundTiles();
-    const own = objectTilesOwn(kind);
-    if (kind !== 'ambient') return own;
+    const own = objectTilesOwn(kind === 'effect' ? 'ambient' : kind);
+    if (kind !== 'ambient' && kind !== 'effect') return own;
     const stem = paletteStem();
     const ambient = new Set((own ?? []).map((t) => { const o = parseObjectAsset(t.id); return o ? `${o.source}:${o.name.trim().toLowerCase()}` : ''; }));
     // The called effects: a map's own (its list less what every map has, `scriptCommonNow`, once every map is read), each
@@ -8817,10 +9915,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       more = common ? [...commonEffects(), ...read.flatMap((m) => ownEffects(m, scriptNameLists.get(m)!))] : null;
     } else if (!stem) more = [];
     else { const n = scriptNamesOf(stem); more = n && common ? ownEffects(stem, n) : null; }
-    // The Programs filter: the ambient ones (the map's own self-starting programs), the called effects, or both.
+    // The Effects tab its called effects; the Programs tab the map's own self-starting programs.
     const shown = (list: { id: string; name: string; meta: string }[] | null): typeof list => (list === null ? null
-      : list.filter((t) => { const called = effectOfAssetName(parseObjectAsset(t.id)?.name ?? '') !== null; return programFilter === 'all' || (programFilter === 'effect') === called; }));
-    return own === null && more === null ? null : shown([...(own ?? []), ...(more ?? [])]);
+      : list.filter((t) => (effectOfAssetName(parseObjectAsset(t.id)?.name ?? '') !== null) === (kind === 'effect')));
+    // The Programs tab waits on no effect list.
+    if (kind === 'ambient') return own === null ? null : shown(own);
+    return more === null ? null : shown(more);
   };
   /**
    * The Sounds tab's tiles, by the map choice (the owner, 2026-11-13: "each map sound to only refer to sounds for that
@@ -8850,7 +9950,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return n ? own(stem, n) : null;
   };
   /** A tab's own tiles: the chosen map's copies of the kind (`copyList`), a ladder's as its prop, the switch's looks. */
-  const objectTilesOwn = (kind: Exclude<ObjectTab, 'props' | 'characters' | 'sound'>): { id: string; name: string; meta: string }[] | null => {
+  const objectTilesOwn = (kind: Exclude<ObjectTab, 'props' | 'characters' | 'sound' | 'effect'>): { id: string; name: string; meta: string }[] | null => {
     const stem = paletteStem();
     if (kind === 'switch') {
       // Each look under the map whose object it copies (the owner, 2026-11-13: "these assets don't belong to every map"):
@@ -8886,7 +9986,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       else objectChoice[o.kind] = { source: o.source, name: o.name };
     }
     queuedTurn = 0; wheelTravel = 0;
-    setMode(kind === 'sound' ? 'ambient' : kind);               // a sound is placed as an effect object (`scriptObjectData`)
+    setMode(kind === 'sound' || kind === 'effect' ? 'ambient' : kind);   // a sound or an effect is placed as an effect object (`scriptObjectData`)
     syncGhost();
     drawAssets();
     assetTiles?.activate(id);
@@ -8894,7 +9994,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** Whether an object tile is the one the Place tool places now. */
   const objectChosen = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): boolean => {
-    if (mode !== (kind === 'sound' ? 'ambient' : kind)) return false;
+    if (mode !== (kind === 'sound' || kind === 'effect' ? 'ambient' : kind)) return false;
     if (kind === 'ladder') return objectChoice.ladder === id;
     const o = parseObjectAsset(id);
     const c = o ? (o.kind === 'switch' ? objectChoice.switch ?? 'lever' : objectChoice[o.kind]) : undefined;
@@ -8993,7 +10093,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (items.length === 0) {
       // A map's own sounds wait on every map (what they all have is left out): said so.
-      items.push(el(doc, 'li', 'fx-empty', filter === 'favs' && tiles !== null && !q ? `No favourite ${tabWords(word)} here yet: star one to keep it here` : tiles === null ? ((kind === 'sound' || kind === 'ambient') && !scriptCommon
+      items.push(el(doc, 'li', 'fx-empty', filter === 'favs' && tiles !== null && !q ? `No favourite ${tabWords(word)} here yet: star one to keep it here` : tiles === null ? ((kind === 'sound' || kind === 'effect') && !scriptCommon
         ? `Reading every map's ${tabWords(word)}, to tell each map's own from what every map has…` : `Reading ${paletteStem() || 'every map'}'s ${tabWords(word)}…`)
         : q ? `No ${tabWords(word)} match` : paletteStem() ? `No ${tabWords(word)} on ${paletteStem()}: choose another map above`
         : paletteSel.value === PALETTE_COMMON ? `A ${word.toLowerCase()} is one map's own: choose a map above for its ${tabWords(word)}` : `Choose a map above for its ${tabWords(word)}`));
@@ -9039,7 +10139,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * a switch look's map. All and Common as they are.
    */
   const PALETTE_WORDS: Readonly<Record<Exclude<ObjectTab, 'characters'>, readonly [string, string]>> = {
-    props: ['prop', 'props'], sound: ['sound', 'sounds'], ambient: ['program', 'programs'], door: ['door', 'doors'], ladder: ['ladder', 'ladders'],
+    props: ['prop', 'props'], sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'], door: ['door', 'doors'], ladder: ['ladder', 'ladders'],
     turret: ['turret', 'turrets'], barrier: ['damage trigger', 'damage triggers'], switch: ['switch', 'switches'], gate: ['gate', 'gates'], flare: ['flare', 'flares'],
   };
   const paletteCountOf = (stem: string, tab: Exclude<ObjectTab, 'characters'>): number | null => {
@@ -9051,14 +10151,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const radio = RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0];
         return Number(stem === DEFAULT_GATE.source) + Number(stem === radio);
       }
-      case 'sound': case 'ambient': {
+      case 'ambient': return census ? census.ambient.length : null;
+      case 'sound': case 'effect': {
         // Its own: what every map has and the guns' left out, once known.
         const n = scriptNameLists.get(stem), common = scriptCommon, guns = weaponSoundList;
         if (!n || !common || (tab === 'sound' && !guns)) return null;
         if (tab === 'sound') { const g = new Set((guns ?? []).map((x) => x.name)); return ownScriptNames(n, 'sound').filter((x) => !g.has(x)).length; }
         if (!census) return null;
         const ambient = new Set(census.ambient.map(([x]) => x.trim().toLowerCase()));
-        return census.ambient.length + ownScriptNames(n, 'effect').filter((e) => !ambient.has(e.trim().toLowerCase())).length;
+        return ownScriptNames(n, 'effect').filter((e) => !ambient.has(e.trim().toLowerCase())).length;
       }
       default: return census ? census[tab].length : null;
     }
@@ -9069,7 +10170,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!paletteCountsAsked) return;
     const tab: Exclude<ObjectTab, 'characters'> = showChars || objectTab === 'characters' ? 'props' : objectTab;
     // What the tab's counts read: every map's census, and its sounds and effects (with the guns') for those tabs.
-    if (tab === 'sound' || tab === 'ambient') { askScriptNames(); if (tab === 'sound') weaponSoundsNow(); }
+    if (tab === 'sound' || tab === 'effect') { askScriptNames(); if (tab === 'sound') weaponSoundsNow(); }
     askCensus();
     const [one, many] = PALETTE_WORDS[tab];
     for (const o of Array.from(paletteSel.querySelectorAll('option'))) {
@@ -9091,7 +10192,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const [k, b] of objectTabButtons) { const on = k === 'characters' ? showChars : !showChars && objectTab === k; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
     // Favourites (on or off) every tab's (the owner, 2026-11-13); the program filter Programs'.
     chipFav.hidden = showChars;
-    for (const c of programChips) { c.hidden = showChars || objectTab !== 'ambient'; c.classList.toggle('is-on', c.dataset['programFilter'] === programFilter); }
     search.placeholder = showChars ? 'Search characters…' : objectTab === 'props' ? 'Search props…' : `Search ${tabWords(OBJECT_TABS.find(([k]) => k === objectTab)?.[1] ?? '')}…`;
     if (showChars) { drawCharacters(); return; }
     if (objectTab !== 'props' && objectTab !== 'characters') { drawObjects(objectTab); return; }
@@ -9198,6 +10298,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!assetHoverSound) hoverAmbientSound(null);              // a hover's sound sounding now: stopped
     writeView();
   });
+  // The volume: the sound playing now follows the drag; kept once let go.
+  assetVolumeSlider.addEventListener('input', () => {
+    assetPreviewVolume = Math.max(0, Math.min(1, Number(assetVolumeSlider.value) / 100));
+    assetVolumeValue.textContent = `${Math.round(assetPreviewVolume * 100)}%`;
+    ambientAudio?.setVolume?.(assetPreviewVolume);
+  });
+  assetVolumeSlider.addEventListener('change', () => writeView());
   assetLoopSoundsToggle.addEventListener('change', () => {
     assetLoopSounds = assetLoopSoundsToggle.checked;           // from the next play on
     writeView();
@@ -9567,7 +10674,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return userMarkKind({
       piece: !!r.userData['forgePiece'], npc: !!npcOf(r), bomb: bombKindOf(r), hostage: !!r.userData['forgeHostage'], zone: !!r.userData['forgeZone'],
       point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'],
-      ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'] || !!r.userData['forgeTrigger'], switch: !!r.userData['forgeSwitch'], object: objectOf(r)?.kind,
+      ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'] || !!r.userData['forgeTrigger'], switch: !!r.userData['forgeSwitch'], object: !!objectOf(r),
       ...(r.userData['forgeSpawn'] === 'A' || r.userData['forgeSpawn'] === 'B' ? { team: r.userData['forgeSpawn'] as 'A' | 'B' } : {}),
       ...(r.userData['forgeRespawn'] === 'A' || r.userData['forgeRespawn'] === 'B' ? { respawn: r.userData['forgeRespawn'] as 'A' | 'B' } : {}),
     });
@@ -9599,7 +10706,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       userMarksOf = [...roots];
       mapBillboards.setUser(roots.flatMap((r): UserMark[] => {
         const kind = userMarkKind({
-          piece: !!r.userData['forgePiece'], npc: !!npcOf(r), bomb: bombKindOf(r), hostage: !!r.userData['forgeHostage'], zone: !!r.userData['forgeZone'], point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'], ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'] || !!r.userData['forgeTrigger'], switch: !!r.userData['forgeSwitch'], object: objectOf(r)?.kind,
+          piece: !!r.userData['forgePiece'], npc: !!npcOf(r), bomb: bombKindOf(r), hostage: !!r.userData['forgeHostage'], zone: !!r.userData['forgeZone'], point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'], ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'] || !!r.userData['forgeTrigger'], switch: !!r.userData['forgeSwitch'], object: !!objectOf(r),
           ...(r.userData['forgeSpawn'] === 'A' || r.userData['forgeSpawn'] === 'B' ? { team: r.userData['forgeSpawn'] as 'A' | 'B' } : {}),
           ...(r.userData['forgeRespawn'] === 'A' || r.userData['forgeRespawn'] === 'B' ? { respawn: r.userData['forgeRespawn'] as 'A' | 'B' } : {}),
         });
@@ -10012,6 +11119,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       stagedObjects.push(r);
     }
     const stagedOwn = { pieces: staged.filter((x) => x.userData['forgePiece']), barriers: staged.filter((x) => x.userData['forgeBarrier']), gates: stagedGates, objects: stagedObjects };
+    // The map script, its targets the staged lists as the objects' (none: an empty one).
+    mapScriptStore.set(mapScriptOwner, l.mapScript ? scriptFromFile(l.mapScript, stagedOwn) : { steps: [] });
     // The objects' scripts, their targets the staged lists (an object may name a prop, a trigger, a gate or another object).
     (l.objects ?? []).filter((o) => o.kind === 'ambient').forEach((o, k) => { if (o.script && stagedObjects[k]) objectScript.set(stagedObjects[k]!, scriptFromFile(o.script, stagedOwn)); });
     for (const t of l.triggers ?? []) {
@@ -11875,7 +12984,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       })();
     const markers = npcs ? layout.npcs ?? [] : [];
     // The Play settings' side (Play's own: `npcs`), else the side the NPCs leave the player (`./npcs` `playerSideOf`).
-    const playerSide = npcs && playSide !== 'auto' ? playSide : playerSideOf(markers);
+    // A spectator (Play's Spectator) has no side: the NPCs' sides as Auto leaves them.
+    const playerSide = npcs && (playSide === 'seal' || playSide === 'terrorist') ? playSide : playerSideOf(markers);
     const own = settingsOf(layout);
     const fit = npcsThatFit(markers, playerSide, own.players);
     // R6 (3): the same resolver as the ground's, so a pack piece is solid in the match exactly when it is drawn here.
@@ -11900,7 +13010,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const played = playObjectives(bodied.map, { ...layout, ...(hostages ? { hostages } : {}) }, lent, type === undefined ? null : blankWhy(type));
     // The layout's placed tactical points and spectator views beside the map's own (`./placedPoints`), in any type.
     // The layout's Forge objects (`./forgeObjects`): each one's place by its path, the ambient effects to play.
-    const pointed = withForgeObjects(withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), layout.objects), why = played.why;
+    // The map script (`./forgeObjects` `withMapScript`): run from the round's start at the map's origin.
+    const pointed = withMapScript(withForgeObjects(withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), layout.objects), layout.mapScript), why = played.why;
     // The layout's placed turrets beside the map's own (`./turrets`): each its disc template's copy, in any type.
     const templates = new Map<string, TurretTemplate>();
     for (const t of layout.turrets ?? []) { const found = await turretTemplate(t.source, t.name); if (found) templates.set(`${t.source}:${t.name}`, found); }
@@ -11936,7 +13047,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (prog?.sounds.length) ambientLent.sounds.push({ from: o.source, names: [...prog.sounds] });
     }
     // Every script's sounds and effects (the one script: switches', triggers' and effect objects'), each from its own map.
-    const lentAssets0 = mergeLent(lentScriptAssets(scriptSteps([...(layout.switches ?? []), ...(layout.triggers ?? []), ...(layout.objects ?? [])]), c.groundMap.archive), lentAccessAssets([...accessNow.values()].map((t) => {
+    const lentAssets0 = mergeLent(lentScriptAssets(scriptSteps([...(layout.switches ?? []), ...(layout.triggers ?? []), ...(layout.objects ?? []), ...(layout.mapScript ? [{ script: layout.mapScript }] : [])]), c.groundMap.archive), lentAccessAssets([...accessNow.values()].map((t) => {
       const set = new Set((t.lib.meta?.scene?.programs ?? []).map((p) => p.program.name.toLowerCase()));
       const programs = [...t.destructibles.map((d) => d.program), ...t.actions.flatMap((a) => (a.program ? [a.program.program] : [])), ...calledOf(t, { anims: {} }).map((p) => p.program)];
       return { lib: t.lib, programs, set };
@@ -11945,7 +13056,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const emitters = forgeAmbientEmitters(layout.objects, (src, n) => ambientPrograms.get(`${src}:${n}`) ?? null);
     const lentAssets = mergeLent(lentAssets0, { ...ambientLent, ...(emitters.length ? { emitters } : {}) });
     // Each piece a placed node (`./placedAccess` `withPieceInstances`): a script's hide reaches every page on the wire.
-    if (layout.switches?.some((sw) => sw.script || sw.piece !== undefined) || layout.triggers?.length) accessed.map = withPieceInstances(accessed.map, pieceOwners);
+    if (layout.switches?.some((sw) => sw.script || sw.piece !== undefined) || layout.triggers?.length || layout.mapScript
+      || layout.objects?.some((o) => o.script)) accessed.map = withPieceInstances(accessed.map, pieceOwners);
     // The layout's placed flares (`./placedFlares`): each its disc facade node, drawn and turned as the map's own.
     const flaresNow = new Map<string, FlareTemplate>();
     for (const f of layout.flares ?? []) { const found = await flareTemplate(f.source, f.name); if (found) flaresNow.set(`${f.source}:${f.name}`, found); }
@@ -12232,6 +13344,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const started = await startForgeMatch(matchHost, {
         normalInput: agentPlay.port,
         map: mapForMatch, clips, effects: extras.effects, sound: extras.sound, name: 'FORGE', npcs: fit.kept, npcBehaviour: own.npcBehaviour, side: playerSide,
+        ...(playSide === 'spectator' ? { watch: true } : {}),                         // Play's Spectator: a watcher's hello
         room: { ...roomOptionsOf(own), onRoundStart: (round) => { if (round === 1) opening?.restore(); } },
         forgeLighting: forgeLightingOptions(own, baseMap, (base?.kind === 'blank' || base?.kind === 'map') && !!own.fogColor), brighten: matchBrightenOf(own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
         ...(props ? { extraWorld: props.group } : {}),                                // LATER 456: only with the flag on
@@ -12322,9 +13435,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   });
   playSideIn.addEventListener('change', () => {
     const v = playSideIn.value;
-    playSide = v === 'seal' || v === 'terrorist' ? v : 'auto';
+    playSide = v === 'seal' || v === 'terrorist' || v === 'spectator' ? v : 'auto';
     writeView();
-    say(playSide === 'auto' ? 'Play: your side from the NPCs' : `Play: you spawn as ${playSide === 'seal' ? 'a SEAL' : 'a Terrorist'}`);
+    say(playSide === 'auto' ? 'Play: your side from the NPCs' : playSide === 'spectator' ? 'Play: you watch as a spectator (the NPCs play the round)'
+      : `Play: you spawn as ${playSide === 'seal' ? 'a SEAL' : 'a Terrorist'}`);
   });
   playLoadingIn.addEventListener('change', () => {
     playLoading = playLoadingIn.value === 'loading' ? 'loading' : 'direct';
@@ -14050,6 +15164,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ran = true;
       void buildObject(o).then((r) => {
         if (!r) { done(false); return; }
+        // Any throw on the way answered as a refusal (the owner, 2026-11-14: "it gets stuck"): the drop's promise always
+        // settles, so the asset browser's drag never hangs on "Release to place".
+        try {
         const before = selectionIds();
         if (o.kind === 'switch') {
           const gates = gateRootsNow();
@@ -14063,7 +15180,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         say(`${nameOf(r)} placed`);
         edit(before, step);
         done(true);
-      }, () => done(false));
+        } catch (e) { console.error('[forge] placing a dropped object failed', e); done(false); }
+      }, (e: unknown) => { console.error('[forge] building a dropped object failed', e); done(false); });
     }, true);
     if (!accepted && !ran) done(false);
   });
@@ -14076,7 +15194,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // An ambient effect's thumbnail: its particles stepped ahead (`./previewAssets` `ambientPreview`).
         if (obj?.kind === 'ambient' && soundOfAssetName(obj.name) !== null) return null;   // a sound: nothing to draw
         // An ambient effect's thumbnail, or a single effect's: its particles stepped ahead (`ambientPreview` plays any by name).
-        if (obj?.kind === 'ambient') return ambientPreview(archives.sourceRequest(), obj.source, effectOfAssetName(obj.name) ?? obj.name, true);
+        if (obj?.kind === 'ambient') return ambientPreview(archives.sourceRequest(), obj.source, effectOfAssetName(obj.name) ?? obj.name, true, () => assetLoopSounds);
         // Drawn as the game draws it (the owner, 2026-11-11): the previews' own templates -- textured, lit, no wireframe,
         // whatever the Draw menu says -- and no editor guides (a door's swing, a ladder's climb side...).
         const r = obj ? await buildObject(obj, true).catch(() => null) : await newPiece(asset, undefined, true).catch(() => null);
@@ -14094,18 +15212,53 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           },
         };
       },
-      async stagePiece(asset) {
+      async stagePiece(asset, options) {
         if (!shellState().canPlace) return null;
         // An object of the browser's tabs (`parseObjectAsset`) built as its tool builds it; a prop as before.
         const obj = parseObjectAsset(asset);
-        const r = obj ? await buildObject(obj).catch(() => null) : await newPiece(asset).catch(() => null);
+        const build = (): Promise<Object3D | null> => (obj ? buildObject(obj) : newPiece(asset)).catch(() => null);
+        // A drag's (`background`; the owner, 2026-11-14: "if the asset has not loaded yet, make sure we can still place
+        // it, but load the asset in the background"): an empty holder staged at once, the model joining it once read. The
+        // drop never waits on it: a placement builds its own (`placeObjectAt`, `piece.place`).
+        const later = options?.background ? build() : null;
+        const r = later ? new Group() : await build();
         if (!r) return null;
-        // An ambient effect's ghost and tooltip run its particles (`ambientPreview`) about its marker.
-        if (obj?.kind === 'ambient' && soundOfAssetName(obj.name) === null) {
-          const live = await ambientPreview(archives.sourceRequest(), obj.source, effectOfAssetName(obj.name) ?? obj.name).catch(() => null);
-          if (live) { r.add(live.object); const d = r.userData['dispose'] as (() => void) | undefined; r.userData['dispose'] = () => { live.dispose(); d?.(); }; }
-        }
         let gone = false;
+        /** The ghost's last look (`show`): a model read later is painted as it. */
+        let shownAdmitted: boolean | null = null;
+        if (later) {
+          let model: Object3D | null = null;
+          r.userData['dispose'] = () => { const m = model; model = null; m?.removeFromParent(); (m?.userData['dispose'] as (() => void) | undefined)?.(); };
+          void later.then((m) => {
+            if (!m) return;
+            if (gone) { (m.userData['dispose'] as (() => void) | undefined)?.(); return; }
+            model = m;
+            r.add(m);
+            // Shown meanwhile: its materials ghosted as the rest's were (`show`), put back by `unghost`.
+            if (own && shownAdmitted !== null) {
+              m.traverse((o) => {
+                if (!(o instanceof Mesh) || own!.has(o)) return;
+                own!.set(o, o.material as Material | Material[]);
+                o.material = Array.isArray(o.material) ? (o.material as Material[]).map((x) => x.clone()) : (o.material as Material).clone();
+              });
+              paintGhost(r, shownAdmitted);
+            }
+          });
+        }
+        // An emitter's ghost runs its particles (`ambientPreview`) about its marker -- read in the background (the owner,
+        // 2026-11-14: "make the placement responsive ... load the asset in the background"): the marker's ghost shows and
+        // drops at once; the particles join it once read, or are let go if it was placed or dropped meanwhile.
+        if (obj?.kind === 'ambient' && soundOfAssetName(obj.name) === null) {
+          let live: { object: Object3D; dispose(): void } | null = null;
+          const d = r.userData['dispose'] as (() => void) | undefined;
+          r.userData['dispose'] = () => { live?.dispose(); live = null; d?.(); };
+          void ambientPreview(archives.sourceRequest(), obj.source, effectOfAssetName(obj.name) ?? obj.name).catch(() => null).then((l) => {
+            if (!l) return;
+            if (gone) { l.dispose(); return; }
+            live = l;
+            r.add(l.object);
+          });
+        }
         /** R3-B: the piece's own materials while it is drawn as a ghost (translucent clones stand in for them). */
         let own: Map<Mesh, Material | Material[]> | null = null;
         const unghost = (): void => {
@@ -14140,6 +15293,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             r.rotation.y = yaw;
             r.updateMatrix();
             r.visible = true;
+            shownAdmitted = admitted;
             paintGhost(r, admitted);
             if (r.parent !== scene) scene.add(r);
           },

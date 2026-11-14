@@ -23,6 +23,8 @@ export interface PreviewAsset {
   collision: string;
   /** Release the staged handle, not a borrowed Object3D clone. */
   dispose(): void;
+  /** Where its own play stands, 0 to 1, or null (an effect's: `./previewAssets` `ambientPreview`). */
+  progress?(): number | null;
 }
 export interface AssetPreviewOptions {
   resolve(asset: string): Promise<PreviewAsset | null>;
@@ -33,6 +35,11 @@ export interface AssetPreviewOptions {
    * the picture, never pressed (the owner, 2026-11-11: "a little slider (non interactable) ... of the sound timeline").
    */
   progress?(asset: string): number | null;
+  /**
+   * A sound's card in the picture's stead (the owner, 2026-11-13: "for sounds ... the same hover preview window ... with
+   * the preview progress bar"): its name and its art (a speaker), or null -- the asset no sound, drawn as a model.
+   */
+  sound?(asset: string): { name: string; art: string } | null;
 }
 /** The preview's slow turn, radians a second (the panel's Rotate as it was); never while reduced motion is asked for. */
 export const PREVIEW_SPIN_RATE = .35;
@@ -147,11 +154,15 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
   // The picture and, over its lower left, the tile's own badges (an ambient effect's particles, sound: show's adges).
   const stage = doc.createElement('div'); stage.className = 'fx-preview-stage';
   const badgeSlot = doc.createElement('div'); badgeSlot.className = 'fx-preview-badges'; badgeSlot.setAttribute('aria-hidden', 'true');
-  stage.append(canvas, badgeSlot);
+  // A sound's card (`options.sound`): its speaker where the picture stands, its timeline under it as a model's.
+  const soundCard = doc.createElement('div'); soundCard.className = 'fx-preview-sound'; soundCard.hidden = true;
+  soundCard.setAttribute('aria-hidden', 'true');
+  stage.append(canvas, soundCard, badgeSlot);
   root.append(stage, timeline, name, detail, status); host.append(root);
   const drawTimeline = (): void => {
-    const f = shown && options.progress ? options.progress(shown) : null;
-    timeline.hidden = f === null || canvas.hidden;
+    const f = (shown && options.progress ? options.progress(shown) : null) ?? current?.handle.progress?.() ?? null;
+    timeline.hidden = f === null || (canvas.hidden && soundCard.hidden);
+    soundCard.classList.toggle('is-playing', f !== null);
     if (f !== null) timelineFill.style.width = `${Math.round(Math.max(0, Math.min(1, f)) * 1000) / 10}%`;
   };
   const scene = new Scene(), pivot = new Group(), camera = new PerspectiveCamera(38, 1, .1, 10000);
@@ -229,9 +240,19 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
     async show(asset: string | null, info: string | null = null, badges: readonly Node[] = []): Promise<void> {
       if (disposed || !active || asset === shown) return;
       shown = asset; const token = ++generation; clear();
-      canvas.hidden = true; name.textContent = ''; detail.textContent = '';
+      canvas.hidden = true; soundCard.hidden = true; name.textContent = ''; detail.textContent = '';
       badgeSlot.replaceChildren(...badges);
       if (!asset) { status.textContent = ''; return; }
+      const sound = options.sound?.(asset) ?? null;
+      if (sound) {
+        // A sound: nothing to stage -- its card, its name, its words; its timeline while it plays (`progress`).
+        soundCard.innerHTML = sound.art;
+        soundCard.hidden = false;
+        name.textContent = sound.name;
+        detail.textContent = info ?? '';
+        status.textContent = '';
+        return;
+      }
       status.textContent = 'Preparing preview…';
       let handle: PreviewAsset | null = null, view: ReturnType<typeof privateView> | null = null;
       try {
@@ -283,7 +304,7 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
     setActive(enabled: boolean): void {
       if (active === enabled || disposed) return;
       active = enabled; root.inert = !enabled; root.setAttribute('aria-disabled', String(!enabled));
-      if (!enabled) { generation++; shown = null; clear(); canvas.hidden = true; name.textContent = ''; detail.textContent = ''; status.textContent = ''; }
+      if (!enabled) { generation++; shown = null; clear(); canvas.hidden = true; soundCard.hidden = true; name.textContent = ''; detail.textContent = ''; status.textContent = ''; }
     },
     dispose(): void {
       if (disposed) return;

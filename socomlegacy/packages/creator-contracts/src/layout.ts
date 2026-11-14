@@ -243,6 +243,12 @@ export interface Layout {
   /** The layout's Forge objects (`ForgeObject`): ambient effects, cranes. Absent: none. A crane refused online. */
   objects?: ForgeObject[];
   /**
+   * The map's own script (the owner, 2026-11-13: "the native style map script"; a browser adaptation, FG.R2): run from the
+   * round's start at the map's origin, as the disc's `objectives` runs a round -- its loops and its ifs testing the
+   * game's own valves (`SCRIPT_GAME_VALUES`) and the layout's flags. Absent: none.
+   */
+  mapScript?: ScriptSteps;
+  /**
    * FG-24 (FG.R18; the owner, 2026-10-14: "a map settings that includes day/night slider, fog distance slider, max
    * players (up to 32 max)"; an adaptation, no original): the layout's settings, each optional -- absent, the disc's
    * value stands (`DEFAULT_SETTINGS`). Bounded by `SETTINGS_BOUNDS`; a value outside is refused.
@@ -951,13 +957,61 @@ export type ScriptStep =
   | { do: "message"; text: string }
   | { do: "sound"; name: string; at?: SwitchTarget; from?: string; volume?: number }
   | { do: "effect"; name: string; at?: SwitchTarget; from?: string }
-  | { do: "set"; flag: string; value: number }
-  | { do: "if" | "elseif"; flag: string; equals: number } | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "end" }
-  | { do: "while" } | { do: "endWhile" }
+  // A flag set, or added to or taken from (VALVE's 0x0b, 0x0c, 0x0d; a take never below 0).
+  | { do: "set"; flag: string; value: number; op?: "add" | "sub" }
+  // An if on a flag: `equals` the value it is tested against, `test` how (VALVE's tests 1-6; absent: equal).
+  | ({ do: "if" | "elseif"; flag: string; equals: number; test?: ScriptFlagTest } & ScriptLogic) | ({ do: "if" | "elseif"; chance: number } & ScriptLogic)
+  // An if on a game value (`SCRIPT_GAME_VALUES`): the game's own valve, read, never written by a script.
+  | ({ do: "if" | "elseif"; game: ScriptGameValue; equals: number; test?: ScriptFlagTest } & ScriptLogic) | { do: "else" } | { do: "end" }
+  // An object faded (OBJECT_OPACITY_FROM_TO): from `from` (absent: 1) to `to`, over `seconds`, the script held till done.
+  | { do: "fade"; target: SwitchTarget; to: number; from?: number; seconds: number }
+  // A sequence of the script's own started from its top, or stopped (CALL_SEQUENCE, STOP_SEQUENCE): one of its
+  // `sequences` by its name, or `main` (the script's own steps).
+  | { do: "callSequence" | "stopSequence"; sequence: string }
+  // A while for ever, or while a flag's test holds (WHILE without flag 1: its condition each time round).
+  | ({ do: "while"; flag?: string; equals?: number; test?: ScriptFlagTest } & ScriptLogic) | ({ do: "while"; game: ScriptGameValue; equals: number; test?: ScriptFlagTest } & ScriptLogic) | { do: "endWhile" }
   | { do: "loop"; times?: number; seconds?: number }
   | { do: "blast"; at?: SwitchTarget };
+/**
+ * A test step's logic (the owner, 2026-11-13: "and, or, and all the logical operators"; the game's own: an IF's
+ * conditions are its operands with the EXPRESSION operators between them -- 1 NOT, 2 AND, 3 OR, 4 (, 5 ) -- folded left
+ * to right, no precedence, `FUN_0025e960`, research 106 s3): its first test's NOT and brackets (`open` before it,
+ * `close` after it), then each further test (`more`), joined to what came before by AND or OR.
+ */
+export interface ScriptLogic { not?: true; open?: number; close?: number; more?: ScriptTerm[] }
+/** A further test of an if, an else if or a while (`ScriptLogic.more`): its join, its NOT and brackets, its test. */
+export type ScriptTerm = { join: "and" | "or"; not?: true; open?: number; close?: number } & (
+  | { flag: string; equals: number; test?: ScriptFlagTest }
+  | { game: ScriptGameValue; equals: number; test?: ScriptFlagTest }
+  | { chance: number });
+/** A test step's further tests at most, and its brackets at one test (a check on the file's, not a game value). */
+export const SCRIPT_TERMS_MAX = 8;
+export const SCRIPT_BRACKETS_MAX = 3;
 /** The older name of `ScriptStep` (a switch's, before the one script). */
 export type SwitchStep = ScriptStep;
+/**
+ * The game's own valves a script may test (read-only), by the names the disc's `objectives` tests them (research 91,
+ * 192 s2, 175): the bomb (`mp_bomb`: 0 reset, 1 on the ground, 2 carried, 3 planted, 4 defused, 5 detonated; research
+ * 214); the teams (`player_team` 0 SEAL, 8 Terrorist, 16 spectator; `aiteam_00` / `aiteam_08` each side's living); the
+ * clock and the rounds (`mp_timer` 1 running, 0 at 00:00; `mp_round_count`, `mp_max_rounds`); the score and the result
+ * (`mp_score00`, `mp_score08`, `mp_winner` 0 / 8 / 99 a draw, `mp_game_over`); the settings (`mp_game_type` 1 BREACH
+ * .. 5 SUPPRESSION, `mp_allow_respawn`); EXTRACTION's hostages (`rescuecount`, `hostages_rescued`,
+ * `mp_hostages_by_seals`, `mp_hostages_by_turds`, `mp_penalty`); ESCORT's VIPs (`VIP1_valve_alive` .. `VIP3_valve_alive`,
+ * `killcount`). Each one written by the page from the room's facts (viewer `bombPage`, `gameValves`).
+ */
+export const SCRIPT_GAME_VALUES = [
+  "mp_bomb",
+  "player_team", "aiteam_00", "aiteam_08",
+  "mp_timer", "mp_round_count", "mp_max_rounds",
+  "mp_score00", "mp_score08", "mp_winner", "mp_game_over",
+  "mp_game_type", "mp_allow_respawn",
+  "rescuecount", "hostages_rescued", "mp_hostages_by_seals", "mp_hostages_by_turds", "mp_penalty",
+  "VIP1_valve_alive", "VIP2_valve_alive", "VIP3_valve_alive", "killcount",
+] as const;
+export type ScriptGameValue = (typeof SCRIPT_GAME_VALUES)[number];
+/** An if's test on a flag other than equal (VALVE's tests: 1 !=, 3 >, 4 <, 5 >=, 6 <=). */
+export type ScriptFlagTest = "!=" | ">" | "<" | ">=" | "<=";
+export const SCRIPT_FLAG_TESTS: readonly ScriptFlagTest[] = ["!=", ">", "<", ">=", "<="];
 /** What a script step acts on: `SwitchTarget`, by its general name. */
 export type ScriptTarget = SwitchTarget;
 /**
@@ -965,7 +1019,22 @@ export type ScriptTarget = SwitchTarget;
  * disc's switches are (the room's `used`, cleared at the round by `FUN_002b5510`); a damage trigger's death; an effect
  * object's round, from its start.
  */
-export interface ScriptSteps { steps: ScriptStep[] }
+export interface ScriptSteps {
+  steps: ScriptStep[];
+  /**
+   * Its named sequences (the owner, 2026-11-13: "call sequence and end sequence"; the game's own: a program's other
+   * sequences, CALL_SEQUENCE / STOP_SEQUENCE, research 89): each one waits until a step calls it (activation 2), then
+   * runs beside the rest. Absent: none.
+   */
+  sequences?: ScriptSequence[];
+}
+/** A script's named sequence (`ScriptSteps.sequences`): its name (never `main`), its steps. */
+export interface ScriptSequence { name: string; steps: ScriptStep[] }
+/** A sequence's name: a letter, then letters, digits or `_` (24 at most); `main` the script's own steps. */
+export const SCRIPT_SEQUENCE_NAME = /^[A-Za-z][A-Za-z0-9_]{0,23}$/;
+export const SCRIPT_MAIN_SEQUENCE = "main";
+/** A script's sequences at most (a check on the file's, not a game value). */
+export const SCRIPT_SEQUENCES_MAX = 16;
 /** The older name of `ScriptSteps` (a switch's). */
 export type SwitchScript = ScriptSteps;
 /** A script's bounds: steps a list, the wait, the message and the names -- a check on the file's, not a game value. */
@@ -993,6 +1062,31 @@ function switchTargetOk(t: unknown, c: SwitchCounts): boolean {
   if ("object" in t) return isIndex(t["object"], c.objects ?? 0);   // a Forge object (`Layout.objects`): an ambient's place
   return false;
 }
+/** A test step's logic (`ScriptLogic`): its NOT, its brackets, each further test, the brackets balanced. */
+function logicOk(st: Record<string, unknown>): boolean {
+  const count = (x: unknown): boolean => x === undefined || (Number.isInteger(x) && (x as number) >= 1 && (x as number) <= SCRIPT_BRACKETS_MAX);
+  if ((st["not"] !== undefined && st["not"] !== true) || !count(st["open"]) || !count(st["close"])) return false;
+  let depth = ((st["open"] as number | undefined) ?? 0) - ((st["close"] as number | undefined) ?? 0);
+  if (depth < 0) return false;
+  const more = st["more"];
+  if (more !== undefined) {
+    if (!Array.isArray(more) || more.length === 0 || more.length > SCRIPT_TERMS_MAX) return false;
+    for (const t of more) {
+      if (!isObj(t) || (t["join"] !== "and" && t["join"] !== "or") || (t["not"] !== undefined && t["not"] !== true) || !count(t["open"]) || !count(t["close"])) return false;
+      const keys = Object.keys(t).filter((k) => !["join", "not", "open", "close"].includes(k));
+      const only = (...k: string[]): boolean => keys.every((x) => k.includes(x));
+      const tested = t["test"] === undefined || SCRIPT_FLAG_TESTS.includes(t["test"] as ScriptFlagTest);
+      const ok = t["game"] !== undefined ? only("game", "equals", "test") && SCRIPT_GAME_VALUES.includes(t["game"] as ScriptGameValue) && isPoints10k(t["equals"]) && tested
+        : t["chance"] !== undefined ? only("chance") && isNum(t["chance"]) && (t["chance"] as number) >= 0 && (t["chance"] as number) <= 1
+        : only("flag", "equals", "test") && typeof t["flag"] === "string" && SWITCH_FLAG.test(t["flag"]) && isPoints10k(t["equals"]) && tested;
+      if (!ok) return false;
+      depth += ((t["open"] as number | undefined) ?? 0);
+      depth -= ((t["close"] as number | undefined) ?? 0);
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
 function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
   if (!Array.isArray(list) || list.length > SWITCH_SCRIPT_STEPS_MAX) return false;
   // The open blocks, innermost last: a while, an if before its else, an if after it.
@@ -1002,9 +1096,13 @@ function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
     if (!isObj(st) || typeof st["do"] !== "string") return false;
     const has = (...k: string[]) => Object.keys(st).every((x) => x === "do" || k.includes(x));
     // An if or an else if: on a flag (`flag` is `equals`) or on a chance (0 to 1).
-    const test = (): boolean => (st["chance"] !== undefined
-      ? has("chance") && num(st["chance"], 0, 1)
-      : has("flag", "equals") && typeof st["flag"] === "string" && SWITCH_FLAG.test(st["flag"]) && isPoints10k(st["equals"]));
+    const testOk = (): boolean => st["test"] === undefined || SCRIPT_FLAG_TESTS.includes(st["test"] as ScriptFlagTest);
+    const LOGIC = ["not", "open", "close", "more"];
+    const gameOk = (): boolean => has("game", "equals", "test", ...LOGIC) && SCRIPT_GAME_VALUES.includes(st["game"] as ScriptGameValue) && isPoints10k(st["equals"]) && testOk();
+    const test = (): boolean => (st["game"] !== undefined ? gameOk() : st["chance"] !== undefined
+      ? has("chance", ...LOGIC) && num(st["chance"], 0, 1)
+      : has("flag", "equals", "test", ...LOGIC) && typeof st["flag"] === "string" && SWITCH_FLAG.test(st["flag"]) && isPoints10k(st["equals"])
+        && (st["test"] === undefined || SCRIPT_FLAG_TESTS.includes(st["test"] as ScriptFlagTest))) && logicOk(st);
     switch (st["do"]) {
       case "run":
         if (!(has("action") && typeof st["action"] === "string" && SWITCH_ACTION.test(st["action"]))
@@ -1026,12 +1124,32 @@ function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
       case "blast":
         if (!has("at") || (st["at"] !== undefined && !switchTargetOk(st["at"], c))) return false;
         break;
-      case "set": if (!has("flag", "value") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["value"])) return false; break;
+      case "set":
+        if (!has("flag", "value", "op") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["value"])
+          || (st["op"] !== undefined && st["op"] !== "add" && st["op"] !== "sub")) return false;
+        break;
+      case "callSequence": case "stopSequence":
+        if (!has("sequence") || typeof st["sequence"] !== "string" || !SCRIPT_SEQUENCE_NAME.test(st["sequence"])) return false;
+        break;
+      case "fade":
+        if (!has("target", "to", "from", "seconds") || !switchTargetOk(st["target"], c) || !num(st["to"], 0, 1)
+          || (st["from"] !== undefined && !num(st["from"], 0, 1)) || !num(st["seconds"], 0, SWITCH_WAIT_MAX)) return false;
+        break;
       case "if": if (!test()) return false; open.push("if"); break;
       case "elseif": if (!test() || open[open.length - 1] !== "if") return false; break;
       case "else": if (!has() || open[open.length - 1] !== "if") return false; open[open.length - 1] = "else"; break;
       case "end": { if (!has()) return false; const top = open.pop(); if (top !== "if" && top !== "else") return false; break; }
-      case "while": if (!has()) return false; open.push("while"); break;
+      case "while":
+        if (st["game"] !== undefined) { if (!gameOk() || !logicOk(st)) return false; open.push("while"); break; }
+        if (!has("flag", "equals", "test", "not", "open", "close", "more") || !logicOk(st)) return false;
+        // For ever: no test, so no logic.
+        if (st["flag"] === undefined && ["not", "open", "close", "more"].some((x) => st[x] !== undefined)) return false;
+        if (st["flag"] !== undefined || st["equals"] !== undefined || st["test"] !== undefined) {
+          if (typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["equals"])
+            || (st["test"] !== undefined && !SCRIPT_FLAG_TESTS.includes(st["test"] as ScriptFlagTest))) return false;
+        }
+        open.push("while");
+        break;
       case "endWhile": if (!has() || open.pop() !== "while") return false; break;
       case "loop":
         if (!has("times", "seconds") || (st["times"] !== undefined && st["seconds"] !== undefined)) return false;
@@ -1046,8 +1164,21 @@ function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
 const isPoints10k = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 9999;
 /** Null when `v` is a good `SwitchScript` for a layout of `c`; else why. */
 export function switchScriptOk(v: unknown, c: SwitchCounts): boolean {
-  if (!isObj(v) || !Object.keys(v).every((k) => k === "steps")) return false;
-  return switchStepsOk(v["steps"], c);
+  if (!isObj(v) || !Object.keys(v).every((k) => k === "steps" || k === "sequences")) return false;
+  if (!switchStepsOk(v["steps"], c)) return false;
+  if (v["sequences"] === undefined) return true;
+  const seqs = v["sequences"];
+  if (!Array.isArray(seqs) || seqs.length > SCRIPT_SEQUENCES_MAX) return false;
+  const names = new Set<string>();
+  for (const q of seqs) {
+    if (!isObj(q) || !Object.keys(q).every((k) => k === "name" || k === "steps") || typeof q["name"] !== "string"
+      || !SCRIPT_SEQUENCE_NAME.test(q["name"]) || q["name"] === SCRIPT_MAIN_SEQUENCE || names.has(q["name"]) || !switchStepsOk(q["steps"], c)) return false;
+    names.add(q["name"]);
+  }
+  // Every call and stop names one of them, or `main`.
+  const lists = [v["steps"] as unknown[], ...seqs.map((q) => (q as Record<string, unknown>)["steps"] as unknown[])];
+  return lists.every((l) => l.every((st) => !isObj(st) || (st["do"] !== "callSequence" && st["do"] !== "stopSequence")
+    || st["sequence"] === SCRIPT_MAIN_SEQUENCE || names.has(st["sequence"] as string)));
 }
 
 /** A switch's map action: a valve's name as `actions.rdr` writes one. */
@@ -1513,6 +1644,12 @@ export function parseLayout(text: string): Layout {
           ...(script ? { script } : {}) };
       }),
     }),
+    ...(raw["mapScript"] === undefined ? {} : (() => {
+      const counts: SwitchCounts = { pieces: Array.isArray(raw["pieces"]) ? (raw["pieces"] as unknown[]).length : 0,
+        barriers: Array.isArray(raw["barriers"]) ? (raw["barriers"] as unknown[]).length : 0, gates: Array.isArray(raw["gates"]) ? (raw["gates"] as unknown[]).length : 0, objects: Array.isArray(raw["objects"]) ? (raw["objects"] as unknown[]).length : 0 };
+      if (!switchScriptOk(raw["mapScript"], counts)) throw new Error("mapScript is not a script of the layout's");
+      return { mapScript: JSON.parse(JSON.stringify(raw["mapScript"])) as ScriptSteps };
+    })()),
     ...(raw["turrets"] === undefined ? {} : {
       turrets: (Array.isArray(raw["turrets"]) ? raw["turrets"] : [null]).map((t, i): TurretMarker => {
         if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
@@ -1875,7 +2012,7 @@ export type SwitchRow = [gate: number, x: number, y: number, z: number, yaw: num
  */
 export type TriggerRow = [piece: number, health: number, armor: number, shield: number, script: SwitchScript | null, node: string, x: number | null, y: number | null, z: number | null];
 /** A Forge object's record row (`Layout.objects`): its kind, its map ('' an empty's), its name, its place and turn (degrees). */
-export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, steps?: ScriptStep[] | AudioStep[]];
+export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, steps?: ScriptStep[] | AudioStep[], sequences?: ScriptSequence[]];
 /** A placed flare's record row (`Layout.flares`): its source and node name, its place. */
 export type FlareRow = [source: string, name: string, x: number, y: number, z: number, locked?: true];
 /** A placed spectator view's record row (`Layout.scenicViews`): yaw and pitch in degrees, on the lattice. */
@@ -1991,6 +2128,8 @@ export interface CreatorLayoutRecord {
   triggers?: TriggerRow[];
   /** The Forge objects (`Layout.objects`), present only when the layout has some. */
   objects?: ObjectRow[];
+  /** The map's own script (`Layout.mapScript`): its steps and its sequences, present only when it has some. */
+  mapScript?: ScriptSteps;
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
   missing?: number[];
@@ -2107,7 +2246,7 @@ function movedDataOf(raw: Record<string, MovedMapData>): Record<string, MovedMap
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
   "objectives", "requires", "mode", "legacyCarry", "hiddenData", "movedData", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
-  "poses"];
+  "poses", "mapScript"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -2317,8 +2456,10 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     const row: ObjectRow = [o.kind, o.source, o.name, tenth(o.at[0]), tenth(o.at[1]), tenth(o.at[2]), wholeDeg(o.yaw)];
     if (o.locked === true) row[7] = true;
     if (o.script) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.script.steps)) as ScriptStep[]; }
+    if (o.script?.sequences?.length) row[9] = JSON.parse(JSON.stringify(o.script.sequences)) as ScriptSequence[];
     return row;
   });
+  if (l.mapScript?.steps.length || l.mapScript?.sequences?.length) record.mapScript = JSON.parse(JSON.stringify(l.mapScript)) as ScriptSteps;
   if (l.turrets?.length) record.turrets = l.turrets.map((t): TurretRow => {
     const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
     if (t.locked === true) row[6] = true;
@@ -2430,10 +2571,11 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
     ...(node ? { node } : piece >= 0 ? { piece } : {}), ...(x !== null && y !== null && z !== null ? { at: [x, y, z] as [number, number, number] } : {}), health, armor, shield, ...(script ? { script: JSON.parse(JSON.stringify(script)) as SwitchScript } : {}),
   }));
   // An object's steps (row 8): the one script's, or an older record's audio script read into it (`scriptOfAudio`).
-  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, steps]): ForgeObject => ({
+  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, steps, sequences]): ForgeObject => ({
     kind, source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
-    ...(steps ? { script: { steps: scriptOfAudio(steps as unknown[]) } } : {}),
+    ...(steps ? { script: { steps: scriptOfAudio(steps as unknown[]), ...(sequences?.length ? { sequences: JSON.parse(JSON.stringify(sequences)) as ScriptSequence[] } : {}) } } : {}),
   }));
+  if (!isV2(r) && r.mapScript) layout.mapScript = JSON.parse(JSON.stringify(r.mapScript)) as ScriptSteps;
   if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
     source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
   }));
@@ -2647,13 +2789,19 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
       }
     }
   }
+  if (r["mapScript"] !== undefined) {
+    const counts: SwitchCounts = { pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0,
+      barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0, gates: Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0, objects: Array.isArray(r["objects"]) ? (r["objects"] as unknown[]).length : 0 };
+    if (!switchScriptOk(r["mapScript"], counts)) return "mapScript is not a script";
+  }
   if (r["objects"] !== undefined) {
     const rows = r["objects"];
     if (!Array.isArray(rows) || rows.length === 0 || rows.length > RECORD_LIMITS.pieces) return "objects is not a list";
     for (const [i, t] of rows.entries()) {
-      if (!Array.isArray(t) || t.length < 7 || t.length > 9 || (t.length === 8 && t[7] !== true) || (t.length === 9 && typeof t[7] !== "boolean")
+      if (!Array.isArray(t) || t.length < 7 || t.length > 10 || (t.length === 8 && t[7] !== true) || (t.length >= 9 && typeof t[7] !== "boolean")
         || ![t[3], t[4], t[5]].every(inBound) || !isDeg(t[6])
-        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0, ...(t.length === 9 ? { audio: t[8] } : {}) }, {
+        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0,
+          ...(t.length === 10 ? { script: { steps: t[8], sequences: t[9] } } : t.length === 9 ? { audio: t[8] } : {}) }, {
           pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0, barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0,
           gates: Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0, objects: rows.length })) {
         return `object ${i} is not [kind, source, name, x, y, z, yaw, locked?, steps?] of an ambient effect or a crane`;

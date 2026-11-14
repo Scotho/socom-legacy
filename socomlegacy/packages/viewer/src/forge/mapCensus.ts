@@ -95,7 +95,7 @@ export function censusOfCopies(c: MapCopies): MapCensus {
 const COPY_WORDS: Readonly<Record<CopyKind, readonly [string, string]>> = {
   door: ['door', 'doors'], turret: ['turret', 'turrets'], hostage: ['hostage character', 'hostage characters'], ladder: ['ladder', 'ladders'],
   gate: ['gate', 'gates'], barrier: ['damage trigger', 'damage triggers'], flare: ['flare', 'flares'],
-  sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['ambient effect', 'ambient effects'],
+  sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'],
 };
 
 /**

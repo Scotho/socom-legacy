@@ -7,6 +7,7 @@ import {
   type SourcePages,
 } from './actionWiring';
 import { BombPage, type BombPageView } from './bombPage';
+import { gameValves } from './gameValves';
 import { actionRayPick } from './equipment';
 import type { FlyCamera } from './camera';
 import type { Fire } from './fire';
@@ -506,6 +507,9 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
       if (c && c.role === 'player') c.send({ type: 'bombAction', seq: c.lastSeq(), action: 'aim', surface: claim?.surface ?? null, ...(claim?.eye ? { eye: claim.eye } : {}) });
     },
   }, d.bombView);
+  // The game's own round valves on the page's world (`./gameValves`), for a Forge map script to test: through the
+  // bomb's view's `valve`, the world's `setValve` (`mp_bomb` is the bomb page's own).
+  roomEvents.on(gameValves((name, v) => { d.bombView.valve?.(name, v); }));
   observeCommands<Omit<Command, 'seq'>, [number, number, number]>(walk, (cmd) => {
     lastCommand = cmd;
     bomb.tick((cmd.buttons & Button.ActionHeld) !== 0);   // once a command: the hold predicted as the room counts it

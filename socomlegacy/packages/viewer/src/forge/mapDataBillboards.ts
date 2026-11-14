@@ -50,11 +50,13 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   userSiteTerrorist: { glyph: '!', colour: '#e0e0e0', word: 'Site · Terrorist (MPBOMB)' },
   // A placed gate's switch: a context action (SWITCH), the map's ! mark.
   userSwitches: { glyph: '!', colour: '#e0e0e0', word: 'Switch (SWITCH)' },
-  // The Forge objects (`./forgeObjects`): an ambient effect (a map's fire, water, weather).
-  // Cyan, apart from the damage triggers' orange (the owner, 2026-11-11: "too close of color"); called an Effect.
-  userAmbients: { glyph: '~', colour: '#38d0e8', word: 'Effect' },
-  // The map's own ambient effects (`./mapData` `ambients`), round as the map's data is.
-  ambients: { glyph: '~', colour: '#38d0e8', word: 'Effect (the map\'s)' },
+  // An emitter (the owner, 2026-11-14: "use emitters ... a nice new icon/letter for the billboard"; "we basically
+  // replaced the effect asset"): every Forge object (`./forgeObjects`) -- a disc map's self-starting program copied
+  // (`flags & 3 == 1`, research 89 s12), a sound's or an effect's tile, your own program -- and the map's own (`./mapData`
+  // `ambients`): E, in the cyan the old Effect mark had (no other kind's: not the hostages' yellow, the views' pink or
+  // the turrets' purple).
+  userEmitters: { glyph: 'E', colour: '#38d0e8', word: 'Emitter' },
+  ambients: { glyph: 'E', colour: '#38d0e8', word: 'Emitter (the map\'s)' },
   // The base map's own props (M, map prop): they draw themselves, so their marks start switched off.
   mapProps: { glyph: 'M', colour: '#9aa5b1', word: 'Map prop' },
   // A spawn slot by its side: Ss the SEALs' (side A, 0 -- `bombMarkers`' team 0 is the SEALs), St the Terrorists' (side
@@ -105,7 +107,7 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
   // Under Objects, with the Triggers dropdown that places them (the owner, 2026-11-08).
   { id: 'damage', label: 'Damage triggers', kinds: ['damage', 'userBarriers'] },
   { id: 'cranes', label: 'Cranes', kinds: ['cranes'] },
-  { id: 'ambients', label: 'Effects', kinds: ['ambients', 'userAmbients'] },
+  { id: 'ambients', label: 'Emitters', kinds: ['ambients', 'userEmitters'] },
   { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'] },
 ];
 
@@ -113,8 +115,8 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
 export const isUserMarkKind = (kind: string): boolean => kind.startsWith('user');
 
 /** A user placement's mark kind by what it is (the page's `userData`: a piece, a spawn's team, an NPC, a bomb marker's kind). */
-export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: 'ambient' }): string | null {
-  if (r.object) return 'userAmbients';   // a Forge object (`./forgeObjects`)
+export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: boolean }): string | null {
+  if (r.object) return 'userEmitters';   // a Forge object (`./forgeObjects`): an emitter, whatever it plays
   if (r.hostage) return 'userEscortees';
   if (r.zone) return 'userTacZones';
   if (r.point) return 'userTacPoints';

@@ -71,6 +71,10 @@ export function previewSounds(source: SourceRequest, stem: string): Promise<{ da
 const PREVIEW_EXTENT = 60;
 /** The seconds a thumbnail's effect is stepped ahead before it is taken (`ambientPreview`'s `settle`): its particles out. */
 const PREVIEW_SETTLE_SECONDS = 2;
+/** An effect still running after this long in its dry run (`ambientPreview`) runs for ever: no length, no replay. */
+const PREVIEW_ENDLESS_SECONDS = 20;
+/** The dry run's step (seconds). */
+const PREVIEW_DRY_STEP = 0.1;
 
 /**
  * An ambient effect's particles as a preview object: its map's effect data on an `Effects` of its own (the map's own
@@ -78,12 +82,29 @@ const PREVIEW_SETTLE_SECONDS = 2;
  * part), the preview framed on a box of `PREVIEW_EXTENT`. `settle` steps it ahead first (a thumbnail's still). Null
  * where the map's effects will not read or hold no such program.
  */
-export async function ambientPreview(source: SourceRequest, stem: string, program: string, settle = false): Promise<{ object: Group; dispose(): void } | null> {
+export async function ambientPreview(source: SourceRequest, stem: string, program: string, settle = false,
+  loop: () => boolean = () => false): Promise<{ object: Group; dispose(): void; progress(): number | null } | null> {
   const data = await previewEffects(source, stem);
   if (!data) return null;
   const effects = new Effects(Math.random, () => {});
   effects.setData({ ...data, ambient: [] });
+  // Its length (the owner, 2026-11-14: "a progress bar for effects and make them loop"; a browser adaptation, FG.R2):
+  // a dry run stepped to its end -- its run done and its last particle gone -- before the shown one starts; one still
+  // going at `PREVIEW_ENDLESS_SECONDS` runs for ever (a fire, a steam: no bar, no replay).
+  const done = (): boolean => { const st = effects.stats(); return st.runs === 0 && st.particles === 0 && st.shells === 0; };
+  const dryCam = new PerspectiveCamera(50, 4 / 3, 1, 4000);
+  dryCam.position.set(0, PREVIEW_EXTENT * 0.6, PREVIEW_EXTENT * 1.6);
+  dryCam.lookAt(0, PREVIEW_EXTENT / 3, 0);
+  dryCam.updateMatrixWorld();
   if (!effects.playAt(program, 'forge_preview', new Matrix4())) { effects.setData(null); return null; }
+  let length: number | null = null;
+  for (let t = 0; t < PREVIEW_ENDLESS_SECONDS; t += PREVIEW_DRY_STEP) {
+    effects.update(PREVIEW_DRY_STEP, dryCam);
+    if (done()) { length = Math.max(PREVIEW_DRY_STEP, t + PREVIEW_DRY_STEP); break; }
+  }
+  effects.reset();
+  if (!effects.playAt(program, 'forge_preview', new Matrix4())) { effects.setData(null); return null; }
+  let elapsed = 0, ended = false;
   const group = new Group();
   group.name = `ambient preview ${program}`;
   group.add(effects.object);
@@ -102,8 +123,15 @@ export async function ambientPreview(source: SourceRequest, stem: string, progra
   let last = performance.now();
   tick.onBeforeRender = (_r, _s, camera: Camera) => {
     const now = performance.now();
-    effects.update(Math.min(0.1, (now - last) / 1000), camera);
+    const dt = Math.min(0.1, (now - last) / 1000);
+    effects.update(dt, camera);
     last = now;
+    if (ended || length === null) return;
+    elapsed += dt;
+    // Its end: played again while looping is on (`loop`), else left done.
+    if (elapsed >= length && done()) {
+      if (loop()) { elapsed = 0; effects.playAt(program, 'forge_preview', new Matrix4()); } else ended = true;
+    }
   };
   group.add(frame, tick);
   if (settle) {
@@ -112,11 +140,14 @@ export async function ambientPreview(source: SourceRequest, stem: string, progra
     cam.lookAt(0, PREVIEW_EXTENT / 3, 0);
     cam.updateMatrixWorld();
     for (let t = 0; t < PREVIEW_SETTLE_SECONDS; t += 0.05) effects.update(0.05, cam);
+    elapsed = PREVIEW_SETTLE_SECONDS;
     last = performance.now();
   }
   return {
     object: group,
     dispose: () => { effects.setData(null); group.removeFromParent(); frameGeom.dispose(); frameMat.dispose(); tickGeom.dispose(); tickMat.dispose(); },
+    /** Where it stands in its length, 0 to 1 (1 once done and not looping); null for one that runs for ever. */
+    progress: () => (length === null ? null : ended ? 1 : Math.min(1, elapsed / length)),
   };
 }
 
@@ -156,13 +187,29 @@ class TimedAudioOut extends WebAudioOut {
  * `loop`, round again and again -- a one-shot played anew at its end, a looping one left to loop -- until stopped; off,
  * once -- a looping one stopped after one pass. `onEnd`: told when a single play has run out (not on `stop`).
  */
-export interface AmbientPlayOptions { loop?: boolean; onEnd?(): void }
+export interface AmbientPlayOptions {
+  loop?: boolean;
+  onEnd?(): void;
+  /**
+   * The preview's volume, 0 to 1 (the owner, 2026-11-14: "a slider to control the sound preview volume"; a browser
+   * adaptation, FG.R2): a share of the viewer's own listening gain (`LISTENING_GAIN_PLACEHOLDER`); the game's mix untouched.
+   */
+  volume?: number;
+}
 
-export async function playAmbientSounds(source: SourceRequest, stem: string, names: readonly string[], options: AmbientPlayOptions = {}): Promise<{ played: number; stop(): void; timeline(): SoundTimeline | null }> {
+/**
+ * A preview's mix volume at the slider's `volume` (0 to 1): squared, so the slider's travel sounds even (a linear gain's
+ * top half is barely heard). Given to `GameAudio.setVolume` -- its own gain, set at its making, would undo a gain laid
+ * on the output before it.
+ */
+const previewVolume = (volume: number): number => { const v = Math.max(0, Math.min(1, volume)); return v * v; };
+
+export async function playAmbientSounds(source: SourceRequest, stem: string, names: readonly string[], options: AmbientPlayOptions = {}): Promise<{ played: number; stop(): void; timeline(): SoundTimeline | null; setVolume(volume: number): void }> {
   const got = await previewSounds(source, stem);
-  if (!got) return { played: 0, stop: () => {}, timeline: () => null };
+  if (!got) return { played: 0, stop: () => {}, timeline: () => null, setVolume: () => {} };
   const out = new TimedAudioOut();
   const game = new GameAudio(out, undefined, { inline: false });
+  game.setVolume(previewVolume(options.volume ?? 1));
   game.setData(got.data);
   game.setLoops(got.loops as never);
   out.unlock();                                              // a click is the gesture the browser asks for
@@ -195,5 +242,7 @@ export async function playAmbientSounds(source: SourceRequest, stem: string, nam
     // A loop's runs round; a one-shot's holds at its end.
     return { fraction: out.loops ? t % 1 : Math.min(1, t), loops: out.loops };
   };
-  return { played, timeline, stop };
+  // Its volume moved while it sounds (the slider dragged).
+  const setVolume = (volume: number): void => { if (!stopped) game.setVolume(previewVolume(volume)); };
+  return { played, timeline, stop, setVolume };
 }

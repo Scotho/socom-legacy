@@ -224,6 +224,12 @@ export async function startForgeMatch(target: HTMLElement, o: {
   /** FG-21: the player's side (`./npcs` `playerSideOf` of the whole layout's, as `o.map`'s slots were composed for). */
   side?: 'seal' | 'terrorist';
   /**
+   * The Play settings' Spectator (the owner, 2026-11-13: "a setting in the play settings, to play as spectator"; a
+   * browser adaptation): this page's hello a watcher's (`watch`), as an online spectator joins -- the room seats no
+   * body for it; the NPCs play the round.
+   */
+  watch?: boolean;
+  /**
    * FG-24 (FG.R18; an adaptation, no original): the layout's room options (`./settings` `roomOptionsOf`) -- the room's
    * own `maxRounds`, `roundSeconds`, `allowFriendlyFire` and `maxPlayers`, passed through to the page's room unchanged.
    * `onRoundStart` is the page's (FG-50 puts the layout's slot back after round 1 has spawned).
@@ -301,7 +307,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     const nav = await fetchNpcNavigation(import.meta.env.BASE_URL, stem);
     if (nav) { try { brain = await NpcBrain.create(loop.room, [], nav); } catch { brain = null; } }
   }
-  const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket }, IDLE_WALK);
+  const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket, ...(o.watch ? { watch: true } : {}) }, IDLE_WALK);
   const events: ServerEvent[] = [];
   // FCW-32 round 2: the rules' wires, outside `ServerEvent` (the room's additive types), handed to the page as they come.
   const offRules = o.onRules ? client.on((ev) => { const t = (ev as { type?: unknown }).type; if (t === 'rulesPresent' || t === 'rulesPurchase') o.onRules!(ev); }) : () => {};

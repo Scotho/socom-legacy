@@ -13,6 +13,7 @@ import {
   type Grenade, type HullCast, type HullHit, type KitTable, type Loadout, type Pick, type SpawnSlot, type ThrowableRecord, type WeaponRecord, type WorldPoly,
 } from '@s2u/scene';
 import { blastLine } from '../../viewer/src/sceneHealth';
+import { gameValves } from '../../viewer/src/gameValves';
 import { apply4 } from '../../viewer/src/doorMath';
 import { C4_KIT_TIMER_SECONDS } from '../../viewer/src/throwCommit';
 import { holdFamily, holdOf,
@@ -2717,6 +2718,10 @@ export class Room {
     this.world = new WorldState(map.meta ?? bareMeta(map.stem), map.ground, map.grid);
     this.feetOrigin = feetOriginOf(map.ground.points);
     this.world.skipEffects = ROOM_SKIP_EFFECTS_READING;     // SUP-03: the deaths' effects are the pages'
+    this.world.runForgeScripts = true;                       // FORGE_SCRIPT_ROOM_ADAPTATION: a Forge layout's own scripts the round's
+    // The game's round valves on the room's world too (`../../viewer/src/gameValves`, GAME_VALVES_KEPT_ADAPTATION): a
+    // Forge program the room runs tests what a page's copy tests. No seat is the room's: its `player_team` stays unset.
+    this.valveFeed = gameValves((name, v) => { if (name !== 'player_team') this.world.setKeptValve(name, v); });
     // FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's blast (`WorldHooks.blast`), queued for the step (`scriptBlasts`).
     this.world.on({ blast: (op, path) => { const at = path !== null ? this.world.placeOf(path) : null; if (at && path !== null) this.scriptBlastQueue.push({ op, at, path }); } });
     this.world.applyInitial();
@@ -10873,7 +10878,16 @@ export class Room {
     this.conns.get(id)?.send(JSON.stringify(ev));
   }
 
+  /** The room world's game valves, fed every event the room sends (`gameValves`). */
+  private readonly valveFeed: (ev: ServerEvent) => void;
+
   private broadcast(ev: ServerEvent, except?: number): void {
+    this.valveFeed(ev);
+    if (ev.type === 'roundStart') {
+      // What a page's welcome tells it (`gameValves`' welcome): the map's type and the rules, the room's own.
+      this.world.setKeptValve('mp_game_type', this.map.gameType ?? 0);
+      this.world.setKeptValve('mp_allow_respawn', this.opts.rules === 'respawn' ? 1 : 0);
+    }
     // NCW-7 (the review F1, Codex P2): the ping the whole room was sent, from the rows themselves; a score built for one
     // page (the joiner's, a `score` request) is never broadcast and moves nothing.
     if (ev.type === 'score' && except === undefined) {

@@ -243,6 +243,10 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-asset-size-value { min-width: 34px; color: var(--fx-text); font: var(--fx-type-mono); text-align: right; }
 .fx-asset-preview-toggle { display: flex; align-items: center; gap: 8px; color: var(--fx-text); font: var(--fx-type-body); cursor: pointer; }
 .fx-asset-preview-toggle input { accent-color: var(--fx-gold); }
+/* The preview volume: its words, its slider filling the row, its percent. */
+.fx-asset-preview-volume { cursor: default; }
+.fx-asset-preview-volume input[type='range'] { flex: 1; min-width: 80px; }
+.fx-asset-preview-volume-value { min-width: 3.5ch; text-align: right; font-variant-numeric: tabular-nums; }
 .fx-right { right: 0; top: var(--fx-top); bottom: var(--fx-status); width: var(--fx-right); border-left: 1px solid var(--fx-edge); overflow-y: auto; }
 .fx-dock[hidden] { display: none; }
 .fx-dock-zone { overflow: auto; padding: var(--s2u-space-2); }
@@ -2298,3 +2302,244 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 
 /* An Inspector row with room above it (`InspectorEditor.gap`): a script's header, each of its steps, its Add row. */
 .fx-inspect-data > .fx-inspect-gap { margin-top: 12px; }
+
+/* ---- The Script editor's node view (`./panels/scriptGraph`; the owner, 2026-11-13: "a nodal view of the same underlying
+   data", then "parameters inside the node ... sideways ... the + more obvious"). A flow left to right: its event, each
+   step a node coloured by its family holding its own rows, an If's lanes one over another joined at its End if, a While's
+   body above its line back; every wire's + shown. */
+.fx-sg { --sg-wire: color-mix(in srgb, var(--fx-text) 38%, transparent); --sg-media: #4fa3d9; --sg-flow: #a07ad6; --sg-state: #5cb87a; --sg-action: #d9644f;
+  display: flex; flex-direction: column; height: 100%; min-height: 220px; }
+.fx-sg-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--fx-edge); }
+.fx-sg-title { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; color: var(--fx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-sg-zooms { display: inline-flex; gap: 2px; }
+.fx-sg-zoom { min-width: 26px; height: 24px; padding: 0 6px; }
+.fx-sg-zoom-word { min-width: 48px; }
+.fx-sg-canvas { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; cursor: grab;
+  background-color: var(--fx-panel);
+  background-image: radial-gradient(color-mix(in srgb, var(--fx-text) 10%, transparent) 1px, transparent 1px); background-size: 18px 18px; }
+.fx-sg-canvas.is-panning { cursor: grabbing; }
+.fx-sg-graph { display: inline-block; min-width: 100%; min-height: 100%; padding: 28px 32px; box-sizing: border-box; }
+
+/* Left to right: each row's wires through its nodes' middles. */
+.fx-sg-flow, .fx-sg-seq, .fx-sg-while, .fx-sg-if, .fx-sg-lane { display: flex; flex-direction: row; align-items: center; }
+.fx-sg-flow { width: max-content; }
+
+/* A node: its command, its number, its remove; then its own rows (the Inspector's editors). */
+.fx-sg-node { --fam: var(--sg-flow); position: relative; flex: 0 0 auto; width: 290px; box-sizing: border-box; background: var(--fx-panel-2);
+  border: 1px solid color-mix(in srgb, var(--fam) 55%, var(--fx-edge)); border-top: 4px solid var(--fam); border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); cursor: default; text-align: left; }
+.fx-sg-node.is-on { outline: 2px solid var(--fx-gold); outline-offset: 2px; }
+.fx-sg-fam-media { --fam: var(--sg-media); }
+.fx-sg-fam-flow { --fam: var(--sg-flow); }
+.fx-sg-fam-state { --fam: var(--sg-state); }
+.fx-sg-fam-action { --fam: var(--sg-action); }
+.fx-sg-node-head { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 3px 6px 3px 10px; cursor: pointer; border-bottom: 1px solid var(--fx-edge); }
+.fx-sg-node-head:focus-visible { outline: 2px solid var(--fx-gold); outline-offset: -2px; }
+.fx-sg-cmd { color: var(--fam, var(--fx-gold)); font-weight: 700; font-size: 12px; letter-spacing: 0.08em; }
+.fx-sg-num { color: var(--fx-dim); font-size: 10px; }
+.fx-sg-remove { margin-left: auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--fx-dim); font-size: 11px; cursor: pointer; }
+.fx-sg-remove:hover { color: var(--fx-on-accent); background: var(--sg-action); }
+/* Its rows, as the Inspector's, inside it. */
+.fx-sg-node > .fx-sg-rows { margin: 0; padding: 8px 10px 10px; border-top: 0; gap: 5px 8px; }
+.fx-sg-node > .fx-sg-rows[hidden] { display: none; }
+.fx-sg-detail { padding: 6px 10px 8px; color: var(--fx-text); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+/* Its event, and the end. */
+.fx-sg-event { --fam: var(--fx-gold); width: 180px; border-radius: 18px 6px 6px 18px; }
+.fx-sg-event .fx-sg-node-head { color: var(--fx-gold); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; cursor: default; }
+/* A block's closer (End if, End while) and the end: a small pill. */
+.fx-sg-pill { width: auto; min-width: 84px; border-top-width: 1px; border-radius: 999px; }
+.fx-sg-pill .fx-sg-node-head { justify-content: center; border-bottom: 0; padding: 3px 12px; }
+.fx-sg-pill .fx-sg-num { display: none; }
+.fx-sg-done { --fam: var(--fx-dim); padding: 4px 14px; color: var(--fx-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; box-shadow: none; }
+/* LOOP: back to the start. */
+.fx-sg-note { padding: 0 10px 8px; color: var(--sg-flow); font-size: 11px; }
+
+/* A wire between nodes, its + always shown on it. */
+.fx-sg-wire { position: relative; flex: 0 0 auto; width: 56px; height: 2px; background: var(--sg-wire); }
+.fx-sg-wire.is-grow { flex: 1 1 auto; min-width: 56px; }
+.fx-sg-seq.is-grow { flex: 1 1 auto; }
+.fx-sg-wire.is-pass { background: repeating-linear-gradient(90deg, var(--sg-wire) 0 6px, transparent 6px 11px); }
+.fx-sg-add { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; transform: translate(-50%, -50%);
+  border: 2px solid var(--fx-gold); border-radius: 50%; background: var(--fx-panel-2); color: var(--fx-gold); font-size: 15px; font-weight: 700; line-height: 1;
+  cursor: pointer; z-index: 1; box-shadow: 0 0 0 3px var(--fx-panel); }
+.fx-sg-add:hover, .fx-sg-add:focus-visible { background: var(--fx-gold); color: var(--fx-on-accent); outline: none; }
+.fx-sg-wire.is-pass > .fx-sg-add { border-style: dashed; }
+
+/* An If: its lanes one over another, a bar down their starts and their ends (each end lane from its middle). */
+.fx-sg-lanes { display: flex; flex-direction: column; align-items: stretch; }
+.fx-sg-lane { position: relative; padding: 12px 0; }
+.fx-sg-lane::before, .fx-sg-lane::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--sg-wire); }
+.fx-sg-lane::before { left: 0; }
+.fx-sg-lane::after { right: 0; }
+.fx-sg-lane:first-child::before, .fx-sg-lane:first-child::after { top: 50%; }
+.fx-sg-lane:last-child::before, .fx-sg-lane:last-child::after { bottom: 50%; }
+.fx-sg-lane:only-child::before, .fx-sg-lane:only-child::after { display: none; }
+.fx-sg-stub { flex: 0 0 auto; width: 20px; height: 2px; background: var(--sg-wire); }
+.fx-sg-if > .fx-sg-pill { position: relative; }
+.fx-sg-if > .fx-sg-lanes { margin: 0 22px 0 0; }
+.fx-sg-if > .fx-sg-pill::before { content: ''; position: absolute; top: calc(50% - 1px); left: -24px; width: 22px; height: 2px; background: var(--sg-wire); }
+.fx-sg-tag { flex: 0 0 auto; padding: 2px 9px; border: 1px solid var(--fx-edge); border-radius: 999px; background: var(--fx-panel); color: var(--fx-dim);
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* A While: its body, a line under it back to its head. */
+
+/* The + menu. */
+.fx-sg-menu { position: absolute; z-index: 5; display: flex; flex-direction: column; min-width: 230px; padding: 4px; background: var(--fx-panel-2);
+  border: 1px solid var(--fx-edge); border-radius: 6px; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5); cursor: default; }
+.fx-sg-menu-sep { height: 1px; margin: 4px 6px; background: var(--fx-edge); }
+.fx-sg-menu-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font: var(--fx-type-control); }
+.fx-sg-menu-item .fx-sg-cmd { min-width: 62px; }
+/* Hovered: its family's colour behind it and a bar at its left, its words brighter. */
+.fx-sg-menu-item { box-shadow: inset 3px 0 0 transparent; transition: background-color 80ms ease-out, box-shadow 80ms ease-out; }
+.fx-sg-menu-item:hover, .fx-sg-menu-item:focus-visible { background: color-mix(in srgb, var(--fam) 24%, transparent); box-shadow: inset 3px 0 0 var(--fam); color: var(--fx-text); outline: none; }
+
+/* Nothing to draw: why, and the one press that gives it a script. */
+.fx-sg-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 16px; color: var(--fx-dim); text-align: center; }
+.fx-sg-empty p { margin: 0; }
+
+/* The Inspector's rows of the step chosen in the Script panel. */
+.fx-inspect-data > .is-script-focus { background: color-mix(in srgb, var(--fx-gold) 12%, transparent); }
+.fx-inspect-data > dt.is-script-focus { color: var(--fx-gold); box-shadow: inset 2px 0 0 var(--fx-gold); padding-left: 4px; }
+
+/* A While (the owner, 2026-11-13: "make the return while line connect to the nodes and have the arrow go in the right
+   direction"): its head and its End while each in a column (`.fx-sg-post`) as tall as the block, the node in its middle;
+   the line back drops from the End while's middle, runs along under the body and rises into the head, its arrow there.
+   The block's room above matches the line's below, so the wires stay through its middle. */
+.fx-sg-while { position: relative; align-items: stretch; padding: 26px 0; }
+.fx-sg-loop { display: flex; align-items: center; }
+.fx-sg-post { display: flex; flex-direction: column; align-items: center; margin-bottom: -26px; }
+.fx-sg-post-top { flex: 1 1 0; }
+.fx-sg-post-drop { position: relative; flex: 1 1 0; width: 100%; padding-bottom: 26px; }
+.fx-sg-post.is-end { width: 120px; }
+.fx-sg-post.is-end > .fx-sg-pill { width: 100%; }
+.fx-sg-while.has-return .fx-sg-post-drop::before { content: ''; position: absolute; left: calc(50% - 1px); top: 0; bottom: 12px; width: 2px; background: var(--sg-flow); }
+.fx-sg-while.has-return .fx-sg-post.is-end > .fx-sg-post-drop::before { top: 0; }
+/* The run along the bottom: from the head's middle (its node 290 wide) to the End's (120 wide), rounded at both turns. */
+.fx-sg-while.has-return::after { content: ''; position: absolute; left: 144px; right: 59px; bottom: 12px; height: 14px; border: 2px solid var(--sg-flow); border-top: 0; border-radius: 0 0 10px 10px; }
+.fx-sg-while.has-return .fx-sg-post-drop::before { bottom: 24px; }
+/* Its arrow: up, into the head. */
+.fx-sg-while.has-return .fx-sg-post.is-head > .fx-sg-post-drop::after { content: ''; position: absolute; left: calc(50% - 6px); top: 0; width: 0; height: 0;
+  border: 6px solid transparent; border-bottom: 9px solid var(--sg-flow); border-top: 0; }
+
+/* An If's lanes (the owner, 2026-11-13: "make the if/else if/else if chain a bit more organized"): each a row -- its
+   condition in a column as wide as a node (the If's "then", an Else if's node, the Otherwise), its steps after, every
+   lane's starting at the same place -- set apart by a faint band. */
+.fx-sg-lane { padding: 10px 0; }
+.fx-sg-lane + .fx-sg-lane { border-top: 1px dashed color-mix(in srgb, var(--fx-text) 12%, transparent); }
+.fx-sg-lane-head { flex: 0 0 290px; display: flex; align-items: center; }
+.fx-sg-lane-head.is-line > .fx-sg-line { flex: 1 1 auto; height: 2px; background: var(--sg-wire); }
+.fx-sg-lane-pass .fx-sg-lane-head.is-line > .fx-sg-line { background: repeating-linear-gradient(90deg, var(--sg-wire) 0 6px, transparent 6px 11px); }
+
+/* The Script editor's switch: the map's script or the selected object's. */
+.fx-sg-bar-left { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.fx-sg-views { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--fx-edge); border-radius: 6px; }
+.fx-sg-view { height: 22px; padding: 0 10px; font-size: 12px; }
+.fx-sg-view.is-on { color: var(--fx-on-accent); background: var(--fx-gold); }
+/* The Map panel's Script row: the map script's button and its count. */
+.fx-map-script-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+.fx-map-script-open { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; }
+.fx-map-script-open .fx-ico { width: 14px; height: 14px; }
+.fx-map-script-count { font-size: 11px; }
+
+/* The Script editor's Flags legend (the owner, 2026-11-13): at its left, every flag of the layout's scripts -- marked
+   where the script shown uses it, unfolded to its uses (each one a jump to its step) -- then the game's own values. */
+.fx-sg-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.fx-sg-body > .fx-sg-canvas { flex: 1 1 auto; min-width: 0; }
+.fx-sg-legend { flex: 0 0 280px; display: flex; flex-direction: column; gap: 2px; padding: 8px; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border-right: 1px solid var(--fx-edge); background: var(--fx-panel-2); }
+.fx-sg-legend-head { display: flex; align-items: center; gap: 6px; margin: 6px 2px 4px; color: var(--fx-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.fx-sg-legend-head:first-child { margin-top: 0; }
+.fx-sg-legend-count { padding: 0 6px; border-radius: 999px; background: var(--fx-panel); color: var(--fx-text); font-size: 10px; letter-spacing: 0; }
+.fx-sg-legend-none { margin: 0 2px 6px; color: var(--fx-dim); font-size: 12px; line-height: 1.4; }
+.fx-sg-flag { border-radius: 4px; }
+.fx-sg-flag.is-here { box-shadow: inset 3px 0 0 var(--sg-state); background: color-mix(in srgb, var(--sg-state) 10%, transparent); }
+.fx-sg-flag-top { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font: var(--fx-type-control); }
+.fx-sg-flag-top:hover, .fx-sg-flag-top:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-sg-flag-caret { width: 10px; color: var(--fx-dim); font-size: 10px; }
+.fx-sg-flag-name { font-family: var(--fx-font-mono, monospace); font-size: 12px; color: var(--sg-state); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-sg-flag-here { padding: 0 5px; border-radius: 3px; background: var(--sg-state); color: var(--fx-on-accent); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.fx-sg-flag-meta { margin-left: auto; color: var(--fx-dim); font-size: 10px; white-space: nowrap; }
+.fx-sg-flag-meta.is-warn { color: var(--sg-action); font-weight: 700; }
+.fx-sg-flag-uses { display: flex; flex-direction: column; gap: 1px; padding: 0 4px 6px 20px; }
+.fx-sg-use { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font-size: 11px; }
+.fx-sg-use:hover, .fx-sg-use:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-sg-use-kind { min-width: 34px; font-weight: 700; font-size: 10px; letter-spacing: 0.06em; }
+.fx-sg-use.is-write .fx-sg-use-kind { color: var(--sg-state); }
+.fx-sg-use.is-read .fx-sg-use-kind { color: var(--sg-flow); }
+.fx-sg-use-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-sg-game { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
+.fx-sg-game .fx-sg-flag-name { color: var(--sg-media); }
+
+/* The Original map tab (the owner, 2026-11-13: "see the official maps' map scripting"): its program and sequence
+   pickers in the bar; an engine command no script step stands for, grey (`native`); a read-only node its words. */
+.fx-sg-disc { display: inline-flex; align-items: center; gap: 12px; }
+.fx-sg-disc-field { display: inline-flex; align-items: center; gap: 6px; }
+.fx-sg-disc-label { color: var(--fx-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.fx-sg-disc[hidden] { display: none; }
+.fx-sg-disc .fx-select { height: 24px; max-width: 220px; font-size: 12px; }
+.fx-sg-fam-native { --fam: color-mix(in srgb, var(--fx-text) 45%, transparent); }
+.fx-sg-legend[hidden] { display: none; }
+
+/* The legend's sequence rows' rename and remove (the owner, 2026-11-13: the sequence bar's, moved to the left bar). */
+.fx-sg-seq-remove { flex: 0 0 auto; width: 18px; height: 18px; margin-left: 2px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--fx-dim); font-size: 10px; cursor: pointer; }
+.fx-sg-seq-remove:hover { color: var(--fx-on-accent); background: var(--sg-action); }
+.fx-sg-seq-input { flex: 1 1 auto; min-width: 0; height: 22px; font-size: 12px; }
+.fx-sg-seq-add { align-self: stretch; height: 24px; margin: 4px 2px 0; padding: 0 8px; font-size: 12px; }
+
+/* The legend's sequences (the owner, 2026-11-13: "add our sequences to the left hand side bar"); every legend row keeps
+   its height so the legend scrolls rather than squeezes. */
+.fx-sg-legend > * { flex-shrink: 0; }
+.fx-sg-seq-item .fx-sg-flag-top { padding: 0 6px 0 0; cursor: default; }
+.fx-sg-seq-item .fx-sg-flag-top:hover { background: transparent; }
+.fx-sg-seq-caret { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 24px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.fx-sg-seq-open { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font: var(--fx-type-control); }
+.fx-sg-seq-open:hover, .fx-sg-seq-open:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-sg-seq-item .fx-sg-flag-name { color: var(--sg-flow); }
+.fx-sg-seq-item.is-here { box-shadow: inset 3px 0 0 var(--sg-flow); background: color-mix(in srgb, var(--sg-flow) 10%, transparent); }
+.fx-sg-seq-who { color: var(--fx-dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* A text field's suggestions (a flag's name): its button, and the list under it (the owner, 2026-11-13). */
+.fx-inspect-suggest { color: var(--sg-state, var(--fx-accent)); }
+.fx-inspect-suggest .fx-ico { fill: color-mix(in srgb, currentColor 30%, transparent); }
+.fx-suggest-list { position: fixed; z-index: 2000; display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 3px;
+  border: 1px solid var(--fx-edge); border-radius: 4px; background: var(--fx-panel); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); overscroll-behavior: contain; }
+.fx-suggest-item { padding: 4px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer;
+  font-family: var(--fx-font-mono, monospace); font-size: 12px; white-space: nowrap; }
+.fx-suggest-item:hover, .fx-suggest-item:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-suggest-item.is-on { color: var(--sg-state, var(--fx-accent)); }
+
+/* The steps' one menu (`panels/stepMenu`), fixed on the page: the + menu's look, its families' colours of its own. */
+.fx-step-menu, .fx-step-pick { --sg-media: #4fa3d9; --sg-flow: #a07ad6; --sg-state: #5cb87a; --sg-action: #d9644f; }
+.fx-sg-menu.fx-step-menu { position: fixed; z-index: 2000; overflow-y: auto; overscroll-behavior: contain; }
+.fx-sg-menu-item.is-on { background: color-mix(in srgb, var(--fam) 14%, transparent); box-shadow: inset 3px 0 0 var(--fam); }
+.fx-sg-fam-tool { --fam: var(--fx-dim); }
+.fx-sg-fam-tool .fx-sg-cmd { color: var(--fx-text); }
+.fx-sg-fam-remove { --fam: var(--sg-action); }
+.fx-sg-fam-remove .fx-sg-cmd { color: var(--sg-action); }
+/* A Step row's button: the step shown as the menu shows it, an arrow at its right like a select's. */
+.fx-step-pick { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; cursor: pointer; overflow: hidden; }
+.fx-step-pick .fx-sg-cmd { flex: 0 0 auto; font-size: 11px; }
+.fx-step-pick-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-step-pick.is-empty .fx-step-pick-words { color: var(--fx-dim); }
+
+/* The program sidebar's edge: a drag resizes it (a double click its default); a sequence's name on a line of its own,
+   its state under it (the owner, 2026-11-13: "when I add a new sequence, I can't even read it"). */
+.fx-sg-legend { border-right: 0; }
+.fx-sg-legend-grip { flex: 0 0 5px; cursor: col-resize; background: var(--fx-edge); transition: background-color 80ms ease-out; }
+.fx-sg-legend-grip:hover, .fx-sg-legend-grip.is-dragging { background: var(--fx-gold, var(--fx-accent)); }
+.fx-sg-legend-grip[hidden] { display: none; }
+.fx-sg-seq-item .fx-sg-flag-top { flex-wrap: wrap; row-gap: 0; }
+.fx-sg-seq-item .fx-sg-seq-open { flex: 1 1 0; }
+.fx-sg-seq-item .fx-sg-flag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-sg-seq-item .fx-sg-seq-remove { order: 2; }
+.fx-sg-seq-item .fx-sg-flag-top > .fx-sg-flag-meta { order: 3; flex: 1 0 100%; margin: 0 0 4px; padding-left: 24px; text-align: left; }
+.fx-sg-seq-who:empty { display: none; }
+
+/* A condition's further test, and its Add a test row: room above it and a faint line, in the Inspector and the nodes. */
+.fx-inspect-data > .fx-inspect-group { margin-top: 10px; padding-top: 10px; border-top: 1px dashed color-mix(in srgb, var(--fx-text) 16%, transparent); }
+
+/* The asset tiles' own drag (page.ts `tileDrag`): no text picked up on the way, a grabbing hand, and the asset's name by
+   the pointer while it is off the viewport. */
+body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grabbing !important; }
+.fx-tile-drag-chip { position: fixed; z-index: 10000; pointer-events: none; padding: 3px 8px; border-radius: 4px;
+  background: var(--fx-panel, #0e1a1f); border: 1px solid var(--fx-gold, #d9b24c); color: var(--fx-text, #e6edf0);
+  font: var(--fx-type-body, 12px sans-serif); white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }

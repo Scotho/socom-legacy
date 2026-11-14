@@ -1,6 +1,7 @@
 import type { MenuItem } from '../padMenu';
 import { scrubNumber, type ScrubDetail } from '../scrub';
 import { builtPanel, forgeEl, optionWithNote, revealRow, type ForgePanel } from '../shell/panel';
+import { openStepMenu, STEP_COMMAND, STEP_FAMILY, stepMenuOpen, closeStepMenu, stepWords } from './stepMenu';
 
 /**
  * FUI-1 (a browser adaptation, FG.R2): the Inspector, below the Outliner in the right dock. Its markup is the page's as
@@ -177,20 +178,111 @@ export interface InspectorEditor {
    * button, where the popup opens).
    */
   browse?: { icon: string; title: string; disabled?: boolean; open(anchor: HTMLElement): void };
+  /**
+   * A second small button after `browse` (the owner, 2026-11-14: "an icon next to the asset browser popup button"): a
+   * preview of the row's asset -- its icon, its tooltip, whether its preview shows now (`on`, drawn pressed), its press.
+   */
+  peek?: { icon: string; title: string; on: boolean; open(anchor: HTMLElement): void };
   /** Whose row it is (the selection's reference): a row with a drop or a browse drawn anew for another object. */
   owner?: string;
   /** Room above the row (the owner, 2026-11-13: "spacing between the steps"): a script's header, each step, its Add row. */
   gap?: boolean;
   /**
+   * Room above the row and a faint line, in the node view too (its `gap` is the Inspector's only): a condition's further
+   * test and its Add a test row (the owner, 2026-11-13: "spacing between each condition test").
+   */
+  groupGap?: boolean;
+  /**
    * The row a script's steps start at: the read-only rows drawn before it, not under the steps (the owner, 2026-11-13:
    * "since we can have many steps they get buried at the bottom").
    */
   stepsStart?: boolean;
+  /** The script step this row is of (its index), for the Script panel's node view (`./scriptGraph`). */
+  scriptStep?: number;
+  /** A row of the step chosen in the Script panel: marked, and shown (scrolled to) when it is drawn. */
+  focus?: boolean;
+  /** A text field's suggestions, its own dropdown (a `datalist`): any other words still typed (a new flag's name). */
+  suggest?: readonly string[];
+  /**
+   * A select of script steps drawn as the steps' menu (`./stepMenu`; the owner, 2026-11-13: the + menu's, everywhere):
+   * its options the steps, by family, then any other values (Move up, Move down, Remove) after a line.
+   */
+  stepMenu?: boolean;
+}
+
+/**
+ * A text field's suggestions as a list of its own (the owner, 2026-11-13: "everywhere where we have a flag dropdown, it
+ * should also list all of our custom flags ... but also allow new flags by string"): a browser adaptation. Its button
+ * shows every word, whatever is typed (a `datalist` shows only the ones matching the text, and no arrow); typing narrows
+ * the list; a word picked is the field's value; any other text typed still stands (a new flag's name). The list is the
+ * page's (`body`), fixed under the field, so a zoomed or clipped node graph never cuts it.
+ */
+let suggestOpen: { close(): void } | null = null;
+
+function suggestCombo(doc: Document, input: HTMLInputElement, words: readonly string[], take: (w: string) => void): HTMLElement {
+  // A flag on its pole, in the browse button's look (`fx-inspect-browse`), so it reads as a button beside the field.
+  const btn = forgeEl(doc, 'button', 'fx-tool fx-inspect-browse fx-inspect-suggest') as HTMLButtonElement;
+  btn.innerHTML = '<svg class="fx-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h12l-2.5 4 2.5 4H5"/></svg>';
+  btn.type = 'button';
+  btn.tabIndex = -1;
+  btn.title = 'Pick one already named';
+  btn.setAttribute('aria-label', 'Pick one already named');
+  btn.disabled = input.disabled;
+  const open = (filter: string): void => {
+    suggestOpen?.close();
+    const shown = words.filter((w) => !filter || w.toLowerCase().includes(filter.toLowerCase()));
+    if (!shown.length) return;
+    const list = forgeEl(doc, 'div', 'fx-suggest-list');
+    list.setAttribute('role', 'listbox');
+    for (const w of shown) {
+      const o = forgeEl(doc, 'button', `fx-suggest-item${w === input.value ? ' is-on' : ''}`, w) as HTMLButtonElement;
+      o.type = 'button';
+      o.setAttribute('role', 'option');
+      // Its mousedown kept from the field, so the field's blur does not close the list before the pick.
+      o.addEventListener('mousedown', (ev) => ev.preventDefault());
+      o.addEventListener('click', () => { close(); input.value = w; take(w); });
+      list.append(o);
+    }
+    const r = input.getBoundingClientRect();
+    const b = btn.getBoundingClientRect();
+    Object.assign(list.style, { left: `${r.left}px`, top: `${r.bottom + 2}px`, minWidth: `${Math.max(140, b.right - r.left)}px` });
+    doc.body.append(list);
+    // Kept on the screen: above the field when there is no room below.
+    const lr = list.getBoundingClientRect();
+    const vh = doc.defaultView?.innerHeight ?? 0;
+    if (vh && lr.bottom > vh - 4) list.style.top = `${Math.max(4, r.top - 2 - lr.height)}px`;
+    const away = (ev: Event): void => { if (!list.contains(ev.target as Node) && ev.target !== btn && ev.target !== input) close(); };
+    const scrolled = (ev: Event): void => { if (!list.contains(ev.target as Node)) close(); };
+    const close = (): void => {
+      list.remove();
+      doc.removeEventListener('mousedown', away, true);
+      doc.removeEventListener('wheel', scrolled, true);
+      doc.removeEventListener('scroll', scrolled, true);
+      if (suggestOpen === handle) suggestOpen = null;
+    };
+    const handle = { close };
+    suggestOpen = handle;
+    doc.addEventListener('mousedown', away, true);
+    doc.addEventListener('wheel', scrolled, true);
+    doc.addEventListener('scroll', scrolled, true);
+  };
+  btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+  btn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (suggestOpen && doc.querySelector('.fx-suggest-list')) { suggestOpen.close(); return; }
+    open('');
+  });
+  input.addEventListener('input', () => open(input.value.trim()));
+  input.addEventListener('keydown', (k) => { if (k.key === 'Escape' || k.key === 'Enter' || k.key === 'Tab') suggestOpen?.close(); });
+  input.addEventListener('blur', () => suggestOpen?.close());
+  return btn;
 }
 
 /** A row's pair with room above it where it asks (`InspectorEditor.gap`). */
 function spaced(e: InspectorEditor, pair: HTMLElement[]): HTMLElement[] {
   if (e.gap) for (const x of pair) x.classList.add('fx-inspect-gap');
+  if (e.groupGap) for (const x of pair) x.classList.add('fx-inspect-group');
+  if (e.focus) for (const x of pair) x.classList.add('is-script-focus');
   return pair;
 }
 
@@ -228,7 +320,7 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
   const held = heldOpen.get(dom.data);
   if (held?.open) { held.pending = () => showInspectorData(dom, rows, editors); return; }
   if (held) held.pending = null;
-  const sig = JSON.stringify([rows, editors.map((e) => [e.label, e.kind, e.value, e.options, e.disabled, e.owner ?? null, !!e.drop, !!e.browse, !!e.gap, !!e.stepsStart])]);
+  const sig = JSON.stringify([rows, editors.map((e) => [e.label, e.kind, e.value, e.options, e.disabled, e.owner ?? null, !!e.drop, !!e.browse, !!e.gap, !!e.stepsStart, !!e.focus, e.suggest ?? null, !!e.stepMenu, !!e.groupGap, e.peek ? [e.peek.title, e.peek.on] : null])]);
   // Held only while a text or number field is being typed in; a choice (a select, a box) redraws at once, so a field
   // that depends on it (a door's on its map) follows, the focus kept on the same field.
   const active = doc.activeElement;
@@ -246,6 +338,30 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
       b.setAttribute('aria-label', e.label);
       if (e.title) b.title = e.title;
       b.addEventListener('click', () => e.set(true));
+      const dd = forgeEl(doc, 'dd', '');
+      dd.append(b);
+      return spaced(e, [forgeEl(doc, 'dt', '', e.label), dd]);
+    }
+    if (e.kind === 'select' && e.stepMenu) {
+      // The steps' menu: a button showing the step (its engine word in its family's colour, its words), its press the menu.
+      const opts = e.options ?? [];
+      const cur = opts.find(([v]) => v === String(e.value));
+      const fam = STEP_FAMILY[String(e.value)];
+      const b = forgeEl(doc, 'button', `fx-select fx-inspect-edit fx-step-pick${fam ? ` fx-sg-fam-${fam}` : ' is-empty'}`) as HTMLButtonElement;
+      b.type = 'button';
+      if (fam) b.append(forgeEl(doc, 'span', 'fx-sg-cmd', STEP_COMMAND[String(e.value)] ?? ''), forgeEl(doc, 'span', 'fx-step-pick-words', stepWords(cur?.[1] ?? '')));
+      else b.append(forgeEl(doc, 'span', 'fx-step-pick-words', cur?.[1] ?? ''));
+      b.disabled = e.disabled === true;
+      b.setAttribute('aria-label', e.label);
+      b.setAttribute('aria-haspopup', 'menu');
+      if (e.title) b.title = e.title;
+      const steps = opts.filter(([v]) => v in STEP_FAMILY).map(([v, w]) => [v, w] as const);
+      const actions = opts.filter(([v]) => v !== '' && !(v in STEP_FAMILY)).map(([v, w]) => [v, w] as const);
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (stepMenuOpen()) { closeStepMenu(); return; }
+        openStepMenu(doc, b, steps, (v) => { if (v !== String(e.value)) e.set(v); }, { current: String(e.value), actions });
+      });
       const dd = forgeEl(doc, 'dd', '');
       dd.append(b);
       return spaced(e, [forgeEl(doc, 'dt', '', e.label), dd]);
@@ -274,6 +390,12 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
       input = i;
     }
     input.disabled = e.disabled === true;
+    let list: HTMLElement | null = null;
+    if (e.suggest?.length && input instanceof HTMLInputElement && e.kind === 'text') {
+      const field = input;
+      field.autocomplete = 'off';
+      list = suggestCombo(doc, field, e.suggest, (w) => e.set(w));
+    }
     input.setAttribute('aria-label', e.label);
     if (e.title) input.title = e.title;
     input.addEventListener('change', () => {
@@ -291,6 +413,7 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
     if (input instanceof HTMLInputElement && e.kind !== 'check') input.addEventListener('keydown', (k) => { if (k.key === 'Enter') input.blur(); });
     const dd = forgeEl(doc, 'dd', '');
     dd.append(input);
+    if (list) { dd.classList.add('fx-inspect-browse-row'); dd.append(list); }
     if (e.browse) {
       const browse = e.browse;
       const b = forgeEl(doc, 'button', 'fx-tool fx-inspect-browse');
@@ -301,6 +424,18 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
       // Its own (a row shown greyed, a Custom program's, still browses: a pick makes it that asset).
       b.disabled = browse.disabled === true;
       b.addEventListener('click', (ev) => { ev.stopPropagation(); browse.open(b); });
+      dd.classList.add('fx-inspect-browse-row');
+      dd.append(b);
+    }
+    if (e.peek) {
+      const pv = e.peek;
+      const b = forgeEl(doc, 'button', `fx-tool fx-inspect-browse fx-inspect-preview${pv.on ? ' is-on' : ''}`);
+      b.type = 'button';
+      b.innerHTML = pv.icon;
+      b.title = pv.title;
+      b.setAttribute('aria-label', pv.title);
+      b.setAttribute('aria-pressed', String(pv.on));
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); pv.open(b); });
       dd.classList.add('fx-inspect-browse-row');
       dd.append(b);
     }
@@ -323,6 +458,10 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
           ev.stopPropagation();
           drop.take();
         });
+        // The asset tiles' own (pointer) drag: the same marks and the same take, on its moves and its release.
+        el.addEventListener('pointermove', () => { if (drop.accepts()) mark(true); });
+        el.addEventListener('pointerleave', () => mark(false));
+        el.addEventListener('pointerup', () => { mark(false); if (drop.accepts()) drop.take(); });
       }
     }
     return spaced(e, [dt, dd]);
@@ -334,6 +473,8 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
   const fields = perEditor.flat();
   const ordered = at < 0 ? [...fields, ...readOnly] : [...perEditor.slice(0, at).flat(), ...readOnly, ...perEditor.slice(at).flat()];
   dom.data.replaceChildren(...ordered);
+  // The step chosen in the Script panel brought into view.
+  dom.data.querySelector('.is-script-focus')?.scrollIntoView?.({ block: 'nearest' });
   dom.data.hidden = fields.length + shown.length === 0;
   if (refocus !== null) [...dom.data.querySelectorAll<HTMLElement>('.fx-inspect-edit')].find((el) => el.getAttribute('aria-label') === refocus)?.focus();
 }

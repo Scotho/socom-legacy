@@ -19,6 +19,19 @@ import type { Effects } from '../effects';
  */
 /** A Forge object's placed path: its place in `Layout.objects`, one-based. */
 export const forgeObjectPath = (i: number): string => `forge/object_${i + 1}`;
+/**
+ * The map script's own place (`Layout.mapScript`; a browser adaptation, FG.R2): a Forge node at the map's origin, its
+ * program's root -- what a sound or an effect with no object of its own plays at, as the disc's `objectives` plays its
+ * own at its root.
+ */
+export const FORGE_MAP_SCRIPT_PATH = 'forge/map_script';
+
+/** `map` with the layout's map script (`MapMeta.forgeMapScript`) and its place; the map as it was without one. */
+export function withMapScript(map: LoadedMap, script: ScriptSteps | undefined): LoadedMap {
+  if (!map.meta || !script?.steps.length) return map;
+  return { ...map, meta: { ...map.meta, forgePlaces: { ...(map.meta.forgePlaces ?? {}), [FORGE_MAP_SCRIPT_PATH]: [0, 0, 0] }, forgeMapScript: [...script.steps],
+    ...(script.sequences?.length ? { forgeMapSequences: script.sequences } : {}) } };
+}
 
 /**
  * A placed scripted effect (the owner, 2026-11-13: "a unified effect object that a user can drag out and customize"; a
@@ -68,6 +81,52 @@ export interface AmbientProgram {
   sounds: string[];
   /** Its looping sounds (a `~` name, `./soundData` `zanimEmitters`' rule) at their commands' volumes: its emitters. */
   loops: { sound: string; volume: number }[];
+}
+
+/**
+ * What any program of a map's does (`AmbientProgram`'s own reading, its self-starting flag not asked): a called effect's
+ * particles, sounds and light, the programs it calls with it -- an emitter's Does row whichever it plays. Null for a name
+ * the map has no program of.
+ */
+/**
+ * How a map's program repeats, read off its commands and the programs it calls (the owner, 2026-11-14: "generic for all
+ * native emitters"): `again` with a LOOP or a WHILE, else `once` -- its `~` sounds (`loops`) still looping by the game's
+ * own rule. Null for a name the map has no program of.
+ */
+export function programRepeatOf(map: Pick<LoadedMap, 'meta'>, name: string): { again: boolean; loops: boolean } | null {
+  const programs = (map.meta?.scene?.programs ?? []).map((p) => p.program);
+  const byName = new Map(programs.map((p) => [p.name.toLowerCase(), p]));
+  const first = byName.get(name.toLowerCase());
+  if (!first) return null;
+  const seen = new Set<string>();
+  let again = false, loops = false;
+  const walk = (p: EffectProgram): void => {
+    if (seen.has(p.name.toLowerCase()) || seen.size > 16) return;
+    seen.add(p.name.toLowerCase());
+    for (const s of p.sequences) for (const o of s.ops) {
+      if (o.op === 'loop' || o.op === 'while') again = true;
+      if (o.op === 'sound' && o.sound.startsWith('~')) loops = true;
+      if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); }
+    }
+  };
+  walk(first);
+  return { again, loops };
+}
+
+export function programWorkOf(map: Pick<LoadedMap, 'meta'>, name: string): { particles: boolean; sound: boolean; light: boolean } | null {
+  const programs = (map.meta?.scene?.programs ?? []).map((p) => p.program);
+  const byName = new Map(programs.map((p) => [p.name.toLowerCase(), p]));
+  const first = byName.get(name.toLowerCase());
+  if (!first) return null;
+  const seen = new Set<string>();
+  const ops: EffectProgram['sequences'][number]['ops'][number][] = [];
+  const walk = (p: EffectProgram): void => {
+    if (seen.has(p.name.toLowerCase()) || seen.size > 16) return;
+    seen.add(p.name.toLowerCase());
+    for (const s of p.sequences) for (const o of s.ops) { ops.push(o); if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); } }
+  };
+  walk(first);
+  return { particles: ops.some((o) => o.op === 'particles'), sound: ops.some((o) => o.op === 'sound'), light: ops.some((o) => o.op === 'light') };
 }
 
 /** A map's ambient programs (`AmbientProgram`), each once, by name. */
@@ -127,7 +186,8 @@ export function withForgeObjects(map: LoadedMap, objects: readonly LayoutObject[
   objects.forEach((o, i) => {
     const path = forgeObjectPath(i);
     forgePlaces[path] = [o.at[0], o.at[1], o.at[2]];
-    if (o.kind === 'ambient') forgeAmbients.push({ path, source: o.source, name: o.name, at: [o.at[0], o.at[1], o.at[2]], yaw: o.yaw, ...(o.script ? { script: o.script.steps } : {}) });
+    if (o.kind === 'ambient') forgeAmbients.push({ path, source: o.source, name: o.name, at: [o.at[0], o.at[1], o.at[2]], yaw: o.yaw, ...(o.script ? { script: o.script.steps } : {}),
+      ...(o.script?.sequences?.length ? { sequences: o.script.sequences } : {}) });
   });
   return { ...map, meta: { ...map.meta, forgePlaces, forgeAmbients } };
 }

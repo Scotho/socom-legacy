@@ -453,10 +453,37 @@ export function ghostIcon(mark: { glyph: string; colour: string }): Sprite {
 /** A ghost icon's size: a share of the screen's height (`sizeAttenuation` off), about a placed billboard's. */
 const GHOST_ICON_SCALE = 0.045;
 
+/** An emitter's ghost ring's radius (game units, 10 a metre): a small mark on the ground (an editor's, no original). */
+const GHOST_RING_RADIUS = 6;
+
+/**
+ * An emitter's ghost (the owner, 2026-11-14: "just have a small circle gizmo as the live preview"): a sound, an effect or
+ * an emitter has no model to show while it is placed, so a small ring on the ground in its billboard's colour stands in
+ * for one -- a gizmo as every other asset's ghost is its model, never its billboard.
+ */
+export function ghostRing(colour: string): LineSegments {
+  const n = 48;
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2, b = ((i + 1) / n) * Math.PI * 2;
+    pts.push(Math.cos(a) * GHOST_RING_RADIUS, 0.3, Math.sin(a) * GHOST_RING_RADIUS, Math.cos(b) * GHOST_RING_RADIUS, 0.3, Math.sin(b) * GHOST_RING_RADIUS);
+  }
+  // Its centre: a short cross, so where it lands reads at a glance.
+  const c = GHOST_RING_RADIUS * 0.35;
+  pts.push(-c, 0.3, 0, c, 0.3, 0, 0, 0.3, -c, 0, 0.3, c);
+  const geom = new BufferGeometry();
+  geom.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3));
+  const ring = new LineSegments(geom, new LineBasicMaterial({ color: colour, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }));
+  ring.renderOrder = 10;
+  ring.userData['forgeGhostRing'] = true;
+  return ring;
+}
+
 export function disposeGhost(g: Object3D): void {
   g.traverse((o) => {
     // A ghost's own icon (`ghostIcon`): its texture and material are the ghost's alone.
     if (o instanceof Sprite) { o.material.map?.dispose(); o.material.dispose(); return; }
+    if (o instanceof LineSegments && o.userData['forgeGhostRing']) { o.geometry.dispose(); (o.material as Material).dispose(); return; }
     if (!(o instanceof Mesh)) return;
     o.geometry.dispose();
     for (const m of matsOf(o.material)) m.dispose();

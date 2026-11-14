@@ -1224,6 +1224,7 @@ const acts = mountActions({
     ownBody: ownBombBody(play, throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1 (research 214 s3): the own body
     sound: bombSound(gameAudio),                                                       // PB-1: the pickup's .FOOTBOMB
     pulse: worldPulse(() => pageWorld),                                                // PB-9b (research 284 s8): the bases' pulse
+    valve: (name, v) => { pageWorld?.setKeptValve(name, v); },                         // the game's `mp_bomb`, for a Forge map script
   },
   win: globalThis,
   drops: { ahead: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0), candidates: () => drops.holdCandidatesAt(walk.feet(), walk.snapshot()?.yaw ?? 0), second: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0, 2), item: (did) => drops.itemOf(did) },   // LkPaioX5 (c): the second TAKE and the names;   // PAR-34 group 7: PICKUP_HOLD_PER_CLASS_READING   // PF-34: the weapon prompt's drop

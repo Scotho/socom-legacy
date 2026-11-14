@@ -85,8 +85,8 @@ export function lentScriptAssets(steps: Iterable<ScriptStep>, base: string): Len
 }
 
 /** Every step of a layout's switches' scripts, both lists. */
-export function scriptSteps(switches: readonly { script?: { steps: readonly ScriptStep[] } }[] | undefined): ScriptStep[] {
-  return (switches ?? []).flatMap((s) => s.script?.steps ?? []);
+export function scriptSteps(switches: readonly { script?: { steps: readonly ScriptStep[]; sequences?: readonly { steps: readonly ScriptStep[] }[] } }[] | undefined): ScriptStep[] {
+  return (switches ?? []).flatMap((s) => [...(s.script?.steps ?? []), ...(s.script?.sequences ?? []).flatMap((q) => q.steps)]);
 }
 
 /**

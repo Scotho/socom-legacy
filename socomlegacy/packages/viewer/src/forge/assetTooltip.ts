@@ -45,6 +45,7 @@ export function createAssetTooltip(doc: Document, options: AssetTooltipOptions) 
   doc.body.append(root);
   const preview = createAssetPreview(root, {
     resolve: options.resolve, ...(options.renderer ? { renderer: options.renderer } : {}), ...(options.progress ? { progress: options.progress } : {}),
+    ...(options.sound ? { sound: options.sound } : {}),
   });
   const lists = new Set<HTMLElement>();
   let anchor: HTMLElement | null = null, asset: string | null = null, disposed = false;
