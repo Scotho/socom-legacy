@@ -15,6 +15,7 @@ import { recordOfLayout } from '../../src/forge/record';
 import { SavesStore } from '../../src/forge/savesStore';
 import { standOf } from '../../src/matchCore';
 import { Box3, Vector3 } from 'three';
+import { pressNew } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * R5-B (a browser adaptation, no original): the camera shot's page half -- the driver on the page's fly camera, its
@@ -369,7 +370,7 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
 
   /** The person's own base change: New, its card's base list, Next (`chooseNewBase` -> `layoutForSelect` -> `openLayout`, bare). */
   const applyBase = async (api: ForgeAgentApi, id: string): Promise<void> => {
-    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    pressNew(document);                                           // EDITOR-MAP T2: File > New...
     await vi.waitFor(() => expect(document.querySelector('.fx-card select[aria-label="New layout"]')).not.toBeNull());
     const sel = document.querySelector<HTMLSelectElement>('.fx-card select[aria-label="New layout"]')!;
     sel.value = id;

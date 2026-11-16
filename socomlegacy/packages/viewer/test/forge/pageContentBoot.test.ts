@@ -9,6 +9,7 @@ import { FORGE_LAYOUT_KEY } from '../../src/pageStore';
 import type { LoadedMap } from '../../src/loadMap';
 import { MAP_PACK, minimalMapJson } from '../../../creator-contracts/test/contentMapFixtures';
 import { freshSavesDb, readStoredList } from './fakeSaves';
+import { pressNew, pressForgeMenu } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * R6 fix-up (the review's blocking finding on item 7; product track, a browser adaptation with no original): a layout on
@@ -51,7 +52,7 @@ const storedName = async (): Promise<string | null> => {
 };
 /** OT.R112: the current base is named on the forge menu's "New layout" row (`optionLabel(baseSel)`), as pageContent's pins read it. */
 const menuBaseLabel = (): string => {
-  document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();          // (re)drawn: an open menu keeps its rows
+  pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle          // (re)drawn: an open menu keeps its rows
   return document.querySelector('.fx-menu li[data-forge-menu-row="base"] .fx-menu-value')?.textContent ?? '';
 };
 const closeMenu = (): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); };
@@ -155,7 +156,7 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     await vi.waitFor(() => expect(api.status().map).toBe(own));
     expect(menuBaseLabel()).toContain('Yard');
     closeMenu();
-    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    pressNew(document);                                           // EDITOR-MAP T2: File > New...
     await vi.waitFor(() => expect(document.querySelector('.fx-card select[aria-label="New layout"]')).not.toBeNull());
     const sel = document.querySelector<HTMLSelectElement>('.fx-card select[aria-label="New layout"]')!;
     expect([...sel.options].map((o) => o.value)).not.toContain(own);

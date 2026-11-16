@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { planForgeLayout } from '../src/forge/agent/commands';
+import { exportForgeCommand, FORGE_EXPORT_COMMAND, planForgeLayout } from '../src/forge/agent/commands';
+import { exportForgePack } from '../src/forge/exportPack';
+import { DEPENDENCY, DEPENDENCY_TEAM, dependentYard, discYard, rulesYard } from './forge/exportFixture';
 import { emptyLayout, serializeLayout } from '../src/forge/layout';
 import { History, recordEdit, decodeHistoryStep, encodeHistoryStep } from '../src/forge/history';
+import { layoutOfRecord, recordOfLayout } from '../src/forge/record';
+import { contentAssetKey } from '@s2u/creator-contracts';
+import { REF } from './packs/contentFixtures';
 
 describe('Forge recipe plans use the existing layout and history', () => {
   it('placement.set changes one field a placement keeps, checked; a locked one, an unknown field or a bad value refused', () => {
@@ -151,6 +156,63 @@ describe('Forge recipe plans use the existing layout and history', () => {
     expect(() => planForgeLayout(layout, 'piece.delete', { refs: ['spawn:9'] }, [])).toThrow(/reference/);
     expect(layout.spawns[0]!.p).toEqual([1, 2, 3]);
   });
+  it('FX-9: placement.set sets the pitch, roll and scale of a piece, rounded and clamped as the Inspector, kept by the record', () => {
+    let l = planForgeLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'piece.place', { asset: 'MP2:crate', at: [10, 2, -5], yaw: Math.PI / 2 }, []);
+    l = planForgeLayout(l, 'placement.set', { ref: 'piece:0', field: 'pitch', value: 15 }, []);
+    l = planForgeLayout(l, 'placement.set', { ref: 'piece:0', field: 'roll', value: -30.4 }, []);
+    l = planForgeLayout(l, 'placement.set', { ref: 'piece:0', field: 'scale', value: [2, 1.004, 0.5] }, []);
+    const m = l.pieces[0]!.m;
+    expect([m[12], m[13], m[14]], 'its place kept').toEqual([10, 2, -5]);
+    let record = recordOfLayout(l, 'Tilted');
+    expect(record.pieces[0]!.slice(0, 5)).toEqual([0, 10, 2, -5, 90]);
+    expect(record.poses).toEqual([[0, 15, 330, 2, 1, 0.5]]);
+    // Saved and reopened: the same pose, the same record.
+    expect(recordOfLayout(layoutOfRecord(record), 'Tilted').poses).toEqual([[0, 15, 330, 2, 1, 0.5]]);
+    // One number scales all three axes; one past the bounds is held at them; a pitch past 90 is held at 90 (the roll
+    // then in the yaw, the record's one form at the gimbal).
+    l = planForgeLayout(l, 'placement.set', { ref: 'piece:0', field: 'scale', value: 9 }, []);
+    expect(recordOfLayout(l, 'Tilted').poses).toEqual([[0, 15, 330, 4, 4, 4]]);
+    l = planForgeLayout(l, 'placement.set', { ref: 'piece:0', field: 'scale', value: 0.01 }, []);
+    expect(recordOfLayout(l, 'Tilted').poses).toEqual([[0, 15, 330, 0.1, 0.1, 0.1]]);
+    l = planForgeLayout(l, 'placement.set', { ref: 'piece:0', field: 'pitch', value: 120 }, []);
+    record = recordOfLayout(l, 'Tilted');
+    expect(record.poses).toEqual([[0, 90, 0, 0.1, 0.1, 0.1]]);
+    expect(record.pieces[0]![4]).toBe(120);                                          // 90 less a roll of -30
+    // A bad value is refused, the layout untouched.
+    for (const [field, value] of [['scale', 0], ['scale', -1], ['scale', [1, 2]], ['scale', 'big'], ['pitch', 'up'], ['roll', 'left']] as const) {
+      expect(() => planForgeLayout(l, 'placement.set', { ref: 'piece:0', field, value }, []), `${field} ${String(value)}`).toThrow(new RegExp(`^${field} must be`));
+    }
+  });
+
+  it('FX-9: placement.set refuses the pitch, roll or scale of a marker by name, reason then remedy; the pitch of a view is its camera', () => {
+    let l = planForgeLayout(emptyLayout({ kind: 'blank', library: 'floor' }), 'spawn.place', { team: 'A', at: [0, 0, 0] }, []);
+    l = planForgeLayout(l, 'respawn.place', { team: 'B', at: [5, 0, 0] }, []);
+    l = planForgeLayout(l, 'view.place', { at: [0, 10, 0], yaw: 0, pitch: 0 }, []);
+    for (const ref of ['spawn:0', 'respawn:0']) {
+      for (const field of ['pitch', 'roll', 'scale']) {
+        let thrown: unknown = null;
+        try { planForgeLayout(l, 'placement.set', { ref, field, value: 2 }, []); } catch (e) { thrown = e; }
+        expect(thrown, `${ref} ${field}`).toMatchObject({ code: 'UNSUPPORTED' });
+        expect((thrown as Error).message).toBe(`${field}: ${ref} is a marker, which turns about the vertical at its own size: turn it with piece.rotate, or tilt and scale a piece`);
+      }
+    }
+    l = planForgeLayout(l, 'placement.set', { ref: 'view:0', field: 'pitch', value: -30 }, []);
+    expect(l.scenicViews![0]!.pitch).toBe(-30);
+    expect(() => planForgeLayout(l, 'placement.set', { ref: 'view:0', field: 'roll', value: 5 }, [])).toThrow(/view:0 is a marker/);
+  });
+
+  it('FX-9 (T10): placement.set refuses the pitch, roll or scale of a pack piece by name, the layout untouched', () => {
+    const l = { ...emptyLayout({ kind: 'blank', library: 'floor' }),
+      pieces: [{ asset: contentAssetKey(REF), m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 5, 1], content: REF }] };
+    for (const field of ['pitch', 'roll', 'scale']) {
+      let thrown: unknown = null;
+      try { planForgeLayout(l, 'placement.set', { ref: 'piece:0', field, value: 2 }, []); } catch (e) { thrown = e; }
+      expect(thrown, field).toMatchObject({ code: 'UNSUPPORTED' });
+      expect((thrown as Error).message).toBe(`${field}: piece:0 is a pack piece, which turns about the vertical at its own size: tilt or scale a disc prop instead`);
+    }
+    expect(l.pieces[0]!.m).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 5, 1]);
+  });
+
   it('turns a group about its centre and makes one exact layout edit', () => {
     let l = emptyLayout({ kind: 'blank', library: 'floor' });
     l = planForgeLayout(l, 'spawn.place', { team: 'A', at: [-1, 0, 0] }, []);
@@ -184,6 +246,57 @@ describe('Forge recipe plans use the existing layout and history', () => {
       expect(() => planForgeLayout(l, 'piece.delete', args, [])).toThrow(/unique|duplicate/);
       expect(() => planForgeLayout(l, 'layout.batch', { edits: [{ operation: 'piece.delete', args }] }, [])).toThrow(/unique|duplicate/);
       expect(serializeLayout(l)).toBe(before);
+    }
+  });
+});
+
+/**
+ * FX-11a slice 4 (FX.R4; the pack format 0.2 spec section 5: "the agent gets the same act as `forge.export`"; a browser
+ * adaptation with no original): the agent's pack export runs `exportForgePack` for the open layout and answers the file
+ * list's paths and sizes and the pack reference -- never the bytes -- with the export's own refusals, each code named.
+ */
+describe('FX-11a: forge.export, the agent twin of the pack export', () => {
+  it('is named forge.export', () => {
+    expect(FORGE_EXPORT_COMMAND).toBe('forge.export');
+  });
+
+  it('answers the paths, sizes, name and reference of the export, and no bytes', async () => {
+    const answer = await exportForgeCommand(discYard(), { id: 'yard.map', version: '1.0.0', team: 'Yard_Builder' });
+    const direct = await exportForgePack({ layout: discYard(), id: 'yard.map', version: '1.0.0', team: 'Yard_Builder' });
+    if (!direct.ok) throw new Error('refused');
+    expect(answer.files).toEqual(direct.files.map((f) => ({ path: f.path, size: f.bytes.length })));
+    expect([answer.name, answer.ref, answer.size]).toEqual([direct.name, direct.ref, direct.zip.length]);
+    expect(Object.keys(answer).sort()).toEqual(['files', 'name', 'ref', 'size']);
+    expect(JSON.stringify(answer).length).toBeLessThan(2048);
+  });
+
+  it('exports a layout with a rules draft, and one that requires another pack under its own team', async () => {
+    const rules = await exportForgeCommand(await rulesYard(), { id: 'vault.map', version: '1.0.0' });
+    expect(rules.files.map((f) => f.path)).toContain('rules/mode.json');
+    const dep = await exportForgeCommand(dependentYard(), { id: 'yard.map', version: '1.0.0', teams: { [DEPENDENCY.id]: DEPENDENCY_TEAM } });
+    expect(dep.ref.id).toBe('yard.map');
+  });
+
+  it('refuses as the export refuses: REFUSED, its message naming each code', async () => {
+    await expect(exportForgeCommand(discYard(), { id: 'yard.map', version: '1.0.0', team: 'Yard_Builder', forStore: true }))
+      .rejects.toMatchObject({ code: 'REFUSED', message: expect.stringContaining('forge.export.LICENCE_MISSING') });
+    await expect(exportForgeCommand(discYard(), { id: 'yard.map', version: '1.0.0', forStore: true, license: 'MIT' }))
+      .rejects.toMatchObject({ code: 'REFUSED', message: expect.stringContaining('forge.export.TEAM_MISSING') });
+    await expect(exportForgeCommand(dependentYard(), { id: 'yard.map', version: '1.0.0' }))
+      .rejects.toMatchObject({ code: 'REFUSED', message: expect.stringContaining('store.DEPENDENCY_TEAM_UNKNOWN') });
+    const bad = discYard();
+    bad.pieces.push({ asset: 'not an asset', m: bad.pieces[0]!.m.slice() });
+    await expect(exportForgeCommand(bad, { id: 'yard.map', version: '1.0.0' }))
+      .rejects.toMatchObject({ code: 'REFUSED', message: expect.stringContaining('forge.export.NOT_SAVEABLE') });
+  });
+
+  it('refuses arguments it does not take: INVALID_ARGUMENT, before any export', async () => {
+    for (const args of [
+      {}, { id: 'yard.map' }, { id: 7, version: '1.0.0' }, { id: 'yard.map', version: '1.0.0', colour: 'red' },
+      { id: 'yard.map', version: '1.0.0', authors: 'Me' }, { id: 'yard.map', version: '1.0.0', authors: [1] },
+      { id: 'yard.map', version: '1.0.0', teams: { 'fuse.crates': 3 } }, { id: 'yard.map', version: '1.0.0', forStore: 'yes' },
+    ]) {
+      await expect(exportForgeCommand(discYard(), args as Record<string, unknown>), JSON.stringify(args)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
     }
   });
 });

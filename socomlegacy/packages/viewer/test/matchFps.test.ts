@@ -202,7 +202,7 @@ describe('the test room\'s fullscreen button (ui.ts onFullscreen) pairs request 
     expect(exit).not.toHaveBeenCalled();
   });
 
-  it('the prefixed request on the element, then the prefixed exit on the document once fullscreen', () => {
+  it('the prefixed request on the element, then the prefixed exit on the document once fullscreen', async () => {
     const request = vi.fn(function (this: unknown) { expect(this).toBe(document.documentElement); });
     const exit = vi.fn(function (this: unknown) { expect(this).toBe(document); });
     Object.defineProperty(document.documentElement, 'webkitRequestFullscreen', { configurable: true, value: request });
@@ -211,6 +211,7 @@ describe('the test room\'s fullscreen button (ui.ts onFullscreen) pairs request 
     button.click();
     expect(request).toHaveBeenCalledTimes(1);
     expect(exit).not.toHaveBeenCalled();
+    await Promise.resolve(); // the shared button releases its in-flight request guard after completion
     Object.defineProperty(document, 'webkitFullscreenElement', { configurable: true, value: document.documentElement });
     button.click();
     expect(exit).toHaveBeenCalledTimes(1);

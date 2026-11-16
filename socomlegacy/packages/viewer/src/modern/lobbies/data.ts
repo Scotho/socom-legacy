@@ -7,6 +7,8 @@ import { BRIEFING_ROOM_SESSION_LOST, fetchBriefingRoomService } from '../../brie
 import { DEV_PARAM, DEVTOOLS_PARAM } from '../../source';
 import { ROOM_LIST_SESSION_LOST, fetchRoomListService, type RoomListWithDoors } from '../../worldOfSocomHost';
 import { safeServerDetail } from '../report/serverDetail';
+import type { PackRef } from '@s2u/creator-contracts';
+import { moddedMembersOf } from '../../forge/lobby/packCheck';
 
 /**
  * The lobby browser's data (MU-3 of `docs/plans/2026-10-09-modern-ui-parallel.md`; the dialogue's D2.2, D2.3). A
@@ -367,6 +369,15 @@ export interface CustomMatch {
    * HyperNode label. Absent on a trusted host.
    */
   community?: true;
+  /**
+   * CMV-6 (CMV.R11; the main controller's call 3, 2026-11-13): the lobby's host is modded -- the listing reads "Community
+   * mods - unranked" from this, whatever `community` says. Absent on any other host.
+   */
+  modded?: true;
+  /** CMV-6 (call 2): a modded host's record's operator, as text, at most 64 characters (`../../forge/lobby/packCheck`). */
+  provider?: string;
+  /** CMV-6: the packs a modded host's lobby needs, each by reference (the drawer names each by id and version). */
+  packs?: PackRef[];
 }
 
 /**
@@ -385,7 +396,8 @@ export function customMatchesOf(raw: unknown): CustomMatch[] {
       || typeof locked !== 'boolean') {
       throw new Error('forge lobbies: not the shape');
     }
-    return e['listed'] === true ? [{ id, name, base, players, max, inMatch, locked, ...(e['community'] === true ? { community: true as const } : {}) }] : [];
+    // CMV-6: modded, provider and packs read by the one reader (a malformed one dropped, the lobby kept; none unless modded)
+    return e['listed'] === true ? [{ id, name, base, players, max, inMatch, locked, ...(e['community'] === true ? { community: true as const } : {}), ...moddedMembersOf(e) }] : [];
   });
 }
 

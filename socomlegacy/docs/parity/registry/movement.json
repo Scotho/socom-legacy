@@ -94,12 +94,12 @@
     },
     {
       "id": "movement.speed.crouch-walk",
-      "claim": "Crouched under 0.838 of a stick the push is rescaled to 14 / 14.8: 14.0 ahead, 12.77 back, 14.19 aside, 19.80 on a 45-degree diagonal.",
+      "claim": "Crouched under 0.838 of a stick the push is rescaled to 14 / 14.8: 14.0 ahead, 12.77 back, 14.19 aside, 14.0 on a 45-degree diagonal (FUN_0057a330's split, in every stance mode and for the bots; H392).",
       "level": "reading",
       "source": "FUN_00584c60; FUN_00582d10 D:L443164-443245; FUN_00583350's DAT_0064fc80",
       "note": "docs/research/88-feel-parity.md",
       "tests": [
-        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "crouched under 0.838 of a stick: 14.0 ahead, 12.77 back, 14.19 aside, 19.80 on the diagonal (x 14 / 14.8 of each band)", "data": "none" },
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "crouched under 0.838 of a stick: 14.0 ahead, 12.77 back, 14.19 aside, 14.0 on the diagonal (x 14 / 14.8 of each band)", "data": "none" },
         { "file": "packages/viewer/test/walk.test.ts", "name": "the crouch walk (FUN_00584c60): under 0.838 of a stick it is rescaled to 14 / 14.8, so it runs at 14.0 whatever the push", "data": "none" }
       ]
     },
@@ -733,12 +733,13 @@
     },
     {
       "id": "movement.look.turn-in-place",
-      "claim": "Turning in place plays Step standing (seal_step), Crouch step crouched and the Prone turn prone, at |turn / turn_maxrate| x 0.6 / 0.3 / 0.35, backwards turning left.",
+      "claim": "Turning in place plays Step standing (seal_step), Crouch step crouched and the Prone turn prone, at |2 x turn / turn_maxrate| x 0.6 / 0.3 / 0.35 capped there (the 2 in FUN_00583960's instructions, r0001 0x58399c-0x5839c4; AH-5.2), backwards turning left.",
       "level": "reading",
       "source": "FUN_00586570 -> FUN_00586050; FUN_00584c60; FUN_005845c0; FUN_00583960 D:L443497-443545",
       "note": "docs/research/80-the-jump.md",
       "tests": [
-        { "file": "packages/viewer/test/animator.test.ts", "name": "the step's speed: |turn / turn_maxrate| x the stance's share, capped; backwards turning left", "data": "none" },
+        { "file": "packages/viewer/test/animator.test.ts", "name": "the step's speed: |2 x turn / turn_maxrate| x the stance's share, capped; backwards turning left", "data": "none" },
+        { "file": "packages/viewer/test/animator.test.ts", "name": "AH-5.2: the speed is min(share, |2 x axis| x share) -- the Q16 turn at 4.9 deg/s steps 0.0789 cycles a second", "data": "none" },
         { "file": "packages/viewer/test/animator.test.ts", "name": "standing still and turning plays seal_step, crouched seal_crouch_step, prone seal_prone_turn, at that speed", "data": "none" }
       ]
     },

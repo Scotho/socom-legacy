@@ -14,8 +14,9 @@ import { PAGE_LOADERS } from '../../src/pageEntry';
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const FORGE = resolve(here, '../../src/forge');
-// `lobby/` since FG-27 (FG.R22): the lobby popup's modules, scanned as the forge's own.
-const sources = ['', 'lobby/'].flatMap((d) => readdirSync(resolve(FORGE, d)).filter((f) => f.endsWith('.ts')).map((f) => ({ file: `${d}${f}`, lines: readFileSync(resolve(FORGE, d, f), 'utf-8').split('\n') })));
+// `lobby/` since FG-27 (FG.R22): the lobby popup's modules, scanned as the forge's own. `shell/` since the FC2 batch
+// review's B-5 (2026-11-13): the dock shell's sash keys (`shell/dockShell.ts`, 434a494cbc) went unread.
+const sources = ['', 'lobby/', 'shell/'].flatMap((d) => readdirSync(resolve(FORGE, d)).filter((f) => f.endsWith('.ts')).map((f) => ({ file: `${d}${f}`, lines: readFileSync(resolve(FORGE, d, f), 'utf-8').split('\n') })));
 const gated = (lines: string[], i: number): boolean => lines.slice(Math.max(0, i - 2), i + 1).some((l) => l.includes('import.meta.env.DEV'));
 /**
  * OT.R68 (the owner, 2026-10-21: "kb/m support for everything while in the forge creation UI (not once of it's started
@@ -28,6 +29,8 @@ const OT_R68: readonly [string, string][] = [
   // FUI-22 (D1): the asset preview's own keys (Escape, the arrows' orbit) went with its panel -- a tooltip takes no keys,
   // so its line left this list with it (the list names live lines only); the page's Escape hides the tooltip (`keys.ts`).
   ['page.ts', 'const r = (el as { requestPointerLock?: () => unknown }).requestPointerLock?.();'],   // `lockMouse`
+  // FC2-6 (434a494cbc; B-5): the dock shell's sash -- the arrows along its split resize its two panes, an editor key.
+  ['shell/dockShell.ts', "el.addEventListener('keydown', (e) => {"],
 ];
 const listed = (file: string, l: string): boolean => OT_R68.some(([f, frag]) => f === file && l.includes(frag));
 /** Native browser field accessibility (FDL-1), separate from OT.R68's editor input map.
@@ -36,12 +39,17 @@ const listed = (file: string, l: string): boolean => OT_R68.some(([f, frag]) => 
 const NATIVE_FIELD_KEYS: readonly [string, string][] = [['page.ts', "lightIn.addEventListener('keyup'"]];
 /**
  * The page's own accessibility keys, no game input (`../keyboardGate.test.ts` lists them too): Enter or Space on the axis
- * widget's end, the arrows on a dock's resize handle, Escape closing a popover, Escape cancelling a scrub's drag.
+ * widget's end, Escape closing a popover, Escape cancelling a scrub's drag; the shell's (B-5): Escape closing an open
+ * workspace, the card stack's Escape (its Back) and its Tab focus trap.
  */
 const ACCESSIBILITY_KEYS: readonly [string, string][] = [
-  ['page.ts', "end.addEventListener('keydown', (event) => {"], ['page.ts', "handle.addEventListener('keydown', (event) => {"],
+  ['page.ts', "end.addEventListener('keydown', (event) => {"],   // (FC2: the old docks' resize handle's arrow keys left with the docks; the shell's sash has them, OT_R68)
   ['page.ts', "doc.addEventListener('keydown', event => {"], ['page.ts', "doc.addEventListener('keydown', (e) => {"],
+  ['page.ts', "field.addEventListener('keydown', (e) => {"],   // the outliner's folder rename: Enter keeps, Escape cancels (a text field's own keys)
   ['scrub.ts', "doc.addEventListener('keydown', onKey, true);"],
+  ['shell/dockShell.ts', "workspace?.root.addEventListener('keydown', onWorkspaceKey);"],
+  ['shell/panel.ts', "workspace?.root.addEventListener('keydown', onWorkspaceKey);"],
+  ['shell/cards.ts', "host.addEventListener('keydown', onKey);"], ['shell/cards.ts', "doc.addEventListener('keydown', onTab);"],
 ];
 
 
@@ -52,11 +60,15 @@ const ACCESSIBILITY_KEYS: readonly [string, string][] = [
  */
 const FORGE_PAGE_EXEMPT_LINES: Readonly<Record<string, number>> = {
   "end.addEventListener('keydown', (event) => {": 1,
-  "handle.addEventListener('keydown', (event) => {": 1,
   "doc.addEventListener('keydown', event => {": 1,
-  "doc.addEventListener('keydown', (e) => {": 2,
+  // FC2-4: three -- the Play settings popup's and the Select settings popup's Escape (page.ts:11326, 11775), and his menu
+  // bar's (page.ts:12202): Escape shuts an open File / Edit / Window menu, no other key, on one line.
+  "doc.addEventListener('keydown', (e) => {": 3,
+  "field.addEventListener('keydown', (e) => {": 1,   // the outliner's folder rename: Enter keeps, Escape cancels (a text field's own keys)
 };
 const ESCAPE_ONLY = /^\s*if \((?:e|event)\.key !== 'Escape' \|\| \w+\.hidden\) return;$/;
+/** FC2-4: the one-line form -- the handler's whole body one Escape-guarded shut of the menu bar's open menus. */
+const ESCAPE_ONLY_INLINE = /=> \{ if \((?:e|event)\.key === 'Escape'\) for \(const m of menus\) if \(m\.d\.open\) shut\(m\); \}\);\s*$/;
 
 describe('FORGE: the release gate', () => {
   it('is loaded in every build (no DEV gate on its loader)', () => {
@@ -86,6 +98,13 @@ describe('FORGE: the release gate', () => {
     expect(keys).toContain('if (s.typing || s.match) return null;');
   });
 
+  it('FC2 B-5: the scan reads shell/, and each of its accessibility exemptions names one live line', () => {
+    expect(sources.some((s) => s.file === 'shell/dockShell.ts')).toBe(true);
+    for (const [file, frag] of ACCESSIBILITY_KEYS.filter(([f]) => f.startsWith('shell/'))) {
+      expect(sources.find((s) => s.file === file)!.lines.filter((l) => l.includes(frag)), `${file}: ${frag}`).toHaveLength(1);
+    }
+  });
+
   it('the native Settings range exemption names exactly one live field listener, not the editor key map', () => {
     for (const [file, frag] of NATIVE_FIELD_KEYS) {
       const hits = sources.find(s => s.file === file)!.lines.filter(l => l.includes(frag));
@@ -101,7 +120,9 @@ describe('FORGE: the release gate', () => {
       expect(ACCESSIBILITY_KEYS.some(([f, x]) => f === 'page.ts' && x === frag), frag).toBe(true);
       const at = lines.flatMap((l, i) => (l.includes(frag) ? [i] : []));
       expect(at, frag).toHaveLength(count);
-      if (frag.startsWith('doc.')) for (const i of at) expect(lines[i + 1], `page.ts:${i + 2}`).toMatch(ESCAPE_ONLY);
+      if (frag.startsWith('doc.')) {
+        for (const i of at) expect(ESCAPE_ONLY.test(lines[i + 1]!) || ESCAPE_ONLY_INLINE.test(lines[i]!), `page.ts:${i + 1}`).toBe(true);
+      }
     }
     expect(ACCESSIBILITY_KEYS.filter(([f]) => f === 'page.ts').map(([, x]) => x).sort()).toEqual(Object.keys(FORGE_PAGE_EXEMPT_LINES).sort());
   });

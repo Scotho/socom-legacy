@@ -204,6 +204,11 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'fire: no frame': { room: { 'room.ts:fire': 'matchFirearm.ts:roundSeq' }, how: 'wire' },
   'fire: nofire': { room: { 'room.ts:fireAt': 'walk.ts:fireAllowed', 'room.ts:fire': 'turretPage.ts:mountFireRefused' }, how: 'refuses', note: 'Fire.source.fireRefused' },
   'fire: released': { room: { 'room.ts:fire': 'turretPage.ts:travelling' }, how: 'refuses' },
+  // ROOM-HAND (LATER 652): the room emits it, so a mirror, not a trust entry (a trust is a refusal the room does not emit).
+  'fire: hand': {
+    room: { 'room.ts:fire': 'matchThrow.ts:suspendFirearm' }, how: 'refuses',
+    note: "ROOM_HAND_TRUST_ADAPTATION: an item up suspends the firearm's trigger on the page; the room takes the page's hand and refuses a round under it",
+  },
   'fire: launcher': { room: { 'room.ts:fireAt': 'matchThrow.ts:trigger' }, how: 'refuses', note: 'the launcher\'s trigger, the firearm\'s ready time' },
   'fire: no firearm': { room: { 'room.ts:fireAt': 'matchFirearm.ts:ready' }, how: 'refuses' },
   'fire: rate': { room: { 'room.ts:fireAt': 'fire.ts:pullRound', 'room.ts:turretRound': 'actionWiring.ts:TurretTrigger.frame' }, how: 'refuses', note: 'fireGate gapOpen/scheduleOpen, ROOM_GATE_MIRROR_ADAPTATION' },
@@ -348,6 +353,10 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'hostageOrder: {why}': { room: { 'room.ts:constructor': 'hostagePage.ts:computeWhy' }, how: 'refuses', note: 'orderTestRefusal, both sides' },
   'victory: shape': { room: { 'room.ts:requestVictory': 'victory.ts:fire' }, how: 'wire' },
   'victory: rate': { room: { 'room.ts:requestVictory': 'victory.ts:fire' }, how: 'refuses', note: 'one request pending until the offer' },
+  // ROOM-HAND (LATER 652): not a "no page" entry -- protocol.ts's union names `type: 'hand'` -- but the sender is the known gap.
+  'hand: shape': {
+    room: { 'room.ts:text': { page: 'matchThrow.ts:handItem', todo: 'new', note: 'no page sends `hand` until ROOM-HAND task 2 (netPage.ts on `equip`)' } }, how: 'wire',
+  },
   'rulePurchase: {why}': { room: ['room.ts:ruleView'], sender: null, note: 'a creator rule pack\'s purchase (creator/rules/host.ts request); no viewer page sends one' },
   // ---- the room trusts the page: a page refusal with no room twin ----
   'fire: raise': {

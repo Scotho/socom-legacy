@@ -85,6 +85,24 @@ describe('RV2-04: the replay viewer on the console\'s sheets', () => {
     for (const group of selectors) for (const s of members(group)) expect(s.trim(), s).toMatch(/^:root\[data-console\](?:\[[^\]]+\])* \[data-cx-viewer\]/);
   });
 
+  // RVK polish (v0.4.21; the rendered keys list over the world, pv13_keys_list.png: the camera strip, the score pill and the
+  // round clock read through its rows): the keys list's panel is opaque, on the console's own surface for a box laid over
+  // content -- the dropup's (console.css `.cx-dropup`: the launcher's panel over the ring ground), never the ground at an
+  // alpha. The HUD's chips stay translucent on purpose. A browser adaptation (OT.R53, product track).
+  it('RVK polish: the keys list\'s panel is opaque -- the console dropup\'s surface, no transparent, no color-mix', () => {
+    const block = (css: string, selector: RegExp): string => {
+      const m = css.match(selector);
+      expect(m, String(selector)).not.toBeNull();
+      return m![1]!;
+    };
+    const backgroundOf = (body: string): string => declarations(`{${body}}`).filter((d) => d.prop === 'background').map((d) => d.value).join(' | ');
+    const panel = backgroundOf(block(bare(sheet('replay.css')), /\.cx-replay__keys-panel\s*\{([^{}]*)\}/));
+    const dropup = backgroundOf(block(bare(sheet('console.css')), /:root\[data-console\] \.cx-dropup\s*\{([^{}]*)\}/));
+    expect(panel).not.toMatch(/transparent|color-mix/);
+    expect(dropup).toBe('linear-gradient(var(--s2u-lx-panel), var(--s2u-lx-panel)), var(--s2u-lx-ring-ground)');
+    expect(panel).toBe(dropup);
+  });
+
   it('the console\'s set has the eye (the free camera, a spectator), on its grid with no fill of its own', () => {
     expect(P.eye).toBeTruthy();
     expect(P.eye).not.toMatch(/fill=|stroke=|style=|<image|href/);

@@ -345,6 +345,17 @@ describe("the store README.md, generated (FX-4; A3 E3)", () => {
     const manifest: PackManifest = { ...(await base()), dependencies: [{ archive: "RUN/MP51.ZDB", sha256: "d".repeat(64) }] };
     expect(thunderstoreReadme({ manifest })).toContain("- `RUN/MP51.ZDB` from your own copy of the game; it is not in this package.\n");
   });
+  it("RED (FX-11a's review): ownCopy names what the player's own copy supplies, before the packs, and the pack no longer stands alone", async () => {
+    const bare: PackManifest = { ...(await base()), dependencies: [] };
+    const own = thunderstoreReadme({ manifest: bare, ownCopy: ["Frostfire, the game map this layout is built on,"] });
+    expect(own).toContain("\n## What it needs\n\n- Frostfire, the game map this layout is built on, from your own copy of the game; it is not in this package.\n");
+    expect(own).not.toContain("stands alone");
+    const both = thunderstoreReadme({ manifest: { ...bare, dependencies: [{ id: "example.yard", range: "^1.0.0" }] }, ownCopy: ["Frostfire,"] });
+    expect(both).toContain("\n## What it needs\n\n- Frostfire, from your own copy of the game; it is not in this package.\n- The pack `example.yard`, a version in `^1.0.0`.\n");
+    // An empty list is the option's absence: the same bytes.
+    expect(thunderstoreReadme({ manifest: bare, ownCopy: [] })).toBe(thunderstoreReadme({ manifest: bare }));
+    expect(thunderstoreReadme({ manifest: bare })).toContain("\n## What it needs\n\nNothing else: this pack stands alone.\n");
+  });
 });
 
 describe("one file list, both validators: the pack and the store files together (FX-4; A3 E3)", () => {

@@ -70,6 +70,31 @@ describe('RV2-06: the replay viewer\'s camera choice (cameraChoice)', () => {
     expect([...s.data.keys()]).toEqual([REPLAY_CAMERA_KEY]);
   });
 
+  it("PV-8: the strip's fourth camera, 'pov', is kept and read as the others are; the default with nothing kept stays follow", () => {
+    const s = memory();
+    const store = settingsOn(s);
+    keepCameraChoice('pov', store);
+    expect(readCameraChoice(store)).toBe('pov');
+    expect(s.data.get(REPLAY_CAMERA_KEY)).toBe('pov');
+    expect(readCameraChoice(settingsOn(memory()))).toBe('follow');
+    expect(REPLAY_CAMERA_DEFAULT).toBe('follow');
+  });
+
+  it('PV-8: a value naming no camera still reads as follow', () => {
+    for (const garbage of ['POV', ' pov', 'pov ', "player's view", 'playersView', 'view']) {
+      expect(readCameraChoice(settingsOn(memory({ [REPLAY_CAMERA_KEY]: garbage }))), garbage).toBe('follow');
+    }
+  });
+
+  it("PV-8: a kept 'pov' survives a refused recording's watch -- reading it writes nothing back (the stage shows PLAYER and keeps nothing)", () => {
+    const writes: string[] = [];
+    const store: CameraChoiceStore = { get: () => 'pov', set: (_k, v) => { writes.push(v); } };
+    expect(readCameraChoice(store)).toBe('pov');
+    expect(readCameraChoice(store)).toBe('pov');
+    expect(writes).toEqual([]);
+    // the stage's own half (a protocol-15 recording opened with 'pov' kept): worldStage.test.ts, PV-8
+  });
+
   it('writes no key but s2u.replay.camera.v1 on the page\'s localStorage', () => {
     keepCameraChoice('scenic');
     expect(readCameraChoice()).toBe('scenic');

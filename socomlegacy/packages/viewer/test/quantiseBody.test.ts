@@ -32,6 +32,8 @@ function body(id: number): BodyState {
     travBlend: odd(int(0, 300)), travBlendWeight: odd(between(-0.2, 1.2)),
     peek: odd(int(-200, 200)), weapon: odd(int(0, 300)), slot: odd(int(0, 3)),
     ...(rand() < 0.8 ? { stickSnaps: odd(int(0, 3)) } : {}),
+    // WIRE-16 (protocol 16): the view's tail -- the state past 12, the clock past four bits, the sway past +-127 steps.
+    ...(rand() < 0.8 ? { view: odd(int(-2, 20)), clock: odd(int(-20, 40)), swayX: odd(between(-80, 80)), swayY: odd(between(-80, 80)) } : {}),
   };
 }
 
@@ -40,7 +42,7 @@ const blank = (): BodyState => ({
   id: 0, feet: [0, 0, 0], yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0, flags: 0, stance: 0, landing: 0, jumps: 0, ground: 0,
   groundForward: 0, groundRight: 0, groundCls: 0, action: 0, actionSerial: 0, actionT: 0, actionSeconds: 0, overlay: 0,
   overlayT: 0, overlaySeconds: 0, turnRate: 0, trav: 0, travFrame: 0, travRootY: 0, travBlend: 0, travBlendWeight: 0, peek: 0,
-  weapon: 0, slot: 0, stickSnaps: 0,
+  weapon: 0, slot: 0, stickSnaps: 0, view: 0, clock: 0, swayX: 0, swayY: 0,
 });
 
 describe('quantiseBody: a body as the wire carries it, in place (HIT-POSE perf fold)', () => {

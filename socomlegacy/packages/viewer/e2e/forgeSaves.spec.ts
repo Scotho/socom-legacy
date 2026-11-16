@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { recordOfLayout } from '../src/forge/record';
 import { encodeShare } from '../src/forge/share';
-import { expectBase, OUTLINER_ROW, placingTool } from './forgeBase';
+import { expectBase, openSaves, OUTLINER_ROW, placingTool } from './forgeBase';
 
 /**
  * FORGE: named saves and a share link on a blank floor (a browser adaptation, no original). No disc: the palette is
@@ -43,6 +43,13 @@ async function storedList(page: Page, name: 'saves' | 'autosave' | 'autosaveAsid
  * the fourth input is Pitch -- hidden by FC-1 (f2601a93c, `FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION`) -- and Yaw the fifth.
  */
 const MARKER_FIELDS = ['X', 'Y', 'Z', 'Yaw'] as const;
+
+/**
+ * FC2-4 (EDITOR-MAP O4): a locked placement's row. The old row said "locked" in its words; his says it by its class and
+ * its lock (`../src/forge/page.ts` `userRow`: `li.is-locked`, the lock's name "Unlock <label>", pressed) -- his row's
+ * words are its name alone ("hide the numbers ... just show hide/lock"), so the word is gone and the class holds it.
+ */
+const LOCKED = /(^|\s)is-locked(\s|$)/;
 const field = (page: Page, label: string) => page.locator(`.fx-fields input[data-label="${label}"]`);
 
 async function place(page: Page, team: 'A' | 'B', x: string, y: string, z: string, yaw: string): Promise<void> {
@@ -73,7 +80,7 @@ test('a named save survives a reload, and a share link opens the same markers', 
   expect(await marker(page, 'Spawn A')).toBe('100,0,200,0');
   expect(await marker(page, 'Spawn B')).toBe('-50,0,80,90');
 
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
   await page.locator('.fx-modal form.fx-card input').fill('Yard');
   await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
@@ -90,13 +97,13 @@ test('a named save survives a reload, and a share link opens the same markers', 
   await expect(page.locator('.fx-loading')).toBeHidden();
   expect(await marker(page, 'Spawn A')).toBe('1,0,200,0');
 
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-saves-list li', { hasText: 'Yard' }).getByRole('button', { name: 'Open' }).click();
   await expect(page.locator('.fx-toast')).toHaveText('Opened Yard');
   expect(await marker(page, 'Spawn A')).toBe('100,0,200,0');
   expect(await marker(page, 'Spawn B')).toBe('-50,0,80,90');
 
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-modal').getByRole('button', { name: 'Share link' }).click();
   const link = page.locator('[data-share-link]');
   await expect(link).not.toHaveValue('', { timeout: 15_000 });
@@ -141,7 +148,7 @@ test('the lists kept in localStorage move into the saves store once, at the firs
   }, [JSON.stringify(kept), list]);
   await ready(page);
   expect(await marker(page, 'Spawn B')).toBe('40,0,60,0');
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await expect(page.locator('.fx-saves-list')).toContainText('Moved');
   expect(await storedList(page, 'saves')).toBe(list);
   expect(await page.evaluate(() => [localStorage.getItem('s2u-forge-saves'), localStorage.getItem('s2u-forge-layout')])).toEqual([null, null]);
@@ -198,8 +205,12 @@ test('a locked spawn survives a reload and a share link', async ({ page }) => {
   await ready(page);
   await place(page, 'A', '100', '0', '200', '0');
   const row = page.locator(OUTLINER_ROW, { hasText: 'Spawn A' });
+  // FC2-4: his row's lock is an icon shown under the pointer, always while locked (`../src/forge/forge.css`
+  // `.fx-outliner li > .fx-lock-icon`: hidden until the row is hovered), so the pointer is put on the row first, as a
+  // person's is.
+  await row.hover();
   await row.getByRole('button', { name: 'Lock' }).click();
-  await expect(row).toContainText('locked');
+  await expect(row).toHaveClass(LOCKED);
   await expect(row.getByRole('button', { name: 'Unlock' })).toBeVisible();
   await expect.poll(() => storedList(page, 'autosave')).toContain(',true]');
 
@@ -207,10 +218,10 @@ test('a locked spawn survives a reload and a share link', async ({ page }) => {
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
   await expect(page.locator('.fx-loading')).toBeHidden();
   const kept = page.locator(OUTLINER_ROW, { hasText: 'Spawn A' });
-  await expect(kept).toContainText('locked');
+  await expect(kept).toHaveClass(LOCKED);
   await expect(kept.getByRole('button', { name: 'Unlock' })).toBeVisible();
 
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-modal').getByRole('button', { name: 'Share link' }).click();
   const link = page.locator('[data-share-link]');
   await expect(link).not.toHaveValue('', { timeout: 15_000 });
@@ -223,7 +234,7 @@ test('a locked spawn survives a reload and a share link', async ({ page }) => {
   await expect(shared).not.toHaveURL(/#forge=/);
   await expect(shared.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
   const opened = shared.locator(OUTLINER_ROW, { hasText: 'Spawn A' });
-  await expect(opened).toContainText('locked');
+  await expect(opened).toHaveClass(LOCKED);
   await expect(opened.getByRole('button', { name: 'Unlock' })).toBeVisible();
 });
 
@@ -263,9 +274,9 @@ test("a locked piece and a locked NPC survive a reload through the page's own au
   await expect(page.locator('.fx-loading')).toBeHidden();
   const piece = (): ReturnType<Page['locator']> => page.locator(OUTLINER_ROW, { hasText: 'does_not_exist' });
   const npc = (): ReturnType<Page['locator']> => page.locator(OUTLINER_ROW, { hasText: 'NPC ·' });
-  await expect(piece()).toContainText('locked');
-  await expect(npc()).toContainText('locked');
-  await place(page, 'A', '100', '0', '200', '0');                    // an edit: the page writes the autosave itself
+  await expect(piece()).toHaveClass(LOCKED);
+  await expect(npc()).toHaveClass(LOCKED);
+  await place(page, 'A', '100', '0', '200', '0');                   // an edit: the page writes the autosave itself
   // R7-A (the Forge batch's first rendered pass, case 10): "changed" can be met by a write before the spawn's (the reload
   // then read a layout without it). Polled until the stored record holds the team-A spawn (its `SpawnRow`,
   // `["A", x, y, z, yaw]`, `@s2u/creator-contracts` layout.ts, as the named-save case's own poll reads it).
@@ -275,8 +286,8 @@ test("a locked piece and a locked NPC survive a reload through the page's own au
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open|not found on this disc/, { timeout: 60_000 });
   await expect(page.locator('.fx-loading')).toBeHidden();
   await expect(page.locator('.fx-outliner')).toContainText('Spawn A');
-  await expect(piece()).toContainText('locked');
-  await expect(npc()).toContainText('locked');
+  await expect(piece()).toHaveClass(LOCKED);
+  await expect(npc()).toHaveClass(LOCKED);
   await expect(npc().getByRole('button', { name: 'Unlock' })).toBeVisible();
 });
 
@@ -349,7 +360,7 @@ test.describe('the Saves card on a pad', () => {
     page.on('pageerror', (e) => errors.push(e.message));
     await padStub(page);
     await ready(page);
-    await page.locator('[data-forge="saves"]').click();             // one named save, so Cross has something to spare
+    await openSaves(page);                                              // one named save, so Cross has something to spare (T4: File)
     await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
     await page.locator('.fx-modal form.fx-card input').fill('Yard');
     await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
@@ -370,7 +381,7 @@ test.describe('the Saves card on a pad', () => {
     await expect(saves(page)).toBeHidden();
     await expect(page.locator('.fx-menu')).toBeHidden();
 
-    await page.locator('[data-forge="saves"]').click();
+    await openSaves(page);                                              // FC2-4 (EDITOR-MAP T4): File > Saves...
     await expect(saves(page)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(saves(page)).toBeHidden();
@@ -384,7 +395,7 @@ test.describe('the Saves card on a pad', () => {
     page.on('pageerror', (e) => errors.push(e.message));
     await padStub(page);
     await ready(page);
-    await page.locator('[data-forge="saves"]').click();
+    await openSaves(page);                                              // FC2-4 (EDITOR-MAP T4): File > Saves...
     await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
     await page.locator('.fx-modal form.fx-card input').fill('Yard');
     await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();

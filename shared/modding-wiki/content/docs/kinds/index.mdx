@@ -5,8 +5,10 @@ status: "Format only"
 source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/handlers.ts", "socomlegacy/packages/creator-contracts/examples/zombie-waves/README.md", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/pageEntry.ts:117", "socomlegacy/packages/viewer/src/forge/page.ts:1577", "socomlegacy/packages/viewer/src/forge/page.ts:961-971", "socomlegacy/packages/viewer/src/forge/matchRules.ts"]
 ---
 
-**Status: Format only.** Every kind is checked and a pack that passes is stored; the game's import applies none of
-them. Each kind below has its own status: only `rules` runs anywhere, in the Forge's local Play.
+**Status: Format only.** Every kind is checked and a pack that passes is stored. The game's import applies none of
+them. `rules` runs in the Forge's local Play. `plugin` is loaded by a community match child only when that host's
+opt-in is on and a supervisor passes a declaration. Nothing passes a declaration yet, and the opt-in is off by
+default.
 
 A v2 pack's manifest lists its kinds in `kinds`: one or more of `content`, `rules`, `system` and `plugin`, each at
 most once. The kinds say what the pack contains; each member's `role` and each `intents` entry say exactly what it
@@ -17,7 +19,7 @@ changes ([Pack anatomy](/anatomy/)).
 | `content` | assets and maps: models, textures, sounds, collision, data, an authored map | **Format only** |
 | `rules` | the rules of a game mode, as data | **Forge, local only** |
 | `system` | claims on engine systems, such as a full-screen picture effect | **Planned** |
-| `plugin` | reserved: a community server's plugin, `sides` `server` only; no page applies it and nothing runs it yet | **Planned** |
+| `plugin` | one server module, `plugin/main.js`, plus data JSON; a page never applies it | **Not loaded yet** |
 
 The earlier formats (data mods, texture packs, the model pack, HD texture packs) are not v2 kinds; they have
 [their own page](/kinds/earlier-formats/).
@@ -96,6 +98,21 @@ The rules room has a second family of slots, the `behaviour` slots, for the engi
 A rules pack claims these (`rules` kind, above); a claim on a `behaviour` slot must be named by one of its rules
 members' capabilities.
 
+## `plugin`
+
+Status: **Not loaded yet** (the contract's `packs.ts`; the match child's loader). The loader is in the tree. No
+supervisor passes a plugin declaration, so no match loads one.
+
+A plugin pack is code, not a rules document. It has exactly one script, `plugin/main.js`, role `plugin`, intent
+`new-behaviour`. Every other member is `data` JSON. There is no second script and no new manifest field. `sides` is
+`server`. Its `contract` must not admit an engine before `0.2.0` (`pack.CONTRACT_FIELD`). Write `^0.2.0`.
+
+The page does not run it. When a declaration is passed, a community match child loads the module in a worker only
+when the host's opt-in is on, and that opt-in is off by default. A trusted host never loads one. The module returns
+actions from the rules list.
+`hit.scale` is not one of them. A reply counts if it arrives within 4 ticks; after 3 misses in a round the plugin
+is off for that round. A recording does not run the module again.
+
 ## A pack with several kinds
 
 `kinds` may list more than one: a mode with its own props would be `["content", "rules"]`. The check applies each
@@ -110,7 +127,7 @@ kind's rules to the pack, and each part of the pack is only as far along as its 
     "creators",
     "agents"
   ],
-  "summary": "The three kinds a v2 pack declares (content, rules, system), what each holds, and each one's status: only rules runs, in the Forge's local Play.",
+  "summary": "The four kinds a v2 pack declares (content, rules, system, plugin), what each holds, and each one's status. Rules run in the Forge's local Play. A plugin loads only when a community server's opt-in is on and a declaration is passed; none is passed yet.",
   "inputs": [
     "what the pack should change"
   ],

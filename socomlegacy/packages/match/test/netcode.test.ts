@@ -138,6 +138,53 @@ describe.each([0, 50, 100, 150])('the netcode at %i ms each way, 2 %% loss (bar 
   });
 });
 
+/**
+ * THROTTLE-FRAME (finding 17; MISSION R8.1): fast strafe reversals -- a mid-travel sample, a sample at the centre -- at
+ * shifting game-frame phases (an odd period). The snap's game frames end by the command's number (`Walker`
+ * `throttleFrames`, `throttleFrameEnds`), alike on both ends, so the page's prediction and the room must still agree
+ * with no correction.
+ */
+function flickScript(t: number, yaw: number): Omit<Command, 'seq'> {
+  const k = ((t % 47) + 47) % 47, odd = Math.floor(t / 47) % 2 === 1;
+  const right = k < 20 ? 1 : k === 20 ? (odd ? 0 : -0.6) : k < 40 ? -1 : k === 40 ? (odd ? 0.01 : 0.5) : 1;
+  return { forward: k < 10 ? 0.4 : 0, right, yaw, pitch: -5, turn: 0, buttons: 0, stance: 0, weapon: 0 };
+}
+
+describe.each([0, 100])('THROTTLE-FRAME: strafe flicks at %i ms each way, 2 %% loss', (latency) => {
+  it('predicts the flicks exactly as the server runs them: no correction, the same feet', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const page = new PageWalk(m.grid);
+    let seed = 42;                                                 // the prediction case's seed (its spawn heard in time at 100 ms)
+    const client = new NetClient({
+      url: 'mem', map: 'MP99', name: 'Flick', socket: pair(room, 1), simulate: { latencyMs: latency, jitterMs: latency / 5, loss: 0.02 },
+      random: () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; },
+    }, page);
+    let yaw = 0;
+    client.on((ev) => { if (ev.type === 'spawn') yaw = ev.yaw; });
+    // Box ft1 (da0f756c8e, 100 ms, seed 7): the page had no mover yet when the script ended -- its spawn not heard. So the
+    // script waits for the page's mover (`respawn` on the spawn the client hears), at most 10 s of still commands, then runs.
+    const still = { forward: 0, right: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 };
+    for (let t = 0; t < 600 && !page.sim; t++) { page.play({ ...still, yaw }); room.step(); vi.advanceTimersByTime(1000 / 60); }
+    expect(page.sim, 'the page stood its mover (the spawn heard)').not.toBeNull();
+    for (let t = 0; t < 30; t++) { page.play({ ...still, yaw }); room.step(); vi.advanceTimersByTime(1000 / 60); }
+    for (let t = 0; t < 400; t++) {
+      page.play(flickScript(t, yaw));
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    for (let t = 0; t < 60; t++) { page.play({ forward: 0, right: 0, yaw, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 }); room.step(); vi.advanceTimersByTime(1000 / 60); }
+    expect(client.role).toBe('player');
+    expect(client.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+    const s = room.player(1)!.sim.walker, p = page.sim!.walker;
+    expect([s.state.x, s.state.y, s.state.z]).toEqual([p.state.x, p.state.y, p.state.z]);
+    expect(s.stickSnaps).toBe(p.stickSnaps);
+    expect(p.stickSnaps).toBeGreaterThan(4);                        // the script did flick
+    client.close();
+  });
+});
+
 describe('a heavy landing: the hit clip is the same on both ends (review 2, M-2: LANDING_HIT_DRAW_READING)', () => {
   it('walks off a deck high enough for a class-2 landing and takes no correction; the page and the server land one clip', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });

@@ -610,7 +610,10 @@ describe('the rockets on the server (research 94 §C4, R94.6/R94.9)', () => {
 
 describe('the placed charges on the server (research 94 §C5, research 85 §9.7)', () => {
   it('the claymore: set down by the throw of it, gone off only by its Detonator, its cone full in front and a 32nd behind', () => {
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 153, 255), [150, 0, 0], [0, 0, 0]);
+    // FRAG-COUNT (FUN_005a18b0 D:L459428-459431): past 30 u the count is the extra alone x 900/d^2, so player 1 stands 22 u
+    // in front of the claymore (at 30) where its 8 + extra fragments land. Was at 150 (142 u off: the old count's 2-3
+    // fragments there, the original's usually none) -- the case is the Detonator and the cone, not the reach.
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 153, 255), [30, 0, 0], [0, 0, 0]);
     s.send(2, 'Claymore', [8, 0, 0], [1, 0, 0]);                         // facing east, at the SEAL's hand
     expect(s.a.of('grenade')).toEqual([expect.objectContaining({ id: 2, kind: 'Claymore' })]);
     expect(s.room.player(2)!.grenades.Claymore).toBe(3);
@@ -1497,7 +1500,8 @@ describe('the combat report on the charges (a playtest instrument, off by defaul
   const ON = { combatReport: true };
 
   it('a claymore set off by its Detonator: the SEAL and the Terrorist it hurts are told the same report', () => {
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 153, 255), [150, 0, 0], [0, 0, 0], map(), ON);
+    // FRAG-COUNT: the Terrorist 22 u in front of the claymore (at 30), inside the count's 30 u (was at 150, 142 u off).
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 153, 255), [30, 0, 0], [0, 0, 0], map(), ON);
     s.send(2, 'Claymore', [8, 0, 0], [1, 0, 0]);
     s.room.player(2)!.sim.walker.place(-100, 20, 0);
     s.run(0.5);

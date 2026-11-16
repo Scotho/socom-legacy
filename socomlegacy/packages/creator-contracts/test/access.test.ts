@@ -28,8 +28,8 @@ describe("placed gates and barriers", () => {
     expect(checkCreatorRecord({ ...record, gates: [["MP11", "access1", 0, 0]] })).toMatch(/gate 0/);
   });
 
-  it("an online lobby refuses them", () => {
-    expect(onlineLayoutRefusal(layout).map((d) => d.code)).toEqual(["record.ONLINE_GATES", "record.ONLINE_BARRIERS"]);
+  it("an online lobby admits them (FP-1a: the room places them, in match's forge sim map; refused record.ONLINE_GATES and record.ONLINE_BARRIERS before)", () => {
+    expect(onlineLayoutRefusal(layout)).toEqual([]);
   });
 });
 

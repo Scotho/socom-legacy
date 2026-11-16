@@ -1,7 +1,7 @@
 import { controllerStanceMode, PAD_BUTTON_NAMES, savePreference, type ControllerConfig } from '../../startupSettings';
 import { OVERLAY_BUTTON_KEY, OVERLAY_HOME_BUTTON, OVERLAY_MAX_BUTTON as MAX_BUTTON, readOverlayButton } from '../../overlayButtonSetting';
 import type { StanceMode } from '../../stanceButton';
-import { padFamily } from '../../padFamily';
+import { controllerLabelFamily, isSteamFamily, steamButtonName } from '../../controllerLabels';
 import { FORGE_MATCH_EXIT_CHORD, ForgePad, type PadSnapshot } from '../../forge/pad';
 import type { OverlayPageKind } from './page';
 
@@ -119,7 +119,9 @@ export function overlayOpensBy(button: number, config: ControllerConfig, kind?: 
  * alike: the PS2 pad's names, an Xbox pad's own, else "Button <n>"), and 16 the centre button.
  */
 export function overlayButtonName(button: number, padId = ''): string {
-  const xbox = padFamily(padId) === 'xbox';
+  const family = controllerLabelFamily(padId);
+  if (isSteamFamily(family)) return steamButtonName(button) ?? `Button ${button + 1}`;
+  const xbox = family === 'xbox';
   if (button === OVERLAY_HOME_BUTTON) return xbox ? 'Guide' : 'Home (PS / Xbox Guide)';
   if (xbox) {
     const names = ['A / Cross', 'B / Circle', 'X / Square', 'Y / Triangle', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'LS', 'RS'];
@@ -133,6 +135,7 @@ export function overlayButtonName(button: number, padId = ''): string {
  * 16 "Home" ("Guide" on an Xbox pad), else its name as `overlayButtonName` gives it (the full name is the control's label).
  */
 export function overlayButtonCap(button: number, padId = ''): string {
-  if (button === OVERLAY_HOME_BUTTON) return padFamily(padId) === 'xbox' ? 'Guide' : 'Home';
+  const family = controllerLabelFamily(padId);
+  if (button === OVERLAY_HOME_BUTTON) return isSteamFamily(family) ? 'Steam' : family === 'xbox' ? 'Guide' : 'Home';
   return overlayButtonName(button, padId);
 }

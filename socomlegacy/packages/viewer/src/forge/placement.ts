@@ -219,7 +219,13 @@ export function mountOnWall(object: Object3D, point: Vector3, normal: Vector3, f
   const at = point.clone().addScaledVector(out, back + WALL_GAP);
   if (box.isEmpty()) at.y = point.y;
   else if (how === 'stand') at.y = (floorY?.(at.x, at.z, point.y) ?? point.y) - box.min.y;
-  else at.y = point.y - (box.min.y + box.max.y) / 2;
+  else {
+    at.y = point.y - (box.min.y + box.max.y) / 2;
+    // FC2 (ours): a mount stops at the floor below (`floorY`), never through it -- a click low on a wall (a piece's side
+    // just above the floor) centred a tall piece on the cursor and sank it (forgePlacement's -15.08).
+    const floor = floorY?.(at.x, at.z, point.y);
+    if (floor != null && at.y + box.min.y < floor) at.y = floor - box.min.y;
+  }
   object.position.copy(at);
   object.updateMatrixWorld(true);
 }

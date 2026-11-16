@@ -30,7 +30,7 @@ describe('S2: classGraphics, the backend a resolved choice asks for on a device 
   it('the table, with no address override: only Automatic on the Xbox class changes, to WebGL2; every other cell is the choice itself', () => {
     const table = Object.fromEntries(CLASSES.map((c) => [c, Object.fromEntries(CHOICES.map((g) => [g, classGraphics(g, c, false)]))]));
     expect(table).toEqual({
-      xbox: { auto: 'webgl2', webgpu: 'webgpu', webgl2: 'webgl2', xbox: 'xbox' },
+      xbox: { auto: 'webgl2', webgpu: 'webgl2', webgl2: 'webgl2', xbox: 'xbox' },   // XBOX-WEBGL2-ONLY: a WebGPU choice too
       software: { auto: 'auto', webgpu: 'webgpu', webgl2: 'webgl2', xbox: 'xbox' },
       touch: { auto: 'auto', webgpu: 'webgpu', webgl2: 'webgl2', xbox: 'xbox' },
       lowMemory: { auto: 'auto', webgpu: 'webgpu', webgl2: 'webgl2', xbox: 'xbox' },
@@ -39,7 +39,10 @@ describe('S2: classGraphics, the backend a resolved choice asks for on a device 
     });
   });
 
-  it('an address override wins as today: every class and choice is kept', () => {
-    for (const c of CLASSES) for (const g of CHOICES) expect(classGraphics(g, c, true), `${c}/${g}`).toBe(g);
+  it('an address override is kept on every class but the Xbox; XBOX-WEBGL2-ONLY: on the Xbox class no override asks WebGPU', () => {
+    for (const c of CLASSES) for (const g of CHOICES) {
+      const want = c === 'xbox' && (g === 'auto' || g === 'webgpu') ? 'webgl2' : g;
+      expect(classGraphics(g, c, true), `${c}/${g}`).toBe(want);
+    }
   });
 });

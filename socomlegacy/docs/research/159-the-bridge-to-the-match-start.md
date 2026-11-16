@@ -30,7 +30,7 @@ Confidence: every transcription here is **reading, pending review**; the proven 
 | R159.2 | **The host's world report is the original's registration**: the host posts WorldReport0 every 25 s (every 5 s until it has a map) with the game's name, MinPlayers 2, MaxPlayers (players + spectators), GameLevel (atoi of the map stem past "MP"), RulesSet (bit 1 `mp_allow_respawn`, bit 0 `mp_friendly_fire`), GF1-GF3, GameStats and the world status -- closed when ending, staging in the game lobby, active after (`FUN_002ef590` D:L191321-191411) | the page posts the report's fields once it has a map; the server makes the room and from then reports the world status and the spectators itself | §2 |
 | R159.3 | **CREATE GAME's name and the report's are one variable**: both read the UI string at `DAT_0044f434`, "testgame" when none (`FUN_002edda0` D:L190531-190533, D:L190564-190566; `FUN_002ef590` D:L191356-191358, D:L191370); the s4 report's `test$~Channel 1` was therefore the create's name too | ONL-13 sends `<name>$~<room>` on both | §3.3 |
 | R159.4 | **Respawn is RulesSet bit 1 of the report**, never in CreateGame1 (which sends RulesSet 0, D:L190575) nor in GameStats (`FUN_002f7c40` D:L196715-196755: rounds, minutes, spectators, slots, EQlimit, sort order, rank bits, the play list) | OT.R21: a create or report with bit 1 is refused (`RESPAWN_REFUSED_STATUS_PLACEHOLDER`) | §3.4 |
-| R159.5 | **The original's launch is the host's**: READY toggles a seat's minor state (`FUN_002c3fc0`), at most once per 5 s, after a 30 s gate; every player ready with both sides seated launches at once; 80% ready starts an 11 s countdown; the host's force launch is that countdown | `PreMatch`; our server's dedicated rooms keep the owner's 10 s from both sides seated -- a game's room does not (OC-5, H90) | §5 |
+| R159.5 | **The original's launch is the host's**: READY toggles a seat's minor state (`FUN_002c3fc0`), at most once per 5 s, after a 30 s gate; every player ready with both sides seated launches at once; 80% ready starts an 11 s countdown; the host's force launch is that countdown (*corrected 2026-11-13, §10.1 item 5: the shipped dialog has no host force control; the only ready-or-not launch is the 80% countdown's end*) | `PreMatch`; our server's dedicated rooms keep the owner's 10 s from both sides seated -- a game's room does not (OC-5, H90) | §5 |
 | R159.6 | **Lobby 0x49 has no reply, Lobby 0x86 none from our Horizon** | both answer 204; the page waits for neither | §4 |
 | R159.7 | **A launched game's room carries the match**: on the console the host carries it and the DME migrates it to a new session master (`Session_master_migration`); Horizon ends a game with its host | a launched game plays on through its host's leave while seated (`LAUNCHED_GAME_OUTLIVES_HOST_PLACEHOLDER`); fewer than three left abandons it, as the original (`FUN_002bc530`) | §2 |
 
@@ -315,7 +315,7 @@ login's ticket.
 ## 5. Readiness and launch: the original's game lobby, transcribed
 
 `dlgGameLobby`'s set (`tools/dump-dialogs.ts --dialog dlgGameLobby.rdr --tree`): ONSTART runs `Session_master_migration`
-(`IsSessionMaster`; for the master `EnableButton(Lock)`; `Watch45SecClock`), `Enable_SM_Launch` (the buttons by
+(`IsSessionMaster`; for the master `EnableButton(Lock)` -- a name no widget of the shipped dialog holds, §10.1 item 5; `Watch45SecClock`), `Enable_SM_Launch` (the buttons by
 `IsSessionMaster` and `IsSwitchTeamsOK`; `ArmButtonClock`; locs 350-353), `check_loop` (`AdvanceMPMission`,
 `CheckForcedLaunch` in a loop until `mp_major_game_state` 2, then `SWITCHMENU(LOAD_SCREEN)`; `CountDown`, locs 354-355),
 `FromBriefing`; READY's CROSS runs `ready_anim` (`ReadyToLoad`, `CycleReadyButton`); SWITCH TEAMS' runs
@@ -331,11 +331,11 @@ players on both teams to launch.", 359 "Launch all players, ready or not.", 367 
 | READY gate | `AdvanceMPMission` sets the lobby deadline to now + 30 s, 45 s after a match (`mp_game_over`; D:L123857-123862); `CheckForcedLaunch` counts it down into `mp_45_sec_clock` (D:L125682-125729) | 30 s from each seat's entry (`READY_GATE_MS_READING`); the 45 s lobby after a match is not on the path |
 | READY | a toggle of the minor state 1 <-> 2 (`FUN_002c3fc0` D:L165402-165406), at most once per 5 s (`FUN_0027caf0` D:L125601-125611) | the same (`READY_REPEAT_MS_READING`) |
 | launch | every player ready (the slots not flagged 0x10000, D:L165461-165490) and both sides seated (`mp_team_unbalance` 0, D:L165328-165352): major state 2 at once (D:L165373-165384) | the same: `Room.launch(0)`, round 1 for every seat (`READY_SEATS_READING`), a running countdown cut short; `PreMatch` is launched only when the room starts round 1 (the fix round, B1) |
-| 80% | no countdown, not all ready, both sides seated, ready >= 0.8 x players, no clan game: MP_EIGHTY_READY (D:L165503-165507) -> `ForceMPLaunch` | the same (`EIGHTY_READY_FRACTION_READING`) |
+| 80% | no countdown, not all ready, both sides seated, ready >= 0.8 x players, no clan game: MP_EIGHTY_READY (D:L165503-165507) -> `ForceMPLaunch` | the same (`EIGHTY_READY_FRACTION_READING`), decided at a READY, a leave, a switch and a join (§9, 2026-11-13) |
 | countdown | now + `mp_x_sec_clock` x 1000 (`FUN_002a6b90` D:L149005-149009), the valve 11 (research 95 §4.1, 91 §18.1); all ready during it launches at once (D:L165461-165462, D:L165509-165511); at its end the host launches (`FUN_0027cbf0` D:L125783-125785) | `LAUNCH_COUNTDOWN_S_READING` 11 on the room's clock (`Room.launch(11)`, the `countdown` event) |
 | countdown off | `ForceMPLaunch` again with more than 5 s left (`FUN_0027d070` D:L125806-125810) | the same (`FORCE_CANCEL_MARGIN_MS_READING`) |
 | side emptied in it | `mp_team_unbalance` held 0 while it runs (D:L165348-165352): it launches anyway | called off (`COUNTDOWN_EMPTIED_SIDE_PLACEHOLDER`) |
-| host's launch (359) | the hint of a `Lock` button `Session_master_migration` enables for the master; the layout has no `Lock` control | the countdown, the host only, after its gate (`HOST_LAUNCH_READING`) |
+| host's launch (359) | *corrected 2026-11-13 (LOBBY-START, §10.1 item 5): none.* 359 is the body of `OnSMlaunchstart` (P:L7673-7674), an animation no binding runs; the shipped dialog has three buttons (ARMORY, SWITCH TEAMS, READY) and no `Lock`, `ForceLaunch` or `MasterText` widget (a build box's listing and the archive's string pool, ll1 and ll2, at their levels in §10.1 item 5; a capture would prove it) -- so the only ready-or-not launch is the 80% countdown's end. (Was: "the hint of a `Lock` button `Session_master_migration` enables for the master".) | the countdown, the host only, after its gate (`HOST_LAUNCH_READING`, held for the owner, OT.R32) |
 | SWITCH TEAMS | once per 5 s (`FUN_0027d100` D:L125824-125828); the host moves the slot to the other side when it has fewer than 8 (`FUN_002c4290` D:L165538-165568); `IsSwitchTeamsOK` refuses clan types 1, 2, 4 (`FUN_002f8ce0` D:L197459-197476; clan games parked, OT.R6) | the same (`SWITCH_REPEAT_MS_READING`, `Room.switchTeam`, `Lobby.switchTeam`); READY kept |
 | the host's side | the host takes the SEALs (`FUN_002c5450` L166238-166262) | the hello's `host` (`Lobby.join`) |
 | idle kick | none (V22) | none while the room waits (`heldLaunch`) or holds round 1 for the load, its idle clock held with it; W3.R13's in the match from round 1's start, as every room (OC-5; 2026-10-07: the clock had run on through the wait, so a seat 4 min in the game lobby was kicked, 4001, on round 1's first tick and the game ended below three -- the owner's 2026-10-06 playtest) |
@@ -368,7 +368,7 @@ counting failures, not requests), so it cannot be shared without rebuilding it; 
 - What enables READY at the gate (`Watch45SecClock`, `CountButtonFive`, `FLcountR` 45..11) is not decoded; the 30 s
   is UIMnLOC 350's word and `AdvanceMPMission`'s deadline.
 - The flag 0x10000 a slot record carries is read as a watcher's (`READY_SEATS_READING`).
-- The host's force launch's trigger (359) is not read (`HOST_LAUNCH_READING`).
+- The host's force launch's trigger (359) is not read (`HOST_LAUNCH_READING`). *Corrected 2026-11-13 (§10.1 item 5): read -- there is none in the shipped dialog; 359 is an unbound animation's text.*
 - `ReadyToLoad`'s other branch (game +0xcc set: major 0, minor 1, D:L125606-125608) is the in-match case, not the
   lobby's: not transcribed.
 - After a match the original returns everyone to the game lobby for the play list's next map (`MPZANIM.ZAR`
@@ -396,10 +396,11 @@ counting failures, not requests), so it cannot be shared without rebuilding it; 
 | `SWITCH_REPEAT_MS_READING` (`gameLobby.ts`) | 5 000 | SWITCH TEAMS' repeat (D:L125824-125828) | a capture of SWITCH TEAMS pressed twice |
 | `EIGHTY_READY_FRACTION_READING` (`gameLobby.ts`) | 0.8 | MP_EIGHTY_READY's share (D:L165503-165507) | ONL-16's two-instance ready-state capture with five players |
 | `LAUNCH_COUNTDOWN_S_READING` (`gameLobby.ts`) | 11 | `mp_x_sec_clock` for the launch countdown (D:L149005-149009; research 95 §4.1) | the countdown's frames from its first number |
-| `FORCE_CANCEL_MARGIN_MS_READING` (`gameLobby.ts`) | 5 000 | `ForceMPLaunch`'s cancel margin (D:L125806-125810) | the script that binds the host's launch |
+| `FORCE_CANCEL_MARGIN_MS_READING` (`gameLobby.ts`) | 5 000 | `ForceMPLaunch`'s cancel margin (D:L125806-125810) -- as far as read, a branch retail never reaches: `ForceMPLaunch`'s one caller, `launch_10sec_anim`, runs on an event raised only with no countdown; two raises before the animation runs would make the second a cancel (§10.1 item 5) | the script that binds the host's launch; a capture of the original's host lobby |
 | `READY_SEATS_READING` (`gameLobby.ts`) | players only | the slots the ready count takes (flag 0x10000 read as a watcher's, D:L165461-165490) | a slot record read with a watcher seated |
 | `HOST_LAUNCH_READING` (`gameLobby.ts`) | the forced countdown, the host only, after its gate | the trigger of "Launch all players, ready or not" (359) | the `Lock` binding decoded, or a capture of the host's lobby |
-| `COUNTDOWN_EMPTIED_SIDE_PLACEHOLDER` (`gameLobby.ts`) | called off | a side emptied under the countdown; the original launches anyway (D:L165348-165352) | the owner (OC-5), or a classic room that can start with a side empty |
+| `COUNTDOWN_EMPTIED_SIDE_PLACEHOLDER` (`gameLobby.ts`) | called off | a side emptied under the countdown; the original launches anyway (D:L165348-165352) | the owner (OC-5), or a classic room that can start with a side empty *2026-11-13 (LOBBY-START, §10): the reading exists -- the original launches at the countdown's end (D:L165348-165352, D:L165461-165462, D:L165509-165511) -- read, built and reviewed on `agent/lobby-start`, and held (LATER 998) until the room can play a side empty.* |
+| `EIGHTY_READY_HOST_PAGE_READING` (`packages/ui/src/screens/gameLobbyCommands.ts`) | the host's page runs `launch_10sec_anim` at a new countdown; its `ForceMPLaunch` sends nothing | the countdown's start on the host's own dialog: MP_EIGHTY_READY raised on the host (D:L165503-165506) runs `launch_10sec_anim` there (P:L7631-7648) -- .DINK, `NoTriangle`, `mp_locked_game`, the three buttons disabled at once (LOBBY-START, §10). Reading, pending review | a capture of the host's lobby at an 80 per cent start (the sound and the buttons' first frame) |
 | `HOST_SUCCESSOR_READING` (`packages/central/src/bridge.ts`) | the next player by join order | whom an unstarted game's host role passes to when its host leaves (SVC-07b, 2026-10-04): the original's new session master is the console whose client index equals the session's master index (`FUN_002bc080` D:L160972-160977), an index the network library chooses and nobody has decoded; watchers never. Refined on review (2026-10-04): a player seated in the match room first, the lobby's order only when none is; the successor's other games handed on in their turn. Since LATER 225 (2026-10-21, §2) a placed game's match server applies it too when central frees the host's seat and the host holds no socket there (`packages/match/src/game.ts` `seatFreed` -> `hostGone`) | the DME's master choice decoded (`FUN_0030d5a0`'s writer), or a two-console capture of a host leaving a lobby of three (and one whose host backs out before it enters the session) |
 | `REPORT_MAP_CHANGE_PLACEHOLDER` (`packages/central/src/bridge.ts`) | -966 (Fail) | a report changing a made room's map | the return to the lobby after a match (the play list's next map) |
 | `ABANDON_BELOW_PLAYERS_READING` (`bridge.ts`) | 3 | the abandon of a launched game by a leave (`FUN_002bc530` D:L161130-161141). Weaker than "fewer than three left" reads (the review's N1): the test at D:L161139 is `FUN_0030d510(0x45a0c0)` less the count of non-zero slots of `DAT_00440ec0` (the leaver's cleared first) below 3, in the match only (game +0xcc set); `FUN_0030d510` (D:L209985) is a thin wrapper whose value is filled by a network-library routine over the session object's +0xf4 (`FUN_00623090` -> `FUN_00615160`, entries flagged at +0x28) that is not decoded, and what `DAT_00440ec0`'s slots hold is not read either -- "the players left, fewer than three" is research 91 §17.2's interpretation. Still a reading | ONL-32's transcript of a leave with two left and one with three; or `FUN_00615160`'s count and `DAT_00440ec0`'s writer decoded |
@@ -417,3 +418,290 @@ its row in the first table above) instead; `SOCKET_TICKET_MS` bounds a guest's (
 session no socket holds and logs in; a session a socket holds is still -997 (§1). A service adaptation (OT.R27), no
 ledger row: the original server's rule for a second login is unread (ONL-32's transcript of a second console logging
 in under a live name would show it); it adds no figure.* `GAME_ENDED_CLOSE` (4007) and `SEAT_FREED_CLOSE` (4008) are the transport's close codes, ours.
+
+## 9. LOBBY-REDECIDE: the host's decision re-run at every seat change (2026-11-13T06:02Z; reading, pending review)
+
+Two players reported "the lobby doesn't force start" (v0.4.21, seat redotcom-29's brief for the main controller). The
+investigation read it to a gap: the port's `PreMatch.decide(now)` starts the 80% countdown only with a clock, and only a
+READY press and the host's force passed one -- a leave decided with none, a switch and a join not at all. This entry
+re-reads the original at the source (`socom2_game.elf.decomp.c`) before any code changes. Level: **reading, pending
+review** -- transcribed from the decompilation; a fresh reviewer re-reads it at the source.
+
+### 9.1 The re-read
+
+1. **The decision, `FUN_002c3cf0` (D:L165314-165393).** With the game object present (D:L165325) it first recounts the
+   sides from every slot's team word (`FUN_002c4500`, D:L165326; the counts SEALs `DAT_00441448`, TERRORISTS
+   `DAT_00441450`, D:L165618-165659); sets `mp_team_unbalance` (game +0x54) to 0 when both sides have a player (or the
+   game's byte +0xa8, or the short at +0x60, is set -- not read further here), else to 1 -- but back to 0 while a countdown runs (+0xd8) (D:L165328-165353);
+   then by the game's major state (+0x113). In state 1, the lobby (D:L165373-165386), and only on the session master
+   (`DAT_0045a0c0`, D:L165374), it copies its own major and minor states into its own slot record (D:L165377-165378),
+   calls `FUN_002c40c0` (D:L165379), and when that answers 1 and `mp_team_unbalance` is 0 sets major state 2 -- the
+   launch (D:L165380-165384). `FUN_002c40c0` (D:L165446-165513): unless a countdown runs and its deadline (+0xe4) has
+   passed (D:L165461-165462; then it answers 1, D:L165509-165511 -- the countdown's end launches), it counts the ready
+   slots (minor state 2) among those not flagged 0x10000 and whether every one is ready (D:L165467-165490), posts the
+   count (D:L165491-165502), and raises MP_EIGHTY_READY (S:0x3f2a40) when no countdown runs (+0xd8 0), not every player
+   is ready, both sides have a player, 0.8 x (SEALs + TERRORISTS) <= the ready count, and `FUN_002e99e0` (the clan
+   affiliation) is 0 (D:L165503-165506); it answers "every player ready" (D:L165512). **There is no other entry**: the
+   countdown is started only by MP_EIGHTY_READY's answer (`launch_10sec_anim` -> `ForceMPLaunch`, §5), whatever called
+   `FUN_002c3cf0` -- the same test and the same 11 s on a seat change as on a READY press. **No gate is tested** here:
+   the host's 30 s is his READY button's (§5, `READY_GATE_SEATS_READING`), so a seat change can start the countdown
+   before the host's gate has run, exactly as another seat's READY press can today. **A countdown already running is
+   neither restarted nor extended**: the raise requires +0xd8 0 (D:L165503), and the deadline +0xe4 is not touched here;
+   every player ready launches at once under it (D:L165380-165384 with D:L165512).
+2. **Its two callers.** `FUN_002c5360` (D:L166183-166213), on a network game (`DAT_0045a0c1`) with the console's own
+   slot record found (D:L166194-166196): `FUN_002c3cf0` first (D:L166197), then the console's own major, minor and
+   other fields written into its own slot record (D:L166198-166209), then `FUN_002c5010` (D:L166210). `FUN_002c5750`
+   (D:L166316-166332): the freed index's table entry cleared (D:L166323-166324) and, unless it is the console's own
+   index (D:L166325-166326), `FUN_002c5010` and `FUN_002c3cf0` (D:L166327-166328). **Correction to the investigation's
+   word "a recount"**: `FUN_002c5010` (D:L166063-166177, only in minor state 1) builds the lobby's four columns (the two
+   sides' rows with their ready dots, the spectators) -- the screen's list, not a count; the side recount is
+   `FUN_002c4500` inside `FUN_002c3cf0` (D:L165326). Nothing changes for the decision.
+3. **Inference (i): which callback is which -- HOLDS.** The slot type is registered at D:L166453 through
+   `FUN_0030ce80` (D:L209706-209715): its third and sixth arguments go to the network library (`FUN_00620f50`
+   D:L531073-531096 -> `FUN_00624460` D:L533304-533319) as the type's create callback (`DAT_0067a6e8`), its update
+   notifier (`DAT_0067a728`, always 0x30cdf0) and its delete callback (`DAT_0067a768`); its fifth is kept in the session
+   at +0x1154 by type (D:L209713). The library calls the create callback when an object's first data arrives
+   (`FUN_00615e38` D:L523693-523704, from D:L529701), the update notifier on a field's update (`FUN_00615eb0`
+   D:L523709-523721, from the field-update receiver `FUN_0061ed48` D:L529757-529767), the delete callback when an object
+   goes (`FUN_00615f50` D:L523726-523737, from `FUN_00615fc8` D:L523759). The session's per-frame update `FUN_0030da00`
+   calls the +0x1154 callback for each object index whose byte at session +0x10b+index is set, and clears it
+   (D:L210262-210273). So **0x2c5830 is the JOIN** (create), **0x2c5750 the seat FREED** (delete) and **0x2c57d0 the slot
+   CHANGED** (update). Two corroborations: the seal type's registration (D:L162712) passes in the sixth place 0x2bef60,
+   which the demo build's symbols name `RemoteSealDeletionCallback`; and 0x30cdf0 and 0x30ce80 are named
+   `zNetRemoteObjectUpdateCallback` and `zNetRegisterRemoteObjectCallback`
+   (`desktop@be557831:docs/research/55-class-inventory.md:324`, a byte-prefix symbol match). **The link the
+   decompilation lacks, read from the disc's code** (2026-11-13, after the fresh review; first read by the reviewer,
+   re-read by the author): 0x30cdf0's body has no function in the decompilation, so it was read from the disc's
+   `socom2_game.elf` itself -- the MIPS words at 0x30cdf0-0x30ce74, decoded by the author with a small script (the vaddr
+   mapped to the file through the ELF's loadable segment holding it: file offset 0xd6600 + (vaddr - 0x1e7000), so
+   0x30cdf0 at 0x1fc3f0; the same bytes decode to what the decompilation shows for `FUN_0030cde0` at 0x30cde0, a jump to
+   0x6233d8, and for `FUN_0030ce80` at 0x30ce80-0x30cee8, the registration and its two stores at +0x1114 and +0x1154).
+   The notifier looks the object up by its index (a call to 0x622818, the lookup the per-frame loop uses, D:L210265);
+   when found, calls the session's +0x1114 callback for the object's type (0x45a0c0 + 0x1114 addressed absolutely; the
+   registration's fourth argument -- for the slot type 0x2c5800, `FUN_002c5800`, a lookup only, D:L166348-166353); and
+   then, on both paths, found or not, stores 1 at 0x45a0c0 + 0x10b + the object's index (0x30ce50-0x30ce60). So a
+   remote's field update always flags its object for the per-frame dispatch of D:L210262-210273, which runs the
+   +0x1154 callback, 0x2c57d0. The byte's only reader is D:L210264, and the decompilation's only other writers clear it
+   (D:L210270, D:L210341). The link is now a reading from the disc's code, like the rest of this item; the desktop
+   note's name stays as corroboration.
+4. **Inference (ii): a remote's side change reaches the host as its slot's change -- HOLDS.** A non-host's SWITCH TEAMS
+   (`FUN_002badd0` D:L160265-160285) sends the host message 0x40 (D:L160276); the host's handler (`FUN_002bae70`
+   D:L160290-160297) runs `FUN_002c4290` (D:L165518-165569): the host's copy of the slot's team word flipped when the
+   other side has fewer than 8 (D:L165538-165566), and `FUN_002baea0` (D:L160302-160321) sends the asker the new side
+   (D:L160318). The asker's handler `FUN_002baf30` (D:L160326-160367) takes it -- side 4 is a refusal's text
+   (D:L160333-160358) -- and otherwise sets its own side and calls `FUN_002c5360` (D:L160361-160363), which writes the
+   team word into its own slot record (D:L166206). That record is the asker's own object (created owned, mode 2, by
+   `FUN_002c5450` D:L166230; research 193 §2.4), so the library's send pass sends its changed fields
+   (`FUN_0061ba10` D:L527450-527473 -> `FUN_0061a6d8` D:L526713-526753 -> `FUN_0061a488` D:L526669-526693), the host
+   receives them (`FUN_0061ed48` D:L529757-529767) and its CHANGED callback runs: `FUN_002c57d0` (D:L166337-166343) ->
+   `FUN_002c5360` (D:L166341) -> `FUN_002c3cf0` (D:L166197). The host's own switch: `FUN_002badd0`'s host branch runs
+   `FUN_002c4290` on its own index (D:L160279-160282), whose `FUN_002baea0` calls `FUN_002baf30` directly (D:L160313-160315),
+   so `FUN_002c5360` and the decision. The host's move itself (`FUN_002c4290`) does not decide.
+5. **READY is one more slot change.** `ReadyToLoad` (`FUN_0027caf0` D:L125595-125614) toggles the minor state through
+   `FUN_002c3fc0` (D:L165398-165411), which ends in `FUN_002c5360` (D:L165408): on the host the decision at once; on a
+   remote its record's minor state (D:L166199), reaching the host by the CHANGED path of item 4. Corroboration: nothing
+   else runs the host's decision in the lobby -- `FUN_002c3cf0` has only the two callers of item 2, and the callers of
+   `FUN_002c5360` are one-off events (a slot's creation at the lobby's entry, `FUN_002b7a20` D:L158488-158508,
+   `FUN_002bbfa0` D:L160919-160942; the load state, `FUN_001f5e70` D:L55702; the countdown run out, `FUN_0027cbf0`
+   D:L125783-125785; host migration `FUN_002bc080` D:L160985, D:L161021; the clan swap `FUN_002c0040` D:L162980; others
+   not in the lobby) -- so a remote's READY that completes the room reaches the host's launch only by CHANGED. The
+   port's READY path and the new paths are one rule: any change of a seat re-runs `decide` with the clock.
+6. **A JOIN.** `FUN_002c5830` (D:L166358-166411): the joiner's vote flags cleared and its index kept (D:L166376-166379);
+   on the host the join's admission byte checked, a refused one answered side 4 reason 5 (D:L166380-166397); the record
+   filed in the table (D:L166398-166401); the mute from the ignore list (D:L166403-166406); then `FUN_002c5360`
+   (D:L166409), so the decision. The joiner's record is zeroed at its creation (`FUN_002c5450` D:L166236), so its minor
+   state is 0 -- not ready -- and its team word is the console's own side word, `DAT_00441470` (D:L166297; set on a
+   joiner by its admission -- not re-read here). So a join that seats the
+   second side while 80% of the then-seated players are ready raises MP_EIGHTY_READY: 4 of 4 ready SEALs and a TERRORIST
+   joining is 0.8 x 5 = 4 <= 4 -- the countdown.
+
+So in the original a not-ready player leaving 6 of 8 ready (6 of 7: 0.8 x 7 = 5.6 <= 6) starts the countdown, a switch
+that seats the second side under an all-ready room launches, and a join can start the countdown; in the port all three
+sat until someone pressed READY.
+
+### 9.2 The change (reading, pending review)
+
+- `PreMatch.unseat(accountId, now)` (`packages/match/src/gameLobby.ts`): the countdown called off when the leave empties
+  a side stays first (`COUNTDOWN_EMPTIED_SIDE_PLACEHOLDER`), then `decide(now)` -- the 80% test with the clock (item 1,
+  `FUN_002c5750` -> `FUN_002c3cf0`). `now` defaults to null, today's launch-only decision, for a caller not passing it
+  (the Forge lobby's driver, `forgeGame.ts`: left out, "Not done here" below, LATER 995).
+- `PreMatch.seatChanged(now)`: `decide(now)` once a seat's change is in place -- a join (`seat`) and an accepted SWITCH
+  TEAMS after the room gave the side (`setTeam`); nothing once launched.
+- The carriers -- `packages/match/src/game.ts` (`MatchGame`) and `packages/central/src/bridge.ts` (`GameBridge`) -- pass
+  the clock at a leave (the socket's close and a freed pending rejoin), take `seatChanged` at a new seat (not a takeover
+  of a held seat: no new slot object) and after a switch's `setTeam`, and act on it as on a READY's (`act`). After a switch
+  the bots' reconcile still runs after the decision, so the CPUs move after the human's change is decided; its launch, if
+  it answers one, is taken over the switch's own answer.
+- A refused switch (the repeat, the countdown, a clan game, the sides) decides nothing.
+
+**Unchanged, and why**: the 0.8 share (`EIGHTY_READY_FRACTION_READING`; 75 per cent is the owner's call, H90) and the
+11 s (`LAUNCH_COUNTDOWN_S_READING`) -- item 1 shows the same test and the same countdown on every path; the host's 30 s
+gate -- his READY's only, `FUN_002c3cf0` tests none (item 1), so another seat's leave inside it can start the countdown
+as another seat's READY already could, and his own READY stays refused; the clan-game exclusion (`FUN_002e99e0`,
+D:L165505); READY and SWITCH closed during a countdown (`SWITCH_CLOSED_AT_COUNTDOWN_READING`), and a countdown running
+neither restarted nor extended (D:L165503) -- every player ready still launches under it; the bots' list, which keeps
+`decide(null)` (`setBots`): CPUs are not the original's, and a CPU taking or leaving a seat starts no countdown
+(BOTS-LAND's ruled defect) -- the no-bot reconcile's own "sets nothing and decides nothing" stays pinned by itself in
+`packages/match/test/roomBotsGates.test.ts` (:115, "area (b) 1"); the FF lobby's CPU readiness (`readyCpus`) as before.
+**The FF lobby is not unchanged as a whole**: there the CPUs count as players (FF.R9.2, "the same rule launches it"),
+and a human's leave, join and switch now decide with the clock as in every game's lobby, so the countdown can start at
+the human's event where before it waited for the next CPU becoming ready or a human's READY press; the 17
+`ffLobbyGame.test.ts` cases pass. No named constant changed; no ledger row.
+
+**Expectations that moved** (found by the build box's whole suites on ad0f81e664; both pinned BOTS-LAND's finding 3 as
+the port then read the original -- "a join never decides; a leave decides with no clock" -- a premise item 1 and item 2
+reverse for a human's seat):
+- match `test/gameBotFolds.test.ts`, "re-read finding 3": a respawn FILL lobby of 6 humans, 4 READY, an unready human
+  leaves and a CPU fills the place. Before: `countdown` null. After: 11, one `countdown` event -- the human's leave makes
+  4 of 5 = 0.8 x 5 and the freed seat decides (`FUN_002c5750` -> `FUN_002c3cf0`); the CPU's fill adds nothing. What the
+  case was written to hold -- a CPU's seat change starts no countdown -- is kept in a new case of the same block: every
+  human on the SEALs, 5 of 6 READY (no countdown: a side empty, D:L165503-165504), then TERRORIST BOTS FILL seats the
+  other side -- still no countdown (`setBots` -> `decide(null)`). The room then holds at 80 per cent or more ready with
+  both sides seated and no countdown until the next human event -- a join (a spectator's too), a leave, a switch or a
+  READY press -- which starts it, or launches if every player is ready. That hold is a consequence of the port's bots,
+  not something the original does: the original has no CPUs, and so no such state. The humans' share moves only at a
+  human's READY or seat change, each of which now decides, so the states in which a CPU change meets an undecided 80
+  per cent are: the CPUs seat a side the humans left empty, or the host has called the countdown off (his second press
+  with more than 5 s left, `forceLaunch`, `gameLobby.ts` :500-503, `FORCE_CANCEL_MARGIN_MS_READING`) -- a CPU change
+  there starts nothing either, and the next human event starts the countdown again. Checked to fail with `setBots`
+  deciding on the clock (`expected 11 to be null`).
+- central `test/botH315.test.ts`, "a respawn Frostfire game with no bot running": an unready leave from 4 of 6 READY.
+  Before: `countdown` null. After: the countdown, one `countdown` event of 11 -- the leave's, as in a classic game. Its
+  first point, that the no-bot reconcile decides nothing a classic game would not, stands (the reconcile answers null
+  with no controller); at the bridge it is no longer separable from the leave's own decision, which already runs it.
+
+**Not done here**: the clan swap of "Alternate teams" (`FUN_002c0040` ends in `FUN_002c5360`, D:L162980, so the
+original decides there too) -- the port's `swapSides` decides only through the bots' reconcile; a swap exchanges the
+sides of the same players, so the share is unchanged, and it is the host's FINISH in the lobby a full game returned to
+(nobody ready at its opening). **The Forge lobby** (`packages/match/src/forgeGame.ts`, which drives `PreMatch` as is;
+the Forge lane's file, not this task's; LATER 995): after this change it still skips the decision at all three seat
+changes -- a LEAVE calls `unseat` with no clock (:330, a refused host ticket's seat; :543, a socket's leave), a JOIN
+seats with `seat` and never calls `seatChanged` (:508), and a SWITCH gives the side with `setTeam` and never calls
+`seatChanged` (:607-611) -- so in a Forge lobby at 6 of 8 ready a not-ready seat leaving starts nothing, where a game's
+lobby now starts the countdown. The tests: `packages/match/test/gameLobby.test.ts`
+("LOBBY-REDECIDE"), `packages/match/test/lobbyRedecideGame.test.ts`, `packages/central/test/bridgeLobbyRedecide.test.ts`
+(fixture MP2).
+
+## 10. LOBBY-START: the 80 per cent countdown's own steps (2026-11-13T07:05Z; reading, pending review)
+
+The owner, 2026-11-13T05:54Z: "We're going for complete accuracy with the original on the lobby start", the launch of
+all players ready or not included. This entry re-reads the original at the source before any code changes: the
+decompilation (`socom2_game.elf.decomp.c`, `D:L`), the dialog's script in the committed decode
+`tools/test/onlineDialogs.pinned.json` (`P:L`, `dlgGameLobby.rdr`), and a build box's listing of the shipped dialog's
+widgets made with the repository's dump tool at `agent/v0421` df3af7bd64 (kept outside the tree). Level: **reading,
+pending review**.
+
+### 10.1 The re-read
+
+1. **A side emptied under the countdown launches at its end.** `FUN_002c3cf0` sets `mp_team_unbalance` (game +0x54) to 1
+   when a side is empty (D:L165342-165347) and back to 0 when the countdown flag (+0xd8) is set (D:L165348-165352), on
+   every call; its launch test is `FUN_002c40c0` answering non-zero with the word at 0 (D:L165379-165384).
+   `FUN_002c40c0` answers 1 outright once the countdown runs and its deadline (+0xe4) has passed (D:L165461-165462,
+   D:L165509-165511); before it, "every player ready" (D:L165463-165490, D:L165512). So while the countdown runs a side
+   emptying neither calls it off nor blocks its end: nothing there writes +0xd8. Its writers are `FUN_002a6b90`
+   (D:L149015) -- reached from `ForceMPLaunch` (`FUN_0027d070` D:L125802-125810) and from the game-object field handler
+   `FUN_002c0850` (D:L163353), which copies the host's countdown bit to the other consoles -- and two resets that
+   clear it with the rest of the game object's flags (`FUN_002a75f0` D:L149464, `FUN_002a9ef0` D:L150834); none of
+   them is on the leave path as far as read (the resets' callers were not traced). So at the deadline the host launches with a side empty. **The same lines go one step further than the brief's word**: with the word held at 0, every remaining
+   player ready launches at once under the countdown with a side empty too (a leave of the last not-ready player that
+   also empties his side; D:L165380-165384 with D:L165512) -- the same reading, held with it (§10.2).
+2. **Who launches at the deadline in the port.** `PreMatch` holds the deadline but no clock; the room's clock runs the
+   countdown (`Room.launch(11)`, `launchAt`) and starts round 1 at its end (`room.ts` `clock`). The room called its own
+   countdown off when a side emptied (`callOffCountdown`, at the leave and at each waiting tick), in every room. So the
+   reading needs both: `PreMatch` keeps the deadline, and a room under the game lobby's launch (`heldLaunch`) keeps its
+   countdown. The dedicated rooms' owner countdown (`OWNER_LAUNCH_COUNTDOWN_S`, OC-5) is unchanged.
+3. **What a match launched with a side empty then does -- the room's own rule, not this entry's.** The port's room
+   launches into its load hold (`firstRound`; `onLoadHold`, the game marked launched) and its next waiting tick abandons
+   a hold with a side empty (`clock`'s hold branch, as `abandonIfSideEmpty` does in play; `ABANDON_TRIGGER_READING`); the
+   game's `onAbandon` then closes the game below three players (`ABANDON_BELOW_PLAYERS_READING`) or reopens its lobby
+   (`ABANDONED_TO_LOBBY_PLACEHOLDER`). What the original's match does with a side empty from its start is not read (the
+   load state `FUN_001f5e70` and the round's end were not re-read here): a two-console capture of a countdown run out
+   after a side's last player left would settle it.
+4. **The start's steps, `launch_10sec_anim` (P:L7631-7648).** MP_EIGHTY_READY is raised by the host's `FUN_002c40c0`
+   (D:L165503-165506) through the network layer's event sink `DAT_0044f3c8`, which posts a named event into the console's
+   own dialog (research 146 §InitNetwork, 157 §2) -- so the script runs on the host only, and only when the lobby is the
+   dialog standing (the binding is the lobby's, P:L6624). In order: `SOUND .DINK` (P:L7632, before the test, so in both
+   branches); with `mp_team_unbalance` 1, popup #356 for 3 s and nothing else (P:L7633-7637); else `STOP
+   switch_teams_anim`, `NoTriangle` 1, `mp_locked_game` 1, `ForceMediusStatusReport`, `ForceMPLaunch` (the countdown,
+   +0xd8 being 0 when the event was raised), and `DisableButton` of `Glswitchteams`, `weaponselect` and `PlayerReady`
+   (P:L7639-7646).
+   (a) **When #356 can show.** The raise needs both sides seated (D:L165503-165504), and within the same call the word
+   was just set 0 (both counts non-zero, D:L165328-165341), so the popup is met only if the event's animation runs after
+   a later `FUN_002c3cf0` call saw a side empty -- a leave between the raise and the script. Whether the dialog host runs
+   the animation within the post or on a later frame is not read (`FUN_00367810`, D:L263357-263396, starts it). In the
+   port the server decides in one step and no page raises the event (`EIGHTY_READY_SERVER_ADAPTATION`); the page's
+   `mp_team_unbalance` is 0 while a countdown runs, so the popup branch is not reached. Settles: a capture of a leave
+   inside the frame of an 80 per cent start.
+   (b) **BACK on which consoles.** `launch_10sec_anim`'s `NoTriangle` 1 is the host's. But `CountDown`, run on every
+   console in `check_loop`'s loop (P:L7116-7118), does the same once `mp_x_sec_clock` is under 11: `KillPopup`, `STOP
+   exit_lobby`, `NoTriangle` 1, the counters stopped, the three buttons disabled, #354 / #355 and the frame
+   (P:L7464-7484); and `exit_lobby`'s second block FAILs with `NoTriangle` 1 (P:L7745-7746). So BACK is closed and the three buttons disabled on every
+   console from the clock's first second under 11, and on the host at once. `RingForceLaunchBell` (.COUNTDOWN) rings
+   on the other consoles at 10.
+   (c) **A join under the lock.** `mp_locked_game` (S:0x3f61f0) is read by the two status writers, which report the
+   game's status as 3 while it is set, else 1 in the lobby and 2 after (`FUN_00303780` D:L203997-204008, `FUN_00303f40`
+   D:L204351-204362) -- 3 is the value `MediusWorldStatus` names Closed (`lobby.ts` `WORLD_STATUS`); which report
+   carries it is not read (research 309 §4.1). The host's own admission tests no lock: the join handler `FUN_002bc620`
+   (D:L161149-161492; research 309 §4.1) and the create callback's admission byte (`FUN_002c5830` D:L166380-166397:
+   refused only for a byte 0 or a type outside 1-3) read neither the valve nor +0xd8. So a join under the countdown is
+   refused, if at all, by the services answering a status-3 game, not by the host.
+5. **The host's "ready or not".** The shipped dialog has three buttons -- `weaponselect`, `Glswitchteams`, `PlayerReady`
+   (P:L6601-6603; the listing: three BUTTON widgets) -- and no widget named `Lock`, `ForceLaunch` or `MasterText`: `Lock`
+   occurs only in script text (`Session_master_migration`'s `EnableButton(Lock)`, `SetupLateJoiner`'s
+   `DisableButton(Lock)`), `OnStartGameLock` is called and defined nowhere, and `OnSMlaunchstart` (P:L7673-7674,
+   `DescriptionText.op1(#359)`, "Launch all players, ready or not.") is bound to no widget's event. So text 359 is the
+   body of an animation no binding runs, and the retail lobby has no host force control: the only ready-or-not launch
+   is the 80 per cent countdown's end (item 1). `ForceMPLaunch`'s second branch -- called again with more than 5 s left,
+   the countdown off (`FUN_0027d070` D:L125806-125810, `FORCE_CANCEL_MARGIN_MS_READING`) -- is, as far as read, never
+   reached in retail: its one caller, `launch_10sec_anim`, runs on an event raised only with no countdown (D:L165503).
+   The reason it is "as far as read": if the dialog runs the animation a frame or more after the raise (item 4 (a), not
+   read), two raises before the first animation runs would give two `ForceMPLaunch` calls, the second one with the
+   countdown running -- a cancel. **The evidence, at its level.** (1) A build box's listing of the shipped dialog made
+   with the repository's dump tool (`agent-mail/evidence/lobby-layout/ll1/keep/lobby-1..4.txt`, at `agent/v0421`
+   df3af7bd64): three BUTTON widgets and no object named `Lock`, `ForceLaunch` or `MasterText`; its line 144 is the
+   screen's full parsed tree, 66 object names of every type (images, texts, list boxes, buttons), not only the types the
+   reader draws. (2) The dialog archive's raw bytes (`agent-mail/evidence/lobby-layout/ll2/keep/lobby-raw.txt`): its one
+   string pool (0x31a08 to 0x3317b) holds `Lock` and `ForceLaunch` once each, between `_351_ChatDisabled_MSG` and
+   `AreYouSure` / `_352_GameAlreadyStarted_MSG` -- the order in which `SetupLateJoiner` names them (P:L7243-7254) -- so
+   they read as symbols the script names, not widget records; an inference from order, not a proof. **The limit**: both
+   are the repository's readers over the disc's files; a record the parser does not take as an object would not show,
+   which the full tree of every type makes unlikely but does not exclude. A capture of the original's host lobby is
+   what would prove it.
+
+### 10.2 What this change ships (reading, pending review)
+
+- **Item 1 is NOT in this change.** Read, built and reviewed at the source on `agent/lobby-start` (to be renamed for
+  the hold): a side emptied under the countdown launching at its end, and every remaining player READY then launching
+  at once with a side empty. Held, LATER 998, by the main controller's ruling (2026-11-13): after a one-sided launch
+  the port's room abandons on its next tick (`ABANDON_TRIGGER_READING`, the port's stand-in; the original, as far as
+  read, plays on -- `FUN_002bc530` D:L161109-161146 has no side test, `FUN_002c4500` acts only with both sides empty,
+  D:L165674-165677) and below three players closes the game, which is worse than today's call-off and still not the
+  original. Here a side emptied under the countdown still calls it off (`COUNTDOWN_EMPTIED_SIDE_PLACEHOLDER`, still a
+  placeholder). The at-once launch with both sides seated -- every player seated READY under a running countdown, by
+  a leave (D:L165380-165384 with D:L165512) -- is already the port's (`decide`'s first test; `gameLobby.test.ts`,
+  "every player ready under a countdown launches at once on a leave"); a READY press under the countdown is refused
+  (`SWITCH_CLOSED_AT_COUNTDOWN_READING`).
+- **Item 2, the host's page** (ui `packages/ui/src/screens/gameLobbyCommands.ts`, `EIGHTY_READY_HOST_PAGE_READING`):
+  when the room's `gameLobby` view brings a new countdown and this seat is the host, its dialog is given
+  MP_EIGHTY_READY, so the disc's own `launch_10sec_anim` runs on the host's page -- .DINK, `NoTriangle`,
+  `mp_locked_game`, the three buttons disabled at once; that run's `ForceMPLaunch` is the countdown the server already
+  started and sends nothing (any later `ForceMPLaunch` sends `launch` as before). The other pages keep `CountDown`'s
+  steps as the disc has them. **At the port's call-off** (item 1 held, so a side emptied still calls the countdown
+  off): the script has no unlock path -- `mp_locked_game` is set 0 only by `SwapClanSides` (P:L7197), and no script
+  sets `NoTriangle` 0 after a countdown (the original never calls one off for an emptied side) -- so the host's page
+  is left with `mp_locked_game` 1; nothing reads it (no script test, no page code; `ForceMediusStatusReport` sends
+  nothing, the server reports the game itself), and BACK and the three buttons are reopened by LSR.R1's recovery
+  (the owner's ruling, `lobbyRecovery.ts`) as on every page. A new countdown runs the animation again
+  (`gameLobbyScreen.test.ts`, "LOBBY-STEPS: the room calls the host's countdown off, then starts another"). A call-off that arrives before the queued animation has run (two leaves in one frame) stops it -- the
+  recovery's stop list (`lobbyRecovery.ts`) -- and the page keeps its echo flag until a `ForceMPLaunch` takes it, so a
+  late run cannot send `launch` (the re-read's F1; "LOBBY-STEPS F1" cases).
+- **Item 3**: sections 5, 7 and 8 here and research 165 section 2 corrected (359; three buttons; no host launch
+  control); `FORCE_CANCEL_MARGIN_MS_READING`'s and `HOST_LAUNCH_READING`'s docs given pointers (comments only, values
+  and use unchanged; the latter on the main controller's word).
+
+**Unchanged, and why**: the server's host-initiated `forceLaunch` and `HOST_LAUNCH_READING`'s value (OT.R32; the owner
+has been asked; item 5 says what the disc shows), the 0.8 share, the 11 s, the host's gate, the clan exclusion, the
+bots' fill deciding with no clock. **Open, the port as it is**: the game's listing under the countdown -- the bridge
+reports Staging until the launch and admits a join under the countdown, as the host does; the services' answer to the
+original's status 3 is the open part (item 4 (c); `CLAN_SWAP_LOCK_PLACEHOLDER`'s window is the same question); the
+popup #356 branch (item 4 (a)); item 1 (LATER 998).

@@ -44,9 +44,9 @@ describe('MU2-14: ReplayLoadError carries its kind, set at each throw site of lo
     expect(older.kind).toBe('version');
     expect(older.message).toMatch(/^This recording was made with network protocol 1;/);
     expect((await decoded(encodeRecord({ kind: 'header', header: header({ protocol: 999 }) }))).kind).toBe('version');
-    const format = await decoded(encodeRecord({ kind: 'header', header: header({ format: 4 }) }));
+    const format = await decoded(encodeRecord({ kind: 'header', header: header({ format: 0 }) }));   // FL-2: format 4 is read; FL-2b: a newer one, ./newerVersion
     expect(format.kind).toBe('version');
-    expect(format.message).toMatch(/^This recording's file format is version 4;/);
+    expect(format.message).toMatch(/^This recording's file format is version 0;/);
   });
   it('refusal(): a bad tag after a whole header (plain and gzip) -> "corrupt", the damaged-file sentence', async () => {
     for (const bytes of [BAD_TAG(), gzipReplay(BAD_TAG())]) {

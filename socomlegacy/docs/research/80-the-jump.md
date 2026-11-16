@@ -255,6 +255,19 @@ slid. The game plays `seal_run_90r/l` at full stick (1.18x), `seal_rstrafe_fast`
   `|axis| x 0.6` (0.3 crouched, 0.35 prone, 0.6 for states 9 and 10), capped there, negative for a positive (left) axis.
   The axis is the turn over `turn_maxrate`. Entering from a loop whose phase x 60 is in 17..47, the step starts at
   phase 0.5.
+  - **2026-11-14 (MOVE-PARITY AH-5.2, finding 18; reading (reviewed 2026-11-14, PASS WITH FINDINGS (high), folded)): the speed is `|2 x axis| x` the share,
+    not `|axis| x` it**, capped at the share (reached at an axis of 0.5). The 2 is in `FUN_00583960`'s instructions,
+    not in the decompiled text: r0001 0x58399c-0x5839a0 load 2.0, 0x5839a4 negates the axis, 0x5839a8 multiplies, and
+    0x5839c4 calls the fabs on that product (r0004's twin at 0x588f9c). The decompiled text (443509-443511) shows the
+    fabs call with no argument; only its sign test (443537) keeps the 2. Nothing else on the clock adds a factor
+    (`FUN_0028d570` D:L134832, its loop scale 1 for these constant-root clips; `FUN_0028c4f0` D:L134223-134265, the
+    period the motion's `playback` for a loop with a negative `max_velocity`, D:L131298-131320). The axis itself is
+    the turn over `turn_maxrate`, as above: the rig's PINE read during a standing turn gave `+0x23c` 0.04268 and
+    `+0x48` 0.08536 = 2 x it (measured on the original, relayed by seat 8a). So the clip advances
+    yaw (rad/s) x share / `playback` cycles a second: 0.0855 x 0.6 / 0.65 = 0.0789 at 4.9 deg/s standing, where the
+    harness's Q16 rows (b0's fl0 run, table (vi)) read 0.0788 on the original (stand-turnL; stand-turnR 0.0683
+    against the law's 0.0677; crouch-turnL 0.0641 against 0.0641) and 0.0386 / 0.0313 on the port before this
+    change (half). `turnStepSpeed` (viewer `src/animator.ts`) takes the 2; `animator.test.ts` holds the arithmetic.
 - **The spine's nodes** (`FUN_00553ea0` 419595-419660, the ELF's names at 0x65c4c0...): `actor+0x2e8` skel_root,
   `+0x2ec` aimnodes, `+0x2f0` lfoot, `+0x2f4` rfoot, `+0x2f8` lhand, **`+0x2fc` spinelo**, `+0x300` rhand, `+0x304`
   hips (the headroom ray's start), `+0x308` head, `+0x30c` neck, `+0x310` spinehi, then the thighs, calves, arms,
@@ -333,6 +346,19 @@ slid. The game plays `seal_run_90r/l` at full stick (1.18x), `seal_rstrafe_fast`
   (`FUN_00601400`, `FUN_00600550`), at 0.8-1.4 rad/s. `FUN_0057a330` (439152-439191) runs it with the rifle's raise
   weight 0 or the rotator still turning, not prone, not in states 8-10 (`FUN_00587b40`; `Land forward` is pushed in
   state 8), no SEAL clip carrying `NoHeadlooks`.
+- **The head look's dead gate** (2026-11-13, DEAD-HEAD-LOOK, seat f7; reading, pending review). The port refused the
+  look on the clip only (prone, a traversal pose, `landDeath`), so a dead body drawn without its death clip -- a kill
+  the room sends with none (rule damage, an elimination, a disconnect, a fall, the dev kill), a corpse in `Land
+  backwards` -- still glanced. The original's gate is the state, not the clip: inside `*(iVar11+0x2b) != 8` (D:L439151),
+  `FUN_0057a330` runs the rotator and the head's turn (`FUN_005ad920(param_1[0xb8], param_1+0x464)` and what follows)
+  only when `FUN_00587b40` answers (D:L439156-439177); `FUN_00587b40` answers false when the state word `+0x174` (a
+  short) is 8 or the top action's class `+0x2b` is 8 (D:L445494-445496), and when the word is 9 or 10 (D:L445497-445499)
+  -- but with no top action at all (`FUN_00555170(+0x1c0)` null) it answers true whatever the word (D:L445489-445492), a
+  case a dead body carrying its death action does not meet, so the port's `dead` gate differs from it only on an empty
+  action stack. The port now carries the dead state into the body's snapshot (`MoverSnapshot.dead`: the page's own from
+  `Walker.dead`, another page's copy from its snapshot's `alive`) and refuses the look on it (`Animator.aim`); no clip,
+  list or timing changes. The two rotators the same block runs outside that gate (D:L439179-439190: the eyeballs and the
+  lids above) are LATER 990.
 - **The raise weight** (`FUN_00286b80(actor+0x1160)`, the WEAPON workstream's `./weaponRaise`) now reaches the
   animator (`MoverSnapshot.aimWeight`): the twist runs only over 0 (439192) and is scaled by it; with the rifle down --
   5 s after the trigger, or after the last enemy the perception marked (research 321 s4.1.1 point 7) -- the upper body no longer takes the pitch, and the head look runs. The launcher anim set
@@ -479,13 +505,13 @@ EPH capture (`agent-mail/evidence/eph-tilt-measured-2026-10-31/FINDINGS.md` Q3, 
   (the original's `IsAi` refusal: `MoverSim.ai`, marked by the room on a CPU connection's seat and by the bots' brain on
   a seat it adopts while it drives it, a Forge NPC on patrol; the bots' trace pinned position by position to
   main's by `stanceCutSeparate.test.ts`). `Walker.stanceSeparate` carries SEPARATE's own apart from the cut: the
-  velocity left at a push, and the room's ignoring of the pop's code (STM.R2a). `pastNoInterrupt` is the phase test,
+  velocity left at a push (every mode since H392, 2026-11-14), and the room's ignoring of the pop's code (STM.R2a). `pastNoInterrupt` is the phase test,
   read a game frame behind the clock (`STANCE_CUT_TICK_READING`).
 - **COMBINED-CUT** (2026-10-31; reading, pending review -- the cut's reading is this section's, applied to one more
   walker): the owner, MISSION OT.R93's note of 2026-10-31, "3 + 4": COMBINED stays the default and takes the stick's
   cut of its stance transitions, its hold flow unchanged. The cut is the same path (`stanceCut`), and nothing else of
   COMBINED's moves: the 0.4 s hold (`STANCE_HOLD_S_PLACEHOLDER`; the page's full press still takes 26 frames to put the
-  stance word prone, as before), main's zero at a push, the pop's code 3, the dive cancel, prone -> stand whole (bit
+  stance word prone, as before), main's zero at a push (removed by H392 under the main controller's reading, 2026-11-14), the pop's code 3, the dive cancel, prone -> stand whole (bit
   0x2). No wire change: the room marks the AI, not a new bit -- a CPU's connection at its seat (`room.ts` `newSim`,
   `Conn.cpu`; carried over a respawn) and a seat the bots' brain adopts (`MatchBots.adopt`, cleared at `release`: the
   fresh review's F1, a Forge NPC on patrol); every other seat is a player's (`roomStanceAi.test.ts`). One consequence is the window's own rule, not a change to it: OT.R76's pop window is the drop's life
@@ -538,7 +564,8 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   source). The trace owed below settles where the 0.07-0.27 u goes.
 - **The port.** `CROUCH_PRONE_PUSH_READING` (8, `mover.ts`): under a held `crouchToProne` in SEPARATE the root-motion
   branch adds 8 / (playback x (n - 1) / n) of local z, signed by `reversed`, each tick the clip is current -- a cut
-  clip carries its share. Pinned by `test/moveParitySeparate.test.ts`, with COMBINED's whole travel.
+  clip carries its share. Pinned by `test/moveParitySeparate.test.ts`, with COMBINED's whole travel. *Since H392
+  (2026-11-14, "H392" below): every stance mode and the bots, COMBINED's pin re-pinned to the push.*
 - **Why a reading.** One inference: `+0x2c` already holds the clip's root when the vector is added (`FUN_0057a330`'s
   `FUN_0028c250` writes it earlier in the frame). T and the flag are the decompilation's (above).
   Owed: a PINE trace of `+0x2c..+0x34` and the top node's +0..+8 through a drop and a pop.
@@ -564,7 +591,8 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   speed along the class axis, scaled by `DAT_0064fc80`: 19.8 u/s along the axis at 45 degrees (research 101 A5; the
   page in the capture: 180 degrees at 17.45 u/s). In SEPARATE the branch now splits as the original does; COMBINED and
   the bots keep the old reading under OT.R93 -- the original runs this whatever the button's mode, so carrying it to
-  COMBINED is the owner's question (HUMAN_TASKS H392).
+  COMBINED is the owner's question (HUMAN_TASKS H392). *Answered 2026-11-14: carried to every mode and the bots ("H392",
+  below).*
 - **Capture.** D1 (forward 0.5 + left 0.5, crouched): r0004 heads 225 degrees with yaw 180 (45 degrees off the facing)
   at 12.93 u/s; r0001 225 / 13.14; forward alone 14.00 against the page's 13.78. Run 085408Z's steady step reads 14.0
   u/s at 45 degrees. *Corrected 2026-11-02 (ac's acceptance at bd96f2044, eph-hunt-2026-11-01/move-acceptance, capture
@@ -670,6 +698,37 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
 - **Owed:** ac's rerun of C1a-d, S3 and S6 at this head; the clips' root y in the port's keys, to test
   `STANCE_CANCEL_CLIP_SPEED_READING` frame by frame (a cancel on a transition's first or last frames is not captured).
 
+### H392: MOVE-1 and MOVE-4 in every stance mode (2026-11-14; reading (reviewed 2026-11-14, PASS WITH FINDINGS, folded))
+
+- **The ruling.** The owner, 2026-11-14 ~04:05Z, in the main controller's seat (redotcom-67), by his own pick,
+  verbatim: "Always the original's (Recommended)". Crouched movement takes the original's split whatever stance-button
+  setting a player picks, the bots included; the button's behaviour (the prone pop) is unchanged. HUMAN_TASKS H392 is
+  answered; OT.R93's split stands for everything else.
+- **Why it is the original's.** `FUN_0054d9a0` (D:L416435-416455) tests the current action (0x13), and `FUN_0057a330`
+  (D:L438911-438956, D:L438985) the sentinel only `FUN_00582d10` writes (D:L443197-443200): neither reads a stance mode
+  or the controller's `IsAi`, so the original's COMBINED and its AI run both.
+- **The port** (`agent/h392-crouch-split`): `Walker.locomote`'s crouch walk runs MOVE-4's split for every walker -- its
+  COMBINED-and-bots branch (the whole speed along the class axis, 19.8 u/s at 45 degrees) is gone -- and the root-motion
+  branch adds `CROUCH_PRONE_PUSH_READING`'s push under every held `crouchToProne`, so COMBINED's and the bots' drop and
+  pop travel about 1.17 u, not 8.4 u.
+- **The evidence.** The rig's Q15 on the original (measured; AH-4's tables, agent-mail
+  `evidence/diag-slide/ah4-67da2ffeb/keep/out/q15/`; finding 19's reading, seat 8a): crouched, 0.5 on each axis, 14.1
+  and 14.0 u/s at +45.0 and -45.0; the move harness in SEPARATE gave 14.0 at 45.0, COMBINED 19.8 at 0. Pinned by
+  `test/moveParitySeparate.test.ts` ("MOVE-4 under H392", "MOVE-1 under H392"), `test/walkSpeed.parity.test.ts`,
+  `test/walk.test.ts` and `test/stanceCutSeparate.test.ts` (the bots' and COMBINED's traces, re-pinned by derivation).
+- **What stays as each mode has it** (which stance a press leads to, not the body's motion): MOVE-2's cancels
+  (`applyStance`, and `Traversal.stanceButton`'s dive press), the pop's code (`MoverSim.prepare`: COMBINED pops,
+  SEPARATE ignores it, STM.R2a), and the crouch run's release (LATER 678, `CROUCH_RUN_RETURN_READING`: H405, a separate
+  question).
+- **2026-11-14, the main controller's reading of H392** (redotcom-67): a stance push's velocity is movement, so the
+  original's in every mode; the owner confirmed it (in redotcom-67, 2026-11-14T04:30Z, verbatim: "i suppose we can remove that stopping dead"). SEP-POP's reading (§6f: `FUN_005817d0` D:L442494-442518,
+  `FUN_00581c10` D:L442622-442641 and `FUN_00581540` push the transition and write no velocity) now holds for COMBINED and
+  the bots too: `Walker.applyStance`'s zero is gone. "Button behaviour" is read as which stance a press leads to (the
+  prone pop's tap and hold). No position pin moves by it: the push runs at the press, and the next tick's held branch or
+  the cut's ground state writes the velocity afresh before any move. Kept: `Walker.popStand`'s own zero from settled
+  prone (OT.R67, an adaptation with no original). Pinned by `test/stanceCutSeparate.test.ts` ("a push leaves the
+  velocity") and `test/moveParitySeparate.test.ts` ("the push leaves the velocity, every mode").
+
 ## 7. Readings and placeholders (named in the code)
 
 - **`STANCE_CUT_TICK_READING`** (`mover.ts`, `'a frame behind'`; SEP-POP §6f): the port reads a transition's phase
@@ -684,11 +743,33 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   0x12 after a full-stick pop let go, and its posture crouch through the run. The release is built (LATER 678,
   2026-11-04, 'stand-to-crouch': `FUN_00584c60`'s idle branch, research 217 §2.9; SEPARATE only, OT.R93's gate);
   the posture stand through the run is not (the hull and hit volumes follow it). Owed: the run's posture write.
+- **`CROUCH_RUN_SPEED_READING`** (`mover.ts`, `'standing run 65 u/s (original: about 0.82 of it, cause unread)'`;
+  MOVE-PARITY finding 19's Q2, 2026-11-14; named, no value change; reading, pending review): the crouched full-stick
+  run's ground speed. The port's crouch run past `CROUCH_RUN` sets `posture` stand and runs the standing blend, so it
+  covers 65 u/s. **Settled, 2026-11-14: the port's 65 is the original's; the 0.82 below was an obstruction.** The rig's
+  matrix (F154, the Shadow relay's 03:33Z line; records under the bucket's
+  `gate-runner/shadow/out/2026-11-14/q10-hitreg/move-parity/`, relayed, not yet re-scored by the harness) found the
+  capture start c1 obstructed past about 40 u on +z and +x, and ran again from open spots ((900, 600) for D/W, (960, 690)
+  for A/W): crouched, full W 64.9 u/s and full W+D 64.3 -- not slower. So the value holds and nothing in the port
+  changes; the constant's own text (`'original: about 0.82 of it'`) is stale, and its retirement (the constant, this
+  row and research 101's) is owed in the next batch -- a code change, not made on 2026-11-14. The Q15/Q16 runs below,
+  kept as they were read: *Measured* (AH-4's Q15/Q16 rig runs, capture, from c1): crouched, full W, 52.0-53.2 u/s (3 runs) and full W+D
+  54.8 at travel -47.4 against -45.0, the velocity word's |vel| 65 in all -- about 0.82 of it; standing, full W+D from
+  the same start, 64.4-64.6 at -45.0, so not a block of the path (inferred). *Read*: `FUN_00584c60`'s run branch
+  (D:L444171 on) plays the standing run with the stance word `+0x174` still 1 (its play type 2 push, D:L444184); the
+  slope and water factor scales the stick before the band (|vel| stays 65) and `DAT_0064fc80` is 1 forward, so neither
+  explains it. *Not read*: the cause -- the move or collision step taking the stance word 1 through the run, or a
+  per-tick stall the mean hides. Owed: the rig's per-sample position deltas of crouch-diag against stand-diag (a
+  uniform 0.82 or stalls); a per-tick trace of the position against `+0x2c..+0x34` x dt and `+0x174` through a crouched
+  run; a read of the move and collision step's use of the stance word. The 2.4-degree heading offset goes with it.
+  (Those owed items are void with the matrix's open-ground runs; the moving rows the harness scored from c1 -- Q15's
+  three crouched forward speeds and Q16's crouch-diag and st-halfL rows -- want a re-run from the open spots before they
+  are read as gaps.)
 - **`STANCE_PRESS_REARM_READING`** (`stanceButton.ts`, 1; MOVE-S6 §6g; SEPARATE only; research 373's row): a new
   stance press needs one idle game frame after its release frame (`FUN_00594cf0` D:L453332-453333, `+7` at 0; r0004
   0x59b448-0x59b458). **Proven** by capture 2026-11-03 (S6-PROVEN, §6g: the light press about 67 ms after the full
   release taken 4/4, at about 50 ms refused 4/4: the timing boundary; the byte-level caveat there). Owed: ac's S6 rerun on one pressure Triangle.
-- **`CROUCH_PRONE_PUSH_READING`** (`mover.ts`, 8; MOVE-1 §6g; SEPARATE only): the push `FUN_0054d9a0` adds under 0x13,
+- **`CROUCH_PRONE_PUSH_READING`** (`mover.ts`, 8; MOVE-1 §6g; every stance mode and the bots since H392, 2026-11-14): the push `FUN_0054d9a0` adds under 0x13,
   8 / (playback x (n - 1) / n) of local z a second, signed by the reverse flag: 7.76 u over the port's clip, the drop
   and the pop about 1.17 u (the capture 0.9-1.1 u: just outside, recorded, not tuned). Owed: a PINE trace of
   `+0x2c..+0x34` and the top node's +0..+8 through a drop and a pop (that `+0x2c` holds the clip's root).

@@ -37,7 +37,7 @@ beforeEach(() => { sessionStorage.clear(); publishDisc(document, { state: 'empty
 afterEach(() => { page?.dispose(); page = null; release?.(); release = null; vi.restoreAllMocks(); });
 
 const settle = async (ms = 0): Promise<void> => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); if (ms) await new Promise((r) => setTimeout(r, ms)); for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); };
-const GOOD = (): File => new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
+const GOOD = (): File => new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
 
 interface AtMount { path: string; search: string; state: unknown; sheets: string[]; rootFont: string; body: string; dataInput: string | null; consoleMark: boolean }
 interface Rig { modern: ModernSession; mount: ReturnType<typeof vi.fn>; order: string[]; ctl: ConsolePage['ctl']; logout: { hold(): void; go(): void }; at: AtMount[] }

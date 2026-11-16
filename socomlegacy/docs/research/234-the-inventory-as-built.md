@@ -41,14 +41,14 @@
 
 | question | answer | source |
 |---|---|---|
-| What a classic death lays | one bundle of every firearm ring's exact entries (the rings cleared), then a weapon per firearm slot, then the launcher only with its round | `FUN_005a0040` D:L458646-458706, `FUN_005ba040` D:L472580-472672; `DROP_CONTENTS_READING`, `LAUNCHER_DROP_READING` |
+| What a classic death lays | one bundle of every firearm ring's exact entries (the rings cleared), then a weapon per firearm slot, then the launcher only with its round; a slot with no firearm record (FULL_SLOT or EQUIP_NONE, or an item with no record) adds no entry -- in the original it holds no round (an entry needs the slot's ammunition set and a round in a magazine, D:L472603-472614); the port's holds the baked record's ring, filled at the spawn, so `firearmsCarried` gates it (2026-11-13: the equipment limit's forced kits reach it, research 362 s1) | `FUN_005a0040` D:L458646-458706, `FUN_005ba040` D:L472580-472672, `FUN_005bdc30` D:L474642-474648; `DROP_CONTENTS_READING`, `LAUNCHER_DROP_READING` |
 | When | once, at the death's edge (the room's `kill`, one call a death) | `FUN_00547af0` D:L413052 -> `FUN_00547350` D:L412694-412696 |
 | A respawn game | nothing | `FUN_002a7560` D:L149415-149433 sets game `+0xdc`; `FUN_005a0040` D:L458657-458659 returns; `DROP_RESPAWN_RULE_READING` |
 | Who decides a claim | the original: the drop's owner (owner routed); the port: the room, one transaction | `FUN_0059f610` D:L458314-458332; `PICKUP_ROUTE_READING` |
 | Two claims on one tick | the lower seat id; the other `'taken'` | `DROP_SAME_TICK_READING` (PF.R28) |
 | A weapon claim's gates | alive, in a round, not mounted, the command fresh, the drop lying, within 20 u, under 32 u/s, the command may fire, not swapping, not behind the binoculars | `FUN_005a81d0` D:L462753-462767, `FUN_00593da0`; `PICKUP_*_READING` |
-| What a claim changes | the same-family slot: its record, an empty ring; the old ring dropped as a bundle and the old weapon after it at the taker's feet; the live kit only | `FUN_0059f0c0` D:L458178-458190, `FUN_005bc410` D:L473823-473868 |
-| A bundle | taken by walking within 20 u: whole entries into free ring slots below the weapon's `NumMags` (2X doubled, at most 10); the rest stays | `FUN_00593da0` D:L452526-452533; `FUN_005ba3d0` D:L472718-472763 via `FUN_005bb000` D:L473174-473188, `PICKUP_MAGAZINE_CAP_READING`; `AMMO_TRANSFER_PLACEHOLDER` |
+| What a claim changes | the same-family slot: its record, an empty ring; the old ring dropped as a bundle and the old weapon after it at the taker's feet (no bundle from a slot with no firearm record, `firearmsCarried`; no weapon from FULL_SLOT or EQUIP_NONE, which `FUN_005b8630` matches to no slot, D:L458178-458184; 2026-11-13); the live kit only | `FUN_0059f0c0` D:L458178-458190, `FUN_005bc410` D:L473823-473868 |
+| A bundle | taken by walking within 20 u: each entry by its AMMUNITION into every slot of the taker whose weapon takes it, in slot order (2026-11-13: `PICKUP_AMMO_MATCH_READING`), its magazines below the weapon's `NumMags` (2X doubled, at most 10) topped up toward `Ammo_Capacity` from the entry's count, the part-spent ones too, the one in the weapon skipped when the record's own `NumMags` is 2 or more (2026-11-13: `PICKUP_POUR_READING`); the rest stays | `FUN_00593da0` D:L452526-452533; `FUN_005ba3d0` D:L472718-472773 (r0004 `0x5c0d80-0x5c0d9c`, OT.R97) via `FUN_005bb000` D:L473174-473188, `PICKUP_MAGAZINE_CAP_READING`, `PICKUP_AMMO_MATCH_READING`, `PICKUP_POUR_READING`; `AMMO_TRANSFER_PLACEHOLDER` |
 | A round created | never: a weapon from the ground arrives empty, a bundle moves what it holds | 194 s2 ("must not create ammunition") |
 | How long a drop lies | the round: swept 3 s after the round's result (NU-4 D1, 2026-10-14; research 317 R317.8), the cleared air at the next round's start (was: "the round (the cleared air)") | `DROP_LIFETIME_READING` (was `DROP_LIFETIME_PLACEHOLDER`), `DROP_SWEEP_AT_RESULT_READING` |
 | A joiner | `welcome.join.drops`, each the `drop` event's body | 231 s1; PF.R33 |
@@ -113,13 +113,30 @@ LAW HEAT (`cVar3 != -0x47`, D:L472623) passes the slot's weapon, its ammo item (
 `FUN_003cfef0` (D:L472624: three parallel vectors), then zeroes all ten. "Not a fresh weapon plus NumMags full
 magazines" (194 s2).
 
-**The port keeps the split, not the sum.** A `BundleEntryWire` is `{ item, rounds }`: the weapon's id and its ring's
-non-empty slots in ring order (`MagazineRing.entries`). The original's sum is cut into magazines on the taker's side by
-`FUN_005bb000` / `FUN_005ba770`, which are not read; the port moves whole magazines instead (`AMMO_TRANSFER_PLACEHOLDER`,
-s4), which needs the split. The total is the original's, round for round; a capture of a pickup with a half-empty ring
-(capture B) says whether the taker's magazines come out as the dropper's or re-packed. Which slots join the bundle: the
+**The port keeps the sum, by ammunition (2026-11-13; 2026-11-13, finding 4b (seat 8a), re-read at the source by seat e4; reading, pending review).** A `BundleEntryWire` is `{ ammo, count, item? }`:
+the slot's ammunition by name and its ten magazines summed (`FUN_005ba040` D:L472601-472606), with no record for a
+firearm's or a pistol's slot (D:L472586-472589: `FUN_003d1d10`'s classes 0x1f, 0x33, 0x51, 0x5b, 0x8d, 0x65 and
+`FUN_003d1ce0`'s 4 zero it), so `FUN_005bb000` (D:L473176-473188) matches it by ammunition (`FUN_003d2680`'s name
+compare): `PICKUP_AMMO_MATCH_READING`. *Was* (to 2026-11-13): "the port keeps the split, not the sum" -- `{ item, rounds }`,
+the weapon's id and its ring's non-empty slots in ring order (`MagazineRing.entries`), moved whole into empty magazines,
+which needed the split. The total is the original's, round for round, either way; a capture of a pickup with a half-empty
+ring (capture B) measures the taker's magazines. Which slots join the bundle: the
 port's two firearm rings (`BUNDLE_SLOTS_PLACEHOLDER`); the class predicates (`FUN_003d1d10`, `FUN_003d1ce0`) that zero
 the record for some slots, and whether a grenade launcher's rounds join, are not read.
+
+**The reshape is room-private at protocol 15, so it took no bump (2026-11-13, the v0.4.21 close; seat cc, by reading).**
+The entries' fields (`ammo`, `count`, `item`; was `item`, `rounds`) are read by one function, the room's own
+`transferAmmo` (`match/src/pickups.ts`), on bundles the room made itself -- `dropsOf` at a death and `claimWeapon` at a
+weapon swap (the replaced slot's bundle), both laid through `worldDrops.ts` `lay`, the one `lying.push`. Nothing feeds a bundle into a room: the client's `pickup` names a `did` alone, and no restore, takeover or
+replay path builds a room's drops from outside. Every other holder passes the entries through unread: `worldDrops.wire`
+and `joinWire` (a late page's `join.drops`) copy them; the page's `drops.ts` places a drop by `did`, `kind`, `item` (the
+drop's own, not an entry's), `at` and `yaw`; the replay fold (`viewer/src/replay/fold.ts`) keeps the wire whole for its
+join. Central, host, the Forge, the playtest segments and `tools/death-count.ts` read no `drop` event (a grep of
+`packages/` and `tools/` for the wire's names and the event). So a v0.4.20 recording's old-shape bundle, replayed or
+folded after the deploy, is laid on the page as before and never claimed, and a v0.4.20 room meets no v0.4.21 bundle in
+a rolling deploy. The committed two-round fixture moved with it: its two `drop` events' entries, 6 x 30 = 180 of
+5.56 x 45mm and 6 x 13 = 78 of 9x19P, the totals equal (`twoRoundsFixture.test.ts` holds the v0.4.18 copy to exactly that
+difference).
 
 The body's rings are cleared as the bundle is laid (`dropsOf` clears the rings it is given): the corpse keeps no round.
 
@@ -215,14 +232,21 @@ column through `withDoubleAmmo`), every firearm record the table holds:
 | not doubled | MGL 2, M79 1 (grenade launchers: not a doubled class) |
 
 The report's "max 6 with Double Ammo" holds for the M4A1 and the 3-magazine records; it is not one number for every
-weapon. Still owed (`AMMO_TRANSFER_PLACEHOLDER`): the pour's top-up of part-spent magazines (and the one in the
-weapon) where the port moves whole entries into empty slots, which records take which ammo, and the remainder's fate.
+weapon. The pour is read (2026-11-13, `PICKUP_POUR_READING`): part-spent magazines under the cap are topped up, and the
+one in the weapon too when the record's own `NumMags` is under 2. Still owed (`AMMO_TRANSFER_PLACEHOLDER`): the
+remainder's fate. Which records take which ammo is read
+(2026-11-13, `PICKUP_AMMO_MATCH_READING`): by ammunition, every slot in order.
 
-As built (`transferAmmo`, `AMMO_TRANSFER_PLACEHOLDER`): after the claims, each living seat (by id) over each bundle
-within 20 u (3D, the feet): an entry of a weapon the seat carries (a firearm slot's record id) goes **whole** into the
-first free slot of that ring below the record's `NumMags` (`PICKUP_MAGAZINE_CAP_READING`, 2026-11-06) -- 0 rounds, and
-not the magazine in the weapon, so a dry weapon is not loaded without its reload -- in order; an entry with no free
-slot under the cap, or of a weapon not carried, stays. When anything moved the seat is told
+As built (`transferAmmo`, `PICKUP_AMMO_MATCH_READING`, `AMMO_TRANSFER_PLACEHOLDER`; 2026-11-13): after the claims, each
+living seat (by id) over each bundle within 20 u (3D, the feet): a firearm entry feeds every firearm slot of the seat whose
+record takes its ammunition, in slot order -- that ring's magazines below the record's `NumMags`
+(`PICKUP_MAGAZINE_CAP_READING`, 2026-11-06), in order, each topped up toward its capacity from the count, part-spent
+ones too, the last perhaps part-filled; each at or past the cap zeroed; the magazine in the weapon skipped when the
+record's own `NumMags` (the kit table's, never 2X-doubled) is 2 or more (`PICKUP_POUR_READING`, 2026-11-13; *was*: empty
+magazines only, the one in the weapon never) -- what is left flowing on; a slot with no firearm record takes nothing
+(`firearmsCarried`);
+what no slot takes stays, as does an entry carrying a record (the equipment's). *Was* (to 2026-11-13): an entry of the
+same weapon (record id) went whole into a free slot. When anything moved the seat is told
 its `kit` (no `slot`; `filled`, each ring's slots the transfer wrote); a bundle with a residual is told again (`drop`, same `did`, the shorter list); an emptied one is
 removed (`taken { did, by }`). No round is created, split or rounded: the rings gain what the bundle loses
 (`roomPickups.test.ts`, "a bundle within 20 u is taken by walking ..."). The original applies no motion gate to the bundle
@@ -233,7 +257,9 @@ On the page, `Fire.takeWeapon(record, rounds)` sets the record in the hand and e
 weapon's ring (in the hand or stowed) from the room's ten slots -- after a walk-over only the slots the transfer wrote
 (the `kit`'s `filled`), and **never the magazine in the hand's weapon**: the page's falls as it fires, before the room
 runs those commands, so restoring the room's value there would hand the shots in flight back (the review of 9e1a84d5,
-"ghost shots"); the transfer never fills that magazine (`AMMO_TRANSFER_PLACEHOLDER`: free slots only), so the room's value
+"ghost shots"); since the pour (2026-11-13, `PICKUP_POUR_READING`) the room also sends the amount it poured into each
+magazine (`kit`'s `added`) and the page adds that to its own count -- the magazine in the weapon among them for a
+one-magazine weapon -- so shots or a reload in flight are kept; before it the transfer never filled that magazine, so the room's value
 there is never newer than the page's (`fire.test.ts`, "a kit after a walk-over leaves the page's own magazine in the
 weapon untouched (shots in flight are not refilled)"). `fire.ts`'s fill of a
 first-drawn weapon (`setWeapon` -> `fillMags`) and `refill` stay a spawn's; a pickup never reaches them (`fire.test.ts`,
@@ -352,13 +378,15 @@ lines), `matchCore.test.ts` (the pinned switch). The browser run from the lobby 
 | name | where | status |
 |---|---|---|
 | `DROP_RESPAWN_RULE_READING` | server `pickups.ts` (`room.ts` `kill`) | `'classic only'`: `FUN_005a0040` returns on game `+0xdc` (D:L458657-458659), set only by the respawn option on type 5 (`FUN_002a7560` D:L149415-149433); a classic waiting room drops nothing. Owed: capture B (a respawn-mode death) |
-| `DROP_CONTENTS_READING` | server `pickups.ts` | `'weapons + one bundle of the ten entries, cleared'`: `FUN_005a0040` D:L458686-458702, `FUN_005ba040` D:L472580-472672 (the sum to `FUN_003cfef0` D:L472624; the port keeps the split, s2.3). Owed: capture B (the pickup object's ten slots) |
+| `DROP_CONTENTS_READING` | server `pickups.ts` | `'weapons + one bundle of the ten entries, cleared'`: `FUN_005a0040` D:L458686-458702, `FUN_005ba040` D:L472580-472672 (the sum to `FUN_003cfef0` D:L472624; the port keeps the sum, by ammunition, since 2026-11-13: s2.3, `PICKUP_AMMO_MATCH_READING`; was the split). Owed: capture B (the pickup object's ten slots) |
 | `LAUNCHER_DROP_READING` | server `pickups.ts` | `'with its round'`: the launcher only with 0xb9/0xba present (D:L458675-458683, the drop D:L458705-458706); not claimable this sprint (194 L76). Owed: the launcher's own case |
 | `BUNDLE_SLOTS_PLACEHOLDER` | server `pickups.ts` | `'the two firearm rings'`: which kit slots join the bundle (`FUN_003d1d10` / `FUN_003d1ce0`, the LAW HEAT's `-0x47` at D:L472623; a grenade launcher's rounds) is not read. Owed: read; capture B |
 | `PICKUP_FAMILY_READING` | server `pickups.ts` | `'same slot'`: `FUN_0059f0c0` D:L458179-458189 (`FUN_005b8820`, `FUN_005b8630`); the port's `slotKindOf`. Owed: all slot families (194 s2) |
 | `WEAPON_DROP_AMMO_READING` | server `pickups.ts` | `'empty ring'`: the bundle drops first, the weapon after (D:L458686, D:L458188-458189). Owed: capture B (an exchange to a different rifle) |
 | `PICKUP_MAGAZINE_CAP_READING` | server `pickups.ts` | `'NumMags, 2X doubled, at most 10'` (2026-11-06; reading, pending review): a bundle fills only a ring's first `NumMags` slots -- `FUN_005bb000` D:L473174-473188 -> `FUN_005ba3d0` D:L472718-472763 (doubled with item `-0x3e` for the six firearm classes, D:L472725, D:L472737-472740; capped at 10, D:L472744-472745; the rest zeroed, D:L472763); the port: `magazinesCarried(record.mags)` on the 2X-applied record, the caps by weapon in s4. Owed: capture B (an ammo-only pickup by a seat already at its magazines) |
-| `AMMO_TRANSFER_PLACEHOLDER` | server `pickups.ts` | `'whole entries into free slots'` (narrowed 2026-11-06: the cap is `PICKUP_MAGAZINE_CAP_READING`): still owed -- `FUN_005ba3d0` D:L472750-472758 tops up the slots under the cap, part-spent ones and the one in the weapon among them, where the port moves whole entries into empty slots; which records take which ammo (`FUN_003d2680` D:L473181; the fallback D:L473191+, `FUN_005ba770` D:L472842+); the remainder after the pour, online (`param_4` back to the caller, its use not read) (194 L78: no full-mag transfer to fill the gap). Owed: those reads; capture B (an ammo-only pickup into a nearly full ring) |
+| `PICKUP_AMMO_MATCH_READING` | server `pickups.ts` | `'by ammunition, every slot in order'` (2026-11-13, finding 4b (seat 8a), re-read at the source by seat e4; reading, pending review): a firearm's bundle entry carries no record (`FUN_005ba040` D:L472586-472589) and is poured into every kit slot whose record's ammunition list holds its ammunition by name (`FUN_005bb000` D:L473176-473188; `FUN_003d2680` D:L325031-325048), in slot order, the remainder flowing on; one ammunition a record on the dev disc (a byte read of `RUN/ZWEAPON.ZAR`: 72 one, 14 none). Owed: capture B (a pickup off another side's body) |
+| `PICKUP_POUR_READING` | server `pickups.ts` (viewer `fire.ts`) | `'topped up under the cap, the loaded one skipped from 2 magazines'` (2026-11-13, finding 4b (seat 8a), re-read at the source by seat e4 (r0004's at the cluster's diff of `005ba3d0`, 0x5c0d80-0x5c0d9c); reading, pending review): `FUN_005ba3d0` D:L472718-472773 -- magazines 0-9 in order, each under the cap topped up to `Ammo_Capacity` from the count, part-spent ones too, each past the cap zeroed (D:L472760-472763), the rest returned; r0004 skips the magazine in the weapon when the record's own `NumMags` is 2 or more (so a one-magazine weapon's is topped up). The room tells the page the amount each magazine changed by (`kit`'s `added`) and the page adds it to its own count (`Fire.setRing`), shots or a reload in flight kept. Owed: capture B (an ammo-only pickup into a part-spent ring) |
+| `AMMO_TRANSFER_PLACEHOLDER` | server `pickups.ts` | `'the remainder stays on the ground'` (2026-11-13: narrowed to the remainder -- the match is `PICKUP_AMMO_MATCH_READING`, the pour `PICKUP_POUR_READING`; was `'empty magazines under the cap, filled from the sum'`, before that `'whole entries into free slots'`): the walk's caller `FUN_005bb990` (D:L473501+) reads each entry i of the pickup's entry list (the object at the pickup's +8, D:L473530) with `FUN_003cfd70` (its weapon record, ammo item and count, from the list's three parallel vectors at +8, +0x14 and +0x20; D:L473552, D:L323073-323102), and -- when the network flag `DAT_0045a0c1` is clear, or the pickup's own +0x10 (D:L473545) is the actor's +0x830 record's +4 (D:L473553) -- pours it (`FUN_005bb000`, the remainder back through its fourth argument, D:L473554) and writes the entry back with `FUN_003cfe40(list, i, record, ammo, remainder)` (D:L473555): the setter twin of `FUN_003cfd70`, storing the three values at index i when i is at most the count of non-zero counts (D:L323104-323131) -- so offline the remainder stays in the bundle, as the port has it (2026-11-13, seat e4; reading, pending review); online the owner's grant clears each granted entry whole (`FUN_0059dfb0`, `FUN_003cfc40` D:L457702), so the remainder is lost there, where the port leaves it -- its own task, and the owner's to rule, as it reverses 194 L78's ask. Owed: that task, capture B |
 | `DROP_PLACEMENT_PLACEHOLDER` | server `pickups.ts` (viewer `drops.ts`) | `"at the feet, the body's yaw"`: settling and rotation (`FUN_0059ec60`) not read. Owed: capture B (a death drop). *OBF-15 (2026-10-30; reading, pending review; no code changed):* `FUN_0059f730` places each dropped weapon at its own mount's world pose on the body, not at the feet: the mount by class (`+0x3a8`, `+0x398`, `+0x390`, D:L458398-458407), its origin through the skeleton, the actor's matrix and position (`FUN_002869d0`, `FUN_00306fd0`, `FUN_00309240`, D:L458413-458415); the weapon node is taken off the mount, given that position and rotation, and the mount cleared (D:L458419-458432); then it joins the world and becomes a kind-8 pickup (D:L458438-458441). This runs at the death edge, the actor's next update (`FUN_00547350` D:L412694-412696). The pose is replicated as it is (`FUN_00541700` -> `FUN_002ba660` D:L408904; the receiver decodes a position and three angles, D:L159990-160005 -> `FUN_0059ec60`). The only per-tick pass over the pickups found is their lifetime (`FUN_00542290` D:L409486+, from D:L151164), and no settle to the ground was found. **So in the original as read, a death in the air leaves the weapon in the air**, at the weapon's height where the port's is at the feet. The reported floating rifle (Trello By6ENeJm) is the port's drop at the airborne feet; the original's, as read, floats too. Two port departures stay open and are not built: the height and rotation (the room has no skeleton), and the victim's own page, whose corpse keeps its rifle on the hand (`play.ts` `placeHeld`) where the original takes it off the mount. Settles: capture B with a death in a jump (does the dropped weapon stay where the hand was?). *OBF.R9 (the owner, 2026-10-30, "Drop it to the ground"; an owner-ruled departure from the original):* the room now lays a death's drops on the floor below the feet (`DROP_SETTLE_ADAPTATION`, `match/src/worldDrops.ts`, the walking tick's floor pick), and the victim's own page no longer draws a dropped weapon on its dead body (`Play.dropHeld`). The height and rotation from the hand stay unbuilt. This placeholder's value is unchanged, "at the feet", now the feet set down on the floor. *Known and open:* a classic player who rejoins while dead gets his own drops back from the welcome's set (viewer `drops.ts` `replaceAll`), which carries no "own" flag, so his corpse draws the rifle beside the drop on the floor -- the behaviour before OBF-15, on a rare path |
 | `PICKUP_HAND_PLACEHOLDER` (retired 2026-10-14: re-filed as `PICKUP_HAND_READING`, research 323 H1) | server `pickups.ts` (`worldDrops.ts`) | `'the hand kept'`: whether `FUN_005bc410` selects the installed weapon is not read. Owed: capture B (an exchange). Was open; now read (`FUN_005bc410` D:L473823-473868 writes no `+0x824`; research 323 §1.3) |
 | `DROP_LIFETIME_READING` (was `DROP_LIFETIME_PLACEHOLDER`, renamed by NU-4 D1, 2026-10-14) | server `worldDrops.ts` | `'round'`: no expiry online -- the 60 s timer laid and run offline only (research 317 R317.6: `FUN_00541700` D:L408887-408888, D:L408909-408910; `FUN_002aa490` D:L151163-151165); swept at the result (`DROP_SWEEP_AT_RESULT_READING`, research 317 §6) and cleared with the air (a round's start, the abandon). Was: "expiry not read (194 L78). Owed: capture B (a drop watched through a long round)". Owed: research 317's capture A (H224) |
@@ -381,7 +409,7 @@ lines), `matchCore.test.ts` (the pinned switch). The browser run from the lobby 
   with a half-empty ring, an exchange to a different rifle, two simultaneous requests, an ammo-only pickup into a nearly
   full ring, a respawn-mode death, a quitter's drops, a bundle's look, a weapon on the ground beside a door.
 - The reads: `FUN_005bb000` / `FUN_005ba770` (the redistribution past the cap read 2026-11-06 -- the top-up, the ammo
-  match's fallback, the remainder; then `AMMO_TRANSFER_PLACEHOLDER` and the bundle's split against its sum),
+  match's fallback, the remainder; then `AMMO_TRANSFER_PLACEHOLDER`, the taker's magazines after a pickup),
   `FUN_005a9c70` / `FUN_005a9f40` (the prompt's tie-break), the slot predicates of `FUN_005ba040`, the
   launcher's claim and refill (194 L76), A02's state map for the motion gate.
 - ~~The wiring of s6's held files and `matchMount.test.ts`'s pins~~ LANDED (wave 4, s6: once, in ONE-WIRE's modules); still owed: the gate's browser run (a classic death's drops on

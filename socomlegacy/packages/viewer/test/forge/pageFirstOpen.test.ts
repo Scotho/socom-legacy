@@ -5,6 +5,7 @@ import { forgeAuthoringText } from '../../src/forge/rulesAuthoring';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
 import { vaultLayout } from './rulesFixture';
+import { pressSaves } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * The e2e-mega lost press (product track, a browser adaptation with no original): a press the player makes while the page
@@ -77,7 +78,7 @@ describe('the e2e-mega lost press: a press during the first open is answered, an
   it('(A) Save as pressed while the first base loads is refused and said -- never a press that does nothing; once open it asks', async () => {
     const load = holdFirstLoad();
     const { mounted } = await mountUnderWay();
-    document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     expect(saveAsButton(), 'the Saves card opens during the load (the trace: its card drawn, Save as pressed)').toBeDefined();
     saveAsButton()!.click();
     await new Promise((r) => setTimeout(r, 50));

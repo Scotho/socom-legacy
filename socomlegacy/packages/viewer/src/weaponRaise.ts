@@ -173,10 +173,13 @@ export const RAISE_TAIL_EXITS_READING = {
  * D:L494259-494265) and, with a grenade left, the second update after it asks it down again under the clip -- the gate
  * `FUN_0059d830` answering 0 under a throw (D:L457352-457362) skips the wind-up block (D:L453478-453541), the plain
  * branch's edge goes 2 -> 3 -> 0 (D:L453546-453556) and its state 0 lowers for the class 'y' (D:L453598-453600); the
- * after-pop call (D:L453488) is then a no-op (D:L494244). The pistol hand's throw (`Pistol throw grenade`) and its peek
- * tosses (`Pistol peek right toss`, `Pistol peek left toss`; the review's F1, was: the throw alone) are in neither gate's
- * list (D:L457352-457355, D:L462579-462582): the bit-7 branch lowers it on the next update (D:L453484-453489). A
- * placing's press raises it as the firearm's trigger does (D:L453633-453634). Settles: research 326's capture NU8-1.
+ * after-pop call (D:L453488) is then a no-op (D:L494244) for a rifle already down -- POP-EDGE-REMAP (2026-11-13; the
+ * review's F1): not for one up at the pop (the slot's last grenade, or the edge 1 held under the clip with one left),
+ * which it lowers, the re-armed press then asking nothing (D:L453637). The pistol hand's throw (`Pistol throw
+ * grenade`) and its peek tosses (`Pistol peek right toss`, `Pistol peek left toss`; the review's F1, was: the throw
+ * alone) are in neither gate's list (D:L457352-457355, D:L462579-462582): the bit-7 branch lowers it on the next
+ * update (D:L453484-453489). A placing's press raises it as the firearm's trigger does (D:L453633-453634). Settles:
+ * research 326's capture NU8-1.
  */
 export const THROW_RIFLE_RAISE_READING = 'down at a take-up; up at a release, down two updates on with one left' as const;
 
@@ -207,15 +210,18 @@ export const HELD_TRIGGER_ITEM_RAISE_READING = 'up while held from before the ta
 export const RAISE_CAPABILITY_GATE_READING = 'taken as passed' as const;
 
 /**
- * NU-8a (research 326 §1.6, §7; a reading, pinned by nothing): the slot's last grenade. The firearm comes back at the
- * launch (`FUN_005c4b10` D:L477135-477136), so the class is no longer 'y' and the plain branch runs the firearm's own
- * countdown -- reset at the release's edge-3 update (D:L453603-453610) and asking up while it runs (D:L453572-453584) --
- * against the pop's one-frame lower (`FUN_005dfe30(body, 2)` D:L453488, reached only if `FUN_0059d830` answers after the
- * pop, D:L457365, D:L462636-462707 unread) and the raise tick's re-request (`FUN_005dfc80` D:L494190-494201). The port
- * takes the countdown alone, the firearm's rule as it has it: no dip at the pop. Settles: those three read frame by frame,
- * or capture NU8-1's last-grenade throws.
+ * NU-8a (research 326 §1.6, §7; a reading): the slot's last grenade. The firearm comes back at the launch (`FUN_005c4b10`
+ * D:L477135-477136), so the class is no longer 'y' and the plain branch runs the firearm's own countdown -- reset at the
+ * release's edge-3 update (D:L453603-453610) and asking up while it runs (D:L453572-453584) -- against the pop's
+ * one-frame lower (`FUN_005dfe30(body, 2)` D:L453488) and the raise tick's re-request (`FUN_005dfc80`
+ * D:L494190-494201). LATER 792 item 1 (2026-11-13; reading, pending review): the lower is reached -- capture GR-1 read
+ * the held edge 3 at the last grenade's pop (research 326 §7.2, 3/3), the remap of the same branch (D:L453490-453500),
+ * so `FUN_0059d830` answers after the pop -- and the port runs that branch at a gated pop (`WeaponRaise`'s bit 7): down
+ * for the pop's update, up again on the next under the countdown or a held trigger (D:L453572-453584,
+ * D:L453633-453634). Was: `'the countdown'`, no dip at the pop (the branch's reach unread). Settles: the raise state
+ * `actor+0xf74` per frame through a last grenade's pop (capture NU8-1's last-grenade throws).
  */
-export const THROW_LAST_GRENADE_RAISE_READING = 'the countdown' as const;
+export const THROW_LAST_GRENADE_RAISE_READING = "the countdown, the pop's one-update lower" as const;
 
 /**
  * LATER 655 (research 321 s3.4, "The first round after a grenade's return"; reading, pending review): the read accounts for
@@ -387,6 +393,11 @@ export interface RaiseInput {
   /** A throw's release this frame (D:L453520), or none. */
   release?: ThrowRelease | null;
   /**
+   * LATER 792 item 1: the own throw's clip off the top this frame -- its pop, the update `FUN_0059d830` passes again
+   * and `FUN_005a7d10(actor, 0)` finds no throw (D:L453478-453480, D:L453484): a gated release's bit-7 branch runs.
+   */
+  pop?: boolean;
+  /**
    * ER-2: a copy's owner's raise state off the wire (`BodyFlag.Raised`: byte +0x7e, `FUN_002be150` D:L162310-162312) --
    * set, the raise asks it each game frame and runs its envelope, nothing else; absent, the page's own controller (or a
    * pre-14 copy's inference, `REMOTE_HAND_RAISE_READING`) runs.
@@ -405,6 +416,11 @@ export interface ItemRaise {
    * firearm's rule, D:L453633-453634.
    */
   trigger: boolean;
+  /**
+   * LATER 792 item 1: the throw's clip came off the top since the last read (the kit's pop, `./grenade` `finishThrow`):
+   * the update a gated release's bit-7 branch runs on (D:L453484-453501). Absent, none.
+   */
+  pop?: boolean;
 }
 
 /** NU-8a B1: whether an item id is a hand grenade -- class 'y', the ids 121-140 (`itemClass` 'grenade'; research 85 §9.2). */
@@ -453,7 +469,10 @@ export class RaiseFeed {
     const release = clip !== null && started ? throwReleaseOf(clip, pistol) : null;
     const lanes = { enemies: firearm.enemies ?? 0, gated: firearm.gated ?? false };   // ER-1
     if (hand) {
-      return { trigger: firearm.trigger || hand.trigger, aiming: firearm.aiming, ...lanes, grenade: hand.grenade, windUp: hand.windUp, release };
+      return {
+        trigger: firearm.trigger || hand.trigger, aiming: firearm.aiming, ...lanes, grenade: hand.grenade, windUp: hand.windUp,
+        release, pop: hand.pop ?? false,
+      };
     }
     if (firearm.raised !== undefined) {
       // ER-2: the owner's state off the wire (`FUN_002be150` D:L162310-162312), its hand and throws the owner's own
@@ -499,7 +518,12 @@ export class WeaponRaise {
   private times: RaiseWords = raiseWords(RAISE_TIMES);
   private edge: TriggerEdge = 0;
   private countdown = 0;
-  /** NU-8a B1: the pistol hand's throw released last frame -- the bit-7 branch's lower is due. */
+  /**
+   * NU-8a B1, LATER 792 item 1: the controller's bit 0x80 (`ctrl+0x170`), set at a throw's release (D:L453520-453537)
+   * and cleared by the branch it guards (D:L453485-453501). `lowerNext`: the release was outside `FUN_0059d830`'s list
+   * (`'ungated'`), so the branch is due on the next update; else it waits for the throw's pop (`RaiseInput.pop`).
+   */
+  private bit7 = false;
   private lowerNext = false;
   /** NU-8a B1: the wind-up held last frame (its press already taken). */
   private windingUp = false;
@@ -509,7 +533,9 @@ export class WeaponRaise {
    * LATER 185: what the page frames since the last game frame gave the next -- the trigger down on any of them, a throw's
    * release, their real seconds (`RAISE_ENVELOPE_STEP_READING`).
    */
-  private pending: { trigger: boolean; release: ThrowRelease | null; real: number } = { trigger: false, release: null, real: 0 };
+  private pending: { trigger: boolean; release: ThrowRelease | null; pop: boolean; real: number } = {
+    trigger: false, release: null, pop: false, real: 0,
+  };
 
   /**
    * LATER 180: the slot in the hand's times (`FUN_005c4b10` D:L478849-478857: `FUN_005dffc0` a firearm's, `FUN_005dfff0`
@@ -575,13 +601,16 @@ export class WeaponRaise {
     const p = this.pending;
     p.trigger ||= input.trigger;
     if (input.release) p.release = input.release;
+    p.pop ||= input.pop ?? false;                                // LATER 792 item 1: a pop between game frames kept
     p.real += real;
     const ticks = this.clock.advance(dt);
     for (let k = 0; k < ticks; k++) {
-      if (k === 0) this.update({ ...input, trigger: p.trigger, release: p.release }, p.real);
-      else this.update({ ...input, release: null }, 0);
+      if (k === 0) this.update({ ...input, trigger: p.trigger, release: p.release, pop: p.pop }, p.real);
+      else this.update({ ...input, release: null, pop: false }, 0);
     }
-    if (ticks > 0) { p.trigger = false; p.release = null; p.real = 0; }
+    // POP-EDGE-REMAP's review F2: a pop met only by gated game frames stays pending -- bit 7 outlives the gate and its
+    // branch runs on the first update `FUN_0059d830` passes (D:L453478-453480), the control back (D:L453067-453070)
+    if (ticks > 0) { p.trigger = false; p.release = null; if (!input.gated) p.pop = false; p.real = 0; }
     return this.envelope.weight();
   }
 
@@ -609,11 +638,17 @@ export class WeaponRaise {
       // 0 -> 2); outside the gates the bit-7 branch is due next update.
       this.request(UP);
       this.edge = this.edge === 0 || this.edge === 3 ? 2 : 1;
+      this.bit7 = true;
       this.lowerNext = input.release === 'ungated';
       this.windingUp = false;
-    } else if (this.lowerNext) {
+    } else if (this.bit7 && (this.lowerNext || input.pop)) {
       // NU-8a B1: the bit-7 branch with no throw on top (D:L453484-453501): down, the edge moved as a let-go (3 -> 0,
-      // 2 -> 3, 1 -> 3, 0 -> 0); no countdown.
+      // 2 -> 3, 1 -> 3, 0 -> 0); no countdown. LATER 792 item 1 (reading, pending review; the chain measured,
+      // research 326 §7.2): an ungated release's on the next update; a gated one's -- every rifle-hand throw, the
+      // pistol's crouched and prone -- at its pop, when `FUN_0059d830` passes and `FUN_005a7d10(actor, 0)` finds no
+      // throw (the same list, D:L457352-457355, D:L462579-462582). Was: the ungated alone, so a held edge stayed 1
+      // through a gated pop.
+      this.bit7 = false;
       this.lowerNext = false;
       this.request(DOWN);
       this.edge = this.edge === 0 || this.edge === 3 ? 0 : 3;
@@ -660,10 +695,11 @@ export class WeaponRaise {
     this.state = DOWN;
     this.edge = 0;
     this.countdown = 0;
+    this.bit7 = false;
     this.lowerNext = false;
     this.windingUp = false;
     this.clock.reset();                                          // LATER 185: the game frames counted from here
-    this.pending = { trigger: false, release: null, real: 0 };
+    this.pending = { trigger: false, release: null, pop: false, real: 0 };
   }
 
   stats(): RaiseStats {

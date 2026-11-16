@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { SCRUB_THRESHOLD_PX, scrubNumber, type ScrubDetail } from '../../src/forge/scrub';
+import { SCRUB_THRESHOLD_PX, scrubLive, scrubNumber, type ScrubDetail } from '../../src/forge/scrub';
 
 /**
  * The dock's number scrub (a browser adaptation, FG.R2 -- the game has no editor): drag a number field left or right to
@@ -90,5 +90,20 @@ describe('scrubNumber', () => {
     expect(seen.cancelled).toBe(true);
     pointer('pointerup', 30);
     expect(seen.changes).toBe(0);
+  });
+
+  it('a press is live until its release or its Escape, so the page leaves that Escape to the scrub (FX-9)', () => {
+    mount('4');
+    expect(scrubLive(document)).toBe(false);
+    pointer('pointerdown', 0);
+    expect(scrubLive(document), 'a press not yet a drag').toBe(true);
+    pointer('pointermove', 30);
+    expect(scrubLive(document)).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(scrubLive(document), 'the Escape ended it').toBe(false);
+    pointer('pointerdown', 0);
+    pointer('pointermove', 30);
+    pointer('pointerup', 30);
+    expect(scrubLive(document), 'the release ended it').toBe(false);
   });
 });

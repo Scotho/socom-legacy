@@ -1,5 +1,5 @@
 import { GAME_FRAME_DT, SEAL_TUNING, type Grid, type WeaponRecord, type WeaponStance, type WeaponStanceName } from '@s2u/scene';
-import { Accuracy, lookRates, tangentPerPixel, type AccuracyInput, type AccuracySave, type Cone } from '../accuracy';
+import { Accuracy, lookRates, tangentPerPixel, type AccuracyInput, type AccuracySave, type Cone, type ItemReticle } from '../accuracy';
 import {
   CAM_BACK, CAM_FAR, CAM_MARGIN, cameraPass, isPeekCameraSurface, LEAD_DOWN, LEAD_PROBE, localCamera, lookHeight, newPassState, proneEyeTerms, scopeEye, toWorld,
 } from '../cameraRig';
@@ -313,6 +313,11 @@ export interface AimFrame {
   fire: boolean;
   /** TURRET-CONE: the stance row the cone ran at this command (`AimMover.coneStance`, else the posture). Absent: the posture. */
   coneStance?: Stance;
+  /**
+   * ROOM-HAND (LATER 652): the item the kit's tick ran on at this command (`ShotCone.setItem`), or null / absent for the
+   * firearm: `coneBox`'s slack takes the item's knock return on its frames, as the tick did (`FUN_005c2670`, research 321 s3.4).
+   */
+  item?: ItemReticle | null;
   /** LATER 107: the turret held after this command (`AimMover.turret`), or null: the hand's round at it (`room.ts` `fire`). */
   turret?: number | null;
   /** LATER 220: the walker's terms of the prompts' common gate after this command (`AimMover.gate`), or null. */
@@ -325,6 +330,14 @@ export interface AimFrame {
   binoculars?: boolean;
   /** The cone at this command, magnification 1 (a zoom only divides the offsets: `Accuracy.cone`). */
   cone: Cone;
+  /**
+   * SHOTGUN-PELLET-CONE (LATER 934): the cone after the rays taken so far at this command were bloomed
+   * (`ShotCone.round`), which a later ray of the same pull leaves by -- a shotgun's pellet k draws from the
+   * cone pellets 1..k-1 bloomed (`FUN_005be9a0`'s pellet loop D:L475580-475677: the draw, then `FUN_005c5340`
+   * D:L475604, which blooms through `FUN_005c3360` D:L479542), as the page's `fire.ts` pellet loop does.
+   * Absent: no round bloomed at this command.
+   */
+  bloomed?: Cone;
   /** The scope's sway limits as tangents, at the most exertion (`Accuracy.swayLimit` x `tangentPerPixel`). */
   sway: [number, number];
   /** The root's uncertainty at this command (units). */
@@ -511,6 +524,8 @@ interface ConeRun {
    * alone, no `FUN_005b9020` -- and takes no leave.
    */
   dropped: boolean;
+  /** ROOM-HAND (LATER 652): the item the command ran on (`ShotCone.setItem`), set back when it is run again (`replay`). */
+  item: ItemReticle | null;
 }
 
 /** One player's cone on the server: the page's `Accuracy`, fed from the commands. */
@@ -527,6 +542,8 @@ export class ShotCone {
   private changed = { at: -Infinity, span: 0, ticks: 0 };
   /** LATER 305: the map's hull the room reproduces a claimed eye on (`aimFits`); null, the far-point rule alone. */
   private grid: Grid | null = null;
+  /** ROOM-HAND (LATER 652): the item in the hand for the next command (`setItem`), null for the firearm. */
+  private item: ItemReticle | null = null;
 
   constructor(weapon: WeaponRecord) {
     this.weapon = weapon;
@@ -553,9 +570,22 @@ export class ShotCone {
     this.grid = grid;
   }
 
+  /**
+   * ROOM-HAND (LATER 652; `room.ts` `aim`, from the page's `hand`): the item in the selected slot for the commands ticked
+   * from now, or null for the firearm. The kit's tick runs on whatever that slot holds (`FUN_005c2670` D:L477280; research
+   * 321 s3.4; `Accuracy.setItem`), as the page's own kit does (`../matchFirearm` `accuracy.setItem` from `handItem`): with
+   * a grenade up the knock returns at the grenade's rate. Was: never set -- the room's knock returned at the firearm's
+   * while the page's returned at the item's, and an honest unscoped round after the swap back was refused `fire: cone`.
+   */
+  setItem(item: ItemReticle | null): void {
+    this.item = item;
+  }
+
   /** A new life: at rest, no history. */
   reset(): void {
     this.acc.reset();
+    this.acc.setItem(null);
+    this.item = null;
     this.frames.length = 0;
     this.runs.length = 0;
     this.last = null;
@@ -605,6 +635,7 @@ export class ShotCone {
         turn: yawRate / SEAL_TUNING.turnMaxRate, pitch: pitchStickOf(pitchRate, 1 / (m.lookScale ?? 1)),   // LATER 351, 476
       },
     };
+    this.acc.setItem(this.item);                                   // ROOM-HAND: the command's item, before its tick
     this.acc.update(COMMAND_DT, input);
     if (this.posture !== null && m.posture !== this.posture) {
       this.changed = { at: count, span: Math.abs(rootY(m.posture) - rootY(this.posture)), ticks: stanceChangeTicks(this.posture, m.posture) };
@@ -614,12 +645,12 @@ export class ShotCone {
     const limit = this.weapon.stances[row];
     this.frames.push({
       seq: cmd.seq, count, yaw: cmd.yaw, pitch: cmd.pitch, feet: [...m.feet], velocity: [...m.velocity], airborne: m.airborne, posture: m.posture,
-      moveRoot: m.moveRoot, peek: m.peek, groundNormalY: m.groundNormalY ?? 1, weapon: m.weapon, swapping: m.swapping ?? false, motion: m.motion ?? null, fire: m.fire ?? true, coneStance: row, turret: m.turret ?? null, gate: m.gate ?? null,
+      moveRoot: m.moveRoot, peek: m.peek, groundNormalY: m.groundNormalY ?? 1, weapon: m.weapon, swapping: m.swapping ?? false, motion: m.motion ?? null, fire: m.fire ?? true, coneStance: row, item: this.item, turret: m.turret ?? null, gate: m.gate ?? null,
       lens, scoped, binoculars: (b & Button.Binoculars) !== 0, cone: this.acc.cone(scoped ? 5 : 0, 1), sway: [limit.swayLimitX * t.x, limit.swayLimitY * t.y],
       rootSlack: ROOT_POSE_SLACK_PLACEHOLDER + (count - this.changed.at <= this.changed.ticks ? this.changed.span : 0),
     });
     if (this.frames.length > RING) this.frames.shift();
-    this.runs.push({ seq: cmd.seq, weapon: this.weapon, trigger: edge, scope, input, after: this.acc.save(), rounds: [], dropped: false });
+    this.runs.push({ seq: cmd.seq, weapon: this.weapon, trigger: edge, scope, input, after: this.acc.save(), rounds: [], dropped: false, item: this.item });
     if (this.runs.length > RING) this.runs.shift();
   }
 
@@ -691,6 +722,8 @@ export class ShotCone {
     const out = this.acc.round(zoom, stance);
     this.runs[this.runs.length - 1]?.rounds.push({ weapon: this.weapon, zoom, stance });
     if (out.dropZoom && at) at.dropped = true;                       // LATER 233: on the round's own command
+    const last = this.frames[this.frames.length - 1];                // LATER 934: the pull's next ray's cone
+    if (last) last.bloomed = this.acc.cone(last.scoped ? 5 : 0, 1);
   }
 
   /**
@@ -711,6 +744,7 @@ export class ShotCone {
       if (k === i) this.acc.load(r.after);
       else {
         this.acc.setWeapon(r.weapon);
+        this.acc.setItem(r.item);                                                          // ROOM-HAND
         if (r.trigger) this.acc.trigger();
         if (r.scope === 'leave' && this.runs[k - 1]!.dropped) r.scope = null;          // LATER 233: the drop's, no clear
         if (r.scope === 'enter') this.acc.enterView(0, 4); else if (r.scope === 'leave') this.acc.leaveScope();
@@ -723,22 +757,31 @@ export class ShotCone {
         const out = this.acc.round(b.zoom, b.stance, b.weapon);
         if (k === i && out.dropZoom) r.dropped = true;                                     // LATER 233
       }
+      if (r.rounds.length > 0) {                                                           // LATER 934
+        const f = this.frames.find((x) => x.seq === r.seq);
+        if (f) f.bloomed = this.acc.cone(f.scoped ? 5 : 0, 1);
+      }
     }
     this.acc.setWeapon(held);
+    this.acc.setItem(this.item);                                                           // ROOM-HAND
   }
 
   /** The state, for the tests. */
   state(): ReturnType<Accuracy['state']> { return this.acc.state(); }
 
-  /** Whether a round at command `seq` is one this player's cone allows (null) or why not. */
-  check(seq: number, claim: ShotClaim): ShotVerdict {
+  /**
+   * Whether a round at command `seq` is one this player's cone allows (null) or why not. `laterRay`: a later ray of a
+   * pull whose first was taken at `seq` (a shotgun's pellet 2 onward: `room.ts` `fireAt`'s `ofVolley`), judged with the
+   * cone the pull's rays before it bloomed (`AimFrame.bloomed`, LATER 934); any other round, never.
+   */
+  check(seq: number, claim: ShotClaim, laterRay = false): ShotVerdict {
     const at = this.frames.findIndex((f) => f.seq === seq);
     if (at < 0) return 'stale';
     const cur = this.frames[at]!;
     // The page draws between the tick before and this one, and its look may run up to the next tick.
     const blend = this.frames.slice(Math.max(0, at - 1), at + 2);
     if (!this.eyeFits(blend, claim.eye)) return 'eye';
-    if (!this.aimFits(blend, cur, claim)) return 'cone';
+    if (!this.aimFits(blend, cur, claim, laterRay)) return 'cone';
     if (!bound(claim)) return 'bind';
     return null;
   }
@@ -924,10 +967,10 @@ export class ShotCone {
    * A page in the pass's hold or regrow (its eye not yet where the walls put it) gets the floor's verdict; no hull, the
    * floor alone. A turret's round is not this: `checkLine` casts along the gun's line.
    */
-  private aimFits(blend: AimFrame[], cur: AimFrame, claim: ShotClaim): boolean {
-    if (this.coneFits(blend, cur, (f) => this.coords(f, claim))) return true;
+  private aimFits(blend: AimFrame[], cur: AimFrame, claim: ShotClaim, laterRay = false): boolean {
+    if (this.coneFits(blend, cur, (f) => this.coords(f, claim), false, laterRay)) return true;
     if (!this.grid || blend.every((f) => f.lens)) return false;
-    const box = this.coneBox(cur, false);
+    const box = this.coneBox(cur, false, laterRay);
     return viewLineFits(blend, claim.eye, claim.aim, [box.loX - box.slack, box.hiX + box.slack, box.loY - box.slack, box.hiY + box.slack], this.grid);
   }
 
@@ -936,8 +979,8 @@ export class ShotCone {
    * frame's line (`coords`) must fall, for some blend of two neighbouring frames, inside the widest cone of the window
    * plus the slack and the line's own.
    */
-  private coneFits(blend: AimFrame[], cur: AimFrame, coords: (f: AimFrame) => { ab: [number, number]; slack: number } | null, unscoped = false): boolean {
-    const { loX, hiX, loY, hiY, slack } = this.coneBox(cur, unscoped);
+  private coneFits(blend: AimFrame[], cur: AimFrame, coords: (f: AimFrame) => { ab: [number, number]; slack: number } | null, unscoped = false, laterRay = false): boolean {
+    const { loX, hiX, loY, hiY, slack } = this.coneBox(cur, unscoped, laterRay);
     // The look may be any blend of two neighbouring frames': the tangents move (near enough) straight between theirs.
     const pairs = blend.length === 1 ? [[blend[0]!, blend[0]!]] : blend.slice(1).map((b, i) => [blend[i]!, b]);
     for (const [a, b] of pairs) {
@@ -951,21 +994,28 @@ export class ShotCone {
   }
 
   /** The widest cone of the window about `cur` (tangents) and the slack's tangent (`coneFits`, `aimFits`). */
-  private coneBox(cur: AimFrame, unscoped: boolean): { loX: number; hiX: number; loY: number; hiY: number; slack: number } {
+  private coneBox(cur: AimFrame, unscoped: boolean, laterRay = false): { loX: number; hiX: number; loY: number; hiY: number; slack: number } {
     // The cone the page may have had: every frame of the window, its offset (a zoom divides it toward 0) and radius.
     // `unscoped` (`checkLine`, TURRET-CONE's re-review R1): a scoped frame is skipped -- the rifle's, before the mount.
     let loX = 0, hiX = 0, loY = 0, hiY = 0, slackPx = CONE_SLACK_PX_PLACEHOLDER;
     for (const f of this.frames) {
       if (f.seq > cur.seq || f.seq < cur.seq - CONE_WINDOW_PLACEHOLDER) continue;
       if (unscoped && f.scoped) continue;
-      slackPx = Math.max(slackPx, coneSlackPx(this.weapon.stances[f.coneStance ?? f.posture]));
+      // ROOM-HAND (LATER 652): an item frame's knock returned at the item's own rate (`setItem`): its slack is the item's.
+      slackPx = Math.max(slackPx, coneSlackPx((f.item ?? this.weapon).stances[f.coneStance ?? f.posture]));
       if (f.scoped) {
         loX = Math.min(loX, -f.sway[0]); hiX = Math.max(hiX, f.sway[0]);
         loY = Math.min(loY, -f.sway[1]); hiY = Math.max(hiY, f.sway[1]);
       } else {
-        const { offsetX: x, offsetY: y, radius: r } = f.cone;
-        loX = Math.min(loX, x - r); hiX = Math.max(hiX, x + r);
-        loY = Math.min(loY, y - r); hiY = Math.max(hiY, y + r);
+        // SHOTGUN-PELLET-CONE (LATER 934): for a pull's later ray (`laterRay`), at the round's own command, the cone
+        // the pull's rays already taken there bloomed too -- it leaves by it (`FUN_005be9a0` D:L475604 ->
+        // `FUN_005c5340` -> `FUN_005c3360` D:L479542, between the pellets' draws). The first ray, and any other
+        // round (a traded one judged on the last alive command's frame among them), takes the frame's cone alone.
+        for (const c of laterRay && f.seq === cur.seq && f.bloomed ? [f.cone, f.bloomed] : [f.cone]) {
+          const { offsetX: x, offsetY: y, radius: r } = c;
+          loX = Math.min(loX, x - r); hiX = Math.max(hiX, x + r);
+          loY = Math.min(loY, y - r); hiY = Math.max(hiY, y + r);
+        }
       }
     }
     const t = tangentPerPixel();

@@ -9,7 +9,7 @@ import {
 import { PerspectiveCamera } from 'three';
 import { teamTags, type TeamTagBody, type TeamTagInput } from '../src/hudTags';
 import {
-  NO_REGION, REGION_FORCE_ALL_READING, REGION_GATE_READING, REGION_ORDER_READING, RegionCull, regionUnder,
+  MP_TEAM_TAG_DRAWN_FRAMES_READING, NO_REGION, REGION_FORCE_ALL_READING, REGION_GATE_READING, REGION_ORDER_READING, RegionCull, regionUnder,
 } from '../src/regionCull';
 
 /**
@@ -143,6 +143,64 @@ describe('LATER 415: a tag needs its body drawn under the region gate (teamTags)
   it('a teammate in view whose zone the camera does not see gets no tag; one it sees does', () => {
     const i: TeamTagInput = { self: { id: 1, team: 'seal' }, bodies: [mate(2, { zoneDrawn: false }), mate(3, { zoneDrawn: true }), mate(4)], camera: camera(), holder: null };
     expect(teamTags(i).points.map((p) => p.id)).toEqual([3, 4]);
+  });
+});
+
+/**
+ * TAG-GRACE (research 329 s6, `MP_TEAM_TAG_CULL_READING`'s "or the last"; reading, pending review): a tag needs its body's
+ * node drawn THIS frame or THE LAST -- `FUN_00315580(node, 2)` (D:L77376) passes when the node's stamp `+0x98` equals the
+ * frame counter or the counter less 1 (D:L214885-214889), the scene walk stamps each node it draws with the counter
+ * (`FUN_003374c0` D:L235478-235481), and within a frame the counter is bumped (`FUN_003aff30`, D:L50809/50813), the scene
+ * is walked (`FUN_00339de0` -> `FUN_003389c0`, D:L50840) and then the HUD's frame runs the tags (`FUN_001f7ff0`, D:L50856).
+ * So a body undrawn for one frame keeps its tag; the body's own draw has no grace (the renderer's verdict, every frame).
+ */
+describe('TAG-GRACE: a tag needs its body drawn this frame or the last (FUN_00315580(node, 2))', () => {
+  const half = (x0: number, x1: number, region: number): WorldPoly => ({
+    modelName: 'worldmodel', path: 'worldmodel/half', region, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([x0, 0, -150, x1, 0, -150, x1, 0, 150, x0, 0, 150]),
+  });
+  const g = world([half(-190, -10, 0x6), half(10, 190, 0x50)]);
+  const at = (x: number) => ({ viewed: [x, 0, 0] as [number, number, number], eye: [x, 25, 0] as [number, number, number], spectator: false,
+    bodies: [{ id: 2, feet: [-150, 0, 0] as [number, number, number] }] });
+
+  it('the reading', () => {
+    expect(MP_TEAM_TAG_DRAWN_FRAMES_READING).toBe('this frame or the last');
+  });
+
+  it("drawn on N, not on N+1, drawn on N+2: the tag holds on N+1, the body's own draw does not", () => {
+    const c = new RegionCull();
+    c.frame(g, at(-100));                                   // N: the viewer and the mate on 0x6
+    expect([c.drawn(2), c.tagDrawn(2)]).toEqual([true, true]);
+    c.frame(g, at(100));                                    // N+1: the viewer on 0x50 -- the mate's zone not in the mask
+    expect([c.drawn(2), c.tagDrawn(2)]).toEqual([false, true]);
+    c.frame(g, at(-100));                                   // N+2: back
+    expect([c.drawn(2), c.tagDrawn(2)]).toEqual([true, true]);
+  });
+
+  it('two frames undrawn: the tag goes on the second (one frame of grace, not two)', () => {
+    const c = new RegionCull();
+    c.frame(g, at(-100));
+    c.frame(g, at(100));
+    expect(c.tagDrawn(2)).toBe(true);
+    c.frame(g, at(100));
+    expect([c.drawn(2), c.tagDrawn(2)]).toEqual([false, false]);
+  });
+
+  it("the review's finding A: a step the frame cap does not draw moves no verdict -- the grace is the last DRAWN frame's", () => {
+    const c = new RegionCull();
+    c.frame(g, at(-100));                                   // drawn frame N: the mate drawn
+    c.frame(g, at(100), false);                             // an undrawn step: the zone flips, nothing rendered
+    c.frame(g, at(100));                                    // drawn frame N+1: undrawn now, drawn on N
+    expect([c.drawn(2), c.tagDrawn(2)]).toEqual([false, true]);
+  });
+
+  it("the page and the match mount give the tags the grace, the bodies the frame's own verdict", () => {
+    for (const f of ['../src/main.ts', '../src/matchMount.ts']) {
+      const src = readFileSync(resolve(import.meta.dirname, f), 'utf8');
+      expect(src, f).toContain('(id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal()');
+      expect(src, f).toContain('remote.applyZoneGate(net && gateGrid ? (id) => regionCull.drawn(id) : null)');
+    }
+    expect(readFileSync(resolve(import.meta.dirname, '../src/matchMount.ts'), 'utf8')).toContain('}, !!renderer && drawFrame);');
   });
 });
 

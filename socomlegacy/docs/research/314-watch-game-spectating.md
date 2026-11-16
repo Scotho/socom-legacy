@@ -36,7 +36,11 @@
   saved-actor rebinds run offline only and never for a spectator's follow (§5.4 item 1.4); three proposed names (§8);
   the additions reading, pending review. Built the same day on the seat's word (the choice of readings logged for the
   owner): `spectatorView.ts` keeps the dead body and rebinds no one, keeps a leaver retired and deletes one a frame;
-  `FOLLOW_OFF_DEAD_READING` retired, the three names in code (§8).* Every
+  `FOLLOW_OFF_DEAD_READING` retired, the three names in code (§8).* *2026-11-12, PV-12: §5.7's blend compared value
+  for value with the original's SPECTATE-EASE capture (a capture comparison, its tool `tools/perf/players-view/easeCapture.ts`);
+  reviewed fresh the same day (PASS WITH FINDINGS, folded): the factor, the stored target's x, z and the spectator's
+  rigid follow **proven**; the eye in the strafes (the frame target plus the captured rest offset, a reconstructed sum; level
+  corrected 2026-11-14), the eye's point on a turn and the heights reading (§5.7, §8).* Every
   value of the original below is read from the retail decompilation (`socom2_game.elf.decomp.c`, `D:L<n>`,
   `FUN_<addr>`; cited, never pasted), the ELF's strings (`socom2_game.elf.strings.txt`, `S:0x<addr>`), the disc's
   scripts as the repository's pinned dump holds them (`tools/test/onlineDialogs.pinned.json`, cited `P:L<n>`:
@@ -874,6 +878,159 @@ clamp, the snap, which view eases) and `matchNet.test.ts`'s INV-SPECTATE C case.
 the `dt` `FUN_002998f0` hands down -- is not traced against the page's frame; the port applies the factor once a page
 frame with the page's dt (`WATCHED_EASE_RATE_READING`, §8).
 
+**Measured 2026-11-12 (PV-12; the player's-view lane, `plans/2026-11-11-players-view.md`; capture comparison by a
+Python reading of the capture on the hub, reproduced by the tool on a build box at a343066cc1; reviewed fresh 2026-11-12 -- PASS WITH
+FINDINGS, high, its reviewer's own Python reproducing the figures -- and its four findings folded the same day).** The
+entry goes here, §5.7 being the blend's section.
+
+- **The capture.** SPECTATE-EASE, 2026-11-12, `agent-mail/evidence/spectate-ease/2026-11-12/` (fetched by seat b0
+  from the gate bucket at 2026-11-12T20:49:47Z; never in git): leg 1 `spectate-2026-11-12T125317393Z.csv` (sha256
+  `fa5f4939c692f492c8352fec063c0ba59a502de83ea3fdf604c38034f838833c`), `-phases.csv`
+  (`d79ce679d17a57033e144c635a7259bfe1bcbe1de88185d4cef2949ed054372b`), `-notes.txt`
+  (`87a300441b58af129bdcb7ce6d709b3522c6b4e565d33b6c07367b27e0195493`) -- the dead player B's camera at state 7
+  following its living teammate C, whom a scripted pad moves: turn right, turn left, strafe right, strafe left, circle
+  strafe, each 2,000 ms at full deflection with 1,000 ms still between; leg 2 `spectate-2026-11-12T131056597Z.csv`
+  (sha256 `f8a60cb74c45043444be1d657622c990cdb6b4d41d063e3468b6396d3d0a4845`), `-phases.csv`
+  (`822d7e03c6f59592a693b9ba82056090068d91994bcecd1285655a1a4b66fcca`), `-notes.txt`
+  (`025147f6ee0f08801753c2dc262871a52b01ff7a958d83f44f8b0b80f1e0d4c2`) -- the lobby spectator C's follow of B
+  through the same moves, read on PINE 28013. Three consoles on the r0004 image (A 28011, B 28012, C 28013; B's and C's UDP base patched by
+  pnach, per the notes); the camera at r0004's 0x4429b0 (the decompilation's `DAT_00415ff0`).
+- **The columns, as established.** `c144` is the word at the camera's +0x144, its low byte the death camera's state: 7
+  on every leg-1 sample, 0 on every leg-2 one. `c44`/`c45`/`c46`: leg 1 0 / 1 / 0 on every sample (the latch spent,
+  the blend set, the one-shot clear: item 2's state 7), leg 2 1 / 0 / 1 (the blend never set). `c48` the factor +0x48
+  as a float. `cBC` = `cC0` = `bound`: the camera's +0xbc / +0xc0 (§5.6 W2, W5), the bound actor, one value a leg.
+  `bound_375` the bound actor's +0x375, which `FUN_002998f0` reads for the peek's side (D:L141964-141972): 2 on both
+  legs. `g4161c0` the peek `DAT_004161c0` it eases (D:L141976): 0 throughout. `g416208` / `g416210` the death
+  camera's orbit yaw and pitch (`FUN_00297a30` D:L141217-141221): 0 throughout leg 1, so the eye's turn in leg 1 is the
+  watched body's own yaw, not the dead player's stick. `g3de268` and `cF4`: not established, not used (`cF4`'s low
+  byte reads 1 in leg 2 and 0 in leg 1, which §5.4's +0xf4 mode would give, unconfirmed).
+- **What blends toward what, re-read at the source.** `FUN_00296f10` takes the frame's eye from `FUN_0029a950` and
+  `FUN_00297410` (D:L140696-140697), places the frame's target `dist` from that eye toward the aim (D:L140700-140715),
+  and with +0x45 set moves the stored target +0x38 toward that frame target and the stored eye +0x2c toward that frame
+  eye by +0x48 (D:L140737-140790); the obstruction pass `FUN_0029bf70` runs after, on the blended pair (D:L140791). So
+  the stored pair the capture reads is before the pass. Between the placing and the blend, D:L140717-140727 (outside
+  the range cited above; the reviewer's observation, re-read here) lowers the frame target by 5 and moves it 5 along z
+  only when `DAT_0045a0c1` is zero, the offline case; the flag +0x45 is set only with `DAT_0045a0c1` set
+  (`FUN_00297410` D:L141028), so that shift never runs in the eased case. The `dt` is `FUN_00296f10`'s first argument, handed down by
+  `FUN_002998f0` (D:L141979, D:L141999), the camera vtable's frame entry (research 201), whose caller is not traced
+  here: the capture reads it.
+- **Frames and the clock.** Grouped by the clock float: leg 1 7,011 samples, 515 frames, 4 to 18 samples a frame; leg
+  2 6,986 samples, 515 frames, 1 to 17. No clock value recurs apart. 207 (leg 1) and 188 (leg 2) frames hold a
+  minority reading -- the reader is not atomic: a frame's first read can hold the last frame's camera, its last the
+  next one's; a frame takes its most common reading, and none is torn (that reading holds over half the samples in
+  every frame). The clock's step: 0.0333 / 0.0334 as printed on 505 (leg 1) and 505 (leg 2) steps, 0.0167 / 0.0168 on
+  9 a leg, nothing longer (no frame skipped); 16.9965 clock units over 16,981 ms of the reader's time, so seconds.
+  Each 2 s phase holds 59 to 61 frames, each 1 s still 29 to 31.
+- **The factor +0x48** takes two values on leg 1: 0.200203 (0x3e4d021e, a `dt` of 0.0333672 s) on 506 frames and
+  0.100292 (0x3dcd6614, 0.0167153 s) on 9; on 514 of 514 steps it equals 6 x the clock's step into its own frame
+  (max deviation 0.000508, inside the clock's printed 0.0006).
+  Stepping the stored target by the capture's own +0x48 instead of 6 x the step lands 514 of 514 inside, max error
+  0.0011. So the `dt` `FUN_002998f0` hands down is the game frame's, the clock's own step: once a frame at
+  29.97 Hz, a half step now and then. Leg 2's +0x48 is 0 throughout.
+- **The tolerance, stated before the compare** (fixed 2026-11-12T21:12:23Z, after reading only the raw offsets; the
+  tool's `EASE_TOLERANCE`): a step is inside when the predicted stored target's x, z is within 0.002 + 0.0006 x the
+  residual |frame target - stored| of the captured one. Its reason: the eye, target and body are printed to 3 decimals,
+  so a one-frame prediction from rounded inputs and the rounded value it is held to differ by up to 0.001 a component,
+  0.0014 over x, z (float32 at these magnitudes adds under 1e-4); the clock is printed to 4 decimals, its step good to
+  0.0001 s, the factor 6 dt to 0.0006. A torn frame's steps are not scored; a phase holds at 95 % of its scored steps
+  inside. The implied rate is read where the residual is at least 0.5.
+- **What is measured and what is reconstructed.** The frame's target x, z is the bound body's x, z: leg 2's rigid
+  follow stores exactly that on every frame (below), and leg 1 does at rest. So the target's step is compared with
+  measured inputs only. Not compared: the heights (the frame target's height is the posed root's, not captured: leg 2
+  shows it between 14.285 and 20.238 over the body's moves) and the eye's point on a turn (the watched body's yaw is not
+  captured). The eye is read two ways, both reconstructed: in the strafes the stored eye less the stored target holds
+  the rest offset (27.678, -4.232) within 0.002 (strafe right from its 14th frame, the turn's tail closing before it:
+  0.036 down; strafe left on every frame), so the frame eye is taken as the frame target plus it, and the eye's error
+  is then the target's (p95 0.0043 strafe right, 0.0040 left); on a turn, the frame eye is taken on
+  the rest radius 28.000 about the body -- leg 2 holds that radius within 0.0012 on every frame -- and the factor is
+  the one whose undone step lands on that circle.
+- **The kinds of evidence, kept apart.** (a) A capture comparison by the tool on a build box: `easeCapture.ts` at
+  a343066cc1 run on both legs, 2026-11-12 (the workspace typecheck and `tsc -p tools` exit 0, `easeCapture.test.ts`
+  18 of 18, the capture's six files checked against their sha256 first; its whole output kept at
+  `agent-mail/evidence/player-view/pv12-a343066cc/keep/`, LEG3a and LEG3b). Every per-segment figure below is the
+  tool's as it prints it, and equals (b). (b) The same comparison by this author's Python on the hub, which also gives
+  the pooled figures the tool does not print (marked so). (c) The reviewer's independent recomputation (its own
+  Python), which reproduced them. (d) Source inspection of the decompilation (above). (e) The tool's unit test.
+- **Leg 1, the port's factor `watchedEaseFactor(dt)` from each captured frame to the next** (the stored target's x, z;
+  error in world units; "moving" is the tool's column: the scored steps whose residual |frame target - stored target
+  before the step| over x, z is at least 0.05, `easeCapture.ts` `phaseSummaries`):
+
+  | segment | steps | moving | error p50 / p95 / max | inside | implied rate p5 / p50 / p95 |
+  |---|---|---|---|---|---|
+  | settle | 60 | 0 | 0 / 0 / 0 | 60 / 60 | -- |
+  | turn_right; its settle | 60; 30 | 0; 0 | 0 / 0 / 0 | 60 / 60; 30 / 30 | -- (the body still) |
+  | turn_left; its settle | 60; 31 | 0; 0 | 0 / 0 / 0 | 60 / 60; 31 / 31 | -- (the body still) |
+  | strafe_right | 60 | 56 | 0.0022 / 0.0043 / 0.0047 | 60 / 60 | 5.992 / 5.996 / 6.014 (n 55) |
+  | settle after strafe_right | 31 | 31 | 0.0007 / 0.0037 / 0.0041 | 31 / 31 | 5.991 / 6.002 / 6.025 (n 23) |
+  | strafe_left | 60 | 60 | 0.0011 / 0.0039 / 0.0042 | 60 / 60 | 5.976 / 5.998 / 6.016 (n 46) |
+  | settle after strafe_left | 30 | 27 | 0.0007 / 0.0025 / 0.0029 | 30 / 30 | 5.990 / 5.999 / 6.019 (n 19) |
+  | circle_strafe | 61 | 57 | 0.0022 / 0.0045 / 0.0047 | 61 / 61 | 5.993 / 5.996 / 6.014 (n 56) |
+  | settle after circle_strafe | 31 | 31 | 0.0008 / 0.0028 / 0.0042 | 31 / 31 | 5.993 / 5.998 / 6.015 (n 20) |
+
+  All 514 steps inside (the tool) -- but 245 of the 514 have a residual of 0, nothing moving, which any model passes
+  (the rigid follow passes 245 of 514). The figure that discriminates is the tool's "moving" count: 262 steps with a
+  residual of at least 0.05, all inside, the rigid follow 0 of them. Two other counts appeared in the review and
+  partition the same steps (the Python pass, by step): 242 steps on which the body's x, z changes (every one of them
+  has a residual of at least 0.05); 20 more with a residual of at least 0.05 while the body stands and the stored
+  target is still closing on it (6 in the settle after strafe_right, 4 at the start of strafe_left before the body
+  moves, 3 in the settle after strafe_left, 7 in the settle after circle_strafe) -- 242 + 20 = 262; and 7 with the
+  stored target still closing below 0.05 (the last 3 of the settle after strafe_left, the first 4 of circle_strafe) --
+  262 + 7 = 269 steps on which the stored target moves at all; 269 + 245 = 514. With a residual of at least 0.5 (219
+  steps; the tool's per-segment rate counts, 55 + 23 + 46 + 19 + 56 + 20):
+
+  | rate | 5.5 | 5.9 | 5.95 | **6** | 6.05 | 6.1 | 6.5 | rigid |
+  |---|---|---|---|---|---|---|---|---|
+  | inside, of 219 | 0 | 11 | 40 | **219** | 44 | 14 | 0 | 0 |
+
+  (the Python pass's sweep, equal to the reviewer's table; the tool runs rate 6 and the rigid follow only). The ideal
+  is measured, not fitted: taking the body one frame earlier (frame n, not n + 1) drops rate 6 to 279 of 514 (Python).
+  The implied rate per segment is the tool's (the table: p50 5.996 to 6.002); pooled over the same 219 steps by the
+  Python pass (the tool prints no pooled figure): p5 5.990, p25 5.994, p50 5.997, p75 6.012, p95 6.015, mean 6.002. The four half steps it is read on (dt 0.0167 / 0.0168) imply 6.007, 5.974, 6.005,
+  5.983: the factor is 6 x the step, not 6 x a fixed frame. A rigid follow on the same steps misses by 0.53 to 7.80
+  units at p50 in every moved segment (0 to 4 of 30 to 61 inside; the tool). The eye on a turn (reconstructed; the
+  tool): turn_right
+  p50 5.999 (p5 5.988, p95 6.016, n 48), its settle 5.999 (n 13), turn_left 5.997 (5.986, 6.020, n 48), its settle
+  5.998 (n 13), circle_strafe 5.998 (5.989, 6.020, n 54), its settle 6.002 (n 16).
+- **Leg 2, the control** (the spectator's follow, +0x45 clear; the tool's figures): 515 frames, torn 0, +0x48 0 on
+  every frame (the tool's check reads 0 / 514); the rigid model holds on every step of every segment (error max
+  0.0014: the stored target is the body's x, z each frame), the implied factor is 1 (the tool's per-segment rates
+  29.94 to 30.03 a second on a full step; 59.88 on a half one, the Python pass's); the port's factor misses (5 to 24 of 30 to 61 inside in
+  the moved segments, p95 0.70 to 1.99). The eye on its turns implies 1 too (rate p50 29.85 and 29.90). So the
+  reading "which view eases" (item 2) holds on the original: the dead player's teammate view eases, the spectator's
+  follow does not.
+- **The levels, as the fresh review settled them (2026-11-12).** **Proven** -- a capture comparison of the original
+  running, within the tolerance stated before the compare, reviewed fresh 2026-11-12: the factor itself (+0x48 = 6 x
+  the frame's own step, 514 of 514); the stored target's x, z stepping by it (above); and the spectator's rigid follow
+  (leg 2). **Reading** -- re-read at the source by the reviewer, not settled by this capture: the eye in the strafes
+  (p95 0.0043 right, 0.0040 left) -- the frame target taken as the bound body's x, z and the rest offset captured, the
+  eye their sum reconstructed here, not read off the capture (corrected 2026-11-14, the player's-view close review pass 3);
+  the eye's point on a turn (taken on the rest radius here, not measured) and
+  the heights (the frame target's root height); a capture leg that adds the bound actor's yaw and the frame's root
+  height (the posed root `FUN_0029a950` returns) settles both. The constant keeps its name `WATCHED_EASE_RATE_READING`
+  (a rename touches other lanes' files; it goes with LATER 972).
+- **The difference recorded, not applied (LATER 972; the controller accepted it as filed).** The original runs this
+  blend once a game frame at 29.97 Hz (`dt` 0.0333672 s, the factor 0.2002), with an occasional half step. The port
+  steps the same law in two places, neither on that frame:
+  - **the dead player's teammate view**, once a PAGE frame on real seconds: `main.ts` :2176 `net?.frame(dt, ...,
+    frameTime.real())` -> `netPage.ts` :1872 `this.spectator.frame(cameraEye(camera), real)` -> `spectatorView.ts`
+    :800 `followWatched(dt)` -> :1032 `this.host.follow(body, dt, true)` -> `matchNet.ts` :285 `camera.ease` and :295
+    `camera.tick(..., Math.max(0, dt), ...)` -> `playerCamera.ts` :560-561 (`watchedEaseFactor(dt)`): the factor 0.1 at
+    60 Hz, 0.0417 at 144 Hz;
+  - **the own body's death camera at 7** (DEATHCAM-MANUAL's `manual` flag, `playerCamera.ts` :558-560), once a fixed
+    mover tick: `walk.ts` :2864 `cameraTick` calls `tick` with no `dt` (`undefined`), so it takes the default `TICK`
+    = 1/60 (`playerCamera.ts` :151), driven from the mover's fixed step (`walk.ts` :2555): the factor 0.1 whatever the
+    page's rate.
+  The discrete law is not frame-rate invariant: after one second a residual is down to 0.00124 of itself on the
+  original and 0.00180 at 60 Hz (0.00218 at 144 Hz); the time to 1 % is 0.688 s against 0.728 s (0.751 s); a steady
+  follow at speed v lags v (1/6 - dt): 0.1333 v on the original, 0.1500 v at 60 Hz (+12.5 %; both consumers) and
+  0.1597 v at 144 Hz (+19.8 %; the teammate view only). Whether the port steps the blend on the original's game frame
+  is LATER 972's; the value 6 is not changed.
+- **Open.** The heights, and the eye's point on a turn compared value for value: a capture leg that adds the bound
+  actor's yaw and the frame's root height (and the frame target before the blend, if the reader can reach it) settles
+  them; the call rate, LATER 972. The tool's own output
+  on the capture: `npx tsx tools/perf/players-view/easeCapture.ts --capture <leg>.csv` from `socomlegacy/` -- run on a
+  build box at a343066cc1 (2026-11-12), its output equal to the Python reading's figures (above).
+
 ### 5.3 The pad (`SPECTATOR_PAD_PLACEHOLDER`)
 
 Settled before this note (R314.8): `FUN_00295260` tests bytes +7, +10, +5, +6 (D:L139476, D:L139480, D:L139531,
@@ -1004,7 +1161,7 @@ Proposed for ONL-21; none is in code yet, so each is *note only* until the build
 | `SPECTATOR_TURNOVER_POSE_PLACEHOLDER` (viewer `spectatorView.ts`; 2026-10-17, AD-9) | `'the fly camera where it stands'` | where a spectator's camera stands after a turnover: the reset leaves the bound object (+0xbc / +0xc0); the turnover's respawn loop attaches the camera to the console's own actor (`FUN_00598b90` D:L75925-75933 -> `FUN_00599b60` D:L455697-455701 -> `FUN_0029b3c0` D:L142748-142781) only if a spectator's actor is a type-2, unretired entry of the list (D:L75927-75930, unread for a spectator's actor) -- then free on its own object, placed as at its entry (`SPECTATOR_ENTRY_POSE_PLACEHOLDER`); if not, the camera keeps orbiting the actor it followed (+0x139 2, `FUN_0029b330` D:L142720-142725) while the pad's mode reads free (§5.5 item 3). The port's stand-in: no pose handed, the page's fly camera where it was | a read of the list entry a spectator's actor is (its +0x10 at `FUN_002b7d60`'s spawn, D:L158609-158650, and `FUN_00543d50`); ONL-32's capture of a spectator following a player across a round's turnover (the first frame's place) | open: in code 2026-10-17 (AD-9 step 2: the reset hands no pose), pending review; was *note only* (proposed) |
 | `SPECTATOR_OWN_SLOT_PLACEHOLDER` (viewer `spectatorView.ts`; 2026-10-17, DEAD-CYCLE) | `'before every player'` | where a spectator's Right / Left walk starts in free and scenic: at its own object's slot (the camera's +0xbc, `FUN_0029f180` D:L412584, D:L412637; X from follow and Up / Down onto a view bind the own object, D:L139501-139504, D:L139552-139555, D:L139580-139583), a slot the walk never takes (a spectator, D:L412601-412603) and whose place among the players' is unread; the port starts from before every player -- Right the first living body in id order, Left the last (a slot after every player gives the same) (§5.6 W5) | a read of the spectator object's list entry (`FUN_002b7d60` D:L158609-158650); ONL-32's capture of a spectator's Right and Left from free with players on both sides of its join | open: in code 2026-10-17 (DEAD-CYCLE), reading pending review |
 | `DEAD_CYCLE_OWN_VIEW_READING` (viewer `spectatorView.ts`; 2026-10-17, DEAD-CYCLE) | was `'the death camera as before the cycle'` | the own body's view when a dead player's cycle comes back to it: the original keeps the death camera at 7 (`FUN_002980d0` D:L141378-141389; only `FUN_00299150` D:L141657 writes it back) -- the orbit about the own body turned by the stick (`FUN_00297a30` D:L141219-141221) (§5.6 W6) | -- | retired 2026-11-09 (DEATHCAM-MANUAL): state 7 ported, `WalkMode.resumeBody` puts the death camera at 7 (`deathCamera.ts` `takeDeathControl`); reading (DEATHCAM-MANUAL's review PASS WITH FINDINGS, high, per the merge 25899c6d0) |
-| `WATCHED_EASE_RATE_READING` (viewer `playerCamera.ts`; 2026-11-07, INV-SPECTATE C) | `6` (a second; the factor `min(1, 6 dt)` a frame) | the camera's +0x45 blend in the dead player's teammate view: `FUN_00296f10`'s factor `dt * 6` (D:L140739) clamped to 1 (D:L140747-140749), set only with the death camera at 7 (`FUN_00297410` D:L141028-141032); the port applies it once a page frame with the page's dt, where the rate of the original's camera calls (the `dt` `FUN_002998f0` hands down) is not traced (§5.7) | a trace of `FUN_00296f10`'s calls and its first argument while a dead player watches a teammate (ONL-32); a capture of the teammate view following a runner | open: in code 2026-11-07 (INV-SPECTATE C), reading pending review |
+| `WATCHED_EASE_RATE_READING` (viewer `playerCamera.ts`; 2026-11-07, INV-SPECTATE C) | `6` (a second; the factor `min(1, 6 dt)` a frame) | the camera's +0x45 blend in the dead player's teammate view: `FUN_00296f10`'s factor `dt * 6` (D:L140739) clamped to 1 (D:L140747-140749), set only with the death camera at 7 (`FUN_00297410` D:L141028-141032); the port applies it once a page frame with the page's dt, where the rate of the original's camera calls (the `dt` `FUN_002998f0` hands down) is not traced (§5.7) -- *read on the capture 2026-11-12 (PV-12, §5.7's measured entry): the `dt` is the game frame's, +0x48 0.200203 (0.0333672 s, 29.97 Hz) or 0.100292 on a half step, 6 x the clock's step on 514 of 514 steps* | for the factor, the stored target's x, z and the spectator's rigid follow: settled by SPECTATE-EASE (2026-11-12; the tool's run on a build box at a343066cc1, the capture's six files checked against their sha256, reproducing the Python pass); still open: the eye's point on a turn and the heights (a capture leg with the bound actor's yaw and the frame's root height), and the call rate -- the teammate view once a page frame, the own death camera at 7 once a 60 Hz mover tick, the original once a 29.97 Hz game frame: 12.5 % more steady lag at 60 Hz, 19.8 % at 144 Hz (LATER 972, §5.7) | open: in code 2026-11-07 (INV-SPECTATE C); 2026-11-12 (PV-12, reviewed fresh the same day): **proven** (a capture comparison of the original running, within the tolerance stated before the compare) for the factor (514 of 514), the stored target's x, z stepping by it (all 262 steps with a residual of at least 0.05 inside, the tool's "moving"; 219 of 219 with a residual of at least 0.5, against 11 / 40 / 44 / 14 at rates 5.9 / 5.95 / 6.05 / 6.1), and leg 2's rigid follow; **reading** (re-read at the source by the reviewer) for the eye in the strafes (the frame target, the bound body's x, z, plus the captured rest offset: a reconstructed sum, not read off the capture -- level corrected 2026-11-14), the eye's point on a turn and the heights; the name kept until LATER 972 (a rename touches other lanes' files) |
 | `DEATH_KILLER_FOLLOW_S_ADAPTATION` (viewer `deathCamera.ts`; 2026-11-05, OT.R104) | `5` (seconds) | an adaptation on the owner's ruling OT.R104 (MISSION), against the original: how long the dead player's own death camera reads the killer's place in state 3 before it goes on as state 6 about the body, from the turn state 3 left (which, by OT.R116, `DEATH_CAM_SPIN_ADAPTATION`, holds still; the original's 0.8725 rad/s); the original's state 3 reads the killer's place (+0x154) for as long as the player is dead, no timer (`FUN_00297a30` D:L141145-141215, `FUN_002980d0` D:L141369-141376; §5.4 item 4). The 5 s counts the camera's own ticks: it pauses while the camera is not ticked (a dead cycle to a teammate, a refused respawn holding the camera aside) | the owner's word (it is his ruling, not a reading of the original) | adaptation: in code 2026-11-05 (agent/deathcam-limit), pending review |
 | `DEATH_CAM_SPIN_ADAPTATION` (viewer `deathCamera.ts`; 2026-11-09, OT.R116) | `0` (rad/s) | an adaptation on the owner's ruling OT.R116 (MISSION), against the original: state 6's own turn of the dead player's own death camera, which the original runs at 0.8725 rad/s every frame with no input (`FUN_00297a30` D:L141216-141218; `DEATH_ORBIT_RATE`); the page applies 0 -- after a kill the camera follows the killer for up to 5 s (OT.R104) and then holds still, any other death holds still from the start, and the first stick push takes over (state 7, the original's: `FUN_002980d0` D:L141595-141627, `FUN_00297a30` D:L141219-141221). Setting it to `DEATH_ORBIT_RATE` restores the original | the owner's word (it is his ruling, not a reading of the original) | adaptation: in code 2026-11-09 (agent/bug-deathcam, DEATHCAM-MANUAL), reviewed per the merge 25899c6d0 |
 

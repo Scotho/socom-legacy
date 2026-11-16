@@ -1,7 +1,7 @@
 import { GAME_FRAME_DT, sampleClip, type MotionClip, type PartPose } from '@s2u/scene';
-import { blendWeight, OVERLAY_BLEND, slerp, type LayerContext, type PoseLayer } from './animator';
+import { blendWeight, OVERLAY_BLEND, type LayerContext, type NodeLayer, type PoseLayer } from './animator';
 import { BLEND_TIME_DEFAULT, entryOf } from './locomotion';
-import type { MotionEntry, MotionTable } from './motionTable';
+import type { MotionTable } from './motionTable';
 import { ALL_RELOAD_CLIPS, PISTOL_RELOAD_CLIPS, RELOAD_CLIPS, reloadClip, reloadLength, reloadSeconds, type ReloadItem, type ReloadStance } from './reloadClip';
 import { carriedLockSeconds, carriesOn, reloadCutPhase, reloadCuttable, reloadEnded, type ReloadCutNote } from './reloadLock';
 import { fallCovers } from './stillReloadLife';
@@ -40,9 +40,13 @@ import { fallCovers } from './stillReloadLife';
  * start and end (`OVERLAY_BLEND`). The reload's length as the weapon's lock is `./reloadClip`'s (`reloadSeconds`).
  *
  * The viewer's readings, named:
- * - `PHASE_SHARED`: a Fire version of a locomotion cycle plays at the base clip's phase (so the legs keep their step);
- *   a Fire version of a pose (stand, crouch, prone, the steps) runs on its own clock at its own rate. The game makes a
- *   second motion for it (`FUN_0028d860(slot, motion, -1)`), whose clock is not read here.
+ * - `PHASE_SHARED`: every Fire version plays at its node's phase -- read since FL-0b (2026-11-14; reading, pending
+ *   review): the game makes a second motion for it (`FUN_0028d860(slot, motion, -1)`) chained on the node
+ *   (`FUN_0028bdd0`), and `FUN_0028c380` (D:L134213-134216) gives every motion on a node's chain the node's phase,
+ *   which `FUN_0028d670` (D:L134881-134903) samples at the motion's own key count; the actor update calls it on each
+ *   branch (`FUN_0057a330` D:L438875, D:L438891, D:L438909). Nothing clocks the Fire version on its own. *Was:* a
+ *   locomotion cycle's at the base clip's phase, a pose's (stand, crouch, prone, the steps) on its own clock at its own
+ *   `playback` -- which ran `seal_fp_step` at its full rate under a crawling turn (AH-4's raised turn in place, finding 18).
  * - The reload's cross-fades were a named placeholder (0.2 s in and out; research 84 §11) until research 150 read
  *   them: the still clip comes in over its `BlendTime` default 0.4 (`FUN_00287620`) and goes out, from its pop (PAR-73;
  *   was its last key), over the next play's (`seal_stand` 0.5); the overlay over the body's 0.4 both ways
@@ -106,7 +110,7 @@ export const STILL_CLIPS: ReadonlySet<string> = new Set(['seal_stand', 'seal_cro
 
 /** The body's cross-fade at the second channel's start and its end (`./animator` `OVERLAY_BLEND`, one constant with the swap's). */
 export { OVERLAY_BLEND };
-/** The viewer's reading (named): Fire versions of locomotion cycles share the base clip's phase. */
+/** Every Fire version plays at its node's phase (`FUN_0028c380` D:L134213-134216; FL-0b). Kept as the module's flag. */
 export const PHASE_SHARED = true;
 
 /** What the layers are doing, for the hook. */
@@ -157,44 +161,17 @@ interface ReloadRun {
   back: number | null;
 }
 
-/** A locomotion clip: `max_velocity` over 0 in the table (77 §7), which plays by the mover's speed. */
-const isLocomotion = (entry: MotionEntry | undefined): boolean => entry !== undefined && entry.maxVelocity !== null && entry.maxVelocity > 0;
-
 /**
- * The two layers over the clips, in the order the animator takes them: the Fire version at the raise weight, then the
- * reload over it. `step` runs their clocks once a frame, before the animator's.
+ * The two layers, in the order the animator takes them: the Fire version at the raise weight, folded into each play
+ * node before the nodes merge (FL-0), then the reload over the merged body. `step` runs the reload's clock once a frame,
+ * before the animator's (the Fire version runs at its node's phase, FL-0b). *Was* also `mergeParts`, the Fire versions
+ * merged among themselves for the layer laid over the merged body (retired with that layer, FL-0).
  */
-/**
- * Poses merged by weight, part by part (the node blend's way, `FUN_00577000`): each part's turn slerped in at its
- * weight over the running sum, its place a weighted mean; a part only some poses carry is theirs.
- */
-export function mergeParts(poses: readonly { parts: readonly PartPose[]; weight: number }[]): PartPose[] {
-  const acc = new Map<string, { part: PartPose; w: number }>();
-  for (const { parts, weight } of poses) {
-    if (!(weight > 0)) continue;
-    for (const p of parts) {
-      const a = acc.get(p.name);
-      if (!a) { acc.set(p.name, { part: { ...p, rotation: [...p.rotation], translation: [...p.translation] }, w: weight }); continue; }
-      const f = weight / (a.w + weight);
-      const t = a.part.translation;
-      a.part = {
-        ...a.part,
-        rotation: slerp(a.part.rotation, p.rotation, f),
-        translation: [t[0] + (p.translation[0] - t[0]) * f, t[1] + (p.translation[1] - t[1]) * f, t[2] + (p.translation[2] - t[2]) * f],
-      };
-      a.w += weight;
-    }
-  }
-  return [...acc.values()].map((a) => a.part);
-}
-
 export class WeaponPose {
   /** The raise weight (`./weaponRaise`), set once a frame. */
   fireWeight = 0;
   /** The firearm in use (`m_item`): the rifle's or the pistol's Fire versions and reloads. */
   item: 'rifle' | 'pistol' = 'rifle';
-  private fireClock = 0;
-  private fireClip: string | null = null;
   private reload: ReloadRun | null = null;
   /** LATER 530: the run a turret's take cut, kept for the room's refusal of the take (`keepReload`, `resumeReload`). */
   private kept: ReloadRun | null = null;
@@ -219,8 +196,11 @@ export class WeaponPose {
   private cutNote: ReloadCutNote | null = null;
   private readonly now: Pick<WeaponPoseStats, 'fire' | 'fireWeight'> = { fire: null, fireWeight: 0 };
 
-  /** The Fire version of the clip playing, at the raise weight. */
-  readonly fireLayer: PoseLayer = { sample: (c) => this.sampleFire(c) };
+  /**
+   * The Fire version of each node of the play, at the raise weight, folded into its node before the nodes merge
+   * (`PoseLayer.nodes`; FL-0): nothing laid over the merged body (`sample` lays none).
+   */
+  readonly fireLayer: PoseLayer = { sample: () => null, nodes: (c) => this.sampleFire(c) };
   /** The reload clip: the still stance's whole body or the moving overlay, cross-faded as the game's play and channel are. */
   readonly reloadLayer: PoseLayer = { sample: (c) => this.sampleReload(c) };
 
@@ -248,7 +228,6 @@ export class WeaponPose {
    * `Fire` (`reloadEnd`, `stopReload`), as before.
    */
   step(dt: number, cut = false, airborne = false): void {
-    this.fireClock += dt;
     const r = this.reload;
     if (!r) return;
     if (!r.overlay && r.fadeOut === null) {
@@ -427,43 +406,48 @@ export class WeaponPose {
     return { ...this.now, reload: r?.clip.name ?? null, reloadWeight: r ? weightOf(r) : 0, reloadOverlay: r?.overlay ?? false, reloadFrame: r ? frameOf(r) : 0 };
   }
 
-  private sampleFire(current: LayerContext): { parts: readonly PartPose[]; weight: number } | null {
+  /**
+   * FL-0 (seat 8a's finding 16; research 217 s3.6c; reading, pending review): each node's own Fire version, aligned with
+   * `current.nodes`, at the raise weight -- the sub-node `FUN_0057a330` (D:L438828-438859) hangs on each node of a play
+   * flagged 0x40 whose type has one (`FUN_0058c820` -> `FUN_0058c970`, the launcher set excluded, D:L438829), with
+   * `FUN_0028bdd0(raise, ...)` (D:L133955-133964), which `FUN_00577ea0` folds into that node before the nodes merge
+   * (`./animator` `foldSub`). A node with none (the strafes, the 90-degree runs) takes none and keeps its whole share in
+   * the merge. *Was:* the Fire versions merged among themselves and laid over the merged body at the raise weight times
+   * their nodes' share, which cut the lateral clip's share (at a raised 45-degree run the hips about -31 against the
+   * original's -54.7, AH-4 q16 `st-full45`).
+   *
+   * `stats()`: the Fire clip of the heaviest node that has one, and the raise weight times the share of the play's
+   * weight those nodes hold (as before: how much of the body is the Fire set's).
+   */
+  private sampleFire(current: LayerContext): (NodeLayer | null)[] | null {
     this.now.fire = null;
     this.now.fireWeight = 0;
     if (!(this.fireWeight > 0)) return null;
-    // Per motion slot (`FUN_0057a330` 438828-438860: each slot flagged 0x40 takes its own type's Fire version at the
-    // raise weight): the play's nodes that have one, by their weights; a node without one (the strafes, the 90-degree
-    // runs) keeps its own clip, so its share of the layer is left out. Keyed on the main clip alone, the whole upper
-    // body jumped from the low ready to the shoulder in one frame when the stick's turn made a forward clip the main
-    // one (the owner's playtest, 2026-09-29: the hot rifle strafing -- 3.8 units at the muzzle in a frame).
     const versions = this.item === 'pistol' ? PISTOL_FIRE_VERSIONS : FIRE_VERSIONS;
     const nodes = current.nodes ?? [{ clip: current.clip, frame: current.frame, phase: current.phase, weight: 1 }];
-    let total = 0;
-    const picks: { fire: MotionClip; phase: number; weight: number }[] = [];
+    let total = 0, share = 0;
+    let lead: { fire: MotionClip; weight: number } | null = null;
     for (const n of nodes) {
       total += n.weight;
       const name = versions[n.clip.name];
       const fire = name ? this.clips.get(name) : undefined;
-      if (fire && n.weight > 0) picks.push({ fire, phase: n.phase, weight: n.weight });
+      if (!fire || !(n.weight > 0)) continue;
+      share += n.weight;
+      if (!lead || n.weight > lead.weight) lead = { fire, weight: n.weight };
     }
-    if (!picks.length || !(total > 0)) return null;
-    const lead = picks.reduce((a, b) => (b.weight > a.weight ? b : a));
-    if (lead.fire.name !== this.fireClip) { this.fireClip = lead.fire.name; this.fireClock = 0; }
-    const sampled = picks.map((p) => {
-      const entry = entryOf(p.fire.name, this.table);
-      // A still Fire clip plays over its `playback` seconds (the one-shot rule, research 77 §7); a moving one shares
-      // the base clip's phase (PHASE_SHARED).
-      const playback = entry?.playback !== null && entry?.playback !== undefined && entry.playback > 0 ? entry.playback : null;
-      const time = PHASE_SHARED && isLocomotion(entry)
-        ? p.phase * p.fire.duration
-        : this.fireClock * (playback ? p.fire.duration / playback : 1);
-      return { parts: sampleClip(p.fire, time, { loop: entry?.looped ?? true }).parts, weight: p.weight };
+    if (!lead || !(total > 0)) return null;
+    const out = nodes.map((n): NodeLayer | null => {
+      const name = versions[n.clip.name];
+      const fire = name ? this.clips.get(name) : undefined;
+      if (!fire || !(n.weight > 0)) return null;
+      const entry = entryOf(fire.name, this.table);
+      // FL-0b: at its node's phase, whatever the clip (`PHASE_SHARED`: FUN_0028c380 D:L134213-134216, FUN_0028d670
+      // D:L134881-134903). *Was:* a still Fire clip on the layer's own clock over its `playback` seconds.
+      return { parts: sampleClip(fire, n.phase * fire.duration, { loop: entry?.looped ?? true }).parts, weight: this.fireWeight };
     });
-    const share = picks.reduce((s, p) => s + p.weight, 0) / total;
-    const weight = this.fireWeight * Math.min(1, share);
     this.now.fire = lead.fire.name;
-    this.now.fireWeight = weight;
-    return { parts: sampled.length === 1 ? sampled[0]!.parts : mergeParts(sampled), weight };
+    this.now.fireWeight = this.fireWeight * Math.min(1, share / total);
+    return out;
   }
 
   /**

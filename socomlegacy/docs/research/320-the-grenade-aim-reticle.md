@@ -158,6 +158,17 @@
 - **The corner case**: a grenade taken while the firearm's knock is up keeps the meter at the centre the last firearm
   frame left (the knock returns at `ReticuleKnockReturn` while the firearm is still drawn through the swap's first part;
   how much is left at the switch's write is unread, `GRENADE_METER_CENTRE_READING`).
+- **The port departs here, by the owner's ruling** (OT.R124, 2026-11-13T05:59Z, "inherit"; v0.4.21's V21.R16, H451;
+  MISSION): `GRENADE_METER_CENTRE_OWNER = 'the live centre'` (viewer `reticle.ts`, `meterCentreSource`) -- under set 4
+  the meter is laid every frame at the aim point and this frame's knock, so it runs to rest at the held item's return
+  rate and the firearm's reticle takes over where it stood; the threat marks under set 4 follow that centre every frame
+  (`layThreat`), their size held as the original's. His first word, "Meter always at the screen centre." (about 05:05Z,
+  `'the screen\'s centre'`: the last firearm frame's aim point with no knock), is superseded; `'the last firearm
+  frame\'s'` is the original above. What is above stays the original's reading and the measure of the departure: a
+  player's clip of the port showed the meter 34.8 of the 448-frame's pixels above its rest for 2.33 s after a grenade
+  taken 0.35 s past an M82A1A's unscoped shot, and 11.2 above for 0.47 s at 0.97 s (seat 8a's frame track). The knock
+  itself, its carry across the swap and its return are unchanged. The capture of the original through a swap is LATER
+  988.
 - **The pip** (the blocked-muzzle mark `ret_accuracy`): faded out 32 a frame under set 4 (D:L70435-70445). The aim ray
   still marks a blocked muzzle with a grenade up -- its write of kit byte 0 bit 3 (D:L464335-464341) tests no set -- but
   the reticle frame clears that bit under set 4 (D:L70415-70417) before the colour pass reads it (D:L70464), so neither
@@ -296,7 +307,8 @@ bitmaps, read".)
 - **G2, built.** `meterLayout(frame, centre, power, bitmap)` and the four meshes in `Reticle`, in their colours
   (`meterTint`); `W` and `H` from the served `ret_grenade_02`.
 - **G3, built in part.** `meterPower(power, left)` and `Reticle.setMeter`; under set 4 no size, no knock, no move: the
-  meter stays at the centre the last frame of another set laid (`GRENADE_METER_CENTRE_READING`), the pip fades.
+  meter stays at the centre the last frame of another set laid -- by the owner's ruling since OT.R124
+  (`GRENADE_METER_CENTRE_OWNER`, section 3; was the reading `'the last firearm frame\'s'`) -- the pip fades.
   **Wired:** `FirearmHands.throwPower` (`matchThrow.ts`: `meterPower(stats().power, stats().left)`, 0 with nothing up)
   fed to `Reticle.setMeter` by `aimReticle` each frame; with D7 built the fill holds the release's power to the clip's
   end (`matchFirearm.test.ts`: set 4 with the grenade up, the fill on the thrower's power over a throw, the firearm's
@@ -307,7 +319,7 @@ bitmaps, read".)
   `ARC_IN_AIR_READING`.
 - **G4, built** (NU-3b, 2026-10-15; reading, pending review): research 321's C4 build lays the target's name under every
   set, set 4 among them -- `Reticle`'s `targetDrawn` takes the served `ret_grenade_02`'s `W` and `H` about the meter's
-  centre (`GRENADE_METER_CENTRE_READING`), so the name's pen is `(cx + 32, cy - 32)` and the bar's corner 15 above it;
+  centre (`GRENADE_METER_CENTRE_OWNER` since OT.R124, section 3), so the name's pen is `(cx + 32, cy - 32)` and the bar's corner 15 above it;
   the colour pass lands on the hidden arms, the meter's four quads keep `meterTint` (`reticle.test.ts`,
   `matchFirearm.test.ts` "NU-3b G4"). The bar is drawn only with a known health (`TARGET_HEALTH_PLACEHOLDER`: none on
   the wire). G5 still waits on `ARC_IN_AIR_READING`.
@@ -349,7 +361,7 @@ Filed 2026-10-14 by NU-2 (`packages/viewer/src/reticle.ts`); reading, pending re
 |---|---|---|---|
 | `GRENADE_METER_BITMAP_READING` | which way up the meter's decoded rows lie (its capture settles the threat marks' wedges too: research 321 §7.6 `THREAT_QUAD_ORIENTATION_READING`, 2026-11-09): the decoded first row on the centre line, read off the code -- the line is v 1 and the rifle's arms, against the console frame, show v 0 holds the decoded last rows -- with the recompilation's frame h00 a third, agreeing source (section 2, "The bitmaps, read"; NU-2's review, finding 1; was: "the frame's code read (v 0 at the outer edge) against the recompilation's frame h00"); the sizes are read (64 x 64, served) | `'first row on the centre line'` (`meterLayout`'s rows) | a console capture of the meter (h00's shot on the console), or the GS's texture row order for a HUD sprite traced |
 | `GRENADE_METER_COLOUR_READING` | the meter's GS vertex colours (200, 200, 0) at 36 and (128, 70, 32) at 64 (read, section 2) turned into the page's tint by `reticleTint`'s one scale (`meterTint`) | `{ frame: { rgb: [200, 200, 0], alpha: 36 }, fill: { rgb: [128, 70, 32], alpha: 64 } }` | the capture's h00 (the frame at power 0, about (100-106, 101-109, 43-53) over 16-70) scored against the page's draw; a capture of a wind-up for the fill |
-| `GRENADE_METER_CENTRE_READING` | the meter's place when a throwable is taken with the firearm's knock up: the centre the last frame of another set laid (section 3) | `'the last firearm frame\'s'` (`Reticle`'s `laid`) | a capture: a burst, the M67 taken at once, the meter's place over the first frames |
+| `GRENADE_METER_CENTRE_READING` | the meter's place when a throwable is taken with the firearm's knock up: the centre the last frame of another set laid (section 3) | was `'the last firearm frame\'s'` (`Reticle`'s `laid`) | retired 2026-11-13: replaced by the owner's ruling OT.R124, `GRENADE_METER_CENTRE_OWNER = 'the live centre'` (section 3); the original's place stays a reading, measured by LATER 988's capture |
 | `C4_RETICLE_READING` | the C4 and the satchel up: no set (D:L474926-474928), nothing drawn, though `FUN_00215c10` colours the meter's quads for the C4 (section 5) | `'nothing'` (`Reticle` under set -1) | a capture with C4 in hand, at and off a plantable target |
 
 ## 9. Evidence, apart

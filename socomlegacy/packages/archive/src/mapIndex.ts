@@ -3,6 +3,7 @@ import { addedZdbEntries, noteRangedZdbMember, zdbOverrideBytes } from './member
 import { parseZdb, zdbEntry, zdbMember, zdbTocLength, ZDB_HEAD } from './zdb';
 import { Zar } from './zar';
 import { parseRdr, rdrGet } from './rdr';
+import { CAMPAIGN_STEMS } from './discArchives';
 
 /** One multiplayer map: its archive id, the path its bytes live at, and the name the game shows. */
 export interface MapInfo { archive: string; path: string; name: string }
@@ -14,13 +15,8 @@ export function mapArchiveId(path: string): string | null {
   return MAP_ARCHIVE.exec(path)?.[1]?.toUpperCase() ?? null;
 }
 
-/**
- * The campaign's twelve mission archives, as the US disc's `RUN/` holds them (`RUN/M51.ZDB` .. `RUN/M83.ZDB`, 14.7-17.3 MB
- * each; research 82 §1.1 reads M51). One list, two readers: the forge's and the devmode test room's workers probe the
- * served tree for them (`@s2u/viewer` `forge/servedPaths.ts` `servedCampaignPaths`), and `tools/extract-maps.ts` copies them there by default
- * (FG-22, FG.R16, FG.R25). They are not map archives in `MAP_ARCHIVE`'s sense: no index lists them (`listMaps` takes `MP<n>` only).
- */
-export const CAMPAIGN_STEMS = ['M51', 'M52', 'M53', 'M61', 'M62', 'M63', 'M71', 'M72', 'M73', 'M81', 'M82', 'M83'] as const;
+/** The campaign's twelve mission archives (`./discArchives`, CMV-0: moved to that leaf, re-exported here unchanged). */
+export { CAMPAIGN_STEMS };
 /** `CAMPAIGN_STEMS` as disc paths: `RUN/M51.ZDB`, ... */
 export const CAMPAIGN_ARCHIVES: readonly string[] = CAMPAIGN_STEMS.map((stem) => `RUN/${stem}.ZDB`);
 

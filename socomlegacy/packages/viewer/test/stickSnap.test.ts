@@ -58,17 +58,20 @@ describe('FUN_00586c10\'s snap and the cross-fade it starts (decomp 445043-44505
       const w = walker();
       const s = snapsOver(w, [[60, keys(1, 0)], [60, keys(1, side)], [30, keys(1, 0)]]);
       expect(s[59]).toBe(0);                                         // the forward ramp: 0.917 -> 1 is 5 a second, under 9
-      // pressing the side ramps at 5 a second to 0.833, and its last step to 1 (10 a second, past 0.78) is a snap
+      // THROTTLE-FRAME (MISSION R8.1): pressing the side ramps at 5 a second, and the snap is judged from the last game
+      // frame's value (0.75 at tick 69's frame, under 0.78; then 0.917 -> 1 is 2.5 a frame-second, under 7.8): no tail
+      // snap, as the original's 30 Hz ramp (0.834 -> 1, 4.97 a second). Was 1 from tick 70: the 60 Hz step 0.833 -> 1.
       expect(s[69]).toBe(0);
-      expect(s[70]).toBe(1);
-      expect(s[119]).toBe(1);
-      expect(s[120]).toBe(2);                                        // the release
-      expect(s[149]).toBe(2);
+      expect(s[70]).toBe(0);
+      expect(s[119]).toBe(0);
+      expect(s[120]).toBe(1);                                        // the release
+      expect(s[149]).toBe(1);
     }
   });
 
   it('strafe then forward: the lateral let go snaps; crouched the diagonal walk is under 0.78 and ramps', () => {
-    expect(snapsOver(walker(), [[60, keys(0, 1)], [30, keys(1, 0)]]).slice(58)).toEqual([1, 1, 2, ...new Array<number>(29).fill(2)]);
+    // THROTTLE-FRAME (R8.1): the strafe's press has no tail snap (was [1, 1, 2, ...2]); its release is the one snap
+    expect(snapsOver(walker(), [[60, keys(0, 1)], [30, keys(1, 0)]]).slice(58)).toEqual([0, 0, 1, ...new Array<number>(29).fill(1)]);
     // the crouch walk rescales the stick to 14 / 14.8 of a push: 0.669 an axis on a diagonal
     expect(snapsOver(walker('crouch'), [[60, keys(0.5, -0.5)], [30, keys(0.5, 0)]]).at(-1)).toBe(0);
   });
@@ -86,7 +89,7 @@ describe('FUN_00586c10\'s snap and the cross-fade it starts (decomp 445043-44505
         if (back.stickSnaps !== last) { seen.push(back.stickSnaps!); last = back.stickSnaps!; }
       }
     }
-    expect(seen).toEqual([0, 1, 0, 1, 0]);                           // each side's press tail and its release
+    expect(seen).toEqual([0, 1, 0]);                                 // each side's release (R8.1: no press tail; was [0, 1, 0, 1, 0])
   });
 });
 

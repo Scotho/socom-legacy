@@ -956,7 +956,7 @@ describe('the hostages on the HUD (HX-5; research 239 s5, 190 A1 and D)', () => 
     expect(hud.state().model.game).toEqual({ name: 'Desert Glory', type: 'EXTRACT' });
     hud.setGame('Frostfire', 'Suppression');
     expect(hud.state().model.game.type).toBe('SUPPRESSION');
-    // The marks: within 200 u by their bearing at their own size, in the per-type colours; the bomb's colour unchanged.
+    // The marks: within 200 u by their bearing at their own size, in the per-type colours; the bomb's type 1's yellow.
     const sizes = { ...SIZES, 'ret_hostage.tif': { width: 16, height: 16 }, 'ret_extraction.tif': { width: 16, height: 16 }, 'ret_bomb.tif': { width: 16, height: 16 } };
     const at = model({
       yaw: 0, position: [0, 0], extraMarks: [{ bitmap: 'ret_bomb.tif', x: 0, z: -50 }],
@@ -966,7 +966,7 @@ describe('the hostages on the HUD (HX-5; research 239 s5, 190 A1 and D)', () => 
     const of = (t: string) => quads.find((q) => q.texture === t)!;
     expect(of('ret_hostage.tif').rgba).toEqual([62 / 128, 49 / 128, 36 / 128, 1]);
     expect(of('ret_extraction.tif').rgba).toEqual([36 / 128, 40 / 128, 62 / 128, 1]);
-    expect(of('ret_bomb.tif').rgba).toEqual([32 / 128, 62 / 128, 32 / 128, 1]);
+    expect(of('ret_bomb.tif').rgba).toEqual([62 / 128, 62 / 128, 32 / 128, 1]);   // type 1's row (D:L68677-68679), was the nav marks' green
     expect(of('ret_hostage.tif').y).toBeCloseTo(90 - 100 * 0.005 * 65, 6);   // straight ahead, 100 u
     expect(of('ret_extraction.tif').x).toBeCloseTo(565 + 100 * 0.005 * 65, 6);
     expect(compassMarks(at).map((m) => m.bitmap)).toEqual(['ret_bomb.tif', 'ret_hostage.tif', 'ret_extraction.tif']);

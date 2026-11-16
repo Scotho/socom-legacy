@@ -248,9 +248,14 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
     // 'lazy' this fold's (`stepBody`: the wire's rounding in place; `keep`: the bones kept, no capsule fitted); the
     // parts split them.
     const t = hitPoseRoom(seal(), clips, table);
-    type Fed = { body: BodyState; tilt: MoverSnapshot['rootTilt'] };
+    // FIRE-LAYER FL-1: `raised`, the same body with the rifle up (`bodyOf`'s extras `raised: true`), so a poser lays the
+    // Fire set at weight 1 once the 0.1 s raise has run (the warm-up's 60 ticks) and samples the Fire clip every tick
+    type Fed = { body: BodyState; raised: BodyState; tilt: MoverSnapshot['rootTilt'] };
     const walk: Fed[] = [], run: Fed[] = [];
-    const take = (): Fed => { const p = t.room.player(2)!; return { body: bodyOf(2, p.sim.body(), EXTRAS), tilt: p.sim.walker.rootTilt.q }; };
+    const take = (): Fed => {
+      const p = t.room.player(2)!, s = p.sim.body();
+      return { body: bodyOf(2, s, EXTRAS), raised: bodyOf(2, s, { ...EXTRAS, raised: true }), tilt: p.sim.walker.rootTilt.q };
+    };
     t.press('crouch');
     t.run(30);
     t.stick(CROUCH_WALK);
@@ -285,6 +290,8 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
     };
     bench('eager (76b1eac24: round trip, step, boxes copied)', (p, f) => { p.step(1 / TICK_HZ, roundTrip(f)); p.boxes(); });
     const lazy = bench('lazy (this fold: stepBody, keep)', (p, f) => { p.stepBody(1 / TICK_HZ, f.body, f.tilt); p.keep(); });
+    // FL-1: a measurement, not a bar -- every body raised, the Fire clip sampled every tick (logged beside 'lazy')
+    bench('lazy, raised (FL-1: the Fire set laid at weight 1 every tick)', (p, f) => { p.stepBody(1 / TICK_HZ, f.raised, f.tilt); p.keep(); });
     bench('part: the codec round trip + snapshotOf', (_p, f) => { roundTrip(f); });
     bench('part: quantiseBody + snapshotOf', (_p, f) => { hitPoseSnapshot(f.body, f.tilt, wire); });
     bench('part: the animator step alone', (p, f) => { p.step(1 / TICK_HZ, snaps.get(f)!); });

@@ -11,7 +11,7 @@ import { UI_SAMPLING_DEFAULTS } from '../src/experimentalUiSampling';
 import {
   ARM_TINT, BINOCULAR_BITMAPS, BINOCULAR_UV, binocularsLayout, CONSOLE_RETICLE, Reticle, RETICLE_SETS, reticleLayout, reticleTint, reticleType,
   reticleShown, pageSpawned, scopeLayout, nightLayout, type ReticleMode, reticleShape, SHOTGUN_CORNER_READING, LAUNCHER_CORNER_SCALE, LAUNCHER_SIGHT_READING,
-  C4_RETICLE_READING, GRENADE_METER_BITMAP_READING, GRENADE_METER_CENTRE_READING, GRENADE_METER_COLOUR_READING, handReticleType,
+  C4_RETICLE_READING, GRENADE_METER_BITMAP_READING, GRENADE_METER_CENTRE_OWNER, GRENADE_METER_COLOUR_READING, meterCentreSource, handReticleType,
   meterLayout, meterPower, meterTint, type MeterQuad,
   reticleTargetState, targetLayout, targetName, TARGET_BAR,
   ESCORT_GAME_TYPE, Perception, PERCEPTION, perceptionLook, perceptionMagnification, PERCEPTION_QUERY_PLACEHOLDER,
@@ -775,6 +775,81 @@ describe('NU-2 G2: the meter drawn by Reticle under set 4 (ChangeReticule D:L693
   });
 });
 
+/**
+ * OT.R124 (V21.R16, H451; the owner's ruling 2026-11-13T05:59Z: the live centre, "inherit" -- `GRENADE_METER_CENTRE_OWNER`,
+ * one switch with the screen's centre he first said): the player's own sequence, by his clip's frame track (seat 8a; 448-frame
+ * pixels): an M82A1A fired unscoped, a grenade taken 0.35 s after -- the meter 34.8 above its rest and unmoving for
+ * 2.33 s -- and again 0.97 s after -- 11.2 above for 0.47 s. The original lays it there (`FUN_00216770` D:L70415-70434:
+ * under set 4 the centre the last firearm frame wrote, its knock in it). The expectations follow the rule the constant
+ * carries: the screen's centre at rest (row 224) on every frame, the live centre with this frame's knock as it returns;
+ * under either the meter is not held at the swap's height. The firearm's reticle and its return are the original's.
+ */
+describe('V21.R16: the throw meter after a no-scope and a swap, by the owner\'s rule (the player\'s clip)', () => {
+  const RULE = GRENADE_METER_CENTRE_OWNER;
+  /** The meter's centre row under the rule: the last firearm frame's knock `last` and this frame's `now` up. */
+  const meterRow = (last: number, now: number): number =>
+    RULE === 'the screen\'s centre' ? 224 : RULE === 'the live centre' ? 224 - now : 224 - last;
+  /** A rect's centre row, frame pixels. */
+  const cy = (q: { y: number; height: number }): number => q.y + q.height / 2;
+  /** The firearm's frames up to the swap (the knock `knock` above), then set 4 with the knock returning: each frame's rows. */
+  const swapAfterShot = (knock: number, frames = 20): { meterY: number[]; rectY: number[]; now: number[] } => {
+    const { r, render } = meterReticle();
+    r.setSize(10, [0, -knock - 2]);
+    render();
+    r.setSize(10, [0, -knock]);                                           // the last firearm frame: `knock` still up
+    render();
+    r.setSet(4);
+    r.setMeter(0.5);
+    const meterY: number[] = [], rectY: number[] = [], now: number[] = [];
+    for (let f = 1; f <= frames; f++) {
+      const up = Math.max(0, knock - f);
+      r.setSize(26, [0, -up]);                                            // the knock returning under the grenade (`./accuracy`)
+      render();
+      now.push(up);
+      meterY.push(cy(r.state().meter!.rect));
+      rectY.push(cy(r.state().rect!));
+    }
+    return { meterY, rectY, now };
+  };
+
+  it('the rule in force is OT.R124\'s: the live centre (the owner, 2026-11-13T05:59Z: "inherit")', () => {
+    expect(GRENADE_METER_CENTRE_OWNER).toBe('the live centre');
+  });
+
+  it('meterCentreSource: the original the last firearm frame\'s, the screen\'s centre its aim with no knock, the live centre this frame\'s', () => {
+    const laid = { aim: [0.5, 0.5] as [number, number], offset: [0, -34.8] as [number, number] };
+    const live = { aim: [0.6, 0.4] as [number, number], offset: [5, -20] as [number, number] };
+    expect(meterCentreSource('the last firearm frame\'s', laid, live)).toEqual({ aim: [0.5, 0.5], offset: [0, -34.8] });
+    expect(meterCentreSource('the screen\'s centre', laid, live)).toEqual({ aim: [0.5, 0.5], offset: [0, 0] });
+    expect(meterCentreSource('the live centre', laid, live)).toEqual({ aim: [0.6, 0.4], offset: [5, -20] });
+  });
+
+  for (const [gap, knock] of [[0.35, 34.8], [0.97, 11.2]] as const) {
+    it(`a grenade ${gap} s after the shot (${knock} still up): the meter where the rule lays it each frame, never held at ${224 - knock}`, () => {
+      const { meterY, rectY, now } = swapAfterShot(knock);
+      meterY.forEach((y, i) => expect(y).toBeCloseTo(meterRow(knock, now[i]!), 6));
+      rectY.forEach((y, i) => expect(y).toBeCloseTo(meterRow(knock, now[i]!), 6));
+      // the original holds it there (the constant back to 'the last firearm frame\'s'): this one check is the departure's
+      expect(meterY.every((y) => Math.abs(y - (224 - knock)) < 1e-6), 'held at the swap\'s height, as the original').toBe(RULE === 'the last firearm frame\'s');
+    });
+  }
+
+  it('the firearm\'s reticle is the original\'s: knocked before the swap, and back up with its knock carried after it', () => {
+    const { r, render } = meterReticle();
+    r.setSize(10, [0, -34.8]);
+    render();
+    expect(cy(r.state().rect!)).toBeCloseTo(224 - 34.8, 6);                  // the rifle's climb, as before the ruling
+    r.setSet(4);
+    r.setMeter(0.5);
+    r.setSize(26, [0, -20]);
+    render();
+    expect(cy(r.state().meter!.rect)).toBeCloseTo(meterRow(34.8, 20), 6);
+    r.setSet(1);                                                          // the rifle again: its reticle where its knock is
+    render();
+    expect(cy(r.state().rect!)).toBeCloseTo(224 - 20, 6);
+  });
+});
+
 describe('NU-2 G3: the power fed each frame; no size, no knock, no move under set 4', () => {
   it('meterPower: the controller\'s power, 0 when the hand has none left (FUN_001f7ff0 D:L56673-56688, FUN_005c3890)', () => {
     expect(meterPower(0.7, 2)).toBe(0.7);
@@ -782,18 +857,27 @@ describe('NU-2 G3: the power fed each frame; no size, no knock, no move under se
     expect(meterPower(0.7, 1)).toBe(0.7);
   });
 
-  it('the meter keeps the centre the last firearm frame left -- the knock in it -- through a walk, a turn and a climb', () => {
+  // V21.R16 (the owner's word, 2026-11-13; the rule GRENADE_METER_CENTRE_OWNER) changed this pin: it was "the meter keeps
+  // the centre the last firearm frame left -- the knock in it", y 180 for a knock 12 up (the original's, FUN_00216770
+  // D:L70415-70434). The screen's centre keeps the last firearm frame's aim point, not its knock (y 192); the live centre
+  // follows this frame's aim point and knock.
+  it('under set 4 the meter takes the owner\'s rule through a walk, a turn and a climb', () => {
     const { r, render } = meterReticle();
     r.setSize(10, [0, -12]);                                              // the firearm's last frame: knocked 12 up
     render();
-    expect(GRENADE_METER_CENTRE_READING).toBe('the last firearm frame\'s');
     r.setSet(4);
     r.setMeter(1);
-    r.setAimPoint(0.6, 0.4);                                              // a turn, a walk's bloom, a climb: none moves it
+    r.setAimPoint(0.6, 0.4);                                              // a turn, a walk's bloom, a climb
     r.setSize(26, [5, -30]);
     render();
-    expect(r.state().meter!.rect).toEqual({ x: 288, y: 180, width: 64, height: 64 });
-    expect(r.state().rect).toEqual({ x: 288, y: 180, width: 64, height: 64 });
+    const want = GRENADE_METER_CENTRE_OWNER === 'the screen\'s centre' ? { x: 288, y: 192 }
+      : GRENADE_METER_CENTRE_OWNER === 'the live centre' ? { x: 0.6 * 640 + 5 - 32, y: 0.4 * 448 - 30 - 32 }
+        : { x: 288, y: 180 };
+    for (const rect of [r.state().meter!.rect, r.state().rect!]) {
+      expect(rect.x).toBeCloseTo(want.x, 6);
+      expect(rect.y).toBeCloseTo(want.y, 6);
+      expect([rect.width, rect.height]).toEqual([64, 64]);
+    }
   });
 
   it('the pip fades under set 4 whatever offset it is handed (D:L70435-70445)', () => {

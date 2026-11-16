@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb, readStoredList, storedSaves } from './fakeSaves';
+import { pressSaves } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * LATER 804 (product track, a browser adaptation with no original -- the game has no editor): Saves > Save as renames the
@@ -40,7 +41,7 @@ const redoButton = (): HTMLButtonElement => document.querySelector<HTMLButtonEle
 
 /** Saves > Save as, the prompt answered with `name`. */
 async function saveAs(name: string): Promise<void> {
-  document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+  pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
   await vi.waitFor(() => expect(saveAsButton()).toBeDefined(), { timeout: 3000 });
   saveAsButton()!.click();
   await vi.waitFor(() => expect(prompt()?.querySelector('h2')?.textContent).toBe('Save this layout'), { timeout: 3000 });

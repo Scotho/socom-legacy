@@ -90,6 +90,12 @@ export interface ReplayPageDeps {
   frame?: (run: () => void) => void;
   /** Goes to `href` (Back, a malformed id's Home); absent, the window's location. */
   navigate?: (href: string, replace?: boolean) => void;
+  /**
+   * RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully navigable with keyboard and mouse.
+   * Every view."): whether the viewer reads its keys (`ReplayViewerOptions.keys`); absent, true -- every build (was a
+   * development build's only). Its Escape is then Back here, the page having no console Escape of its own.
+   */
+  keys?: boolean;
 }
 
 const withSlash = (b: string): string => (b.endsWith('/') ? b : `${b}/`);
@@ -311,7 +317,7 @@ export function mountReplayPage(doc: Document, win: Window, route: ReplayPageRou
         ...(deps.fetch ? { fetch: deps.fetch } : {}),
       },
       discReading: () => disc.state() === 'reading',
-      keys: dev,                                                    // OT.R29: a development build's keys only
+      keys: deps.keys ?? true,                                      // RVK-B: the viewer's keys and mouse, every build
       onClose: back,
       backLabel: backLabel(),                                       // the render fold: the head's Back, the same place
     });

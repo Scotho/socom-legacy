@@ -23,7 +23,9 @@ import { botDisplayName } from './botPresentation';
  * (`RemotePlayers.headAt` null otherwise: a ghost, a hidden corpse, a rescued hostage at 0), its zone drawn
  * (`TeamTagBody.zoneDrawn`, `RegionCull.drawn`) and its head point inside the camera's frustum. A visual's own distance
  * and level-of-detail skip (`FUN_003b7b90`) is not modelled; the original's drawn test passes for this frame or the last
- * (`FUN_00315580(node, 2)`), the port's zone gate is this frame's (LATER 415's review, F5). Settles: research 329's
+ * (`FUN_00315580(node, 2)`), and so does the port's zone gate for the tags (TAG-GRACE, `RegionCull.tagDrawn`,
+ * `./regionCull` `MP_TEAM_TAG_DRAWN_FRAMES_READING`; was: "the port's zone gate is this frame's (LATER 415's review,
+ * F5)"). Settles: research 329's
  * capture NU9C-1 (a teammate behind a wall inside the view, one far away).
  */
 export const MP_TEAM_TAG_CULL_READING = 'the group visible, the zone drawn and the head inside the frustum' as const;
@@ -79,7 +81,7 @@ export interface TeamTagBody {
   escortee: boolean;
   /** Its `head` node in world space (`FUN_005a3070` D:L460118-460121), null when its body is not drawn. */
   head: readonly number[] | null;
-  /** LATER 415: false when the region gate leaves its node undrawn (`./regionCull` `RegionCull.drawn`); absent, drawn. */
+  /** LATER 415: false when the region gate left its node undrawn this frame and the last (`./regionCull` `RegionCull.tagDrawn`, TAG-GRACE; was: `drawn`, this frame alone); absent, drawn. */
   zoneDrawn?: boolean;
   /** Its name (`+0x14`, D:L77389-77393) and its seat's clan tag (`FUN_002c3ac0(+0xfc8)`, D:L77394-77398). */
   name: string;

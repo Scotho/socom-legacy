@@ -4,6 +4,7 @@ import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import { saveNamed } from '../../src/forge/saves';
 import { freshSavesDb, storedSaves, writeStoredSaves } from './fakeSaves';
 import type { LoadedMap } from '../../src/loadMap';
+import { pressSaves } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FUI-2 (the review's IA-1, IA-2, IA-13, PAD-1, PAD-2, UX-3, VP-10's focus half; a browser adaptation, FG.R2): one card
@@ -406,7 +407,7 @@ describe('the mounted Forge: its cards on the stack (FUI-2)', () => {
 
   it('a nested rename reopens Saves at the same scroll, the renamed row in it', async () => {
     await mounted();
-    document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     const list = savesCard()!.querySelector<HTMLElement>('.fx-saves-list')!;
     list.scrollTop = 40;
     const row = savesCard()!.querySelector<HTMLElement>('li[data-save-id="yard"]')!;

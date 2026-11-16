@@ -101,7 +101,7 @@ describe('SEP-POP: room = page, tick for tick', () => {
     r.frames(30);
   });
 
-  it('COMBINED-CUT: both movers cut; the commands say COMBINED; main\'s zero and the pop code stay COMBINED\'s', () => {
+  it('COMBINED-CUT: both movers cut; the commands say COMBINED; the pop code stays COMBINED\'s (the push\'s zero went with H392)', () => {
     const r = rig('pop');
     expect(r.mover().stanceCut).toBe(true);
     expect(r.room.walker.stanceCut).toBe(true);

@@ -217,10 +217,11 @@ export function standOf(map: LoadedMap, view: Pick<WorldView, 'box'>, side: Side
 
 /** The camera's lanes a frame feeds (`./camera` `FlyCamera`). */
 export interface CameraLanes {
-  setStick(x: number, y: number): void;
+  /** `zone`: the radial zone the pair was shaped with (PZG, `./gamepad` `Input.moveZone`); absent, the default. */
+  setStick(x: number, y: number, zone?: number): void;
   setLift(v: number): void;
   setStickBoost(on: boolean): void;
-  setLook(x: number, y: number): void;
+  setLook(x: number, y: number, zone?: number): void;
 }
 
 /**
@@ -229,8 +230,10 @@ export interface CameraLanes {
  * is (`spectator`, `NetPage.spectatorCamera`, asked only while it is held), never the fly camera's "down".
  */
 export function feedCamera(fly: CameraLanes, input: Input, spectator: () => boolean): void {
-  fly.setStick(input.moveX, input.moveY);
+  if (input.moveZone === undefined) fly.setStick(input.moveX, input.moveY);
+  else fly.setStick(input.moveX, input.moveY, input.moveZone);
   fly.setLift((input.jump ? 1 : 0) - (input.crouch || (input.stance && !spectator()) ? 1 : 0));
   fly.setStickBoost(input.boost);
-  fly.setLook(input.lookX, input.lookY);
+  if (input.lookZone === undefined) fly.setLook(input.lookX, input.lookY);
+  else fly.setLook(input.lookX, input.lookY, input.lookZone);
 }

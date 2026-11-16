@@ -195,9 +195,15 @@ describe('the stances (W2.2b): C cycles stand, crouch, prone', () => {
     expect(lastSecond(speeds({ forward: 0.2, right: 0, boost: false }, 600, 'crouch').v)).toBeCloseTo(14.0, 1);
     expect(lastSecond(speeds({ forward: -0.5, right: 0, boost: false }, 600, 'crouch').v)).toBeCloseTo(k * 13.5, 1);
     expect(lastSecond(speeds({ forward: 0, right: 0.5, boost: false }, 600, 'crouch').v)).toBeCloseTo(k * 15, 1);
-    // One clip set by direction class (FUN_00582d10), no blend: a shallow diagonal walks straight ahead.
-    const { w } = speeds({ forward: 0.5, right: 0.2, boost: false }, 600, 'crouch');
-    expect(Math.abs(w.state.x)).toBeLessThan(1e-6);
+    // One clip set by direction class (FUN_00582d10), no blend -- but its root velocity split w to the side and 1 - w
+    // ahead (FUN_0057a330 D:L438911-438956, D:L438985; MOVE-4): a shallow diagonal walks along atan2(w, 1 - w) at the
+    // forward band's 14.0. H392 (the owner, 2026-11-14: "Always the original's") gave the default walker -- COMBINED's
+    // and the bots' -- the split; it walked straight ahead (x 0) before.
+    const { w, v } = speeds({ forward: 0.5, right: 0.2, boost: false }, 600, 'crouch');
+    const sw = (Math.asin(0.2 / Math.hypot(0.5, 0.2)) * 2) / Math.PI;
+    // Facing -z, right is +x: the steady velocity's heading (the ramp's first ticks bend the path, not the walk).
+    expect((Math.atan2(w.state.vx, -w.state.vz) * 180) / Math.PI).toBeCloseTo((Math.atan2(sw, 1 - sw) * 180) / Math.PI, 1);
+    expect(lastSecond(v)).toBeCloseTo(14.0, 1);
     expect(w.posture).toBe('crouch');
   });
 

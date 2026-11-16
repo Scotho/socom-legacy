@@ -5,7 +5,7 @@ import type { PickupClipName } from '../../viewer/src/mover';
 import type { AimFrame } from '../../viewer/src/net/shotCone';
 import type { DropWire, ServerEvent } from '../../viewer/src/net/protocol';
 import { launcherKitRounds, pickupKitOf, PICKUP_REACH_READING, PICKUP_SPEED_READING } from '../../viewer/src/net/pickupRules';
-import { claimWeapon, dropsOf, transferAmmo, type DropSpec } from './pickups';
+import { claimWeapon, dropsOf, firearmsCarried, transferAmmo, type DropSpec } from './pickups';
 import { equipmentSlotsOf, type EquipmentSlots } from '../../viewer/src/equipment';
 import { heldWeaponModels } from '../../viewer/src/loadout';
 
@@ -147,7 +147,7 @@ export class WorldDrops {
 
   /** The drops lying now, each the `drop` event's body (the joiner's `welcome.join.drops`). */
   wire(): DropWire[] {
-    return this.lying.map((d) => ({ ...d, at: [...d.at] as V3, ...(d.entries ? { entries: d.entries.map((e) => ({ item: e.item, rounds: [...e.rounds] })) } : {}) }));
+    return this.lying.map((d) => ({ ...d, at: [...d.at] as V3, ...(d.entries ? { entries: d.entries.map((e) => ({ ...e })) } : {}) }));
   }
 
   /** The air cleared (a round's start, the abandon: `DROP_LIFETIME_READING`): no drop, no claim, the ids from 0. */
@@ -176,7 +176,7 @@ export class WorldDrops {
     const s = victim.sim.walker.state;
     const below = this.opts.floor?.(s.x, s.y, s.z) ?? null;      // OBF-15: DROP_SETTLE_ADAPTATION (OBF.R9)
     const y = below !== null && below <= s.y ? below : s.y;
-    for (const d of dropsOf({ id: victim.id, loadout: victim.loadout, records: victim.records, mags: victim.mags, rounds: victim.rounds, feet: [s.x, y, s.z], yaw: s.yaw })) this.lay(d);
+    for (const d of dropsOf({ id: victim.id, loadout: victim.loadout, records: victim.records, mags: victim.mags, rounds: victim.rounds, feet: [s.x, y, s.z], yaw: s.yaw, table: this.opts.table() })) this.lay(d);
   }
 
   /**
@@ -291,9 +291,16 @@ export class WorldDrops {
     for (let i = 0; i < this.lying.length; i++) {
       const d = this.lying[i]!;
       if (d.kind !== 'ammo' || dist2(feet, d.at) > REACH2) continue;
-      const out = transferAmmo(d.entries ?? [], seat.records, seat.mags);
+      // A slot carries a firearm only with an item the kit table has a record for: an empty slot, or one holding the
+      // Designator or the M203 item, holds the baked record (`NO_FIREARM_RECORD_PLACEHOLDER`) and takes no ammunition.
+      // r0004's skip reads each record's own NumMags (PICKUP_POUR_READING): the kit table's, by the slot's item, not the
+      // 2X-doubled count.
+      const table = this.opts.table();
+      const carried = firearmsCarried(seat.loadout, table);
+      const own = ([0, 1] as const).map((s) => table?.records.get(seat.loadout[s])?.mags ?? seat.records[s].mags) as [number, number];
+      const out = transferAmmo(d.entries ?? [], seat.records, seat.mags, carried, own);
       if (!out.moved) continue;
-      this.tellKit(seat, null, out.filled);
+      this.tellKit(seat, null, out.filled, out.added);
       if (out.residual.length) {
         d.entries = out.residual;
         this.sinks.broadcast({ type: 'drop', ...this.wireOf(d) });
@@ -311,13 +318,13 @@ export class WorldDrops {
   }
 
   private wireOf(d: DropWire): DropWire {
-    return { did: d.did, kind: d.kind, ...(d.item !== undefined ? { item: d.item } : {}), ...(d.entries ? { entries: d.entries.map((e) => ({ item: e.item, rounds: [...e.rounds] })) } : {}), at: [...d.at] as V3, yaw: d.yaw, from: d.from };
+    return { did: d.did, kind: d.kind, ...(d.item !== undefined ? { item: d.item } : {}), ...(d.entries ? { entries: d.entries.map((e) => ({ ...e })) } : {}), at: [...d.at] as V3, yaw: d.yaw, from: d.from };
   }
 
-  private tellKit(seat: DropSeat, slot: 0 | 1 | null, filled?: [number[], number[]]): void {
+  private tellKit(seat: DropSeat, slot: 0 | 1 | null, filled?: [number[], number[]], added?: [number[], number[]]): void {
     this.sinks.send(seat.id, {
       type: 'kit', loadout: [...seat.loadout], ...(slot !== null ? { slot } : {}), rounds: [seat.mags[0].state().slots, seat.mags[1].state().slots],
-      ...(filled ? { filled } : {}),
+      ...(filled ? { filled } : {}), ...(added ? { added } : {}),
     });
   }
 }

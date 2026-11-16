@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Mesh, type Scene, type Vector2 } from 'three';
 import {
-  GRENADE_METER_BITMAP_READING, Reticle, THREAT_DIAGONAL_FACTORS, THREAT_DIAGONAL_TURNS, THREAT_GAP, THREAT_LEAVE_SETS,
+  GRENADE_METER_BITMAP_READING, GRENADE_METER_CENTRE_OWNER, Reticle, THREAT_DIAGONAL_FACTORS, THREAT_DIAGONAL_TURNS, THREAT_GAP, THREAT_LEAVE_SETS,
   THREAT_QUAD_ORIENTATION_READING, THREAT_SET5_ARM, THREAT_UV, threatArm, threatLayout, type ThreatQuadLayout, type ThreatVertex,
 } from '../src/reticle';
 import { THREAT_QUADS, type ThreatValues } from '../src/threatMarks';
@@ -242,6 +242,55 @@ describe('Reticle: the eight threat meshes', () => {
     expect(rightX(r)).toBeCloseTo(320 + 10 + 32 + 15, 6);   // frozen
     r.setSet(1); draw(r);
     expect(rightX(r)).toBeCloseTo(320 + 30 + 32 + 15, 6);   // relaid with the new size
+  });
+
+  it('a firearm set lays them about the knocked centre (D:L70421-70424); under set 4 about the meter, by the owner\'s rule (V21.R16)', () => {
+    const rightY = (r: Reticle): number => r.threatState()[Q.right]!.vertices!.reduce((s, v) => s + v.y, 0) / 6;
+    const r = new Reticle();
+    r.setBitmaps(BITMAPS);
+    r.setVisible(true);
+    r.setThreatGate(true, false);
+    r.setThreat(all(1, 50));
+    r.setSize(10, [0, -20]);                                 // the rifle knocked 20 up: the marks climb with the cross
+    r.setSet(1); draw(r);
+    expect(rightY(r)).toBeCloseTo(224 - 20 - 1, 6);                 // the right quad about (r + ox, -1): its mean y the centre's - 1
+    r.setSize(10, [0, -8]); draw(r);                         // and come back with it
+    expect(rightY(r)).toBeCloseTo(224 - 8 - 1, 6);
+    r.setSet(4); draw(r);                                    // the grenade up: about the meter, by the owner's rule
+    // the screen's centre: at rest; the live centre (and the original): the knock of the change's frame, 8 up
+    expect(rightY(r)).toBeCloseTo((GRENADE_METER_CENTRE_OWNER === 'the screen\'s centre' ? 224 : 224 - 8) - 1, 6);
+    r.setSize(26, [0, -3]); draw(r);                         // the knock returning under the grenade
+    // the live centre (OT.R124): the marks follow the meter every frame; the others hold what the change laid
+    const held = GRENADE_METER_CENTRE_OWNER === 'the screen\'s centre' ? 224 : 224 - 8;
+    expect(rightY(r)).toBeCloseTo((GRENADE_METER_CENTRE_OWNER === 'the live centre' ? 224 - 3 : held) - 1, 6);
+    // Only the centre moves: the boxes laid at the change keep their shape under set 4 (FUN_00215250 runs only in the
+    // branch the HUD frame skips, D:L70415-70434) -- a new breadth while the grenade is up does not relay them.
+    const shape = (): number[] => {
+      const v = r.threatState()[Q.right]!.vertices!;
+      const xs = v.map((p) => p.x), ys = v.map((p) => p.y);
+      return [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+    };
+    const laidShape = shape();
+    r.setThreat(all(3, 50));
+    r.setSize(26, [0, -1]); draw(r);
+    shape().forEach((d, i) => expect(d).toBeCloseTo(laidShape[i]!, 6));
+    expect(rightY(r)).toBeCloseTo((GRENADE_METER_CENTRE_OWNER === 'the live centre' ? 224 - 1 : held) - 1, 6);
+  });
+
+  it('a map serving no ret_grenade refuses set 4: no meter, so the marks keep the knocked centre (V21.R16 is the meter\'s)', () => {
+    const rightY = (r: Reticle): number => r.threatState()[Q.right]!.vertices!.reduce((s, v) => s + v.y, 0) / 6;
+    const sets = Object.fromEntries(Object.entries(BITMAPS.sets).filter(([name]) => !name.startsWith('ret_grenade_')));
+    const r = new Reticle();
+    r.setBitmaps({ ...BITMAPS, sets });
+    r.setVisible(true);
+    r.setThreatGate(true, false);
+    r.setThreat(all(1, 50));
+    r.setSize(10, [0, -20]);
+    r.setSet(1); draw(r);
+    expect(rightY(r)).toBeCloseTo(224 - 20 - 1, 6);
+    expect(r.setSet(4)).toBe(false);                        // refused: the firearm's set still drawn
+    draw(r);
+    expect(rightY(r)).toBeCloseTo(224 - 20 - 1, 6);
   });
 
   it('laid under sets 5-10 (THREAT_SCOPED_SETS_READING): set 5 at 32 x 32, set 6 at its bitmap\'s', () => {

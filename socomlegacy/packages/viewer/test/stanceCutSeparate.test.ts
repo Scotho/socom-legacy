@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SEAL_TUNING } from '@s2u/scene';
 import { flat } from './parity/world';
-import { ACTION_CLIPS, ACTION_SECONDS, RELOAD_PUSH_LAG, STANCE_CUT_TICK_READING, TICK, type ActionEnd, type Stance } from '../src/mover';
+import { ACTION_CLIPS, ACTION_SECONDS, CROUCH_PRONE_PUSH_READING, RELOAD_PUSH_LAG, STANCE_CUT_TICK_READING, TICK, type ActionEnd, type Stance } from '../src/mover';
 import { Button, COMMAND_STANCE_CODES, PROTOCOL_VERSION, STANCE_CODES, type Command } from '../src/net/protocol';
 import { decodeCommands, encodeCommands } from '../src/net/codec';
 
@@ -15,11 +15,12 @@ import { decodeCommands, encodeCommands } from '../src/net/codec';
  * bit 0x2 cleared, `FUN_00581c10` D:L442626-442629). The original refuses the three by id only for a controller whose
  * slot +0x30 (`IsAi`) answers (D:L445536-445545; research 191 section 4): the bots. COMBINED-CUT (OT.R93, the owner,
  * 2026-10-31: "3 + 4"): COMBINED's player takes the same cut (`Walker.stanceCut`) and keeps everything else of main's --
- * the velocity zeroed at a transition's push (`Walker.stanceSeparate` off), the pop's code, the hold. Reading, pending
+ * the pop's code, the hold (`Walker.stanceSeparate` off). The velocity a push leaves is the original's in every mode since
+ * the main controller's reading of H392 (redotcom-67, 2026-11-14; COMBINED zeroed it before). Reading, pending
  * review; the pop's figures are proven by EPH (FINDINGS Q3, below).
  */
 
-/** The walker's two words by who runs it: SEPARATE's player, COMBINED's player (the cut, main's zero), a bot (neither). */
+/** The walker's two words by who runs it: SEPARATE's player, COMBINED's player (the cut, the pop's code), a bot (neither). */
 type Who = 'separate' | 'combined' | 'bot';
 
 function rig(from: Stance, who: Who = 'separate') {
@@ -216,15 +217,21 @@ describe('COMBINED-CUT: COMBINED\'s player takes the stick\'s cut (OT.R93, the o
     expect(r.w.stance).toBe('crouch');
   });
 
-  it('COMBINED keeps main\'s zero at a push (SEPARATE leaves the velocity, FUN_005817d0 / FUN_00581c10 / FUN_00581540)', () => {
+  /**
+   * The main controller's reading of H392 (redotcom-67, 2026-11-14; for the owner to overturn): a stance push's velocity
+   * is movement, so the original's in every mode -- `FUN_005817d0` (D:L442494-442518), `FUN_00581c10`
+   * (D:L442622-442641) and `FUN_00581540` push the transition and write no velocity. Re-pinned from "COMBINED keeps
+   * main's zero at a push": COMBINED and the bots zeroed it (SEP-POP's OT.R93 split, 2026-10-31).
+   */
+  it('every mode and the bots: a push leaves the velocity as it was (FUN_005817d0 / FUN_00581c10 / FUN_00581540)', () => {
     for (const who of ['combined', 'separate', 'bot'] as const) {
       const r = rig('stand', who);
       r.tick(40, 0, 0.5);
-      expect(r.speed()).toBeGreaterThan(0);
+      const vx = r.w.state.vx, vz = r.w.state.vz;
+      expect(r.speed()).toBeCloseTo(0.5 * 65, 6);
       r.w.changeStance('prone');
       expect(r.w.action?.name, who).toBe('standToProne');
-      if (who === 'separate') expect(r.speed()).toBeGreaterThan(0);
-      else expect(r.speed(), who).toBe(0);
+      expect([r.w.state.vx, r.w.state.vz], who).toEqual([vx, vz]);
     }
   });
 
@@ -265,7 +272,7 @@ describe('SEP-POP: the refusal by id -- the bots (IsAi) keep main\'s held transi
   });
 });
 
-describe('SEP-POP / COMBINED-CUT: the bots are byte-for-byte main (a pin of main 60b9d7b49\'s positions)', () => {
+describe('SEP-POP / COMBINED-CUT: the bots are main but for H392\'s drop and pop (a pin of main 60b9d7b49\'s positions)', () => {
   /** Recorded on main 60b9d7b49's mover before SEP-POP: every 10th tick's x, z, stance and action. */
   const MAIN = [[10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'], [40, 20.375, 0, 'crouch', '-'],
     [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'], [70, 20.375, 0, 'crouch', '-'], [80, 22.027, 0.195, 'prone', 'crouchToProne'],
@@ -298,9 +305,58 @@ describe('SEP-POP / COMBINED-CUT: the bots are byte-for-byte main (a pin of main
     return out;
   }
 
-  it('the default walker and the bots\' (stanceCut off) both run main\'s trace exactly', () => {
-    expect(trace(undefined)).toEqual(MAIN);
-    expect(trace('bot')).toEqual(MAIN);
+  /**
+   * H392 (the owner, 2026-11-14 ~04:05Z in the main controller's seat, verbatim: "Always the original's (Recommended)"):
+   * the default walker and the bots carry MOVE-1's push under the drop and the pop (`CROUCH_PRONE_PUSH_READING`,
+   * `FUN_0054d9a0` D:L416435-416455), so main's trace holds but for rows 80-190: the drop (ticks 71-120) and the pop
+   * (ticks 141-190) move the body along x (the facing) by the clip's root plus the push, each tick 1 + PUSH_TRAVEL / rz
+   * (0.0754) of the clip's own, so x = x70 + (main's x - x70) x that ratio; z is untouched (the push is local z alone,
+   * which this facing puts on x). The pop brings x back to x70, so rows 200 on are main's. Derived by reading, to 0.005
+   * (main's x70 is 20.375 to three places); pinned byte for byte as `H392_MAIN` (was: both equal MAIN).
+   */
+  /**
+   * H392's default walker and bots, recorded byte for byte by a unit-test run on the hub (f88cb14742, the v0422 merge
+   * of da8a071948, 2026-11-14; seat 67, `h392-hub-probe.sh`); the derivation below holds it too.
+   */
+  const H392_MAIN = [
+    [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
+    [40, 20.375, 0, 'crouch', '-'], [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'],
+    [70, 20.375, 0, 'crouch', '-'], [80, 20.5, 0.195, 'prone', 'crouchToProne'],
+    [90, 20.624, 0.39, 'prone', 'crouchToProne'], [100, 20.749, 0.585, 'prone', 'crouchToProne'],
+    [110, 20.873, 0.78, 'prone', 'crouchToProne'], [120, 20.998, 0.975, 'prone', 'crouchToProne'],
+    [130, 20.998, 1.25, 'prone', '-'], [140, 20.998, 1.525, 'prone', '-'],
+    [150, 20.873, 1.33, 'crouch', 'crouchToProne'], [160, 20.749, 1.135, 'crouch', 'crouchToProne'],
+    [170, 20.624, 0.94, 'crouch', 'crouchToProne'], [180, 20.5, 0.745, 'crouch', 'crouchToProne'],
+    [190, 20.375, 0.55, 'crouch', 'crouchToProne'], [200, 20.375, 0.55, 'crouch', '-'],
+    [210, 20.375, 0.55, 'crouch', '-'], [220, 20.726, 0.882, 'stand', 'standToCrouch'],
+    [230, 21.077, 1.214, 'stand', 'standToCrouch'], [240, 21.429, 1.545, 'stand', 'standToCrouch'],
+    [250, 22.506, 1.745, 'stand', '-'], [260, 24.673, 1.745, 'stand', '-'],
+    [270, 25.274, 1.464, 'prone', 'standToProne'], [280, 25.875, 1.184, 'prone', 'standToProne'],
+    [290, 26.476, 0.903, 'prone', 'standToProne'], [300, 27.078, 0.623, 'prone', 'standToProne'],
+    [310, 27.679, 0.343, 'prone', 'standToProne'], [320, 28.04, 0.219, 'prone', '-'],
+    [330, 28.04, 0.329, 'prone', '-'], [340, 27.438, 0.609, 'stand', 'standToProne'],
+    [350, 26.837, 0.889, 'stand', 'standToProne'], [360, 26.236, 1.17, 'stand', 'standToProne'],
+    [370, 25.635, 1.45, 'stand', 'standToProne'], [380, 25.033, 1.73, 'stand', 'standToProne'],
+    [390, 29.006, 1.899, 'stand', '-'], [400, 39.839, 1.899, 'stand', '-'], [410, 50.673, 1.899, 'stand', '-']];
+
+  it('H392: the default walker and the bots (stanceCut off) run main\'s trace but for the drop and the pop, now about 1.17 u', () => {
+    const c2p = ACTION_CLIPS.crouchToProne, period = (c2p.playback * (c2p.frames - 1)) / c2p.frames;
+    const ratio = 1 + ((CROUCH_PRONE_PUSH_READING * ACTION_SECONDS.crouchToProne) / period) / c2p.travel[1];
+    expect(ratio).toBeCloseTo(0.0754, 4);
+    const x70 = MAIN[6]![1] as number;
+    for (const who of [undefined, 'bot'] as const) {
+      const t = trace(who);
+      expect(t, `${who ?? 'default'}: the recorded trace`).toEqual(H392_MAIN);
+      expect(t.length).toBe(MAIN.length);
+      for (let i = 0; i < MAIN.length; i++) {
+        const [n, x, z, stance, action] = MAIN[i]! as [number, number, number, string, string];
+        if (n < 80 || n >= 200) { expect(t[i], `${who ?? 'default'} row ${n}`).toEqual(MAIN[i]); continue; }
+        expect(t[i]![0]).toBe(n);
+        expect(t[i]![1] as number, `${who ?? 'default'} row ${n} x`).toBeCloseTo(x70 + (x - x70) * ratio, 2);
+        expect(t[i]![2] as number, `${who ?? 'default'} row ${n} z`).toBeCloseTo(z, 3);
+        expect(t[i]!.slice(3)).toEqual([stance, action]);
+      }
+    }
   });
 
   it('SEPARATE runs another (the control: the pin can tell)', () => {
@@ -316,22 +372,28 @@ describe('SEP-POP / COMBINED-CUT: the bots are byte-for-byte main (a pin of main
    * crouch run (z 10.088 at row 150, where main's reversed clip still slid back), the stand at 210 cut by the stick 0.2
    * (no `standToCrouch` at rows 220-240), the stand -> prone at 260 under the stick 0.12 cut once past its 0.9. Prone ->
    * stand at 330 is never cut (bit 0x2) and plays whole, as on main (rows 340-380). The rows equal SEPARATE's: on this
-   * script the zero COMBINED keeps at a push moves no row, the held clip's root carrying the body over it -- the zero is
-   * pinned by its own speed test above.
+   * script the zero COMBINED once kept at a push moved no row, the held clip's root carrying the body over it -- since
+   * H392 (the main controller's reading) no mode zeroes it, pinned by the push test above.
+   * THROTTLE-FRAME (2026-11-14, MISSION R8.1; `FUN_00586c10` D:L445017-445031): rows 150 on moved 0.1625 in z (was z
+   * 10.088 at row 150). The push into the crouch run at tick 140 ramps the lateral from the prone's raw 0.3 at 5 a
+   * second; the 60 Hz tick snapped its tail (0.8 -> 1 on the 7th tick: past 0.78, 12 a second), and option B judges the
+   * snap from the last game frame's value, so it ramps on (0.883, 0.967, 1): 0.15 of a stick-tick less at the strafe's
+   * 65, 0.15 x 65 / 60 = 0.1625 u, every later row carried over on the flat floor. Re-pinned to b0's box ft1 at
+   * da0f756c8e (data view), which ran the stateless numbering's frames (baadb10904: the same for direct ticks).
    */
   const COMBINED_CUT = [...MAIN.slice(0, 7), [80, 20.705, 0.259, 'prone', '-'], [90, 20.705, 0.534, 'prone', '-'],
     [100, 20.705, 0.809, 'prone', '-'], [110, 20.705, 1.084, 'prone', '-'], [120, 20.705, 1.359, 'prone', '-'],
-    [130, 20.705, 1.634, 'prone', '-'], [140, 20.705, 1.909, 'prone', '-'], [150, 20.705, 10.088, 'crouch', '-'],
-    [160, 20.705, 20.921, 'crouch', '-'], [170, 20.705, 31.755, 'crouch', '-'], [180, 20.705, 42.588, 'crouch', '-'],
-    [190, 20.705, 42.588, 'crouch', '-'], [200, 20.705, 42.588, 'crouch', '-'], [210, 20.705, 42.588, 'crouch', '-'],
-    [220, 22.682, 42.588, 'stand', '-'], [230, 24.849, 42.588, 'stand', '-'], [240, 27.016, 42.588, 'stand', '-'],
-    [250, 29.182, 42.588, 'stand', '-'], [260, 31.349, 42.588, 'stand', '-'], [270, 31.95, 42.308, 'prone', 'standToProne'],
-    [280, 32.552, 42.027, 'prone', 'standToProne'], [290, 33.153, 41.747, 'prone', 'standToProne'],
-    [300, 33.754, 41.467, 'prone', 'standToProne'], [310, 34.355, 41.186, 'prone', 'standToProne'], [320, 34.596, 41.14, 'prone', '-'],
-    [330, 34.596, 41.25, 'prone', '-'], [340, 33.995, 41.531, 'stand', 'standToProne'], [350, 33.393, 41.811, 'stand', 'standToProne'],
-    [360, 32.792, 42.091, 'stand', 'standToProne'], [370, 32.191, 42.372, 'stand', 'standToProne'],
-    [380, 31.59, 42.652, 'stand', 'standToProne'], [390, 35.562, 42.82, 'stand', '-'], [400, 46.395, 42.82, 'stand', '-'],
-    [410, 57.229, 42.82, 'stand', '-']];
+    [130, 20.705, 1.634, 'prone', '-'], [140, 20.705, 1.909, 'prone', '-'], [150, 20.705, 9.926, 'crouch', '-'],
+    [160, 20.705, 20.759, 'crouch', '-'], [170, 20.705, 31.592, 'crouch', '-'], [180, 20.705, 42.426, 'crouch', '-'],
+    [190, 20.705, 42.426, 'crouch', '-'], [200, 20.705, 42.426, 'crouch', '-'], [210, 20.705, 42.426, 'crouch', '-'],
+    [220, 22.682, 42.426, 'stand', '-'], [230, 24.849, 42.426, 'stand', '-'], [240, 27.016, 42.426, 'stand', '-'],
+    [250, 29.182, 42.426, 'stand', '-'], [260, 31.349, 42.426, 'stand', '-'], [270, 31.95, 42.145, 'prone', 'standToProne'],
+    [280, 32.552, 41.865, 'prone', 'standToProne'], [290, 33.153, 41.585, 'prone', 'standToProne'],
+    [300, 33.754, 41.304, 'prone', 'standToProne'], [310, 34.355, 41.024, 'prone', 'standToProne'], [320, 34.596, 40.978, 'prone', '-'],
+    [330, 34.596, 41.088, 'prone', '-'], [340, 33.995, 41.368, 'stand', 'standToProne'], [350, 33.393, 41.648, 'stand', 'standToProne'],
+    [360, 32.792, 41.929, 'stand', 'standToProne'], [370, 32.191, 42.209, 'stand', 'standToProne'],
+    [380, 31.59, 42.49, 'stand', 'standToProne'], [390, 35.562, 42.658, 'stand', '-'], [400, 46.395, 42.658, 'stand', '-'],
+    [410, 57.229, 42.658, 'stand', '-']];
 
   /**
    * SEPARATE on the same script since MOVE-1 and MOVE-2 (B196; a regression pin, not a capture, recorded on agent/move):
@@ -339,38 +401,90 @@ describe('SEP-POP / COMBINED-CUT: the bots are byte-for-byte main (a pin of main
    * the facing's back); every later row follows from that place. Since LATER 678 (SEGMENT-BODY B203, re-measured
    * 2026-11-04): the full-stick crouch run let go at tick 180 plays `Stand -> Crouch` (`CROUCH_RUN_RETURN_READING`,
    * SEPARATE only), rows 190-210, its root carrying the body back about 1.3 u; every later row follows from there.
+   * THROTTLE-FRAME (2026-11-14, R8.1): option B's frame-end snap moves the crouch-run press at tick 140 by 0.1625 in z
+   * from row 150 on (a regression pin, not a capture). Re-recorded exactly on the box at dd3923dbca (ft5's probe, the
+   * trace printed whole); rows 150-180 equal COMBINED's z, as they did before B.
    */
   const SEPARATE_MOVE = [
     [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
     [40, 20.375, 0, 'crouch', '-'], [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'],
     [70, 20.375, 0, 'crouch', '-'], [80, 20.4, 0.259, 'prone', '-'], [90, 20.4, 0.534, 'prone', '-'],
     [100, 20.4, 0.809, 'prone', '-'], [110, 20.4, 1.084, 'prone', '-'], [120, 20.4, 1.359, 'prone', '-'],
-    [130, 20.4, 1.634, 'prone', '-'], [140, 20.4, 1.909, 'prone', '-'], [150, 20.4, 10.088, 'crouch', '-'],
-    [160, 20.4, 20.921, 'crouch', '-'], [170, 20.4, 31.755, 'crouch', '-'], [180, 20.4, 42.588, 'crouch', '-'],
-    [190, 20.084, 42.29, 'crouch', 'standToCrouch'], [200, 19.733, 41.958, 'crouch', 'standToCrouch'],
-    [210, 19.382, 41.626, 'crouch', 'standToCrouch'], [220, 21.358, 41.626, 'stand', '-'],
-    [230, 23.525, 41.626, 'stand', '-'], [240, 25.692, 41.626, 'stand', '-'], [250, 27.858, 41.626, 'stand', '-'],
-    [260, 30.025, 41.626, 'stand', '-'], [270, 30.626, 41.346, 'prone', 'standToProne'],
-    [280, 31.228, 41.065, 'prone', 'standToProne'], [290, 31.829, 40.785, 'prone', 'standToProne'],
-    [300, 32.43, 40.504, 'prone', 'standToProne'], [310, 33.031, 40.224, 'prone', 'standToProne'],
-    [320, 33.272, 40.178, 'prone', '-'], [330, 33.272, 40.288, 'prone', '-'],
-    [340, 32.671, 40.568, 'stand', 'standToProne'], [350, 32.069, 40.849, 'stand', 'standToProne'],
-    [360, 31.468, 41.129, 'stand', 'standToProne'], [370, 30.867, 41.409, 'stand', 'standToProne'],
-    [380, 30.266, 41.69, 'stand', 'standToProne'], [390, 34.238, 41.858, 'stand', '-'],
-    [400, 45.071, 41.858, 'stand', '-'], [410, 55.905, 41.858, 'stand', '-']];
+    [130, 20.4, 1.634, 'prone', '-'], [140, 20.4, 1.909, 'prone', '-'], [150, 20.4, 9.926, 'crouch', '-'],
+    [160, 20.4, 20.759, 'crouch', '-'], [170, 20.4, 31.592, 'crouch', '-'], [180, 20.4, 42.426, 'crouch', '-'],
+    [190, 20.084, 42.127, 'crouch', 'standToCrouch'], [200, 19.733, 41.795, 'crouch', 'standToCrouch'],
+    [210, 19.382, 41.463, 'crouch', 'standToCrouch'], [220, 21.358, 41.463, 'stand', '-'],
+    [230, 23.525, 41.463, 'stand', '-'], [240, 25.692, 41.463, 'stand', '-'], [250, 27.858, 41.463, 'stand', '-'],
+    [260, 30.025, 41.463, 'stand', '-'], [270, 30.626, 41.183, 'prone', 'standToProne'],
+    [280, 31.228, 40.903, 'prone', 'standToProne'], [290, 31.829, 40.622, 'prone', 'standToProne'],
+    [300, 32.43, 40.342, 'prone', 'standToProne'], [310, 33.031, 40.062, 'prone', 'standToProne'],
+    [320, 33.272, 40.015, 'prone', '-'], [330, 33.272, 40.125, 'prone', '-'],
+    [340, 32.671, 40.406, 'stand', 'standToProne'], [350, 32.069, 40.686, 'stand', 'standToProne'],
+    [360, 31.468, 40.967, 'stand', 'standToProne'], [370, 30.867, 41.247, 'stand', 'standToProne'],
+    [380, 30.266, 41.527, 'stand', 'standToProne'], [390, 34.238, 41.695, 'stand', '-'],
+    [400, 45.071, 41.695, 'stand', '-'], [410, 55.905, 41.695, 'stand', '-']];
 
-  it('COMBINED: main\'s rows 10-70, then the cut\'s from row 80 (the first cut); the bots\' trace stays main\'s', () => {
+  /**
+   * H392 (the owner, 2026-11-14: "Always the original's (Recommended)"): COMBINED's drop carries MOVE-1's push too. Its
+   * two ticks on top under the stick (rows 80 on) moved the body 2 x 8 / T (0.3056 u) less along x than `COMBINED_CUT`
+   * recorded -- SEPARATE's 20.4 where COMBINED had 20.705 -- and every later row follows from that place, the script's
+   * pop cut on its push (no tick on top). So x = `COMBINED_CUT`'s - 0.3056 from row 80, z and the rest as recorded.
+   * Derived by reading, to 0.005; pinned byte for byte as `H392_COMBINED` (was: `trace('combined')` equals
+   * `COMBINED_CUT`). Rows 80-180 now agree with SEPARATE's; the two part at row 190, SEPARATE's crouch-run release
+   * (LATER 678, `CROUCH_RUN_RETURN_READING`, SEPARATE only -- H405, not this ruling). The push's zero, gone with the
+   * main controller's reading of H392 (2026-11-14), moves no row of either trace: the push runs at the press
+   * (`changeStance` -> `applyStance`), and the next tick's held branch (or the cut's ground state) writes the velocity
+   * afresh before any move -- the reason the SEPARATE and COMBINED traces agreed before MOVE-1.
+   */
+  /**
+   * COMBINED under H392 and THROTTLE-FRAME, recorded byte for byte by the same hub run as `H392_MAIN`; the derivation
+   * below holds it too.
+   */
+  const H392_COMBINED = [
+    [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
+    [40, 20.375, 0, 'crouch', '-'], [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'],
+    [70, 20.375, 0, 'crouch', '-'], [80, 20.4, 0.259, 'prone', '-'], [90, 20.4, 0.534, 'prone', '-'],
+    [100, 20.4, 0.809, 'prone', '-'], [110, 20.4, 1.084, 'prone', '-'], [120, 20.4, 1.359, 'prone', '-'],
+    [130, 20.4, 1.634, 'prone', '-'], [140, 20.4, 1.909, 'prone', '-'], [150, 20.4, 9.926, 'crouch', '-'],
+    [160, 20.4, 20.759, 'crouch', '-'], [170, 20.4, 31.592, 'crouch', '-'], [180, 20.4, 42.426, 'crouch', '-'],
+    [190, 20.4, 42.426, 'crouch', '-'], [200, 20.4, 42.426, 'crouch', '-'], [210, 20.4, 42.426, 'crouch', '-'],
+    [220, 22.377, 42.426, 'stand', '-'], [230, 24.543, 42.426, 'stand', '-'], [240, 26.71, 42.426, 'stand', '-'],
+    [250, 28.877, 42.426, 'stand', '-'], [260, 31.043, 42.426, 'stand', '-'],
+    [270, 31.645, 42.145, 'prone', 'standToProne'], [280, 32.246, 41.865, 'prone', 'standToProne'],
+    [290, 32.847, 41.585, 'prone', 'standToProne'], [300, 33.449, 41.304, 'prone', 'standToProne'],
+    [310, 34.05, 41.024, 'prone', 'standToProne'], [320, 34.29, 40.978, 'prone', '-'],
+    [330, 34.29, 41.088, 'prone', '-'], [340, 33.689, 41.368, 'stand', 'standToProne'],
+    [350, 33.088, 41.648, 'stand', 'standToProne'], [360, 32.487, 41.929, 'stand', 'standToProne'],
+    [370, 31.885, 42.209, 'stand', 'standToProne'], [380, 31.284, 42.49, 'stand', 'standToProne'],
+    [390, 35.257, 42.658, 'stand', '-'], [400, 46.09, 42.658, 'stand', '-'], [410, 56.923, 42.658, 'stand', '-']];
+
+  it('COMBINED: main\'s rows 10-70, then the cut\'s from row 80 (the first cut), with MOVE-1\'s push (H392)', () => {
     const t = trace('combined');
+    expect(t, 'COMBINED: the recorded trace').toEqual(H392_COMBINED);
     expect(t.slice(0, 7)).toEqual(MAIN.slice(0, 7));
     expect(t[7]).not.toEqual(MAIN[7]);
-    expect(t).toEqual(COMBINED_CUT);
-    // To MOVE-1 (B196) SEPARATE ran these rows too (the zero moves no row on this script); since, SEPARATE's drop and pop
-    // carry `FUN_0054d9a0`'s push under 0x13 (`CROUCH_PRONE_PUSH_READING`, `moveParitySeparate.test.ts`) and COMBINED
-    // does not (OT.R93): the two part at row 80, the drop on top two ticks under the stick (review F2: pinned whole).
+    const c2p = ACTION_CLIPS.crouchToProne, period = (c2p.playback * (c2p.frames - 1)) / c2p.frames;
+    const shift = 2 * TICK * (CROUCH_PRONE_PUSH_READING / period);
+    expect(shift).toBeCloseTo(0.3056, 4);
+    expect(t.length).toBe(COMBINED_CUT.length);
+    for (let i = 0; i < COMBINED_CUT.length; i++) {
+      const [n, x, z, stance, action] = COMBINED_CUT[i]! as [number, number, number, string, string];
+      if (n < 80) { expect(t[i]).toEqual(COMBINED_CUT[i]); continue; }
+      expect(t[i]![0]).toBe(n);
+      expect(t[i]![1] as number, `row ${n} x`).toBeCloseTo(x - shift, 2);
+      expect(t[i]![2] as number, `row ${n} z`).toBeCloseTo(z, 3);
+      expect(t[i]!.slice(3)).toEqual([stance, action]);
+    }
+    // SEPARATE's drop and pop carry the same push (`CROUCH_PRONE_PUSH_READING`, `moveParitySeparate.test.ts`): the two
+    // agree to row 180 and part at 190 (review F2 of B196: SEPARATE pinned whole).
     const sep = trace('separate');
-    expect(sep.slice(0, 7)).toEqual(t.slice(0, 7));
-    expect(sep[7]).not.toEqual(t[7]);
     expect(sep).toEqual(SEPARATE_MOVE);
+    for (let i = 0; i < 18; i++) {
+      expect(sep[i]![1] as number, `row ${sep[i]![0]} x`).toBeCloseTo(t[i]![1] as number, 2);
+      expect(sep[i]![2] as number, `row ${sep[i]![0]} z`).toBeCloseTo(t[i]![2] as number, 3);
+      expect(sep[i]!.slice(3)).toEqual(t[i]!.slice(3));
+    }
+    expect(sep[18]).not.toEqual(t[18]);
   });
 });
 
@@ -387,8 +501,8 @@ describe('SEP-POP: the command carries the mode (the room\'s mover resolves it a
     }
   });
 
-  it('the bit came with protocol 12 (B1: a per-tick binary field bumps the version, PF.R33) and stays in 13 (PLANT-AIM bumped it for the JSON alone) and 14 (ER-2: the raise in bit 7 of the same byte) and 15 (PROTO-15: the rules of the mover, the frames of 14)', () => {
-    expect(PROTOCOL_VERSION).toBe(15);
+  it('the bit came with protocol 12 (B1: a per-tick binary field bumps the version, PF.R33) and stays in 13 (PLANT-AIM bumped it for the JSON alone) and 14 (ER-2: the raise in bit 7 of the same byte) and 15 (PROTO-15: the rules of the mover, the frames of 14) and 16 (WIRE-16: the view\'s three bytes after the same byte)', () => {
+    expect(PROTOCOL_VERSION).toBe(16);
   });
 
   it('N1: a SEPARATE command\'s pop code (3) is ignored -- SEPARATE has no pop (STM.R2a); COMBINED\'s still pops', () => {

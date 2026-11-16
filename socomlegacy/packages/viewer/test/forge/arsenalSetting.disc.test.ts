@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { fixture, FIXTURES_ABSENT } from '../../../archive/test/fixtures';
 import { ITEM, readKitTable, readMapArsenal } from '@s2u/scene';
 import type { SimKits } from '../../src/loadout';
@@ -15,8 +15,12 @@ const ZWEAPON = fixture('RUN/ZWEAPON.ZAR'), READERC = fixture('RUN/READERC.ZAR')
 const present = !!(ZWEAPON && READERC && MP2);
 
 describe.skipIf(!present)(`Frostfire opened to breaching by the layout's arsenal${present ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
-  const table = present ? readKitTable(ZWEAPON!) : null;
-  const kits: SimKits | null = table ? { table, map: readMapArsenal(table.arsenal, MP2!, READERC!) } : null;
+  // FC2 (ours): read in a hook, not at collection (BL-7, `tools/test/skipIfFactories.test.ts`).
+  let kits: SimKits | null = null;
+  beforeAll(() => {
+    const table = readKitTable(ZWEAPON!);
+    kits = { table, map: readMapArsenal(table.arsenal, MP2!, READERC!) };
+  });
 
   it('the disc gives no side C4, LAW or RPG on Frostfire', () => {
     for (const side of ['seal', 'terrorist'] as const) {

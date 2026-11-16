@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { LOAD_MARK_PREFIX, LOAD_MARKS_ADAPTATION, LOAD_PHASES, loadSummary, markLoad, markLobbyPrepared, type LoadMarkClock } from '../src/loadMarks';
+import {
+  LOAD_MARK_PREFIX, LOAD_MARKS_ADAPTATION, LOAD_PHASES, loadStartedAt, loadSummary, markLoad, markLobbyPrepared, setLoadMarkListener, type LoadMarkClock, type LoadPhase,
+} from '../src/loadMarks';
 
 /** A User Timing clock by hand: `now` moved by the test. */
 function clock() {
@@ -69,6 +71,27 @@ describe('IP3 bbXnSJNH (a measurement instrument, no original): the lobby match 
     expect(mm).toMatch(/if \(firstWorldFrame\) \{ firstDrawn = true; markLoad\('first-frame'\);/);
     const cl = src('net/client.ts');
     expect((cl.match(/markLoad\('loaded-sent'\)/g) ?? []).length).toBe(3);
+  });
+
+  it('XBOX-790-LOADDIAG: a listener hears each phase as it is marked, with a clock or none; a throwing one never stops the load; the start is kept', () => {
+    const heard: LoadPhase[] = [];
+    try {
+      setLoadMarkListener((p) => { heard.push(p); });
+      const before = globalThis.performance.now();
+      markLoad('load-start', null);
+      const started = loadStartedAt();
+      expect(started).not.toBeNull();
+      expect(started!).toBeGreaterThanOrEqual(before);
+      const c = clock();
+      markLoad('decode-done', c.perf, () => undefined);
+      expect(heard).toEqual(['load-start', 'decode-done']);
+      setLoadMarkListener(() => { throw new Error('diag'); });
+      expect(() => { markLoad('start', c.perf); }).not.toThrow();
+      expect(c.marks.map((m) => m.name)).toContain(`${LOAD_MARK_PREFIX}start`);   // the mark still made
+      setLoadMarkListener(null);
+      markLoad('mounted', null);
+      expect(heard).toEqual(['load-start', 'decode-done']);
+    } finally { setLoadMarkListener(null); }
   });
 
   it("IP3 lobby prepare: the summary says whether the hand-off found the lobby's prepared match; a new load forgets it", () => {

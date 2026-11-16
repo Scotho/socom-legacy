@@ -1,5 +1,7 @@
 import { connectedPads } from '../../controllerInput';
 import { CONTROLLER_LAYOUTS, controllerLayoutDescription } from '../../controllerSettings';
+import { codModernChosen, COD_MODERN_VALUE } from '../../controllerModern';
+import { CONTROLLER_LABEL_CHOICES, readControllerLabels, saveControllerLabels, STEAM_CONTROLLER_HELP } from '../../controllerLabels';
 import { stickTunersOfPreset, VIDEO_PICTURES, type ValveEntry } from '@s2u/ui';
 import { MOBILE_LAYOUT_ROW } from '../../mobileLayout';
 import { gameMicrophoneOn, MIC_DEVICE_KEY, MIC_ENABLED_KEY } from '../../gameMicrophone';
@@ -20,7 +22,7 @@ import { presetOfRows } from '../../autoQuality';
 import { clearGraphicsDemoted, readGraphicsDemoted } from '../../graphicsDemotion';
 import type { IconName } from '../icons';
 import { BACKEND_WORDS } from '../render/extract';
-import { PAD_DEAD_ZONE_LABEL } from '../render/remap';
+import { PAD_DEAD_ZONE_ABOUT, PAD_DEAD_ZONE_LABEL } from '../render/remap';
 import { APPEARANCE, THEMES, hex } from '../render/theme';
 import { BACKDROP_URL } from '../backdrop';
 import { installAction, readInstallSurface, type InstallSurface } from '../../pwa/install';
@@ -441,10 +443,11 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   };
   const layout: Spec = {
     row: { id: 'SelectedControllerConfig', label: 'Controller layout',
-      get about() { return controllerLayoutDescription(valveRaw('SelectedControllerConfig') ?? 1); },
+      get about() { return controllerLayoutDescription(codModernChosen() ? COD_MODERN_VALUE : valveRaw('SelectedControllerConfig') ?? 1); },
       get note() { return cardNote(); } },
     values: () => CONTROLLER_LAYOUTS.map(l => l.label),
-    get: () => Math.max(0, CONTROLLER_LAYOUTS.findIndex(l => l.value === (valveRaw('SelectedControllerConfig') ?? 1))),
+    // V20.R4: COD Modern is the page's own choice; else the card's original layout.
+    get: () => Math.max(0, CONTROLLER_LAYOUTS.findIndex(l => l.value === (codModernChosen() ? COD_MODERN_VALUE : valveRaw('SelectedControllerConfig') ?? 1))),
     def: () => 0,
     lock: () => store.usable() && store.setControllerLayout ? undefined : 'Card cannot be read',
     set: i => { const selected = CONTROLLER_LAYOUTS[i]; return !!selected && !!store.setControllerLayout?.(selected.value); },
@@ -485,10 +488,17 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     def: () => 0, lock: () => undefined,
     set: (i) => { const key = i === 0 ? 'auto' : pads()[i - 1]?.key ?? 'auto'; savePreference(PAD_SELECTION_KEY, key); deps.pad?.select(key); return true; },
   };
+  const controllerLabels: Spec = {
+    row: { id: 'controller-labels', label: 'Controller labels', about: STEAM_CONTROLLER_HELP, note: 'Saved to this browser. Applies to Button mapping and overlay prompts.' },
+    values: () => CONTROLLER_LABEL_CHOICES.map(choice => choice.label),
+    get: () => CONTROLLER_LABEL_CHOICES.findIndex(choice => choice.id === readControllerLabels()),
+    def: () => 0, lock: () => undefined,
+    set: i => { const choice = CONTROLLER_LABEL_CHOICES[i]; if (!choice) return false; saveControllerLabels(choice.id); return true; },
+  };
   const padDead: Spec = {
     // SS-1's D2 (a browser adaptation): named for what it is -- this browser's pad calibration, before the game's own curve
     // -- so it cannot be read as the card's Dead zone under "In the game" (CONTROLLER OPTIONS' DEAD ZONE). Id and key kept.
-    row: { id: 'pad-dead', label: PAD_DEAD_ZONE_LABEL, about: 'How far the stick moves before this browser passes it to the game. Raise it if your aim drifts on its own. The game’s own Dead zone, with the Custom preset, is under Layout and aiming.', note: 'Saved to this browser, for this controller.' },
+    row: { id: 'pad-dead', label: PAD_DEAD_ZONE_LABEL, about: `${PAD_DEAD_ZONE_ABOUT} The game’s own Dead zone, with the Custom preset, is under Layout and aiming.`, note: 'Saved to this browser, for this controller.' },
     values: () => Array.from({ length: 41 }, (_, i) => `${i}%`),
     get: () => (deps.pad ? Math.round(deps.pad.deadZone() * 100) : undefined), def: () => 15,
     lock: () => (deps.pad?.connected() ? undefined : 'Connect a controller'),
@@ -902,7 +912,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     { id: 'audio', label: 'Audio', icon: 'volume', family: 'game', specs: () => cards('audio') },
     // LATER 294 slice 1: the browser's controller rows first (Stance, device, dead zone, Button mapping), then Overlay button, then the card's rows.
     // STANCE-TOP (the owner, 2026-11-02: "move stance mode to the top"; a browser adaptation): the Stance mode the tab's first row.
-    { id: 'controller', label: 'Controller', icon: 'pad', family: 'launcher', specs: () => headed([stanceMode, padDevice, padDead, remap, ...overlayButton], 'Layout and aiming', [layout, ...cards('controls')]) },
+    { id: 'controller', label: 'Controller', icon: 'pad', family: 'launcher', specs: () => headed([stanceMode, padDevice, padDead, remap, controllerLabels, ...overlayButton], 'Layout and aiming', [layout, ...cards('controls')]) },
     { id: 'mobile', label: 'Mobile', icon: 'phone', family: 'launcher', specs: () => [{
       row: { id: MOBILE_LAYOUT_ROW, label: 'Touch layout', action: 'Edit layout', about: 'Drag each button and stick to where your thumbs reach. Portrait and landscape have separate layouts.', note: 'Saved to this browser on this device.' },
       values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false,

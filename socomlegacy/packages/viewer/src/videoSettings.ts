@@ -208,7 +208,7 @@ export const VIDEO_SCHEMA: readonly VideoRow[] = [
   { key: 'filtering', kind: 'choice', values: words(FILTERINGS, (f) => (f === 'original' ? 'Original' : 'Anisotropic')), group: 'detail', surfaces: LIVE, apply: 'live', customOnly: true,
     effect: 'Sharper textures at a glancing angle under the Modern picture; a look only.' },
   { key: 'graphics', kind: 'choice', values: words(GRAPHICS, (g) => ({ auto: 'Automatic', webgl2: 'WebGL2', webgpu: 'WebGPU' })[g]), group: 'renderer', surfaces: LIVE, apply: 'nextMatch', customOnly: false,
-    effect: 'The browser\'s graphics interface: Automatic asks for WebGPU first, and WebGL2 where it is missing or after a WebGPU error; on an Xbox Automatic always draws WebGL2. After a WebGPU error the setting stays on WebGL2; elsewhere, choose Automatic again to bring WebGPU back. Applies when the next match starts.' },
+    effect: 'The browser\'s graphics interface: Automatic asks for WebGPU first, and WebGL2 where it is missing or after a WebGPU error; on an Xbox the console always draws WebGL2, whichever is chosen. After a WebGPU error the setting stays on WebGL2; elsewhere, choose Automatic again to bring WebGPU back. Applies when the next match starts.' },
   { key: 'power', kind: 'choice', values: words(POWERS, (p) => ({ default: 'Default', 'high-performance': 'High performance', 'low-power': 'Low power' })[p]), group: 'renderer', surfaces: LIVE, apply: 'nextMatch', customOnly: true,
     effect: 'Which graphics chip a two-chip laptop is asked for; applies when the next match starts.' },
   { key: 'colourFilter', kind: 'choice', values: words(COLOUR_FILTERS, (c) => c[0]!.toUpperCase() + c.slice(1)), group: 'picture', surfaces: LIVE, apply: 'live', customOnly: true,
@@ -480,8 +480,11 @@ export type VideoSettingsKeeper = ReturnType<typeof videoSettingsKeeper>;
  * screen's three rows (`@s2u/ui` `VideoRowsKeeper`, which does not import the viewer) on the v2 keeper.
  * - **RENDER SCALE**'s three boxes read the preset drawn: a named preset its own; Automatic what it resolved to
  *   (`./autoQuality` `presetOfRows`, else the tier its percent and ceiling stand for -- the Xbox class's 720p start lights
- *   PERFORMANCE); Custom the tier its rows stand for. A press writes `set({ preset })`: it leaves Automatic (or Custom) for
- *   that preset, its values written, shadows included (VS-1 (d)), and never makes Custom.
+ *   PERFORMANCE); Custom the tier its rows stand for. A press writes that tier's render scale and ceiling ONLY, as the v1
+ *   keeper's render scale does, and keeps every other row; the preset becomes Custom where they leave it
+ *   (VS-SCALE-KEEPS-ROWS, 2026-11-14, a player's report: "on mobile it kept resetting my settings, the frame rates back"
+ *   -- a press had written the whole preset, its frame cap 0 over a chosen cap, its shadows and the rest, unsaid; VS-1
+ *   (d)'s "shadows follow the preset" is withdrawn for this row).
  * - **SHADOWS** Off is `'off'`; On restores the preset's tier (Automatic's resolved one; Medium where the preset's own is
  *   Off, as Performance's is, or under Custom) and keeps a tier already on.
  * - **SHOW FPS** is the performance overlay: Off, or FPS (a full readout already on is kept).
@@ -495,7 +498,7 @@ export function videoRowsKeeperV2(keeper: VideoSettingsKeeperV2 = videoSettingsK
   return {
     get: (): VideoRowsSettings => { const v = keeper.get(); return { renderScale: drawnPreset(v), shadows: v.shadows !== 'off', showFps: v.overlay !== 'off' }; },
     set(patch: Partial<VideoRowsSettings>): void {
-      if (isScale(patch.renderScale)) keeper.set({ preset: patch.renderScale });
+      if (isScale(patch.renderScale)) { const to = PRESET_VALUES[patch.renderScale]; keeper.set({ renderScalePct: to.renderScalePct, ceiling: to.ceiling }); }
       if (typeof patch.shadows === 'boolean') {
         const v = keeper.get();
         if (!patch.shadows) keeper.set({ shadows: 'off' });

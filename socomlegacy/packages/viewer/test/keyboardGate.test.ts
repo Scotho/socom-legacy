@@ -41,7 +41,9 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../src');
 const tree = (d: string): string[] => readdirSync(resolve(SRC, d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? tree(`${d}/${e.name}`) : [`${d}/${e.name}`]));
 // `console/` since CX-28 (2026-10-18), with its subfolders: MODAL-CLOSE read `console/input.ts` alone, so the adapters'
 // key listeners (`adapters/replays.ts`' release stoppers, `adapters/index.ts`' keyboard-seen mark) went unread.
-const files = [...readdirSync(SRC), ...['net', 'voice', 'forge'].flatMap((d) => readdirSync(resolve(SRC, d)).map((f) => `${d}/${f}`)), ...tree('modern'), ...tree('console')].filter((f) => f.endsWith('.ts'));
+// `forge/shell/` since the FC2 batch review's B-5 (2026-11-13): the dock shell's sash keys (`forge/shell/dockShell.ts`,
+// 434a494cbc), its workspace's and the card stack's keys went unread while `forge/` was read flat.
+const files = [...readdirSync(SRC), ...['net', 'voice', 'forge'].flatMap((d) => readdirSync(resolve(SRC, d)).map((f) => `${d}/${f}`)), ...tree('modern'), ...tree('console'), ...tree('forge/shell')].filter((f) => f.endsWith('.ts'));
 /**
  * A line that attaches a key listener: `addEventListener('keydown' | 'keyup', ...)`; since CX-28 a helper's
  * `name(target, 'keydown' | 'keyup', ...)` too -- the console's `on()` (`console/input.ts`) attaches its keymap and its
@@ -55,13 +57,21 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // FUI-23 (browser adaptation): the Forge rules cues' audio-unlock gesture list, the same events `audio.ts` listens to; it
   // asks a held cue's output to run and reads no key as input (OT.R29's exemption, as `audio.ts` has).
   ['forge/rulesCues.ts', "'keydown', 'touchend'"],
-  // The Forge's own accessibility keys (browser adaptations): Enter or Space on the axis widget's end, the arrows on a dock's
-  // resize handle, Escape closing the asset view's, Play's and Select's popovers, Escape cancelling a scrub's drag.
+  // The Forge's own accessibility keys (browser adaptations): Enter or Space on the axis widget's end, Escape closing the
+  // asset view's, Play's and Select's popovers, Escape cancelling a scrub's drag.
   ['forge/page.ts', "end.addEventListener('keydown', (event) => {"],
-  ['forge/page.ts', "handle.addEventListener('keydown', (event) => {"],
+  // (FC2: the old docks' resize handle and its arrow keys left with the docks; the dock shell's sash takes them now, an
+  // editor key of OT.R68's group below, `forge/shell/dockShell.ts`)
   ['forge/page.ts', "doc.addEventListener('keydown', event => {"],
   ['forge/page.ts', "doc.addEventListener('keydown', (e) => {"],
+  ['forge/page.ts', "field.addEventListener('keydown', (e) => {"],   // the outliner's folder rename: Enter keeps, Escape cancels (a text field's own keys)
   ['forge/scrub.ts', "doc.addEventListener('keydown', onKey, true);"],
+  // The Forge shell's own (FC2 B-5; browser adaptations): Escape closing an open workspace (the dock shell's and the old
+  // panel host's, each on the workspace's own root), and the card stack's Escape (its Back) and its Tab focus trap.
+  ['forge/shell/dockShell.ts', "workspace?.root.addEventListener('keydown', onWorkspaceKey);"],
+  ['forge/shell/panel.ts', "workspace?.root.addEventListener('keydown', onWorkspaceKey);"],
+  ['forge/shell/cards.ts', "host.addEventListener('keydown', onKey);"],     // Escape: the top card's Back
+  ['forge/shell/cards.ts', "doc.addEventListener('keydown', onTab);"],      // Tab: the top card's focus trap
   ['startupNavigation.ts', 'this.clearFocus()'],                 // a key clears the pad's focus ring
   ['ui.ts', "pop.querySelector('#controls-tabs')?.addEventListener('keydown'"], // the tabs' arrows (twice)
   ['ui.ts', "button.addEventListener('keydown'"],                  // a tab's arrow keys
@@ -100,9 +110,10 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // the launcher's menu keys, every build -- the console's menus only (the overlay over a game reads none), never a game key.
   ['console/input.ts', "on(win, 'keydown', onMenuKey)"],
   ['console/input.ts', "on(doc, 'keydown', onAccountKeys, true)"],          // browser account disclosure: native activation/accessibility; underlying keys stand down
-  ['console/adapters/replays.ts', "layer.addEventListener('keydown', stopAll, true)"], // :249 a release build's keys stop at the viewer's layer
-  ['console/adapters/replays.ts', "layer.addEventListener('keyup', stopAll, true)"],   // :250 the same at keyup (a button's Space clicks there)
-  ['console/adapters/replays.ts', "layer.addEventListener('keydown', stopTaken)"],     // :251 a key the viewer took goes no further
+  // RVK-B (LATER 966): the viewer takes its keys in every build now (`RVK_REPLAY_VIEWER` below); these three stay as they read.
+  ['console/adapters/replays.ts', "layer.addEventListener('keydown', stopAll, true)"], // :257 a caller's `keyboard: false`: every key stops at the layer
+  ['console/adapters/replays.ts', "layer.addEventListener('keyup', stopAll, true)"],   // :258 the same at keyup (a button's Space clicks there)
+  ['console/adapters/replays.ts', "layer.addEventListener('keydown', stopTaken)"],     // :259 a key the viewer took goes no further (the console's menu keys)
   // CX-25 retired `modern/index.ts`'s sign-in panel Escape and `modern/settings/index.ts`'s three (the slider's keys, a
   // category's Escape, the list's roving focus) with the modern shell; CX-26 retired `modern/dialog.ts`'s Tab trap,
   // `modern/logoff.ts`'s and `modern/agreement/agreement.ts`'s two arrow keys, `modern/osk.ts`'s last-input mark and
@@ -140,6 +151,9 @@ const LAUNCHER_START: readonly [string, string][] = [
 const OT_R68_FORGE: readonly [string, string][] = [
   ['forge/page.ts', "globalThis.addEventListener('keydown', (e) => {"],          // the editor's map, every build
   ['forge/page.ts', "globalThis.addEventListener('keydown', onLeaseKey);"],       // R3-A: the focus lease's exit, every build
+  // FC2-6 (434a494cbc; the FC2 batch review's B-5): the dock shell's sash -- the arrows along its split resize the two panes
+  // beside it (Shift a larger step), as the old docks' resize handle did; the editor's own, every build.
+  ['forge/shell/dockShell.ts', "el.addEventListener('keydown', (e) => {"],
   // R4 (dot's FCW-S1-ASSETS, b293f72f7) named the asset preview's keys here; FUI-22 (D1) made the preview a tooltip,
   // which takes no keys, so the line went and its entry with it (the page's Escape hides the tooltip, `forge/keys.ts`).
   ['camera.ts', "globalThis.addEventListener('keydown', this.onKeyDown)"],        // under `DEV || this.forgeKbm`
@@ -162,7 +176,27 @@ const OT_R114_TESTROOM: readonly [string, string][] = [
 // LATER 86's two findings (the replay transport's playback keys, `replays/transport.ts`, and the viewer's Escape for Back,
 // `replays/view.ts`) were gated only by their caller's `keys` option; the seat's call (the owner's rule, 2026-10-04:
 // players use a controller only, the keyboard a local testing option compiled out of release) put a literal
-// `import.meta.env.DEV` at both sites, so the gate holds them with no findings list.
+// `import.meta.env.DEV` at both sites. RVK-B (LATER 966, V21.R7) lifted that fold for the replay viewer alone, on the
+// owner's word of 2026-11-12 -- its listeners are `RVK_REPLAY_VIEWER`'s, below; a match keeps OT.R29.
+
+/**
+ * RVK-B (LATER 966, V21.R7; closes LATER 628 and the replay batch's Q6): the owner, 2026-11-12, "The replay mode should be
+ * fully navigable with keyboard and mouse. Every view." The replay viewer's own key listeners, in every build where its
+ * caller's `keys` says (both callers' default: true) -- the transport's (its keys and its jumps' held Enter / Space) and
+ * the viewer's (the cameras, the spectator's presses, the held keys on the world's camera, the keys list, Escape for Back).
+ * Each sits on the viewer's own element (its box, a jump button), never the window, the global or the document: the
+ * viewer also opens in the in-game overlay over a game page, and no match page gains a key (OT.R29 stands for a match;
+ * OT.R48 untouched). The framed world stays deaf: its gates are the cases below, untouched. The case after holds each
+ * entry to one live line, outside the development fold, on an element of the viewer's.
+ */
+const RVK_REPLAY_VIEWER: readonly [string, string][] = [
+  ['modern/replays/transport.ts', "host.addEventListener('keydown', onKey)"],         // the transport's keys, on the viewer's box
+  ['modern/replays/transport.ts', "host.addEventListener('keyup', onKeyUp)"],         // J / L let go: the hold ends (RVK-A)
+  ['modern/replays/transport.ts', "b.addEventListener('keydown', onButtonKey)"],      // << / >> held by Enter or Space (RVK-A)
+  ['modern/replays/transport.ts', "b.addEventListener('keyup', onButtonKey)"],
+  ['modern/replays/view.ts', "wrap.addEventListener('keydown', onViewerKey)"],         // the cameras, presses, held keys, ?, Escape
+  ['modern/replays/view.ts', "wrap.addEventListener('keyup', onViewerKeyUp)"],         // a held key let go; a press at its release
+];
 
 
 /**
@@ -172,11 +206,28 @@ const OT_R114_TESTROOM: readonly [string, string][] = [
  */
 const FORGE_PAGE_EXEMPT_LINES: Readonly<Record<string, number>> = {
   "end.addEventListener('keydown', (event) => {": 1,
-  "handle.addEventListener('keydown', (event) => {": 1,
   "doc.addEventListener('keydown', event => {": 1,
-  "doc.addEventListener('keydown', (e) => {": 2,
+  // FC2-4: three -- the Play settings popup's and the Select settings popup's Escape (page.ts:11326, 11775), and his menu
+  // bar's (page.ts:12202): Escape shuts an open File / Edit / Window menu, no other key, on one line.
+  "doc.addEventListener('keydown', (e) => {": 3,
+  "field.addEventListener('keydown', (e) => {": 1,   // the outliner's folder rename: Enter keeps, Escape cancels (a text field's own keys)
 };
 const ESCAPE_ONLY = /^\s*if \((?:e|event)\.key !== 'Escape' \|\| \w+\.hidden\) return;$/;
+/** FC2-4: the one-line form -- the handler's whole body one Escape-guarded shut of the menu bar's open menus. */
+const ESCAPE_ONLY_INLINE = /=> \{ if \((?:e|event)\.key === 'Escape'\) for \(const m of menus\) if \(m\.d\.open\) shut\(m\); \}\);\s*$/;
+
+/** Every `.ts` / `.tsx` file under `src/`, every folder, recursively (path relative to `src/`). */
+const everySource = (d = ''): string[] => readdirSync(resolve(SRC, d), { withFileTypes: true })
+  .flatMap((e) => { const p = d ? `${d}/${e.name}` : e.name; return e.isDirectory() ? everySource(p) : /\.tsx?$/.test(e.name) ? [p] : []; });
+/**
+ * The RVK-B review's finding 8, its scan: each `mountTransport(` call in the [path, text] pairs (the definition's own line
+ * aside), as `path: line`. The RVK-B fold's finding 1: what it reads is `TRANSPORT_SCAN`, not the gate's `files`.
+ */
+const transportCalls = (entries: readonly (readonly [string, string])[]): string[] =>
+  entries.flatMap(([f, text]) => text.split('\n').filter((l) => /\bmountTransport\(/.test(l) && !/function mountTransport\(/.test(l)).map((l) => `${f}: ${l.trim()}`));
+const TRANSPORT_SCAN: readonly string[] = everySource();
+/** The one call allowed: the viewer's, handed its own `.cx-replay` box. */
+const VIEWER_TRANSPORT_CALL = /^modern\/replays\/view\.ts: transport = mountTransport\(wrap, /;
 
 describe('every game keyboard listener is a development build\'s only (OT.R29, "Everywhere")', () => {
   it('each addEventListener of a key event sits under import.meta.env.DEV, or is listed as not game input', () => {
@@ -185,7 +236,7 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
       const lines = readFileSync(resolve(SRC, f), 'utf-8').split('\n');
       lines.forEach((line, i) => {
         if (!keyListener(line)) return;
-        if ([...NOT_GAME_INPUT, ...OT_R62_ESCAPE, ...LAUNCHER_START, ...OT_R68_FORGE, ...OT_R114_TESTROOM].some(([file, frag]) => f === file && line.includes(frag))) return;
+        if ([...NOT_GAME_INPUT, ...OT_R62_ESCAPE, ...LAUNCHER_START, ...OT_R68_FORGE, ...OT_R114_TESTROOM, ...RVK_REPLAY_VIEWER].some(([file, frag]) => f === file && line.includes(frag))) return;
         if (lines.slice(Math.max(0, i - 14), i + 1).some((l) => l.includes('import.meta.env.DEV'))) return;
         bad.push(`${f}:${i + 1}: ${line.trim()}`);
       });
@@ -198,7 +249,9 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
       expect(NOT_GAME_INPUT.some(([f, x]) => f === 'forge/page.ts' && x === frag), frag).toBe(true);
       const at = lines.flatMap((l, i) => (l.includes(frag) ? [i] : []));
       expect(at, frag).toHaveLength(count);
-      if (frag.startsWith('doc.')) for (const i of at) expect(lines[i + 1], `forge/page.ts:${i + 2}`).toMatch(ESCAPE_ONLY);
+      if (frag.startsWith('doc.')) {
+        for (const i of at) expect(ESCAPE_ONLY.test(lines[i + 1]!) || ESCAPE_ONLY_INLINE.test(lines[i]!), `forge/page.ts:${i + 1}`).toBe(true);
+      }
     }
     // Beside them only the native Settings range's keyup (FDL-1), pinned to its one line by `forge/releaseGate.test.ts`.
     expect(NOT_GAME_INPUT.filter(([f, x]) => f === 'forge/page.ts' && x !== "lightIn.addEventListener('keyup'").map(([, x]) => x).sort()).toEqual(Object.keys(FORGE_PAGE_EXEMPT_LINES).sort());
@@ -274,6 +327,44 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
     expect(wrapped.length).toBeGreaterThanOrEqual(6);
     for (const l of wrapped) expect(l, l.trim()).toMatch(/addEventListener\??\.?\('key(down|up)', testroomKeys\(/);
   });
+  it("RVK-B: the replay viewer's group -- each entry one live line, every build's, on the viewer's own element, never the window, the global or the document", () => {
+    const devFold = 'import.meta.en' + 'v.DEV';                       // split: the leak check's key-file name
+    for (const [file, frag] of RVK_REPLAY_VIEWER) {
+      expect(file.startsWith('modern/replays/'), file).toBe(true);
+      const lines = readFileSync(resolve(SRC, file), 'utf-8').split('\n');
+      const at = lines.flatMap((l, i) => (l.includes(frag) && keyListener(l) ? [i] : []));
+      expect(at, `${file}: ${frag}`).toHaveLength(1);
+      expect(lines[at[0]!]!, `${file}: ${frag}`).not.toMatch(/\b(?:window|win|globalThis|doc|document|view)\??\.addEventListener/);
+      expect(lines.slice(Math.max(0, at[0]! - 14), at[0]! + 1).some((l) => l.includes(devFold)), `${file}: every build's`).toBe(false);
+    }
+    // Nothing else in the viewer's folder listens for a key: the group is the whole of it.
+    for (const f of files.filter((x) => x.startsWith('modern/replays/'))) {
+      const lines = readFileSync(resolve(SRC, f), 'utf-8').split('\n');
+      const listeners = lines.filter((l) => keyListener(l));
+      expect(listeners.filter((l) => !RVK_REPLAY_VIEWER.some(([file, frag]) => file === f && l.includes(frag))), f).toEqual([]);
+    }
+    // The review's finding 8: the transport's listeners sit on its `host`, so every caller must hand it the viewer's own box --
+    // never the document's body nor a page's element -- or the group would widen through a caller. Every call in src/ is
+    // `mountTransport(wrap, ...)` in the viewer, `wrap` its own `.cx-replay` box. This scan alone reads every `.ts` / `.tsx`
+    // file under src/, every folder (`TRANSPORT_SCAN`, the RVK-B fold's finding 1); the gate's other checks read `files`.
+    const calls = transportCalls(TRANSPORT_SCAN.map((f) => [f, readFileSync(resolve(SRC, f), 'utf-8')] as const));
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c, c).toMatch(VIEWER_TRANSPORT_CALL);
+    const view = readFileSync(resolve(SRC, 'modern/replays/view.ts'), 'utf-8');
+    expect(view.match(/const wrap = /g)).toHaveLength(1);
+    expect(view).toContain("const wrap = el('div', 'cx-replay');");
+    // No keyboard marker of the testing builds in it (`build_keyboard.test.ts` greps the built files for them).
+    for (const f of files.filter((x) => x.startsWith('modern/replays/'))) expect(readFileSync(resolve(SRC, f), 'utf-8'), f).not.toMatch(/keyboardSite\(/);
+  });
+  it("the RVK-B fold (finding 1): the transport's host scan reads every .ts / .tsx under src/, not only the gate's folders", () => {
+    const missed = everySource().filter((f) => !TRANSPORT_SCAN.includes(f));
+    expect(missed, `unread: ${missed.slice(0, 5).join(', ')}`).toEqual([]);
+    for (const f of ['replay/', 'agent/']) expect(TRANSPORT_SCAN.some((x) => x.startsWith(f)), f).toBe(true);
+    // A later call in a folder the gate's `files` never read is caught, and is not the viewer's own.
+    const late = transportCalls([['agent/late.ts', 'const t = mountTransport(document.body, client, {});'], ['replay/ok.ts', 'export function mountTransport(host: HTMLElement) {}']]);
+    expect(late).toEqual(['agent/late.ts: const t = mountTransport(document.body, client, {});']);
+    expect(late[0]).not.toMatch(VIEWER_TRANSPORT_CALL);
+  });
   it('the launcher START listeners are live on every build', () => {
     // The registration sits outside the development-build fold. The token is split so this file does not carry the
     // leak check's key-file name (a backslash before it is not a word character, so a regex would be a hit).
@@ -289,6 +380,15 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
   it('each gated site names its marker for the build test', () => {
     const all = files.map((f) => readFileSync(resolve(SRC, f), 'utf-8')).join('\n');
     for (const site of KEYBOARD_SITES) expect(all, site).toContain(`keyboardSite('${site}')`);
+  });
+  it("FC2 B-5: the scan reads forge/shell/, and each of its exemptions names one live key listener line", () => {
+    expect(files).toContain('forge/shell/dockShell.ts');
+    const shell = [...NOT_GAME_INPUT, ...OT_R68_FORGE].filter(([file]) => file.startsWith('forge/shell/'));
+    expect(shell.map(([file]) => file).sort()).toEqual(['forge/shell/cards.ts', 'forge/shell/cards.ts', 'forge/shell/dockShell.ts', 'forge/shell/dockShell.ts', 'forge/shell/panel.ts']);
+    for (const [file, frag] of shell) {
+      const hits = readFileSync(resolve(SRC, file), 'utf-8').split(/\r?\n/).filter((l) => l.includes(frag) && keyListener(l));
+      expect(hits.length, `${file}: ${frag}`).toBe(1);
+    }
   });
   it('the voice talk keys are a gated site of their own (SVC-22b; H87 VOICE-KEY: V in the round, R in the menus)', () => {
     expect(KEYBOARD_SITES).toContain('s2u-kb-voice');

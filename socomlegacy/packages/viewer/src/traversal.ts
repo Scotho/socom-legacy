@@ -322,6 +322,17 @@ const PRONE_TURN = 0.025;
 export const STANCE_MEMORY_RETURNS_READING = "not ported: the clip-push returns leave the memory unwritten that frame, and the crouch's idle under +0x21c bit 2 pushes a clip without clearing it" as const;
 
 /**
+ * `FUN_002998f0` (decomp 141962-141976): one step of the camera's peek value toward its target at `cam_peek_decay_rate`
+ * (`DAT_0044c3bc`, 6 a second): `peek = target + (peek - target) x exp(-6 dt)`, snapped to the target within 1e-4. The
+ * traversal's own ease (`Traversal.easePeek`) and the player's view's rig (`./povCamera`, PV-5b: the watched body's
+ * held side, one step a command) both take it.
+ */
+export function easePeek(value: number, target: number, dt: number): number {
+  const next = target + (value - target) * Math.exp(-SEAL_TUNING.peekDecayRate * dt);
+  return Math.abs(next - target) < 1e-4 ? target : next;
+}
+
+/**
  * The stand state's moving frame (`FUN_00586570` D:L444861-444948): the lateral or forward axis past 0.03 (0x3f3428),
  * the forward part under 0x10 the band (D:L444898-444901). The crouch state asks `FUN_00586f00` (`crawlFrame`) as prone.
  */
@@ -1115,14 +1126,12 @@ export class Traversal implements TraversalHooks {
   }
 
   /**
-   * `FUN_002998f0` (decomp 141962-141976): the peek value eases to its target at `cam_peek_decay_rate`
-   * (`DAT_0044c3bc`, 6 a second): `peek = target + (peek - target) x exp(-6 dt)`; the target is the peek's side
-   * (-1 left, 1 right) while peeking, whatever the stance, and 0 otherwise.
+   * `FUN_002998f0` (decomp 141962-141976): the peek value eases to its target (`easePeek`, below); the target is the
+   * peek's side (-1 left, 1 right) while peeking, whatever the stance, and 0 otherwise.
    */
   private easePeek(dt: number): void {
     const target = (this.leanOn ?? this.popped)?.side ?? 0;    // the press's tick keeps the side (PEEK_REPUSH_KEY_READING)
-    this.peekValue = target + (this.peekValue - target) * Math.exp(-SEAL_TUNING.peekDecayRate * dt);
-    if (Math.abs(this.peekValue - target) < 1e-4) this.peekValue = target;
+    this.peekValue = easePeek(this.peekValue, target, dt);
   }
 
   /**

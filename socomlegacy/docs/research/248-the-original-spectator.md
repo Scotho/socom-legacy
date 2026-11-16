@@ -131,9 +131,19 @@ For spectator follow specifically, `FUN_00294b40` D:L139269-139343 accumulates t
 values at **2 * dt**, wraps angles, clamps relative and absolute pitch to [-1,1] radians if the target is null or
 its `+0xf7a == 1`, otherwise [-1,-0.2], and forms an orbit matrix. The semantic name of `+0xf7a` is not established
 here. The original follow path can therefore orbit. The port originally used target yaw and a fixed pitch; WALL-CAM (2026-11-02, research 382 section 2) now uses the shared player rig with the target actor's pitch, stance, peek and posed root. The independent spectator orbit remains unimplemented.
+**SPECTATE-PITCH (2026-11-13; research 382 section 7)** corrects the pitch: the original's follow camera turns by the
+bound actor's look, and a remote actor's look keeps its set-up pitch 0, not its aim, by reading
+(`WATCHED_LOOK_PITCH_READING`; the rig's capture Q6, 2026-11-13, measured it for the dead watcher's view, level on
+every frame while the watched player pitched, and the spectator's follow is measured at rest only). In the dead
+watcher's camera state 7 (`FUN_00295f20` D:L140144) the watcher's own stick orbits the view (Q6: about 23 u either way,
+with the watched controller's pitch `+0x130` unmoved, so not through that pitch as research 382 section 7 read it): part
+of this orbit, still not built.
 
-**F4: `FOLLOW_BEHIND=24.906`, `FOLLOW_OVER=25.709`, `FOLLOW_PITCH=-9.167` are the earlier standing-rest
-approximation** (research 83/88; `spectatorView.ts:152-158,271-273`). This reading supplies no replacement triple.
+**F4: `FOLLOW_BEHIND`, `FOLLOW_OVER`, `FOLLOW_PITCH` are a standing approximation** (`spectatorView.ts`). They were
+24.906, 25.709 and -9.167, the player's own spawn rest at `init_aim_pitch` (research 83/88). Since LATER 1017
+(2026-11-13) they are 28.75, 21.484 and 0: the rendering follow's camera for a standing body on open ground at the
+watched look's level pitch (`WATCHED_LOOK_PITCH_READING`, research 382 section 7), held to the rig by
+`matchNet.test.ts`; still standing only, with no hull and no ease (reading, pending review).
 The conditional node-position setup, orbit, transition smoothing and camera obstruction must be understood together before
 a complete parity claim. WALL-CAM (2026-11-02; research 382 section 2) supplies the shared actor-relative rig and
 obstruction pass to both live pages and their replay watcher, with state retained across frames and reset at a target/map

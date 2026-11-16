@@ -185,9 +185,9 @@ the table's "head not capped" reads; the damage amounts themselves are not score
 | head <= 0 or body <= 0 (or not alive) | death | `FUN_005a54d0` L461376-461380 |
 | death -> health 0, cause at `+0xfb0`, vtable `+0x58` | `+0xfb4` = clock at death, alive bit cleared | `FUN_005477a0` L412821; `FUN_00547af0` L413049 |
 | cause codes | 5 bullet (3 when part 0), 4 explosion, 7 fall, 6 ghost/cleanup, 2/0 scripts | `FUN_005a54d0`, `FUN_005a0e70` L459285, `FUN_005ac1f0` L464954 |
-| death clip | `{HEAD,BODY}_DEATH_ANIMATIONS[STAND/CROUCH/PRONE]`, random in the list; limb parts have no list -> BODY list's first clip for the stance; pistol variants when holding a pistol | `FUN_005a0700` L458831, `FUN_005a0950` L458898; damanim.rdr |
+| death clip | `{HEAD,BODY}_DEATH_ANIMATIONS[STAND/CROUCH/PRONE]`, random in the list; limb parts have no list -> BODY STAND's first clip, `Die`, in every stance (corrected 2026-11-12, LIMB-DEATH: the tail `*DAT_0044cee4`, D:L458957-458959; was "the BODY list's first clip for the stance"; research 421 s11); pistol variants when holding a pistol | `FUN_005a0700` L458831, `FUN_005a0950` L458898; damanim.rdr |
 | head lists | stand: Death stand head01-04; crouch: Death crouch head01, chest01; prone: Death prone chest01 | damanim.rdr |
-| body lists | stand: Die, Death02, Death stand chest03, rarm01, larm01, larm02, Crawl death01/02; crouch: back01, chest01, chest02; prone: prone chest01 | damanim.rdr |
+| body lists | stand: Die, Death02, Death stand chest03, rarm01, larm01, larm02, Crawl death01/02; crouch: back01, chest01, chest02; prone: prone chest01 (corrected 2026-11-13, CROUCH-BODY-LIST: the crouched list is the disc's three, in that order, as this row says -- the port's `deaths.ts` had transcribed only back01 and chest02 until then; every list now pinned against the file, viewer `test/deathListsDisc.test.ts`; the original's crouch-running BODY kills drew 141 `death_crouch_chest01`, LATER 980) | damanim.rdr |
 | no clip for causes 4 and 7 | fall and blast play their own landing/knock clips | `FUN_005a54d0` L461384 |
 | death sound | cause 1/2/3 -> sound 0x3d, else 0x3c, cause 6 none | `FUN_005979a0` L454470-454478 |
 | ragdoll | none (no string, no physics body) | strings |
@@ -252,7 +252,7 @@ Where the notes overlap: 91b listed `RESPAWN_POINT_PLACEHOLDER` (the rebuild cop
 | value | meaning | citation |
 |---|---|---|
 | explosion reaches an actor only with LOS from the blast to the head node (or a penetrable blocker) | queued at `+0x104c` | `FUN_005ac070` L464806; `FUN_005a0e70` L459090-459150 |
-| fragments: 8 within 30 units + 1/2/4/5/6/7 (5/10/35/35/10/5 %); -1 crouched, -3 prone (not shotguns); beyond 30: `x 900/d^2`, stochastic rounding | | `FUN_005a18b0` L459394-459460 |
+| fragments: a base of 8 ONLY within 30 units (`d^2 < 900`; beyond 30 the base is 0) + 1/2/4/5/6/7 (5/10/35/35/10/5 %); -1 crouched, -3 prone (not a shotgun's round, category 0x51); clamped at 0; past 30 (`d^2 > 900`) and over 0: `x 900/d^2` truncated, + 1 if a second draw <= the fraction. *FRAG-COUNT, 2026-11-13: the port had carried the 8 past 30 (LATER 996)* | | `FUN_005a18b0` D:L459396-459474 (the base D:L459428-459431) |
 | each fragment: `(Explosion_Damage + Dmg_Mod) x falloff x 14` at `Piercing`, random part (`DAT_006508d0/e0`) | falloff: full to r/2, linear to 0 at r (research 85 §7.1) | `FUN_005a0e70` L459235-459256; `FUN_003c7600` L318720-318735 |
 | M67: 10 -> 140/fragment to 75 units, 0 at 150 (P 4) | one head or body fragment kills | zweapon.rdr; §1.1 |
 | HE: 11 -> 154 to 50, 0 at 100 (P 1); Claymore 16 -> 224 to 125, 0 at 250, /32 outside its cone; C4 18 r 50; PMN 6.5 r 40; Satchel 20 r 280 | | zweapon.rdr; research 85 §9.7 |
@@ -962,6 +962,25 @@ is sent `demoted` with its place in the queue. The room decides a round or a rel
 command after it has run, and counts the fire rate (the fastest enabled mode's wait, `FUN_005c09f0`) and the reload's
 lock (the clip's length, `reloadClip.ts`) on the player's commands run, never on a number the client sends.
 
+SHOTGUN-PELLET-CONE (LATER 934, 2026-11-12; reading, pending review): a shotgun's pull is `NumProjectilesFired` rays at
+one command, and the original blooms the kit between them. `FUN_005be9a0`'s pellet loop (D:L475580-475677; the count
+`FUN_003d44e0`, D:L475580) draws each ray from the controller's cone (its `+0x74`, D:L475596 or D:L475601; research 94
+section C2.1) and then calls `FUN_005c5340` (D:L475604), which ends in the bloom `FUN_005c3360` (D:L479542; its knock on
+`kit+0x24`, D:L477757-477760), so pellet k leaves by the cone pellets 1..k-1 bloomed. The page does the same
+(`fire.ts`'s pellet loop, each ray through `matchFirearm.ts`'s gun: `perturb` by `Accuracy.cone`, then
+`Accuracy.round`). The room judged every ray against the command's cone before the pull, so an honest page's pellets 2-4
+could fall outside it: on 2026-11-11 it refused 46 JACKHAMMER and 10 870 pellets, 3.4% of shotgun rays against 0.3% for
+other weapons, never the first (b0's read of the day's refusals,
+`agent-mail/evidence/xbox-day-2026-11-12/FIRE-CONE-REFUSALS.md`). Now `ShotCone.round` records the cone after the rounds
+taken at a command (`AimFrame.bloomed`, re-recorded when `replay` runs the command again) and, for a pull's later ray
+(`ShotCone.check`'s `laterRay`, the room's `ofVolley` in `fireAt`), `coneBox` adds it to the window at the round's own
+command, so ray k is judged against the cone rays 1..k-1 bloomed; the first ray, and any other round -- a traded round
+judged on the last alive command's frame (NCW-2 B-trade) among them -- takes the frame's cone alone, as before. No new
+constant: the window and the slack are section 16's. Held by viewer `test/shotConeVolley.test.ts` (the page's `Accuracy`
+beside `ShotCone`, every corner of every pellet's cone, from rest and mid-burst) and match
+`test/roomShotgunVolleyCone.test.ts` (the page's `Fire` kit through the room's command path; `fireCadence.ts`'s `burst`
+gives each pellet its own draw).
+
 Protocol 6 (grenade harm, 2026-09-29; `PROTOCOL_VERSION` in `packages/viewer/src/net/protocol.ts`): the snapshot's
 action codes gain the blast's four knock clips, `fallForward`, `fallBackwards`, `landBackwards` and `getUpBackwards`
 (`net/blast.ts`, research 85 section 12), and the server sends the player a blast reached a `blast` event, `{ ring,
@@ -1043,6 +1062,19 @@ healed: a protocol-14 page is refused at the hello ("protocol 14, this server sp
 v0.4.18 host to a release that changes the page's wire. A 14 `.s2r` plays on the live decoders (the bytes are 15's).
 This paragraph changes no reading of the original: it records the port's version (a product-track record of the
 simulation-track changes it names, each at its own level in its own note).
+
+Protocol 16 (WIRE-16, 2026-11-11; the player's view's lane, PV-1; PV.R4, the main controller, seat redotcom-2f; the
+layout research 402 section 3): the player's view -- a watcher drawing the watched player's own picture, a browser
+adaptation with no original (research 248 sections 1-2) -- carries that player's view state and scope sway. A command
+grows 15 -> 18 bytes (`view` u8, the page's zoom state 0-12; `swayX`, `swayY` i8 at `VIEW_SWAY_STEP_ADAPTATION`, 0.5 PS2
+pixels), a body 52 -> 55 (`view` u8, bits 0-3 the state and bits 4-7 the low four bits of the seat's last run command
+number; `swayX`, `swayY`). The room simulates nothing from them; who gets a body's tail whole and who zeroed is the room's
+(PV.R9): the room fills it from the seat's last live command and sends it zeroed only to a player on the body's other
+side (PV-2). `BodyFlag` bit 17 stays reserved for the fog of war's lane,
+defined by nothing. A protocol-15 page is refused at the hello ("protocol 15, this server speaks 16"), and a 16 page by a
+15 room the same way. A `.s2r` of protocol 11 to 15 plays on frozen decoders (viewer `net/codecV15.ts`), the four fields
+0, and the viewer offers no player's view on it (`VIEW_SINCE_PROTOCOL`). This paragraph changes no reading of the
+original: it records the port's version (a product-track record).
 
 The owner's rulings of 2026-10-01 add, without a new version (both additive): the launch countdown's `countdown` event (`{ seconds }`, null when called off) and the welcome's and promotion's `countdown` (the seconds left); see the table's "launch countdown" row. The same play test found that the room's shape check took a `fire`'s `viewTick` for an integer while the page sends its interpolation clock, a fraction of a tick (`NetClient.viewTick`): every page's round was dropped unread. The check is now a finite number (`room.ts` `text`), which the rewind interpolates (`past`).
 

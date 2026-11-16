@@ -397,12 +397,15 @@ describe('the world drops and the pickup reach the page (PF-34, research 234 s6)
     server({ type: 'kit', loadout: [10, 11, 12, 13, 14], slot: 0, rounds } as ServerEvent);
     const filled: [number[], number[]] = [[2, 3], []];
     server({ type: 'kit', loadout: [10, 11, 12, 13, 14], rounds, filled } as ServerEvent);
+    const added: [number[], number[]] = [[18, 30], []];
+    server({ type: 'kit', loadout: [10, 11, 12, 13, 14], rounds, filled, added } as ServerEvent);
     expect(seen).toEqual([
       ['place', { type: 'drop', ...drop }],
       ['remove', 4], ['setKit', 3, [10, 11, 12, 13, 14]],
       ['remove', 5],
       ['kit', [10, 11, 12, 13, 14], 0, rounds, undefined],
       ['kit', [10, 11, 12, 13, 14], null, rounds, filled],                     // an ammunition transfer: no slot, `filled` passed
+      ['kit', [10, 11, 12, 13, 14], null, rounds, filled, undefined, added],   // the pour: its amounts passed on (PICKUP_POUR_READING)
     ]);
 
     const sent: string[] = [];

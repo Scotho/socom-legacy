@@ -220,20 +220,20 @@ describe('SpectatorView: the spectator camera and the dead cycle (PF-31, PF.R51)
     expect(dead.view.watching).toBe(7);
   });
 
-  it('the follow pose is 24.906 behind and 25.709 over the followed body at pitch -9.167 (the third-person rest, research 83), and stays on the followed body when it dies (AD-8, research 314 §5.4)', () => {
+  it('the follow pose is 28.75 behind and 21.484 over the followed body, level (the rendering follow on open ground standing, LATER 1017), and stays on the followed body when it dies (AD-8, research 314 §5.4)', () => {
     const r = rig({ bodies: [body(5, [100, 10, 200], true, 90), body(9, [0, 0, 0])] });
     r.tap('leanRight');
     expect(r.view.target).toBe(5);
     r.view.frame();
     const p = r.poses.at(-1)!;
-    expect(p.x).toBeCloseTo(100 + 24.906, 6);
-    expect(p.y).toBeCloseTo(10 + 25.709, 6);
+    expect(p.x).toBeCloseTo(100 + 28.75, 6);
+    expect(p.y).toBeCloseTo(10 + 21.484, 6);
     expect(p.z).toBeCloseTo(200, 6);
-    expect([p.yaw, p.pitch]).toEqual([90, -9.167]);
+    expect([p.yaw, p.pitch]).toEqual([90, 0]);
     r.state.bodies = [body(5, [100, 10, 200], false, 90), body(9, [0, 0, 0])];
     r.view.frame();
     expect(r.view.target).toBe(5);                                    // AD-8: the dead body kept (was: 9, the first living)
-    expect(r.poses.at(-1)).toMatchObject({ x: 100 + 24.906, y: 10 + 25.709 });
+    expect(r.poses.at(-1)).toMatchObject({ x: 100 + 28.75, y: 10 + 21.484 });
     // The dead's teammate (LATER 69, research 314 §5.6): kept on the watched one's body when it dies (was: on to 7).
     const teams: [number, Team][] = [[1, 'seal'], [2, 'seal'], [7, 'seal']];
     const d = rig({ role: 'player', self: 1, team: 'seal', teams, bodies: [body(1, [0, 0, 0], false), body(2, [3, 0, 4]), body(7, [5, 0, 5])] });
@@ -242,7 +242,7 @@ describe('SpectatorView: the spectator camera and the dead cycle (PF-31, PF.R51)
     d.state.bodies = [body(1, [0, 0, 0], false), body(2, [3, 0, 4], false), body(7, [5, 0, 5])];
     d.view.frame();
     expect(d.view.watching).toBe(2);
-    expect(d.poses.at(-1)).toMatchObject({ x: 3, z: 4 + 24.906 });
+    expect(d.poses.at(-1)).toMatchObject({ x: 3, z: 4 + 28.75 });
     // The free camera stands nowhere: one null, then the frames leave the fly camera alone.
     r.tap('action');
     expect([r.view.mode, r.poses.at(-1)]).toEqual(['free', null]);
@@ -326,7 +326,7 @@ describe('PT-19b: the mode byte as the original -- 0 free, 1 follow, 2 scenic; f
     r.tap('leanRight');
     expect([r.view.mode, r.view.remembered, r.view.target]).toEqual(['follow', 'free', 3]);
     r.view.frame();
-    expect(r.poses.at(-1)).toMatchObject({ x: 0, y: 25.709, z: 24.906 });
+    expect(r.poses.at(-1)).toMatchObject({ x: 0, y: 21.484, z: 28.75 });
   });
 
   it("the cycle binds through the camera's +0xc as the jump does (D:L412618, D:L412675 -> FUN_0029b3c0 -> FUN_002956e0): the remembered byte from the mode it left (D:L139680-139686)", () => {
@@ -369,7 +369,7 @@ describe('PT-19b: the mode byte as the original -- 0 free, 1 follow, 2 scenic; f
     r.tap('action');
     expect([r.view.mode, r.view.remembered, r.view.target]).toEqual(['follow', 'follow', 5]);
     r.view.frame();
-    expect(r.poses.at(-1)).toMatchObject({ x: 10, y: 25.709, z: 24.906 });
+    expect(r.poses.at(-1)).toMatchObject({ x: 10, y: 21.484, z: 28.75 });
     // Up: scenic at view 0 (D:L139531-139558); X: free remembering scenic, the camera left where the view stood it.
     r.tap('zoom');
     r.tap('zoom');
@@ -650,7 +650,7 @@ describe('AD-8: the followed player dies, leaves and is deleted (C83; research 3
     for (let i = 0; i < 10; i++) { r.view.frame(eye, 0.1); seen.push(r.view.target); }
     expect(seen).toEqual(Array(10).fill(5));
     expect([r.view.mode, r.view.remembered]).toEqual(['follow', remembered]);
-    expect(r.poses.every((p) => p !== null && p.x === 0 && p.z === -100 + 24.906)).toBe(true);
+    expect(r.poses.every((p) => p !== null && p.x === 0 && p.z === -100 + 28.75)).toBe(true);
   });
 
   it('a Triangle jump onto a corpse follows the corpse (was: one frame, then the first living body)', () => {
@@ -739,7 +739,7 @@ describe('AD-8: the followed player dies, leaves and is deleted (C83; research 3
       for (let i = 0; i < 3; i++) {
         g.view.frame();
         expect(g.view.watching).toBe(2);
-        expect(g.poses.at(-1)).toMatchObject({ x: 10, y: 25.709, z: 20 + 24.906, yaw: 0 });
+        expect(g.poses.at(-1)).toMatchObject({ x: 10, y: 21.484, z: 20 + 28.75, yaw: 0 });
       }
       // The body gone from the room's list: watching kept, no pose handed (the fly camera where the last pose stood it;
       // FOLLOW_RETIRED_BODY_PLACEHOLDER / FOLLOW_AFTER_DELETE_PLACEHOLDER's stand-in, §5.4 items 2-3).
@@ -930,7 +930,7 @@ describe('DEAD-CYCLE (LATER 78, 79): the own body a stop of the dead player\'s c
     d.state.bodies = [body(1, [0, 0, 0], false), body(2, [3, 0, 4], false), body(7, [0, 0, 0])];
     for (let i = 0; i < 3; i++) d.view.frame();
     expect(d.view.watching).toBe(2);
-    expect(d.poses.at(-1)).toMatchObject({ x: 3, z: 4 + 24.906 });
+    expect(d.poses.at(-1)).toMatchObject({ x: 3, z: 4 + 28.75 });
     d.tap('leanLeft');                                                 // from 2's slot down: the own body
     expect(d.view.watching).toBeNull();
     d.view.reset();
@@ -999,5 +999,120 @@ describe('WALL-CAM follow host routing', () => {
     bodies[0]!.flags = 0; v.frame(undefined, 1 / 30);
     expect(followed.at(-1)).toEqual({ id: 2, pitch: -70, dt: 1 / 30 });
     v.reset(); expect(resets).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * RVK-A (LATER 966, V21.R7; the owner, 2026-11-12: "Clicking a name in the replays should allow you to jump to that
+ * characters view"): `SpectatorView.followBody`, the replay viewer's entry point -- a browser adaptation with no
+ * original. It lands exactly where the spectator's own Right / Left cycle lands on that body (the cycle's bind, the same
+ * host calls and state), only where the cycle could land, and is called by the replay viewer alone.
+ */
+describe('RVK-A: followBody, the replay viewer\'s name -- the cycle\'s landing in one step', () => {
+  /** A spectator view whose every host call is recorded, in order. */
+  function recorded(o: { role?: 'player' | 'spectator'; bodies?: SpectatorBody[] } = {}) {
+    const calls: string[] = [];
+    const bodies = o.bodies ?? [body(3, [0, 0, 0]), body(5, [10, 0, 0]), body(7, [20, 0, 0], false), body(9, [30, 0, 0])];
+    const view = new SpectatorView({
+      bodies: () => bodies,
+      seat: () => ({ role: o.role ?? 'spectator', self: o.role === 'player' ? 3 : null, team: o.role === 'player' ? 'seal' : null, teams: new Map([[3, 'seal'], [5, 'seal'], [9, 'terrorist']]), rules: 'classic', ghost: false }),
+      spectate: (p) => { calls.push(`spectate:${p === null ? 'null' : 'pose'}`); },
+      follow: (b) => { calls.push(`follow:${b.id}`); },
+      resetFollow: () => { calls.push('resetFollow'); },
+      leaveSelf: () => { calls.push('leaveSelf'); },
+      returnSelf: () => { calls.push('returnSelf'); },
+      views: () => VIEWS,
+      magnify: (m) => { calls.push(`magnify:${m}`); },
+    });
+    const state = () => ({ mode: view.mode, remembered: view.remembered, target: view.target, scenic: view.scenic, magnification: view.magnification, watching: view.watching });
+    const release = (code: string): void => { view.key({ type: 'keyup', code, repeat: false, preventDefault() {} }); };
+    return { view, calls, state, release };
+  }
+  /** Two views brought to the same place by `setup`, their calls cleared. */
+  const twins = (setup: (r: ReturnType<typeof recorded>) => void) => {
+    const a = recorded(), b = recorded();
+    for (const r of [a, b]) { setup(r); r.view.frame(undefined, 0); r.calls.length = 0; }
+    return [a, b] as const;
+  };
+
+  it('from free: followBody(3) lands where Right lands from free (the first living body), the same calls and state', () => {
+    const [cycled, named] = twins(() => {});
+    cycled.release('ArrowRight');
+    expect(named.view.followBody(3)).toBe(true);
+    expect(named.state()).toEqual(cycled.state());
+    expect(named.state()).toMatchObject({ mode: 'follow', remembered: 'free', target: 3 });
+    expect(named.calls).toEqual(cycled.calls);
+    for (const r of [cycled, named]) r.view.frame(undefined, 1 / 60);
+    expect(named.calls).toEqual(cycled.calls);                                 // the frame follows it the same way
+    expect(named.calls.at(-1)).toBe('follow:3');
+  });
+
+  it('from follow: followBody(9) lands where Right lands from 5, the remembered mode written as the cycle writes it', () => {
+    const [cycled, named] = twins((r) => { r.release('ArrowRight'); r.release('ArrowRight'); });   // following 5
+    expect(cycled.view.target).toBe(5);
+    cycled.release('ArrowRight');                                               // 7 is dead: on to 9
+    expect(named.view.followBody(9)).toBe(true);
+    expect(named.state()).toEqual(cycled.state());
+    expect(named.state()).toMatchObject({ mode: 'follow', remembered: 'follow', target: 9 });
+    expect(named.calls).toEqual(cycled.calls);
+  });
+
+  it('from scenic, zoomed: followBody lands as Right does -- the magnification back to 1, the remembered mode kept, the scenic index kept', () => {
+    const [cycled, named] = twins((r) => {
+      r.release('ArrowUp');                                                     // scenic view 0
+      r.view.pad({ ...noInput(), moveY: 1 });                                   // the zoom stick up
+      r.view.frame(undefined, 0.5);
+    });
+    expect(cycled.view.magnification).toBeGreaterThan(1);
+    cycled.release('ArrowRight');
+    expect(named.view.followBody(3)).toBe(true);
+    expect(named.state()).toEqual(cycled.state());
+    expect(named.state()).toMatchObject({ mode: 'follow', remembered: 'free', target: 3, scenic: 0, magnification: 1 });
+    expect(named.calls).toEqual(cycled.calls);
+    expect(named.calls).toContain('magnify:1');
+  });
+
+  it('the body already followed: true, and nothing changes (no bind, no call)', () => {
+    const r = recorded();
+    r.release('ArrowRight');
+    r.calls.length = 0;
+    const before = r.state();
+    expect(r.view.followBody(3)).toBe(true);
+    expect(r.state()).toEqual(before);
+    expect(r.calls).toEqual([]);
+  });
+
+  it('not a candidate -- a dead body, an unknown id, a spectator\'s id (no body): false, no host call, nothing changed', () => {
+    const r = recorded();
+    r.release('ArrowRight');
+    r.calls.length = 0;
+    const before = r.state();
+    for (const id of [7, 42, 0]) {
+      expect(r.view.followBody(id), String(id)).toBe(false);
+      expect(r.state()).toEqual(before);
+      expect(r.calls).toEqual([]);
+    }
+  });
+
+  it('a seat that is not a spectator (a benched player, a player in play): false, nothing changed -- its own cycle is the teammates\' and stays the pad\'s', () => {
+    for (const benched of [false, true]) {
+      const r = recorded({ role: 'player' });
+      if (benched) r.view.bench();
+      const before = r.state();
+      expect(r.view.followBody(5)).toBe(false);
+      expect(r.state()).toEqual(before);
+      expect(r.calls).toEqual([]);
+    }
+  });
+
+  it('called by the replay viewer alone: no other source in src/ calls followBody on a spectator view', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { dirname, join, relative, resolve, sep } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const src = resolve(dirname(fileURLToPath(import.meta.url)), '../src');
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.ts') ? [join(d, e.name)] : []));
+    const callers = walk(src).filter((f) => /[\w)\]]\??\.followBody\s*(\?\.)?\(/.test(readFileSync(f, 'utf8').replace(/this\.followBody\(/g, '')))
+      .map((f) => relative(src, f).split(sep).join('/'));
+    expect(callers).toEqual(['modern/replays/worldStage.ts']);
   });
 });

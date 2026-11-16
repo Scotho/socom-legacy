@@ -13,11 +13,15 @@ import { Quaternion, Vector3 } from 'three';
 export type Vec3 = readonly [number, number, number];
 /** A rotation as three.js keeps it: x, y, z, w. */
 export type Quat = readonly [number, number, number, number];
-/** A member's place and turn; a marker's turn is about y only. */
+/**
+ * A member's place and turn; a marker's turn is about y only. FX-9: `s`, a piece's scale an axis (absent, 1, 1, 1); a
+ * marker keeps its size, so it has none.
+ */
 export interface Pose {
   p: Vec3;
   q: Quat;
   marker: boolean;
+  s?: Vec3;
 }
 
 /** The members, each once (by `keyOf`, the member itself unless given), in the order they were picked. */
@@ -87,6 +91,56 @@ export function turnedAbout(poses: readonly Pose[], centre: Vec3, q: Quat): Pose
     const after = turn.clone().multiply(tq(m.q)).normalize();
     return { ...m, p: [p.x, p.y, p.z], q: m.marker ? yawQuat(yawOf(fromQ(after))) : fromQ(after) };
   });
+}
+
+/**
+ * FX-9 (FX.R3; a browser adaptation): the group scaled by `factor` about `centre`, uniformly (a group's members turned
+ * apart would shear under a scale an axis): each place's offset from the centre times the factor, each piece's scale
+ * times it; a marker moves but keeps its size.
+ */
+export function scaledAbout(poses: readonly Pose[], centre: Vec3, factor: number): Pose[] {
+  return poses.map((m) => {
+    const p: Vec3 = [centre[0] + (m.p[0] - centre[0]) * factor, centre[1] + (m.p[1] - centre[1]) * factor, centre[2] + (m.p[2] - centre[2]) * factor];
+    if (m.marker) return { ...m, p };
+    const s = m.s ?? [1, 1, 1];
+    return { ...m, p, s: [s[0] * factor, s[1] * factor, s[2] * factor] };
+  });
+}
+
+/**
+ * FX-9: the least and the most factor a uniform scale of the group may take so that no piece's scale on any axis leaves
+ * `min`..`max` (the record's bounds); markers do not bound it. A group already outside them is bounded by its own.
+ */
+export function scaleFactorBounds(poses: readonly Pose[], min: number, max: number): [number, number] {
+  let least = 0, most = Infinity;
+  for (const m of poses) {
+    if (m.marker) continue;
+    for (const v of m.s ?? [1, 1, 1]) {
+      if (!(v > 0)) continue;
+      least = Math.max(least, min / v);
+      most = Math.min(most, max / v);
+    }
+  }
+  return least <= most ? [least, most] : [most, most];
+}
+
+/** FX-9: `factor` held within `scaleFactorBounds`: a drag past the bound one piece reaches stops there, for the whole group. */
+export function clampedFactor(poses: readonly Pose[], factor: number, min: number, max: number): number {
+  const [least, most] = scaleFactorBounds(poses, min, max);
+  return Math.min(most, Math.max(least, Number.isFinite(factor) && factor > 0 ? factor : 1));
+}
+
+/**
+ * FX-9: the one factor a scale gizmo's three axes give a group, which scales uniformly: the axis dragged furthest from 1
+ * (by ratio, so a halving and a doubling weigh the same), each held above 0 (no mirror).
+ */
+export function uniformFactor(scale: Vec3): number {
+  let best = 1;
+  for (const raw of scale) {
+    const v = Math.max(raw, 1e-6);
+    if (Math.abs(Math.log(v)) > Math.abs(Math.log(best))) best = v;
+  }
+  return best;
 }
 
 /**

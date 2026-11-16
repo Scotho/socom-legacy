@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { INTERP_DELAY_MS, NetClient, type NetWalk, type WebSocketLike } from '../src/net/client';
-import { TICK_HZ, type BodyState, type ServerEvent } from '../src/net/protocol';
+import { BodyFlag, TICK_HZ, type BodyState, type ServerEvent } from '../src/net/protocol';
 import { encodeSnapshot } from '../src/net/codec';
 
 /**
@@ -41,7 +41,7 @@ function body(id: number, x: number): BodyState {
   };
 }
 
-function client(): { c: NetClient; snap(tick: number, x: number): void; clock: { now: number } } {
+function client(): { c: NetClient; snap(tick: number, x: number, over?: Partial<BodyState>): void; clock: { now: number } } {
   const clock = { now: 0 };
   vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
   const socket: WebSocketLike = {
@@ -51,7 +51,7 @@ function client(): { c: NetClient; snap(tick: number, x: number): void; clock: {
   const c = new NetClient({ url: 'mem', map: 'SYN', name: 'A', socket: () => socket, watch: true }, IDLE);
   socket.onopen?.({});
   socket.onmessage?.({ data: JSON.stringify({ type: 'welcome', id: 3, version: 11, map: 'SYN', tick: 0, role: 'spectator', team: null, queue: 0, epoch: 0, env: { revision: 0, epoch: 0, states: [] } } as unknown as ServerEvent) });
-  return { c, clock, snap: (tick, x) => { socket.onmessage?.({ data: encodeSnapshot({ tick, own: null, bodies: [body(7, x)] }) }); } };
+  return { c, clock, snap: (tick, x, over) => { socket.onmessage?.({ data: encodeSnapshot({ tick, own: null, bodies: [{ ...body(7, x), ...over }] }) }); } };
 }
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -77,15 +77,26 @@ type Model = 'ideal' | 'main-thread' | 'tcp-jitter' | 'bursty-input';
 interface Run { model: Model; hz: number; frames: number; dTauRmsMs: number; dTauP99Ms: number; bigSteps: number; backward: number; starved: number; bigOnArrival: number }
 
 /** The followed body's server path (its x at each tick) and each even tick's snapshot arrival on the page, under `model`. */
-function stream(model: Model, seconds: number, seed: number): { xAt: number[]; arrivals: { at: number; tick: number }[] } {
+function stream(model: Model, seconds: number, seed: number, credit = false): { xAt: number[]; arrivals: { at: number; tick: number }[] } {
   const r = rng(seed);
   // The server's path: the body's position at each tick. `bursty-input` runs 0, 1 or 2 commands a tick (15 % / 70 % /
   // 15 %), mean 1 -- the room's credit absorbing a page's uneven sends; every other model one a tick.
+  // PV-4b's `credit`: the same draw, but the room runs only commands its page has sent -- one comes each tick, never more
+  // run than wait, two whenever more than three wait (`commandClock.test.ts`'s `credit` room) -- so the path is the
+  // owner's evenly sent commands run unevenly. Without it the draw is a free walk around one a tick (about 19 ticks
+  // either way after 20 s), which no clock of the owner's commands describes.
   const ticks = Math.ceil((seconds * 1000 + 1000) / TICK_MS);
   const xAt: number[] = [0];
+  let queued = 0;
   for (let k = 1; k <= ticks; k++) {
     const u = r();
-    const ran = model === 'bursty-input' ? (u < 0.15 ? 0 : u < 0.85 ? 1 : 2) : 1;
+    let ran = model === 'bursty-input' ? (u < 0.15 ? 0 : u < 0.85 ? 1 : 2) : 1;
+    if (credit) {
+      queued++;
+      if (queued > 3) ran = 2;
+      ran = Math.min(ran, queued);
+      queued -= ran;
+    }
     xAt.push(xAt[k - 1]! + ran);
   }
   const arrivals: { at: number; tick: number }[] = [];
@@ -107,9 +118,10 @@ function stream(model: Model, seconds: number, seed: number): { xAt: number[]; a
  * body's presentation-time steps, drawn by `NetClient.bodies(now)`. `bigMs`: a step past it counts as a visible jerk
  * (a quarter of a 60 Hz frame).
  */
-function measure(model: Model, hz: number, seconds = 20, bigMs = 4, seed = 11): Run {
+function measure(model: Model, hz: number, seconds = 20, bigMs = 4, seed = 11, drawn = false, credit = false): Run {
   const { c, snap, clock: stub } = client();
-  const { xAt, arrivals } = stream(model, seconds, seed);
+  const { xAt, arrivals } = stream(model, seconds, seed, credit);
+  if (drawn) c.setCommandClockBody(7, true);                   // watched from the first snapshot, as a bound view is
   const period = 1000 / hz;
   const out: { tau: number; arrived: boolean; starved: boolean }[] = [];
   let next = 0, newest = -Infinity;
@@ -118,12 +130,16 @@ function measure(model: Model, hz: number, seconds = 20, bigMs = 4, seed = 11): 
     while (next < arrivals.length && arrivals[next]!.at <= now) {
       const a = arrivals[next]!;
       stub.now = a.at;
-      snap(a.tick, xAt[a.tick]!);
+      // PV-4b: drawn on its owner's command clock, the body is alive and carries its command number's low bits (`clock`,
+      // protocol 16): x counts the commands the room ran, one unit each, so the number is x (from 5).
+      if (drawn) snap(a.tick, xAt[a.tick]!, { flags: BodyFlag.Alive, clock: (5 + xAt[a.tick]!) & 15 });
+      else snap(a.tick, xAt[a.tick]!);
       newest = Math.max(newest, a.tick);
       next++;
       arrived = true;
     }
     stub.now = now;
+    if (drawn) c.setCommandClockBody(7, true);
     const x = c.bodies()[0]!.feet[0]!;
     const starved = c.viewTick() >= newest - 1e-9;
     // For `bursty-input` the smooth reference is the mean path (1 unit a tick); the server's own path is the uneven one.
@@ -176,5 +192,35 @@ describe('INV-SPECTATE: the followed body as `NetClient.bodies()` draws it (an i
       ...runs.map((r) => `${r.model.padEnd(18)} ${String(r.hz).padStart(3)} ${String(r.frames).padStart(7)} ${r.dTauRmsMs.toFixed(2).padStart(12)} ${r.dTauP99Ms.toFixed(2).padStart(12)} ${String(r.bigSteps).padStart(11)} ${String(r.bigOnArrival).padStart(11)} ${String(r.backward).padStart(9)} ${String(r.starved).padStart(8)}`),
       `(INTERP_DELAY_MS ${INTERP_DELAY_MS})`].join('\n'));
     expect(runs.length).toBe(8);
+  });
+});
+
+/**
+ * PV-4b (the player's-view lane; product track, a browser adaptation -- LATER 735 "fix B1", research 402 s4): the same
+ * `bursty-input` draw -- the owner's commands one a tick, the room running them 0, 1 or 2 a tick, on its credit (`stream`'s
+ * `credit`: only what has been sent) -- with the body watched and drawn on its owner's command clock
+ * (`NetClient.setCommandClockBody(id, true)`): the drawn path even where the tick clock's is uneven, by this file's own
+ * measure (dTau, ms), both clocks on the same stream. Only a page in the player's view draws so; the runs above, the
+ * follow's and every page's, are unchanged.
+ */
+describe('PV-4b: the uneven cadence drawn on the command clock (bursty-input)', () => {
+  const rows: string[] = [];
+  for (const hz of [60, 144]) {
+    it(`at ${hz} Hz: the drawn path is even where today's is uneven`, () => {
+      const today = measure('bursty-input', hz, 20, 4, 11, false, true);
+      const drawn = measure('bursty-input', hz, 20, 4, 11, true, true);
+      const free = measure('bursty-input', hz, 20, 4, 11, true, false);   // the free walk: shown, not bounded
+      rows.push(`bursty-input ${String(hz).padStart(3)}  tick clock (today) rms ${today.dTauRmsMs.toFixed(3)} p99 ${today.dTauP99Ms.toFixed(3)} >4ms ${today.bigSteps}  |  command clock rms ${drawn.dTauRmsMs.toFixed(3)} p99 ${drawn.dTauP99Ms.toFixed(3)} >4ms ${drawn.bigSteps} backward ${drawn.backward}  |  (free walk, no credit: command clock rms ${free.dTauRmsMs.toFixed(3)} p99 ${free.dTauP99Ms.toFixed(3)})`);
+      expect(today.dTauRmsMs).toBeGreaterThan(0.5);
+      expect(drawn.dTauRmsMs).toBeLessThan(0.5);
+      expect(drawn.dTauP99Ms).toBeLessThan(1);
+      expect(drawn.backward).toBe(0);
+      expect(drawn.starved).toBe(0);
+    });
+  }
+  it('prints the figures', () => {
+    // eslint-disable-next-line no-console
+    console.log(['dTau ms, the followed body under the room\'s 0/1/2 cadence:', ...rows].join('\n'));
+    expect(rows.length).toBe(2);
   });
 });

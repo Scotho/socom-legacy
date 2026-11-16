@@ -98,6 +98,10 @@ export const REGISTER: Record<string, Waits> = {
     { row: 'LATER 680', why: 'SEGMENT-BODY: walked -z from x 938 the side line meets prop01, no contact is stored, no climb offered; unsettled at the source, an r0004 capture of the walk owed (research 86 s3.8)' },
   'packages/viewer/test/weaponLine.test.ts::GAP (LATER 681): (iii) the closest approach walking in square: 5.24-5.50 (the capture 5.34-5.40)':
     { row: 'LATER 681', why: 'SEGMENT-BODY: walked in square on M51 g19733 the segment body stops a whole step short, 5.66 from the plane; the original closes to 5.34-5.40 (r0004 climb-angle ca-0)' },
+  'packages/viewer/test/clutterCollision.disc.test.ts::(b2) head-on from 45 u east (z 1239.5), standing, the stick forward 3 s: the original stops at x 1887.85 and never passes':
+    { row: 'LATER 1018', why: 'the rig measured r0004 stopping a body head-on at Blizzard\'s fir (1887.85, closest 13.41); the port slides along the bough face and round -- the segment solver\'s rule on a steep face, unread (research 422 s7.1)' },
+  'packages/viewer/test/clutterCollision.disc.test.ts::(b3) 6 u beside the axis (z 1245.5), standing, the stick forward 3 s: the original slides round at 12.05-12.59 and passes on z ~1252.06':
+    { row: 'LATER 1018', why: 'the rig measured r0004 sliding a body round the fir 6 u off its axis (closest 12.05-12.59, on along z 1252.06); the port jams at the skirt\'s east corner -- the same solver rule (research 422 s7.1)' },
   'packages/viewer/test/m51DitchBlock.disc.test.ts::GAP (LATER 690): from the capture start, the running jump lands back in the ditch, apex 13.17 +- 0.5':
     { row: 'LATER 690', why: 'SEGMENT-BODY: on 25 of the 70 push ticks the move meets no segment, so the take-off carries 65 -x over the ditch log and lands at x 932, where r0004 (ac ditch capture) stalls with the contact set and lands back at x 984; the causes (DITCH-ESCAPE-READ): the 60 Hz wall step (H404) and the take-off carry, zeroed on a jam where the original keeps +0x38 (from +0x64, writer unread); the follow-up branch for the next release steps the walls at 30 Hz per the owner H404 (b) ruling, plus the carry' },
   "packages/viewer/test/parity/actionStack.test.ts::the standing swap cut forward carries the stack's phase onto the overlay's clock":
@@ -122,6 +126,24 @@ export const REGISTER: Record<string, Waits> = {
     { row: 'movement.climb.obstacle-ray', why: 'TA.R6 drift; closes with C3\'s segment records (PAR-21, WALL_PROBE_READING)' },
   'tools/test/uiCommandTable.parity.test.ts::DRIFT: for every byte 0x80..0xFF, uiCommandFold adds 0x20 (mod 256) exactly where the pinned bit 0 is set, as the signed index does':
     { row: 'frontend.commands.lookup.fold-high', why: 'TA.R6 drift: the signed fold of the high bytes' },
+  "packages/viewer/test/forge/tokens.test.ts::no colour literal in the three stylesheets, nor in the alias block itself":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::every --fx-* and --agent-* read is declared, and none hides behind a fallback":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::the one alias block: every colour, type role, radius, shadow and z-index of the forge is a token":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::one focus ring: the forge's one rule for keyboard and pad, and every outline anywhere is that ring, never \"none\"":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::one disabled look: opacity only 0, 1 or the system disabled token; no wait cursor":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::every z-index, radius and shadow is a named token":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::no text below 12 px; dim text (text-dim, \"not below 13px\", shared/ds/tokens.json) not below 13 px":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/tokens.test.ts::a control's edge clears 3:1 on the surfaces behind it (VP-9)":
+    { row: 'H453', why: 'FC2: his look\'s raw values against FUI.R4, the owner\'s question (tokens at his values, his rules exempted, or his look changed)' },
+  "packages/viewer/test/forge/poseFrame.test.ts::RED: a piece under a parent pitched 30 and rolled 20 shows its six pose fields in one frame, before and after a typed Pitch or Yaw":
+    { row: 'H453', why: 'FC2: the six pose fields in two frames under a parent (his position and Yaw local, FX-9\'s world turn and scale); one frame is the owner\'s call' },
 };
 
 /** A parity registry id's shape (`area.x.y`). */

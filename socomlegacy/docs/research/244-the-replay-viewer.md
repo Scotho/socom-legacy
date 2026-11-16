@@ -230,7 +230,8 @@ camera, so none was added. `replay/` holds no mode number, name or cycle order o
 91's spectator-modes row, `FUN_00295260` L139448; research 179 §9.6, research 232 §5):
 
 - the three modes and X's toggle -- ~~their labels are under question (below)~~ corrected by PT-19b (below);
-- the follow pose, `followPose` (`FOLLOW_BEHIND` 24.906, `FOLLOW_OVER` 25.709, `FOLLOW_PITCH` -9.167);
+- the follow pose, `followPose` (`FOLLOW_BEHIND` 28.75, `FOLLOW_OVER` 21.484, `FOLLOW_PITCH` 0 since LATER 1017,
+  2026-11-13 -- the non-rendering hosts' fallback; was 24.906, 25.709, -9.167);
 - the controls acting on the release (SPECTATOR_RELEASE_READING);
 - Right and Left cycling in seat-id order (SPECTATOR_CYCLE_ORDER_READING, `nextFollow` and `previousFollow`);
 - the Triangle jump (`jumpToVisible`, JUMP_TO_VISIBLE_READING, `FUN_00294f40`);

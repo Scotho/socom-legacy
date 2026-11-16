@@ -19,6 +19,7 @@ import {
 } from '../src/sim';
 import { CRANE_PRESS_BASE_SLACK, CRANE_PRESS_FRAME_SECONDS } from '../src/cranes';
 import { decodeSnapshot as decodeSnapshotPre337, encodeSnapshot as encodeSnapshotPre337 } from './fixtures/codecPre337';
+import { withoutViewTails, withoutViewTailsUnchecked } from './fixtures/viewTail';
 
 /**
  * Chain Reaction's hooks (research 176 §9, §11). The numbers are the audit's: 15 seconds a leg, Z only, the three
@@ -382,7 +383,9 @@ describe('the room runs the hooks and the switch toggles them', () => {
     expect(old.frames.length).toBeGreaterThan(0);
     for (const f of old.frames) {
       expect(f[5]! & 4, 'no Cranes bit for the old page').toBe(0);
-      expect(() => decodeSnapshotPre337(f)).not.toThrow();
+      // WIRE-16: protocol 16's body tails cut, the rest the old layout. Unchecked (PV-2): the room fills the clock's nibble,
+      // and this check claims only that the frame decodes; the byte pins below cut through the strict `withoutViewTails`.
+      expect(() => decodeSnapshotPre337(withoutViewTailsUnchecked(f))).not.toThrow();
       expect(decodeSnapshot(f).cranes).toBeUndefined();
     }
     expect(reads.last().cranes).toHaveLength(3);
@@ -1233,7 +1236,9 @@ describe("#337 takeover (the wire, additive): a map without hooks keeps main's b
       { tick: 8, own: null, bodies: [], doors, cranes: [] },
     ]) {
       const now = encodeSnapshot(s), before = encodeSnapshotPre337({ ...s, cranes: undefined } as Parameters<typeof encodeSnapshotPre337>[0]);
-      expect(Buffer.from(now).toString('hex')).toBe(Buffer.from(before).toString('hex'));
+      // WIRE-16 (protocol 16): three bytes a body more, the view's tail; with them cut, main's bytes to the byte.
+      expect(now.byteLength - before.byteLength).toBe(3 * s.bodies.length);
+      expect(Buffer.from(withoutViewTails(now)).toString('hex')).toBe(Buffer.from(before).toString('hex'));
     }
   });
 

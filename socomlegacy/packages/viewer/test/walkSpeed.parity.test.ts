@@ -86,16 +86,19 @@ describe('movement.speed: the stick ramp, tick by tick (FUN_00586c10: lower/uppe
 });
 
 describe('movement.speed: the stances\' speeds (FUN_00584c60, FUN_00583500, motion.rdr bands)', () => {
-  it('crouched under 0.838 of a stick: 14.0 ahead, 12.77 back, 14.19 aside, 19.80 on the diagonal (x 14 / 14.8 of each band)', () => {
+  it('crouched under 0.838 of a stick: 14.0 ahead, 12.77 back, 14.19 aside, 14.0 on the diagonal (x 14 / 14.8 of each band)', () => {
     const k = 14 / 14.8;
     expect(steady(input(0.5, 0), 'crouch')).toBeCloseTo(k * 14.8, 6);
     expect(steady(input(0.5, 0), 'crouch')).toBeCloseTo(14.0, 6);
     expect(steady(input(-0.5, 0), 'crouch')).toBeCloseTo(k * 13.5, 6);
     expect(steady(input(0, 0.5), 'crouch')).toBeCloseTo(k * 15, 6);
     expect(steady(input(0, -0.5), 'crouch')).toBeCloseTo(k * 15, 6);
-    // FUN_00583350's 1 / sqrt(w^2 + (1 - w)^2) scales the crouch walk's single set: x sqrt 2 at 45 degrees
-    expect(steady(input(0.5, 0.5), 'crouch')).toBeCloseTo(k * 14.8 * Math.SQRT2, 6);
-    expect(steady(input(0.5, 0.5), 'crouch')).toBeCloseTo(19.80, 2);
+    // H392 (the owner, 2026-11-14: "Always the original's"; MOVE-4, research 80 s6g): `FUN_0057a330` splits the class
+    // clip's velocity w to x and 1 - w to z before `DAT_0064fc80`'s 1 / sqrt(w^2 + (1 - w)^2) (D:L438911-438956,
+    // D:L438985), so the diagonal keeps the band's speed along 45 degrees -- the rig's Q15 on the original: 14.0-14.1
+    // u/s (measured). Was the default walker's class axis, x sqrt 2: 19.80.
+    expect(steady(input(0.5, 0.5), 'crouch')).toBeCloseTo(k * 14.8, 6);
+    expect(steady(input(0.5, 0.5), 'crouch')).toBeCloseTo(14.0, 6);
   });
 
   it('crouched at 0.838 of a stick or more it stands and runs: 0.83 crouch-walks at 14.0, 0.84 runs at 54.6', () => {

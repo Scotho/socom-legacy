@@ -123,6 +123,13 @@ export interface MoverSnapshot {
    * under it cross-fades; a placing's the same since NU-8b B3 (research 326 section 3).
    */
   hold?: string | null;
+  /**
+   * DEAD-HEAD-LOOK (reading, pending review): the body is dead (the page's own: `Walker.dead`; another page's copy: its
+   * snapshot's `alive` false) -- the actor's state word `+0x174` at 8, where `FUN_00587b40` refuses the head look
+   * (D:L445494-445496; with no top action at all it answers true, D:L445489-445492, a case a dead body with its
+   * death action does not meet). Absent or false: alive.
+   */
+  dead?: boolean;
 }
 
 /**
@@ -219,7 +226,34 @@ export interface PoseLayer {
     parts: readonly PartPose[]; weight: number; noPitchtwist?: boolean; crossFade?: number; crossFadeRun?: number; top?: boolean;
     push?: boolean;
   } | null;
+  /**
+   * FIRE-LAYER FL-0 (seat 8a's finding 16; research 217 s3.6c; reading, pending review): a sub-node per play node, folded
+   * into that node BEFORE the nodes merge -- the original's chained sub-node (`FUN_0028bdd0` D:L133955-133964 hangs it on
+   * the node's `+0x10` with its weight at `+0x8`; `FUN_00577ea0` D:L437436-437455 samples each node, then each sub-node
+   * on its chain, folding each into the node with `FUN_00576bb0` D:L436709-436783, and merges the nodes after,
+   * `FUN_00577000`). Asked once a step with the play's weighted nodes (`current.nodes`, in their order); the answer is
+   * aligned with them, null (or a null entry) for none. The Fire set's (`./weaponPose` `fireLayer`): `FUN_0057a330`
+   * D:L438828-438859.
+   */
+  nodes?(current: LayerContext): readonly (NodeLayer | null)[] | null;
 }
+
+/** FL-0: a play node's sub-node (`PoseLayer.nodes`): the parts it carries and its weight (the sub-node's `+0x8`). */
+export interface NodeLayer { parts: readonly PartPose[]; weight: number }
+
+/**
+ * FL-0 (reading, pending review; research 217 s3.6c and its ledger row): a part a sub-node carries that its node's clip
+ * lacks. `'whole'`: the port takes the sub-node's part whole at any weight. The original folds it by the ordinary rule
+ * from whatever its pose slot held before -- the slot's leftover, which the port does not keep (`FUN_00576bb0`
+ * D:L436732 sets the node slot's bone index first, so the copy at D:L436756-436763 never runs; `FUN_005777d0` writes no
+ * turn there). On the disc (b0's box run, fl0 at 5b99c2d3ce; `fireSubNode.disc.test.ts` holds it) such parts are only
+ * `do_not_use`, no node of the play skeleton (never posed), and `pistol`, the sidearm's held node: drawn, the pistol's
+ * version laid first (`PISTOL_ANIMS`) carries it, so the fold is the ordinary one, except under a base clip with no
+ * pistol version in `PISTOL_ANIMS` (the alert idles, `seal_walk`, `seal_jog`, `seal_alert_step`,
+ * `seal_crouchwalk_bw`); with the rifle in hand the `pistol` node is posed by its mount. At a weight of 0.999 or more
+ * both copy, so the two differ only on that node while the raise eases.
+ */
+export const FIRE_SUB_MISSING_BONE_READING = 'whole' as const;   // 'leftover' not built (re-review 2)
 
 /** The held item's node (`FUN_00553290` 0x553290 names it `rifle`) and SOCOM 1's name for it in the older clips. */
 export const HELD_PART = 'rifle', HELD_ALIAS = 'weapon';
@@ -435,13 +469,17 @@ export const BANK_FACTOR = -0.000375;
 
 /**
  * `FUN_00583960` (decomp 443497-443545): the turn-in-place clip's speed for the turn axis (`actor+0x23c`, the turn over
- * `turn_maxrate`): |axis| times the stance's share, capped at it -- standing 0.6 (`Step`), crouched 0.3 (`Crouch
- * step`), prone 0.35 (`Prone turn`) -- and backwards for a left turn (a positive axis).
+ * `turn_maxrate`): |2 x axis| times the stance's share, capped at it (the whole share from an axis of 0.5) -- standing
+ * 0.6 (`Step`), crouched 0.3 (`Crouch step`), prone 0.35 (`Prone turn`) -- and backwards for a left turn (a positive
+ * axis). The 2 is in the instructions, not the decompiled text: r0001 0x58399c-0x5839a8 load 2.0, negate the axis and
+ * multiply, and 0x5839c4 takes the fabs of that (r0004's twin at 0x588f9c); Ghidra's text (443509-443511) drops the
+ * argument, and only its sign test (443537) keeps the 2. Reading, pending review (MOVE-PARITY AH-5.2, finding 18; the
+ * harness's Q16 rows match it within 1-2%: research 80).
  */
 export const TURN_STEP: Readonly<Record<Stance, number>> = Object.freeze({ stand: 0.6, crouch: 0.3, prone: 0.35 });
 export function turnStepSpeed(turnRate: number, stance: Stance): number {
   const axis = turnRate / SEAL_TUNING.turnMaxRate, cap = TURN_STEP[stance];
-  const speed = Math.min(cap, Math.abs(axis) * cap);
+  const speed = Math.min(cap, Math.abs(2 * axis) * cap);
   return -axis * 2 < 0 ? -speed : speed;
 }
 
@@ -759,6 +797,10 @@ export class Animator {
   private layerContext: LayerNodeContext | null = null;
   private readonly layerNodes: LayerNode[] = [];
   private readonly layerNodePool: LayerNode[] = [];
+  /** FL-0: each pose layer's sub-nodes this step (`PoseLayer.nodes`), aligned with `layerNodes`; null where it gives none. */
+  private readonly nodeSubs: (readonly (NodeLayer | null)[] | null)[] = [];
+  /** FL-0: a node's parts with its sub-nodes folded in (`foldSub`): references, live until the node's `add`. */
+  private readonly folded: PartPose[] = [];
 
   constructor(private readonly skeleton: Skeleton, clips: Iterable<MotionClip>, private readonly table: MotionTable | null, options: AnimatorOptions = {}) {
     for (const c of clips) this.motions.set(c.name, motionOf(c, entryOf(c.name, table)));
@@ -1140,10 +1182,17 @@ export class Animator {
       counts[i] = 0;
     }
     const mainNode = this.main(play);
-    let slot = 0;
+    // The pose layers' context (built here, before the nodes are sampled, so a layer's sub-nodes go into their node:
+    // FL-0) and each layer's sub-nodes for this step (`PoseLayer.nodes`), aligned with the weighted nodes below.
+    const context = this.poseLayers.length ? this.layerContextOf(play, mainNode) : null;
+    const subs = this.nodeSubs;
+    subs.length = 0;
+    if (context) for (const layer of this.poseLayers) subs.push(layer.nodes ? layer.nodes(context) : null);
+    let slot = 0, used = 0;
     for (let k = 0; k < play.nodes.length; k++) {
       const node = play.nodes[k]!;
       if (!(node.weight > 0)) continue;
+      const u = used++;
       const clip = this.clipOf(node.motion);
       let frame: number;
       if (play.looped) frame = (((play.phase + node.offset) % 1) + 1) % 1 * clip.frameCount;
@@ -1166,9 +1215,9 @@ export class Animator {
           if (!has) merged[m++] = p;
         }
         for (let o = 0; o < overCount; o++) merged[m++] = over[o]!;
-        this.add(merged, m, node.weight, node.motion.lateral);
+        this.addNode(merged, m, u, node.weight, node.motion.lateral);
         if (node === mainNode) this.layer = pistol;
-      } else this.add(parts, count, node.weight, node.motion.lateral);
+      } else this.addNode(parts, count, u, node.weight, node.motion.lateral);
     }
     for (let i = 0; i < n; i++) {
       const q = mergeRotationsWithScratch(this.poseRotations[i]!, counts[i]!, this.mergeScratch);
@@ -1207,24 +1256,7 @@ export class Animator {
     for (let k = 0; k < held.length; k++) this.overlaidOn[k] = false;
     // The pose layers (`addPoseLayer`: the weapon's fire set and reload, `./weaponPose`), each over what is below it.
     this.layerNoTwist = false;
-    if (this.poseLayers.length) {
-      const main = mainNode;
-      const phase = layerPhase(play, main);
-      // PAGE-AIM-ALLOC (a browser adaptation: the same floats; was a closure, a filtered and mapped list and a context
-      // made per step): the context and its nodes are the animator's own, rewritten each step -- a layer reads them
-      // inside `sample` and keeps none of them.
-      const nodes = this.layerNodes, pool = this.layerNodePool;
-      let used = 0;
-      for (let k = 0; k < play.nodes.length; k++) {
-        const n = play.nodes[k]!;
-        if (!(n.weight > 0)) continue;
-        const e = pool[used] ?? (pool[used] = { clip: n.motion.clip, frame: 0, phase: 0, weight: 0 });
-        e.clip = n.motion.clip; e.frame = layerPhase(play, n) * n.motion.frames; e.phase = layerPhase(play, n); e.weight = n.weight;
-        nodes[used++] = e;
-      }
-      nodes.length = used;
-      const context = this.layerContext ?? (this.layerContext = { clip: main.motion.clip, frame: 0, phase: 0, nodes });
-      context.clip = main.motion.clip; context.frame = phase * main.motion.frames; context.phase = phase; context.nodes = nodes;
+    if (context) {
       for (const layer of this.poseLayers) {
         const over = layer.sample(context);
         if (over?.noPitchtwist) this.layerNoTwist = true;       // the gate is the play's, not its cross-fade's weight
@@ -1357,6 +1389,86 @@ export class Animator {
   }
 
   /**
+   * The pose layers' context: the play's main clip at its phase and every weighted node at its own (PAGE-AIM-ALLOC, a
+   * browser adaptation: the same floats; was a closure, a filtered and mapped list and a context made per step). The
+   * context and its nodes are the animator's own, rewritten each step -- a layer reads them inside `nodes` or `sample`
+   * and keeps none of them.
+   */
+  private layerContextOf(play: Play, main: PlayNode): LayerNodeContext {
+    const phase = layerPhase(play, main);
+    const nodes = this.layerNodes, pool = this.layerNodePool;
+    let used = 0;
+    for (let k = 0; k < play.nodes.length; k++) {
+      const n = play.nodes[k]!;
+      if (!(n.weight > 0)) continue;
+      const e = pool[used] ?? (pool[used] = { clip: n.motion.clip, frame: 0, phase: 0, weight: 0 });
+      e.clip = n.motion.clip; e.frame = layerPhase(play, n) * n.motion.frames; e.phase = layerPhase(play, n); e.weight = n.weight;
+      nodes[used++] = e;
+    }
+    nodes.length = used;
+    const context = this.layerContext ?? (this.layerContext = { clip: main.motion.clip, frame: 0, phase: 0, nodes });
+    context.clip = main.motion.clip; context.frame = phase * main.motion.frames; context.phase = phase; context.nodes = nodes;
+    return context;
+  }
+
+  /**
+   * FL-0: weighted node `u`'s parts into the merge, each pose layer's sub-node for it folded in first, in the layers'
+   * order (`FUN_00577ea0` D:L437445-437452: the node sampled, then each sub-node on its chain sampled and folded into it
+   * by `FUN_00576bb0`; the nodes merged after, D:L437455).
+   */
+  private addNode(parts: readonly PartPose[], count: number, u: number, weight: number, lateral: boolean): void {
+    let list = parts, n = count;
+    for (const s of this.nodeSubs) {
+      const sub = s ? s[u] : null;
+      if (!sub || !(sub.weight > 0)) continue;
+      n = this.foldSub(list, n, sub.parts, sub.weight);
+      list = this.folded;
+    }
+    this.add(list, n, weight, lateral);
+  }
+
+  /**
+   * FL-0: a sub-node folded into its node part by part, as `FUN_00576bb0` (D:L436709-436783) folds the top of the pose
+   * stack into the slot below at the sub-node's weight `w`. Only the parts the sub-node carries (its slot's bone index
+   * set, D:L436731, D:L436755): at `w` >= 0.999 the sub-node's turn and place, over 0.001 the engine's slerp `w` of
+   * the way (`FUN_00306ae0`, D:L436773) and the place lerped (`FUN_001c0768(1 - w, ...)`, D:L436741), at or under 0.001
+   * the node's own. The original folds the place only where either slot's `+0x0e` is 0 (D:L436732-436733); the port
+   * reads a place only for the parts its `clipTranslation` takes from the clip (`SAMPLED_TRANSLATIONS` and the props,
+   * the port's existing reading of `FUN_005777d0`'s `+0x0e`, not re-read here), so folding every place gives the pose
+   * the port draws.
+   *
+   * A part the node lacks: in the original the fold's first loop writes the node slot's bone index from the sub-node's
+   * for every part the sub-node carries (D:L436732, inside the condition, before the `+0x0e` test), so the second
+   * loop's "node lacks it" copy (D:L436756-436763) never runs; such a part follows the ordinary rule above from
+   * whatever the slot held before (`FUN_005777d0` marks it `+0x0c` -1, `+0x0e` 1 and writes no turn), and counts as
+   * present in the merge. The port does not reproduce that leftover: it takes the sub-node's part whole
+   * (`FIRE_SUB_MISSING_BONE_READING`, where the disc's cases are named: only `do_not_use`, never posed, and `pistol`,
+   * the sidearm's node, held by `fireSubNode.disc.test.ts`). Writes the node's own sample in place (the step's scratch,
+   * `sample`), lists the result in `folded`, and returns its count.
+   */
+  private foldSub(parts: readonly PartPose[], count: number, sub: readonly PartPose[], w: number): number {
+    const out = this.folded;
+    if (out !== parts) for (let j = 0; j < count; j++) out[j] = parts[j]!;
+    let m = count;
+    const subCount = sub.length;
+    for (let s = 0; s < subCount; s++) {
+      const sp = sub[s]!;
+      const i = this.slotOf(sub, subCount, sp.name);
+      if (i < 0) continue;
+      let p: PartPose | null = null;
+      for (let j = 0; j < count; j++) if (this.slotOf(out, count, out[j]!.name) === i) { p = out[j]!; break; }
+      if (!p) { if (FIRE_SUB_MISSING_BONE_READING === 'whole') out[m++] = sp; continue; }
+      if (w >= 0.999) { copy4(sp.rotation, p.rotation); copy3(sp.translation, p.translation); }
+      else if (w > 0.001) {
+        slerpInto(p.rotation, sp.rotation, w, p.rotation);
+        const t = p.translation, st = sp.translation;
+        t[0] = t[0] + (st[0] - t[0]) * w; t[1] = t[1] + (st[1] - t[1]) * w; t[2] = t[2] + (st[2] - t[2]) * w;
+      }
+    }
+    return m;
+  }
+
+  /**
    * One node's parts into the merge: each part's rotation (the sample's own array, read by the merge this step) and its
    * weighted translation; a part the node lacks gets a null rotation at the node's weight (gives way in the merge).
    */
@@ -1434,9 +1546,13 @@ export class Animator {
     // prone (the prone head turn is action 0x1a's clip) and not on a ladder or a hang (FUN_00587b40), the rotator runs
     // (FUN_005ad920) and the head, the neck and the spine take its turn after the clips (FUN_005ad5b0). Not in the
     // death landing either: FUN_005af590 pushes `Land forward` in state 8, which FUN_00587b40 refuses.
+    // DEAD-HEAD-LOOK: nor on any dead body (`mover.dead`), its death clip drawn or not -- FUN_0057a330 runs the rotator
+    // only when FUN_00587b40 answers (D:L439156-439177), and FUN_00587b40 answers false with the state word `+0x174` at
+    // 8, the dead's (D:L445494-445496; an empty action stack answers true, D:L445489-445492, which a dead body with
+    // its death action does not have).
     const lookHas = this.lookHas;
     lookHas.fill(false);
-    if (stance !== 'prone' && !mover.traversal && mover.action?.name !== 'landDeath' && (weight === 0 || !this.look.done)) {
+    if (stance !== 'prone' && !mover.traversal && !mover.dead && mover.action?.name !== 'landDeath' && (weight === 0 || !this.look.done)) {
       this.look.advance(this.lookDt);
       let turned = 0;
       for (let k = 0; k < HEAD_LOOK_NODES.length; k++) {

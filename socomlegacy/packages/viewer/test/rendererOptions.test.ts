@@ -128,25 +128,40 @@ describe('S2: the Xbox class never asks WebGPU for Automatic', () => {
     expect(made[1]).toMatchObject({ forceWebGL: true, antialias: true });
   });
 
-  it('xbox, a player\'s WebGPU still asks for the adapter; the Xbox pick stays the Xbox preset (WebGL2, antialias off)', async () => {
+  it('XBOX-WEBGL2-ONLY: xbox, a player\'s WebGPU (handed in or saved) draws WebGL2, no adapter asked; the Xbox pick stays the Xbox preset (WebGL2, antialias off)', async () => {
     deviceClass.value = 'xbox';
     const asked = gpuAsked();
     await createRenderer(canvas().c, { graphics: 'webgpu' });
-    expect(asked.count).toBe(1);
-    expect(made[0]).toMatchObject({ forceWebGL: false });
+    expect(asked.count).toBe(0);
+    expect(made[0]).toMatchObject({ forceWebGL: true, antialias: true });
+    saveGraphicsBackend('webgpu');
+    await createRenderer(canvas().c);
+    expect(asked.count).toBe(0);
+    expect(made[1]).toMatchObject({ forceWebGL: true });
     saveGraphicsBackend('xbox');
     await createRenderer(canvas().c);
-    expect(asked.count).toBe(1);
-    expect(made[1]).toMatchObject({ forceWebGL: true, antialias: false });
+    expect(asked.count).toBe(0);
+    expect(made[2]).toMatchObject({ forceWebGL: true, antialias: false });
   });
 
-  it('xbox, an address override of Automatic (?renderer=auto) wins as today: the adapter is asked', async () => {
+  it('XBOX-WEBGL2-ONLY: xbox, an address override (?renderer=auto, ?renderer=webgpu) draws WebGL2 too: no adapter asked', async () => {
     deviceClass.value = 'xbox';
-    window.history.replaceState(null, '', '/?renderer=auto');
     const asked = gpuAsked();
+    for (const r of ['auto', 'webgpu']) {
+      window.history.replaceState(null, '', `/?renderer=${r}`);
+      await createRenderer(canvas().c);
+    }
+    expect(asked.count).toBe(0);
+    expect(made.map((m) => (m as { forceWebGL?: boolean }).forceWebGL)).toEqual([true, true]);
+  });
+
+  it('XBOX-WEBGL2-ONLY: every other class keeps a player\'s WebGPU and the address override: the adapter is asked', async () => {
+    deviceClass.value = 'standard';
+    const asked = gpuAsked();
+    await createRenderer(canvas().c, { graphics: 'webgpu' });
+    window.history.replaceState(null, '', '/?renderer=webgpu');
     await createRenderer(canvas().c);
-    expect(asked.count).toBe(1);
-    expect(made[0]).toMatchObject({ forceWebGL: false });
+    expect(asked.count).toBe(2);
   });
 
   it('every other class: Automatic asks for the adapter, as before', async () => {

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { LoadedMap, LoadedMesh } from '../../src/loadMap';
 import { DEFAULT_SETTINGS, emptyLayout, settingsOf, type LayoutSettings } from '../../src/forge/layout';
@@ -9,12 +12,17 @@ import { composeLayoutFinish, composeLayoutObjects, layoutOwnSites } from '../..
 import { DEFAULT_GRID_PARAMS, type SpawnSlot } from '@s2u/scene';
 import { packGround } from '../../src/mover';
 import type { Layout } from '../../src/forge/layout';
+import type { MapAction } from '../../src/mapActions';
+import type { SwitchLook } from '../../src/forge/placedAccess';
 
 /**
- * "A disc map plays as before" (FP-1b; the Overhaul's review, MISSING-TESTS B3; a browser adaptation's bound, FG.R2):
- * the six settings a new empty map may hold (`lightRig`, `fogColor`, `shadowVector`, `skyFrom`, `fog`, `night`) never
- * reach a disc map's match, and a layout on a disc map with none of the new settings composes the same map as before
- * the overhaul -- no outline moved, no objective retargeted, its camera, rig, night and shadow its own.
+ * The layout's environment by base (FP-1b, narrowed by FC2.R2 (2), the owner's answer of 2026-11-13 under MISSION
+ * OT.R112; a browser adaptation, FG.R2): in a match started from the Forge (Play, a Forge lobby) a layout's light rig,
+ * fog colour, drop-shadow direction, fog (on, near, height band) and night play on a disc map as on a new empty map;
+ * the sky dome (`skyFrom`) is a new empty map's only; another base (an authored map) takes only the fog distance every
+ * layout has. A match started from the original's own menus never comes through this chain, so a disc map there keeps
+ * its own. A layout on a disc map with none of the settings composes the same map as before the overhaul -- no outline
+ * moved, no objective retargeted, its camera, rig, night and shadow its own.
  */
 const camera = { fogColor: [1, 2, 3], fogNear: 200, fogFar: 4000, fogTop: 10, fogBottom: 0, fogEnabled: false, fogAltitude: false };
 const DISC = {
@@ -45,31 +53,48 @@ const DISC_MATCH = { ...DISC, ground: GROUND, slots: [slot(0, 10), slot(1, -10)]
  * question, not this task's change.
  */
 const AS_BEFORE = { ...DISC_MATCH, respawns: DISC_MATCH.slots } as LoadedMap;
+/** The objects step's inputs with nothing to load (no template, look, lent body or piece owner). */
+const objectsInput = (base: LoadedMap, layout: Layout): Parameters<typeof composeLayoutObjects>[0] => ({
+  baseMap: base, layout, libs: new Map([[base.archive, base]]), ground: GROUND, playerSide: 'seal', resolveContent: null, npcs: [],
+  lentLibs: new Map(), blank: false, libraryEscortee: undefined, blocked: null, pieceOwners: [],
+  turretOf: () => null, doorOf: () => null, accessOf: () => null, switchLookOf: () => null, flareOf: () => null,
+});
 function throughChain(base: LoadedMap, layout: Layout): LoadedMap {
-  const objects = composeLayoutObjects({
-    baseMap: base, layout, libs: new Map([[base.archive, base]]), ground: GROUND, playerSide: 'seal', resolveContent: null, npcs: [],
-    lentLibs: new Map(), blank: false, libraryEscortee: undefined, blocked: null,
-    turretOf: () => null, doorOf: () => null, accessOf: () => null, flareOf: () => null,
-  });
-  return composeLayoutFinish(objects.flared, layoutOwnSites(layout, objects.why), null, settingsOf(layout), false, () => null);
+  const objects = composeLayoutObjects(objectsInput(base, layout));
+  return composeLayoutFinish({
+    flared: objects.flared, ownSites: layoutOwnSites(layout, objects.why), donor: null, own: settingsOf(layout), base: 'map',
+    skyDome: () => null, rosterOf: () => null,
+  }).map;
 }
 
 const SKY = { world: [{ textureName: 'MP6/sky01.tif', positions: Float32Array.from([0, 500, 0]) } as unknown as LoadedMesh], textures: { 'MP6/sky01.tif': 'SKY' }, textureFlags: {} } as unknown as Parameters<typeof withLayoutEnvironment>[3];
 
-describe('a disc map plays as before (withLayoutEnvironment)', () => {
+describe("the layout's environment by base (withLayoutEnvironment; FC2.R2 (2))", () => {
   it('an empty layout on a disc map, through the whole composeForMatch chain, is the disc map as the Forge has always played it: its slots, hull and look', () => {
     const played = throughChain(DISC_MATCH, emptyLayout({ kind: 'map', archive: 'MP2' }));
     expect(played).toEqual(AS_BEFORE);
-    // The last steps alone are the identity on it too.
+    // The last steps alone leave it as it was too.
     expect(applyForgeObjectives(withSiteOutlines(DISC, []), undefined)).toBe(DISC);
-    expect(withLayoutEnvironment(DISC, settingsOf(emptyLayout({ kind: 'map', archive: 'MP2' })), false, null)).toBe(DISC);
+    expect(withLayoutEnvironment(DISC, settingsOf(emptyLayout({ kind: 'map', archive: 'MP2' })), 'map', null)).toEqual(DISC);
   });
 
-  it('none of the six reaches a disc map, even held: only the fog distance every layout has (FG-24)', () => {
-    expect(withLayoutEnvironment(DISC, SIX, false, SKY)).toBe(DISC);
+  it('on a disc map in a Forge-started match the five play -- rig, shadow, fog colour, fog band, night -- and the sky does not', () => {
+    const played = withLayoutEnvironment(DISC, SIX, 'map', SKY);
+    expect(played.lightRig).toEqual(SIX.lightRig);
+    expect(played.world).toBe(DISC.world);
+    expect(played.textures).toEqual({});
+    expect(played.shadowVector).toEqual([1, -1, 0]);
+    expect(played.camera).toMatchObject({ fogColor: [200, 100, 50], fogEnabled: true, fogNear: 50, fogAltitude: true, fogTop: 30, fogBottom: 5 });
+    expect(played.night).toEqual({ mission: true, lens: [0.2, 0.898, 0.2, 0.24] });
+    // With none of them held, a disc map plays its own.
+    expect(withLayoutEnvironment(DISC, settingsOf(emptyLayout({ kind: 'map', archive: 'MP2' })), 'map', SKY)).toEqual(DISC);
+  });
+
+  it('another base (an authored map) takes none of the six, even held: only the fog distance every layout has (FG-24)', () => {
+    expect(withLayoutEnvironment(DISC, SIX, 'content', SKY)).toBe(DISC);
     const far = { ...SIX, fogFar: 2000 };
-    expect(withLayoutEnvironment(DISC, far, false, SKY)).toEqual(withSettings(DISC, far));
-    const played = withLayoutEnvironment(DISC, far, false, SKY);
+    expect(withLayoutEnvironment(DISC, far, 'content', SKY)).toEqual(withSettings(DISC, far));
+    const played = withLayoutEnvironment(DISC, far, 'content', SKY);
     expect(played.lightRig).toBe(DISC.lightRig);
     expect(played.world).toBe(DISC.world);
     expect(played.night).toBe(DISC.night);
@@ -77,8 +102,15 @@ describe('a disc map plays as before (withLayoutEnvironment)', () => {
     expect(played.camera!.fogColor).toEqual([1, 2, 3]);
   });
 
+  it('the fog distance plays on every base (FG-24)', () => {
+    const far = { ...DEFAULT_SETTINGS, fogFar: 2000 };
+    for (const base of ['blank', 'map', 'content'] as const) {
+      expect(withLayoutEnvironment(DISC, far, base, null).camera!.fogFar, base).toBe(withSettings(DISC, far).camera!.fogFar);
+    }
+  });
+
   it('on a new empty map the six play: rig, sky, shadow, fog colour, fog band and night', () => {
-    const played = withLayoutEnvironment(DISC, SIX, true, SKY);
+    const played = withLayoutEnvironment(DISC, SIX, 'blank', SKY);
     expect(played.lightRig).toEqual(SIX.lightRig);
     expect(played.world.map((m) => m.textureName)).toEqual(['ground.tif', 'MP6/sky01.tif']);
     expect(played.textures).toEqual({ 'MP6/sky01.tif': 'SKY' });
@@ -86,7 +118,54 @@ describe('a disc map plays as before (withLayoutEnvironment)', () => {
     expect(played.camera).toMatchObject({ fogColor: [200, 100, 50], fogEnabled: true, fogNear: 50, fogAltitude: true, fogTop: 30, fogBottom: 5 });
     expect(played.night).toEqual({ mission: true, lens: [0.2, 0.898, 0.2, 0.24] });
     // With none of them held, a new empty map plays its library's.
-    expect(withLayoutEnvironment(DISC, settingsOf(emptyLayout({ kind: 'blank', library: 'MP2' })), true, null)).toEqual(DISC);
+    expect(withLayoutEnvironment(DISC, settingsOf(emptyLayout({ kind: 'blank', library: 'MP2' })), 'blank', null)).toEqual(DISC);
+  });
+});
+
+/**
+ * FC2-2 (the contributor's Forge objects and switches, MISSION OT.R112; a browser adaptation, FG.R2): his steps are IN
+ * the pure chain Play composes by, so this file runs them as Play does. A base carrying its metadata (the placed kinds
+ * write there), a layout with one ambient Forge object and one switch running a script on a look (`switchLookOf`, the
+ * page's loaded looks): the objects step composes both without throwing, and the map names them. A switch on a placed
+ * gate needs a disc gate's template (its leaf, its lever program), which this file does not build: the gates' step's
+ * arguments are pinned on the chain's source below instead.
+ */
+const META_MATCH = {
+  ...DISC_MATCH, actions: [],
+  meta: { stem: 'MP2', actions: [], instances: [], instanceByPath: new Map(), initial: [], diagnostics: [], scene: { destructibles: [], programs: [] } },
+} as unknown as LoadedMap;
+const PLATE_RECORD = {
+  node: 'epanel_di1', type: 'SWITCH', typeCode: 2, valve: 'lever1', anims: [], team: null, range: 15, elevation: 15, points: 0, bitmap: 'use',
+  path: 'worldmodel/epanel_di1', at: [0, 0, 0],
+} as unknown as MapAction;
+const PLATE: SwitchLook = { lib: META_MATCH, pieces: [], owners: [], instances: [], anchor: [0, 0, 0], prefixes: [], record: PLATE_RECORD };
+
+describe("FC2-2: the contributor's steps run in the chain (composeLayoutObjects)", () => {
+  it('a layout with one Forge object and one scripted switch composes without throwing, and the map names both', () => {
+    const layout: Layout = {
+      ...emptyLayout({ kind: 'map', archive: 'MP2' }),
+      objects: [{ kind: 'ambient', source: 'MP2', name: 'flame_in_barrel', at: [10, 0, 20], yaw: 0 }],
+      switches: [{ look: 'plate', script: { steps: [{ do: 'message', text: 'Pulled' }] }, at: [30, 0, 40], yaw: 0 }],
+    };
+    const objects = composeLayoutObjects({ ...objectsInput(META_MATCH, layout), switchLookOf: (id) => (id === 'plate' ? PLATE : null) });
+    expect(objects.flared.meta!.forgePlaces).toEqual({ 'forge/object_1': [10, 0, 20] });
+    expect(objects.flared.meta!.forgeAmbients).toMatchObject([{ path: 'forge/object_1', source: 'MP2', name: 'flame_in_barrel' }]);
+    expect(objects.flared.meta!.actions.find((a) => a.path === 'worldmodel/forge_switch_1')).toMatchObject({ type: 'SWITCH', valve: 'forge_switch_1_valve' });
+    expect(objects.flared.actions).toBe(objects.flared.meta!.actions);
+  });
+
+  it("the steps in his order (the page's inline chain at the import): his Forge objects after the views, his switches, looks, piece owners and triggers into the gates' step, his piece instances before the flares, then the finish's roster, arsenal and world settings", () => {
+    const chain = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/forge/composeLayout.ts'), 'utf8');
+    const order = ['composeMatchMap(', 'withLentHostageBodies(', 'playObjectives(', 'withForgeObjects(withPlacedViews(withPlacedPoints(',   // one nested expression: the innermost runs first
+      'withPlacedTurrets(', 'withPlacedDoors(', 'withPlacedAccess(', 'withPieceInstances(', 'withPlacedFlares(',
+      'withSiteOutlines(', 'withRoster(withLayoutEnvironment(', 'mapWithArsenal(', 'withWorldSettings('];   // the roster's argument is the environment's result
+    const at = order.map((name) => chain.indexOf(name));
+    for (const [k, name] of order.entries()) expect(at[k], name).toBeGreaterThan(-1);
+    for (let k = 1; k < order.length; k++) expect(at[k], `${order[k - 1]} before ${order[k]}`).toBeGreaterThan(at[k - 1]!);
+    expect(chain).toMatch(/composeMatchMap\([^;]*, pieceOwner\)/);
+    expect(chain).toMatch(/withForgeObjects\([^;]*, layout\.objects\)/);
+    expect(chain).toMatch(/withPlacedAccess\([^;]*, layout\.switches \?\? \[\], i\.switchLookOf, pieceOwner, layout\.triggers \?\? \[\]\)/);
+    expect(chain).toMatch(/if \(layout\.switches\?\.some\(\(sw\) => sw\.script \|\| sw\.piece !== undefined\) \|\| layout\.triggers\?\.length\) accessed\.map = withPieceInstances\(accessed\.map, i\.pieceOwners\)/);
   });
 });
 

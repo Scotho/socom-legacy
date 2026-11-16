@@ -5,6 +5,7 @@ export * from './modelLibrary';
 export * from './buildScene';
 export * from './collision';
 export * from './clutter';
+export * from './clutterCollision';
 export * from './aimaps';
 export * from './escortees';
 export * from './spawns';

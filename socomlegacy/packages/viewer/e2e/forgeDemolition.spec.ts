@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectBase, newLayoutOn, placingTool } from './forgeBase';
+import { expectBase, newLayoutOn, openSaves, placingTool, showTab, TOOLBAR_CONTROLS, TOOLBAR_CONTROLS_FLOOR } from './forgeBase';
 
 /**
  * FG-51 (a browser adaptation, no original): on the blank floor, a bomb start, two plant sites and Demolition.
@@ -47,9 +47,10 @@ async function expectToolbarInside(page: Page): Promise<void> {
 async function expectToolbarReachable(page: Page): Promise<void> {
   const size = page.viewportSize();
   if (!size) throw new Error('no viewport');
-  const controls = page.locator('header.fx-top').locator('a, button, select, input').filter({ visible: true });
+  // FC2-4 (EDITOR-MAP T1-T4, T7, T12, D11): his row's controls, his menu bar's titles among them (`./forgeBase`).
+  const controls = page.locator('header.fx-top').locator(TOOLBAR_CONTROLS).filter({ visible: true });
   const n = await controls.count();
-  expect(n, 'the toolbar\'s controls').toBeGreaterThan(15);
+  expect(n, 'the toolbar\'s controls').toBeGreaterThanOrEqual(TOOLBAR_CONTROLS_FLOOR);
   for (let i = 0; i < n; i++) {
     const c = controls.nth(i);
     await c.scrollIntoViewIfNeeded();
@@ -82,12 +83,12 @@ test('the blank floor plays Demolition from a placed bomb start and two sites', 
   await newLayoutOn(page, 'blank:5');
   await expectBase(page, /New Empty Map/);
 
-  // Settings is under the World tab; the Outliner under Object.
-  await page.locator('.fx-right [data-forge-tab="world"]').click();
+  // Settings is under the World tab; the Outliner under Object. FC2-4 (EDITOR-MAP D6): World's panels are his Map tab's.
+  await showTab(page, 'map');
   // Exact: the forge menu's card stays in the DOM once `expectBase` opened it, and its Game type row's steps are named
   // "Game type: previous" / "Game type: next" (`../src/forge/menuView.ts`, LATER 230), which a loose label matches too.
   await page.getByLabel('Game type', { exact: true }).selectOption('2');
-  await page.locator('.fx-right [data-forge-tab="object"]').click();
+  await showTab(page, 'object');
   // OT.R112: the Demolition tools are on the placing tools' row, named by their shown labels (`./forgeBase` `placingTool`;
   // their titles, "Place the bomb's start" and the sites', are descriptions now).
   await placingTool(page, 'Bomb').click();
@@ -109,7 +110,7 @@ test('the blank floor plays Demolition from a placed bomb start and two sites', 
   await expect(page.locator('.fx-outliner')).toContainText('Site · Terrorist');
 
   // The download sits in the saves dialog since #350's toolbar (as `forgeEditor.spec.ts` reaches it).
-  await page.locator('[data-forge="saves"]').click();
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   const download = page.waitForEvent('download');
   await page.locator('.fx-modal').getByRole('button', { name: 'Download' }).click();
   const file = await (await download).path();

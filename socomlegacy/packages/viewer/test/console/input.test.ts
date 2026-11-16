@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
-import { DEAD, KEYMAP, PADMAP, REPEAT_DELAY, REPEAT_EVERY, padFrame, type Held, type PadLike } from '../../src/console/input';
+import { ConsoleController } from '../../src/console/grammar';
+import { attachInput, DEAD, KEYMAP, PAD_REPEAT_ATTR, PAD_REPEAT_EVENT, PADMAP, REPEAT_DELAY, REPEAT_EVERY, padFrame, type Held, type PadLike } from '../../src/console/input';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
-import { CATS, HOME_CATEGORY } from '../../src/console/state';
+import { CATS, createState, HOME_CATEGORY, type Button } from '../../src/console/state';
 import { mountShell } from './shell';
 
 /**
@@ -122,5 +123,83 @@ describe('the gamepad poll', () => {
     expect(page.ctl.S.toast).toBe('Controller connected');
     expect(document.querySelector('#legend .cx-mark[data-mark="pad"]')!.getAttribute('aria-label')).toContain('Controller connected');   // LR-24 (was: [data-device=pad])
     expect(document.querySelector('#toast .cx-toast')!.textContent).toBe('Controller connected');
+  });
+});
+
+/**
+ * RVK-A (LATER 966, V21.R7; the owner, 2026-11-12: "the << and >> buttons should be able to be held to page through"):
+ * the pad delivers presses, not holds -- Cross presses the focused control once however long it is held (`REPEATS`).
+ * A control that asks for it (`PAD_REPEAT_ATTR`: the replay transport's two jumps) takes the held Cross the way the D-pad's
+ * hold is done: the first press as before (`padPress`), then after `REPEAT_DELAY` every `REPEAT_EVERY` one
+ * `PAD_REPEAT_EVENT` on that control. Every other control, and every other screen, as before. A browser adaptation.
+ */
+describe('RVK-A: the pad\'s held Cross on a control that repeats', () => {
+  const originalPads = Object.getOwnPropertyDescriptor(window.navigator, 'getGamepads');
+  let detach: (() => void) | undefined;
+  let ctl: ConsoleController | undefined;
+  afterEach(() => {
+    detach?.(); ctl?.dispose(); detach = ctl = undefined;
+    if (originalPads) Object.defineProperty(window.navigator, 'getGamepads', originalPads);
+    else Reflect.deleteProperty(window.navigator, 'getGamepads');
+    vi.restoreAllMocks();
+  });
+
+  function rig(target: HTMLElement) {
+    const pads: PadLike[] = [pad()];
+    Object.defineProperty(window.navigator, 'getGamepads', { configurable: true, value: () => pads });
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const A = sampleAdapters();
+    const c = new ConsoleController(createState(A), A, { render() {}, announce() {}, fit() {} });
+    ctl = c;
+    const presses = vi.spyOn(c, 'padPress').mockImplementation(() => {});      // the press's route is the grammar's (held elsewhere)
+    let next: ((now: number) => void) | undefined;
+    detach = attachInput(document, window, c, { keymap: false, frame: { request(cb) { next = cb; return 1; }, cancel() { next = undefined; } } });
+    const repeats: number[] = [];
+    let now = 0;
+    target.addEventListener(PAD_REPEAT_EVENT, () => { repeats.push(now); });
+    const step = (t: number, cross: boolean): void => { now = t; pads[0] = cross ? pad([0, 0], { 0: 1 }) : pad(); next?.(t); };
+    return { presses, repeats, step };
+  }
+
+  it('padFrame repeats a button named beside REPEATS, at the same cadence; Cross alone presses once', () => {
+    const held: Held = {};
+    const at = (t: number, extra?: readonly Button[]) => padFrame([pad([0, 0], { 0: 1 })], held, t, undefined, extra);
+    expect(at(0, ['cross'])).toEqual(['cross']);
+    expect(at(300, ['cross'])).toEqual([]);
+    expect(at(401, ['cross'])).toEqual(['cross']);
+    expect(at(450, ['cross'])).toEqual([]);
+    expect(at(502)).toEqual([]);                                                // not named: no repeat
+    expect(at(603, ['cross'])).toEqual(['cross']);
+  });
+
+  it('on a focused [data-pad-repeat] control: the first press is the press, each repeat one PAD_REPEAT_EVENT there', () => {
+    const b = document.createElement('button');
+    b.setAttribute(PAD_REPEAT_ATTR, '');
+    document.body.append(b);
+    b.focus();
+    const { presses, repeats, step } = rig(b);
+    step(0, true);
+    expect(presses.mock.calls).toEqual([['cross']]);
+    step(300, true);
+    step(401, true);
+    step(450, true);
+    step(502, true);
+    expect(repeats).toEqual([401, 502]);
+    expect(presses).toHaveBeenCalledTimes(1);
+    step(520, false);                                                           // let go: no more
+    step(1200, false);
+    expect(repeats).toEqual([401, 502]);
+    b.remove();
+  });
+
+  it('on any other control a held Cross presses once, as before (no repeat, no event)', () => {
+    const b = document.createElement('button');
+    document.body.append(b);
+    b.focus();
+    const { presses, repeats, step } = rig(b);
+    for (const t of [0, 300, 401, 502, 603]) step(t, true);
+    expect(presses.mock.calls).toEqual([['cross']]);
+    expect(repeats).toEqual([]);
+    b.remove();
   });
 });

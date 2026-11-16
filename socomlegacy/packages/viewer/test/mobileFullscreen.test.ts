@@ -6,7 +6,7 @@ import { applyMobileLayout, decodeLayout, readMobileLayout, saveMobileLayout } f
 let dispose = () => {};
 afterEach(() => {
   dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); document.body.innerHTML = '';
-  for (const key of ['exitFullscreen', 'fullscreenElement', 'webkitExitFullscreen', 'webkitFullscreenElement']) Reflect.deleteProperty(document, key);
+  for (const key of ['exitFullscreen', 'fullscreenElement', 'webkitExitFullscreen', 'webkitFullscreenElement', 'fullscreenEnabled', 'webkitFullscreenEnabled']) Reflect.deleteProperty(document, key);
   for (const key of ['requestFullscreen', 'webkitRequestFullscreen']) Reflect.deleteProperty(document.documentElement, key);
 });
 function menu() {
@@ -70,5 +70,30 @@ it('uses the prefixed request and exit with their correct receivers', async () =
   document.dispatchEvent(new Event('webkitfullscreenchange'));
   expect(button.getAttribute('aria-label')).toBe('Exit fullscreen');
   button.click(); await Promise.resolve();
+  expect(exit).toHaveBeenCalledTimes(1);
+});
+
+it('uses the enabled prefixed API when the standard API is exposed but disabled', async () => {
+  const standard = vi.fn().mockRejectedValue(new Error('standard disabled'));
+  const prefixed = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: false });
+  Object.defineProperty(document, 'webkitFullscreenEnabled', { configurable: true, value: true });
+  Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: standard });
+  Object.defineProperty(document.documentElement, 'webkitRequestFullscreen', { configurable: true, value: prefixed });
+  menu().click();
+  expect(prefixed).toHaveBeenCalledTimes(1); // still on the original user-activation stack
+  expect(standard).not.toHaveBeenCalled();
+});
+
+it('does not let a pending orientation lock disable the dedicated fullscreen button', async () => {
+  Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
+  const exit = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+  vi.spyOn(window, 'screen', 'get').mockReturnValue({ orientation: { lock: () => new Promise<void>(() => {}) } } as unknown as Screen);
+  const button = menu(); button.click();
+  await Promise.resolve(); await Promise.resolve();
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.documentElement });
+  document.dispatchEvent(new Event('fullscreenchange'));
+  button.click();
   expect(exit).toHaveBeenCalledTimes(1);
 });

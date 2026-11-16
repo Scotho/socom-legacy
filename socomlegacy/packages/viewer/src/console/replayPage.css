@@ -39,7 +39,9 @@
 :root[data-console][data-replay-public] .cx-rp-stage__body { display: grid; place-items: center; min-width: 0; padding: var(--s2u-space-8) var(--s2u-space-6); box-sizing: border-box; }
 :root[data-console][data-replay-public] .cx-rp-stage[data-world="viewer"] { width: min(100%, calc(85dvh * 16 / 9)); min-height: min(36rem, 85dvh); max-height: 85dvh; }
 :root[data-console][data-replay-public] .cx-rp-stage[data-world="viewer"] .cx-rp-stage__body { padding: 0; }
-:root[data-console][data-replay-public] .cx-rp-stage[data-world="viewer"] [data-cx-viewer] { position: absolute; inset: 0; }
+/* the viewer's area is the whole stage: the console's placement (console.css, grid-row 2 of the Watch layer) would put it
+   in the empty implicit row at this one-row stage's bottom edge, 0 high, its world never drawn (e2e/replayPageStage) */
+:root[data-console][data-replay-public] .cx-rp-stage[data-world="viewer"] [data-cx-viewer] { position: absolute; inset: 0; grid-area: auto; }
 
 /* the disc prompt, centred: the eyebrow, the heading, the sentence, the reader's state, the two choosers as buttons */
 :root[data-console][data-replay-public] .cx-rp-prompt { display: flex; flex-direction: column; align-items: center; gap: var(--s2u-space-4); width: 100%; max-width: 46rem; min-width: 0; text-align: center; }

@@ -1,7 +1,9 @@
-import { flashLevel, segmentHits, surfaceMaterial, type Grid, type SurfaceMaterial } from '@s2u/scene';
+import { flashLevel, segmentHits, surfaceMaterial, weaponCategory, type CollisionOwner, type Grid, type SegmentHit, type SurfaceMaterial, type WorldPoly } from '@s2u/scene';
+import { scopeEyeHeight } from '../cameraRig';
 import type { Stance, Walker } from '../mover';
 import { roundAdmits } from '../round';
 import { under } from '../mapMeta';
+import { reachGate } from '../sceneHealth';
 import { applyHit, fragmentCount, fragmentDamage, fragmentPart, PART, type Health } from './damage';
 
 /**
@@ -74,12 +76,29 @@ export const KNOCK_LADDER_STATE_READING = 'released' as const;
 export const KNOCK_SWAP_COMPLETE_READING = 'completed' as const;
 
 /**
- * READING (named; PF-19, research 218 s3): a blast that kills a SEAL in a move lays no knock there: `Room.kill` releases
- * the move and the corpse falls from where it was ('kill-releases', unchanged from before PF-19). The original knocks
- * the dead too (D:L440981, state 8 at D:L441001), after the same release; the port keeps the lethal case as it stood
- * (the task's scope: "nothing changes for the lethal case"). Owed: the same recomp trace as KNOCK_LADDER_STATE_READING.
+ * READING (named; PF-19, research 218 s3/s5; the main controller's ruling, 2026-11-14, pending review): a blast that
+ * kills a SEAL in a move knocks the corpse as it knocks the living ('knock'): `FUN_0057e770` releases the move
+ * (`FUN_005a5da0`, D:L440993) and then, the alive bit clear, sets state 8 (D:L441000-441001) and throws the body
+ * (D:L441041-441077: the fall by `FUN_005807d0` in that state, D:L441047 / D:L441050; the velocity, D:L441064-441069)
+ * without asking whether a move ran -- on a ladder, a hang or mid-climb alike. The room lays it through `applyKnock`
+ * before `Room.kill`, whose own `releaseMove` then finds no move; the corpse falls in the knock's fall and lands in `Land
+ * forward` / `Land backwards`, held. The order differs: the original kills first (`FUN_00547aa0` D:L459606 / D:L459611)
+ * and knocks after (`FUN_0057e770` D:L459613), on a body already dead (state 8); the port knocks, then kills (as for a
+ * standing lethal blast) -- no visible difference in the tests, owed with H111's capture. Was 'kill-releases' (PF-19 to
+ * 2026-11-14): no knock in a move, `Room.kill` released it into a plain fall -- in replay 61e1f23ebba5c58d (Vigilance,
+ * 2026-11-14) a SEAL killed by a frag mid `seal_climbcrate` landed soft (`land`) and his corpse stood 59.5 s. Owed: the
+ * same recomp trace as KNOCK_LADDER_STATE_READING, and a capture of a lethal blast on a climber (H111).
  */
-export const KNOCK_LETHAL_IN_MOVE_READING = 'kill-releases' as const;
+export const KNOCK_LETHAL_IN_MOVE_READING: 'knock' | 'kill-releases' = 'knock';
+
+/**
+ * Whether the room lays a blast's knock on a body (`Room.blastPlayers`): always, but under the old reading
+ * ('kill-releases') a lethal blast on a body in a move, which `Room.kill` released into a plain fall instead. The living's
+ * knock never depends on the reading (KNOCK_LETHAL_IN_MOVE_READING).
+ */
+export function lethalKnockLaid(died: boolean, inMove: boolean, reading: 'knock' | 'kill-releases' = KNOCK_LETHAL_IN_MOVE_READING): boolean {
+  return !(died && inMove && reading === 'kill-releases');
+}
 
 /**
  * READING (named; PF-19, research 218 s3): a reload asked while the knock's `Prone cover` plays is refused ('refused';
@@ -109,12 +128,19 @@ export const KNOCK_COVER_RELOAD_READING = 'refused' as const;
  */
 export const FLASH_FRIENDLY_FIRE_READING = 'spared' as const;
 
-/** The SEAL a blast is resolved on: its feet, posture and facing (`Pose.yaw`: it faces (-sin yaw, 0, -cos yaw)). */
-export interface BlastVictim { feet: readonly number[]; posture: Stance; yaw: number }
+/**
+ * The SEAL a blast is resolved on: its feet, `posture` the body in use (the size class, `FUN_0058a720(actor, 1)`), its
+ * facing (`Pose.yaw`: it faces (-sin yaw, 0, -cos yaw)), and
+ * `stance` the raw stance word `+0x174` (`FUN_0058a720(actor, 0)`, D:L446840-446842) where the two differ -- a SEAL's
+ * crouch run, the word crouched and the body standing. FRAG-COUNT-STANCE: the fragment count reads the word
+ * (`FUN_005a18b0` D:L459455; research 400 s12); absent, the posture.
+ */
+export interface BlastVictim { feet: readonly number[]; posture: Stance; yaw: number; stance?: Stance }
 
 /** The blast: its round's record, its piercing, whether it throws fragments, whether it is a flashbang. */
 export interface BlastKind {
-  record: { explosionDamage: number; explosionRadius: number };
+  /** `id`: the round's item (`+0x7c` of `+0xc`), whose category the fragment count reads (FRAG-COUNT); absent, no exemption. */
+  record: { explosionDamage: number; explosionRadius: number; id?: number };
   piercing: number;
   fragments: boolean;
   flash?: boolean;
@@ -180,7 +206,9 @@ export function blastKnock(victim: BlastVictim, point: readonly number[], record
  * §3.2 (the review's A): one-sided -- the batch's `FUN_002d3030` runs a hull collider (its +0x80 bit 1 clear,
  * `FUN_00316e30` D:L215827-215828) in crossing mode `DAT_003df270` 0x20 (D:L175276-175281), which meets a face only from
  * its front (research 281 §4.3, micro 288-333): `segmentHits`' `frontOnly`, the line from the blast to the head. Was
- * two-sided: Crossroads' terrorist base's round, 0.5 u under the floor, reached no body.
+ * two-sided: Crossroads' terrorist base's round, 0.5 u under the floor, reached no body. Since LATER 992 that round blasts
+ * from 0.5 over the floor (`BLAST_POINT_LIFT_READING`) and reaches bodies under either rule: the case no longer tells the
+ * two apart, and the one side rests on research 281 §4.3 alone until capture F3 (H421; research 400 s11).
  * `ignore` (FORGE_SCRIPT_BLAST_ADAPTATION): a Forge script explosion's own object, whose middle it goes off at -- its
  * faces passed, so the object it is set at does not shield what is round it (the bomb's sits on the floor, in nothing).
  */
@@ -219,19 +247,126 @@ export function blastExposed(grid: Grid, from: readonly number[], to: readonly n
 }
 
 /**
+ * NADE-BLAST: the prone body's head over the feet for the blast's line 2 -- `HEAD_OVER`'s old 1.7, straight up
+ * [placeholder: the posed head bone of `seal_prone` is unread, probably forward of the feet along the body (the prone
+ * eye stands `SCOPE_EYE_READING.proneAhead` ahead); settled by a read of the bone's pose at key 0 or a capture of a
+ * prone SEAL behind a low face (research 400 s7; LATER 991)].
+ */
+export const BLAST_HEAD_PRONE_PLACEHOLDER = 1.7;
+/** The idle root the posed eye stands on: `seal_stand` 11.484, `seal_crouch` 5.504 (research 180 s8.3; `../mover` `IDLE_HIPS`). */
+const POSED_ROOT = { stand: 11.484, crouch: 5.504 } as const;
+/**
+ * NADE-BLAST (V21-AA; research 400 s6.2; the synthesis's item 2): where the body's own line to the head (`FUN_005ac070`
+ * D:L464841-464853, `blastExposed`) ends over the feet -- the posed `head` bone (`actor+0x308`, through the pose
+ * `FUN_002869d0` and the body's matrix `FUN_00306fd0`). The bone's own height is unread; the posed eye stands in for
+ * it (`../cameraRig` `scopeEyeHeight` over `POSED_ROOT`: 15.884 standing, 9.904 crouched; research 180 s1.3), straight
+ * over the feet -- the eye's 2.5 behind the root (`SCOPE_EYE_READING.ahead`) and the bone's own offset not applied. The
+ * end at the head bone is the reading; the height is a stand-in of placeholder grade [placeholder: the eye for the bone]. A
+ * hostage takes the same heights (its own skeleton's head unread). The
+ * prone head is `BLAST_HEAD_PRONE_PLACEHOLDER`. Was `room.ts`' unnamed `HEAD_OVER` (18.3 / 11.1 / 1.7), over the eye: a
+ * face whose top stood between the eye and that head sheltered in the original and not in the port.
+ */
+export const BLAST_HEAD_OVER_READING: Readonly<Record<Stance, number>> = {
+  stand: scopeEyeHeight('stand', POSED_ROOT.stand), crouch: scopeEyeHeight('crouch', POSED_ROOT.crouch), prone: BLAST_HEAD_PRONE_PLACEHOLDER,
+};
+
+/**
+ * LATER 992 (research 400 s11; reading, pending review): the round's detonation `FUN_003c8330` (state 4 -> 5, D:L319184)
+ * lifts the round's point `+0x48` by 1.0 in y as its last statement (D:L319266); both projectile updaters run it on state
+ * 4 (`FUN_003c5310` D:L316877, `FUN_003c9fb0` D:L320105). The round's node (`+0x20`, its `+0x30`) is not moved with it
+ * in state 5. What reads which (each consumer lifts for itself, `blastPoint`):
+ * - from the lifted `+0x48`: line 1 (`FUN_003c7ee0` D:L319056), line 2 (`FUN_005ac070` D:L464853), the body handler's
+ *   radius factor (`FUN_005a0e70` D:L459214-459226), the fragment count (`FUN_005a18b0` D:L459417), the flash
+ *   (D:L459228) and the knock's origin (D:L459281);
+ * - from the unlifted point: the effects (D:L319246, before the lift), the target list (filled in state 3 by
+ *   `FUN_0031dc90`, D:L316805 / D:L320416, which copies the point, D:L219822-219824; `FUN_003c7af0` D:L319251 only sorts
+ *   it), and `GetDamage`'s falloff and cones from the node (`FUN_003c7600` D:L318711-318716) -- the damage of each
+ *   fragment, a resting charge's base, the scene's damage.
+ * Measured on r0004 by the Shadow rig: a resting M67's `+0x48` y up by exactly 1.0 on its detonation frame, x and z kept,
+ * n = 2 natural throws on MP2 (an impact, an in-air burst and the other round kinds not measured). The rest height itself
+ * (`BOUNCE_LIFT`, the floor + 0.1) is the projectile's, kept. A placed round attached to an object (`+0xc8`, set from the
+ * placement, D:L474014-474020) has its `+0x48` rewritten from the object each frame before the state-5 walk (D:L316850-
+ * 316859), undoing the lift for its line 2; whether the port's surface-planted C4 is such a round is unread [note only:
+ * research 400 s11]. The port has no target list of its own: a body's falloff from the node is its radius test, the
+ * original's list and its radius factor aside (the factor already reads the lifted point) [note only: research 400 s11].
+ */
+export const BLAST_POINT_LIFT_READING = 1;
+
+/** LATER 992: the round's lifted `+0x48` (`BLAST_POINT_LIFT_READING` over where it went off): the lines, the radius factor, the count, the flash and the knock's origin read it; GetDamage's node and the effects stay at `at`. */
+export function blastPoint(at: readonly number[]): [number, number, number] {
+  return [at[0]!, at[1]! + BLAST_POINT_LIFT_READING, at[2]!];
+}
+
+/**
+ * NADE-BLAST (V21-AA; research 400 s6.1, s9-s10): where the explosion's own line ("line 1") ends on a SEAL, over the feet.
+ * The original runs it to the midpoint of one of the body's node boxes (`FUN_003c7ee0` D:L319049-319056: `FUN_00308fc0`
+ * at 0.5 between the box's `+0x40` and `+0x4c`, placed by `FUN_00310980`) -- the first of the SEAL's nodes in the target
+ * list (the `+0x94` dedupe, D:L319030-319042), the sphere query's own order after `FUN_003c7af0`'s partition (D:L318868-
+ * 318925: a partition by `+0xa1` bit 2 with an early stop; not a sort by distance) [placeholder: which node,
+ * and so the height, is unread].
+ * - Standing, 11.3: THE TOP OF THE BRACKET THE CAPTURES ALLOW, not a body point (LINE1-END, LATER 991; the Shadow rig on
+ *   r0004, 2026-11-13). C1's near step on MP6's ladder wall (its cap sloping, ~10.22 over the floor where the lines cross): throws 3 and 4, cut-offs 11.346 and 11.313 on the disc's hull, both
+ *   spared where line 1 to the root 11.48 clears the wall, the ~70 u open control hurt 2 of 3. The corrected count gives
+ *   no fragment on 17.6 % and 21.2 % of those throws, both spared by the count alone 3.7 %: at ~96 % line 1's end is
+ *   under 11.35 (under 11.31 if both). The bracket [unread, 11.31) -- 11.3 sits 0.013 under throw 4's cut-off; its corroborating tops 13.1 (D4) and 13.3 (the far
+ *   step). Was the root's height 11.48 (`ROOT_HEIGHT`, research 400's census stand-in). The remaining error each way: a
+ *   true end below 11.3 still lets the port hurt a little where the original spares; and about one chance in six (throw 4
+ *   spared by a zero count) the end lies in [11.31, 11.35), where the port at 11.3 spares where the original hurts.
+ * - Crouched 5.5 and prone 2.17: the root's height still -- unmeasured, no capture bears on them.
+ * A hostage takes the SEAL's heights (its own skeleton's nodes unread). Settled by the node and its midpoint (C1 by a
+ * read of the list's order, or a capture that names the node).
+ */
+export const BLAST_LINE1_END_PLACEHOLDER: Readonly<Record<Stance, number>> = { stand: 11.3, crouch: ROOT_HEIGHT.crouch, prone: ROOT_HEIGHT.prone };
+
+/**
+ * NADE-BLAST (V21-AA): the sides of line 1 to a SEAL. By the reading it is one-sided: its ray queues through the same
+ * `FUN_0031dd90` batch as the line to a head (`FUN_003c7ee0` D:L319056), run in the hull colliders' mode 0x20 (research
+ * 281 s4.3), as `blastSeen` takes it. The scene's own line (`../sceneHealth` `BLAST_REACH_LINE_SIDES_READING`) keeps its
+ * known two-sided departure; this one does not inherit it.
+ */
+export const BLAST_LINE1_SIDES_READING = 'one-sided' as const;
+
+/**
+ * NADE-BLAST (V21-AA; research 400 s6.1): line 1 from `from` to `to` (a SEAL's or a hostage's `BLAST_LINE1_END_PLACEHOLDER`
+ * point) -- `FUN_003c7dd0` D:L318974-318992 runs `FUN_003c80e0` (D:L319096-319143) before the target's own handler, and
+ * a refusal there skips the body altogether. The gate: the squared radius times each face's material PENETRATION
+ * (`FUN_002dc1d0`, the map's `defaultMaterial` for byte 0) in turn, one under 0.0001 refusing, the product under the
+ * line's squared length refusing (`../sceneHealth` `reachGate`); the faces the round's query class admits
+ * (`roundAdmits`), one side (`BLAST_LINE1_SIDES_READING`), one per owner object, the first in its surface order
+ * (`REACH_HITS_READING`, as the scene's `blastLine`). The body is not in the world's collision, so the original's
+ * self-exclusion (D:L319105-319109) has nothing to skip here. `IgnoreExplosionDI` skips it (D:L319096: the caller's).
+ */
+export function blastLine1(grid: Grid, from: readonly number[], to: readonly number[], radius: number, defaultMaterial: string, ignore?: string): boolean {
+  const a: [number, number, number] = [from[0]!, from[1]!, from[2]!], b: [number, number, number] = [to[0]!, to[1]!, to[2]!];
+  const order = new Map<WorldPoly, number>();
+  // `ignore`: as `blastSeen`'s (FORGE_SCRIPT_BLAST_ADAPTATION; the merge, ours) -- absent, the walk is NADE-BLAST's as written.
+  const hits = segmentHits(grid, a, b, (p) => { order.set(p, order.size); return roundAdmits(p) && !(ignore && under(p.path, ignore)); }, undefined, BLAST_LINE1_SIDES_READING === 'one-sided');
+  const first = new Map<CollisionOwner, SegmentHit>();
+  for (const h of hits) {
+    const kept = first.get(h.owner);
+    if (!kept || order.get(h.poly)! < order.get(kept.poly)!) first.set(h.owner, h);
+  }
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  return reachGate(radius, length, [...first.values()].map((h) => surfaceMaterial(h.poly.material, defaultMaterial).penetration));
+}
+
+/**
  * The whole blast on one SEAL (`FUN_005a0e70`): null when it does not reach (outside the radius, no line to the head,
  * or no damage at the feet and not a flashbang); else the ringing, the fragments laid on `health` in order, and the
  * knock. `random` is drawn as the game draws: the count's two, then one a fragment.
  */
-export function resolveBlast(health: Health, victim: BlastVictim, point: readonly number[], kind: BlastKind, random: () => number, seen: boolean): BlastOutcome | null {
+export function resolveBlast(health: Health, victim: BlastVictim, point: readonly number[], kind: BlastKind, random: () => number, seen: boolean, node: readonly number[] = point): BlastOutcome | null {
   const r = kind.record.explosionRadius;
   const dx = victim.feet[0]! - point[0]!, dy = victim.feet[1]! - point[1]!, dz = victim.feet[2]! - point[2]!;
   const d2 = dx * dx + dy * dy + dz * dz, d = Math.sqrt(d2);
-  const atFeet = fragmentDamage(kind.record.explosionDamage, r, d);
+  // LATER 992: GetDamage (`FUN_003c7600` D:L318711-318716) measures from the round's node (`+0x20` -> `+0x30`), which the
+  // detonation's lift does not move; the radius factor (D:L459214-459226), the count (`FUN_005a18b0` D:L459417) and the
+  // knock's origin (D:L459281) read the lifted `+0x48` (`point`).
+  const atFeet = fragmentDamage(kind.record.explosionDamage, r, Math.hypot(victim.feet[0]! - node[0]!, victim.feet[1]! - node[1]!, victim.feet[2]! - node[2]!));
   if (!seen || !(atFeet > 0 || kind.flash)) return null;       // FUN_005ac070: queued only with the line and damage
   const factor = r > 0 && d2 < r * r ? 1 - d2 / (r * r) : 0;
   if (factor <= 0) return null;
-  const fragments = kind.fragments ? fragmentCount(d, victim.posture, random) : 0;
+  const fragments = kind.fragments ? fragmentCount(d, victim.stance ?? victim.posture, random, kind.record.id === undefined ? undefined : weaponCategory(kind.record.id)) : 0;   // FRAG-COUNT; FRAG-COUNT-STANCE: the word
   const hits: { part: number; damage: number }[] = [];
   let died = false, part: number = PART.BODY;
   for (let i = 0; i < fragments; i++) {

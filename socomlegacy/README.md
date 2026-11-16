@@ -66,14 +66,25 @@ every build (LR-30, LR.R24). **In the game the keyboard is for local testing onl
 keyboard and the match keep their keys; every `vite build` (the release, a demo) leaves all of it out
 (`packages/viewer/src/keyboardTesting.ts`, `test/keyboardGate.test.ts`, `test/build_keyboard.test.ts`).
 
-**Controller settings** are one page in the launcher: Settings > Launcher > Controller before a game, and the same
-page in the PS/Xbox Home overlay during a game. It includes Precision Shooter, Lefty, Scout and Sure Shot layouts;
-Recruit, Sailor, Seal and Custom aiming presets; look speed, acceleration, aiming dead zone, pitch, vibration, aim
-assist and fire-rate controls. The original OPTIONS menu keeps its CONTROLLER OPTIONS and CONTROLLER PRESETS pages
-beside it, on the owner's word (both edit the same saved settings). Mouse dragging sets the nearest percent;
-controller presses retain the two-percent aiming step. Changes apply live and save to the existing memory card; the
-page reports pending or refused saves. Browser pad calibration and remapping retain their per-controller browser profiles. See
-[the consolidation record](docs/plans/2026-11-08-unified-controller-settings.md).
+**Controller settings** share a launcher editor: Settings > Launcher > Controller before a game, and the same page in the
+PS/Xbox Home overlay during a game. It includes Precision Shooter, Lefty, Scout and Sure Shot layouts plus the browser adaptation COD Modern; Recruit,
+Sailor, Seal and Custom aiming presets; look speed, acceleration, aiming dead zone, pitch, vibration, aim assist
+and fire-rate controls. The original OPTIONS menu also retains CONTROLLER OPTIONS and CONTROLLER PRESETS, editing the same saved settings. Mouse dragging
+sets the nearest percent; controller presses retain the two-percent aiming step. Changes apply live and save to
+the existing memory card; the page reports pending or refused saves. Browser pad calibration and remapping retain
+their per-controller browser profiles. See [the consolidation record](docs/plans/2026-11-08-unified-controller-settings.md).
+
+**COD Modern** puts fire on RT/R2, zoom-in on LT/L2, jump on A/Cross, stance on B/Circle, and reload/use on X/Square. Y/Triangle takes the primary assigned weapon, LB/L1 the secondary assigned weapon, and RB/R1 opens the item menu. LS/L3 changes fire rate; RS/R3 is team chat/talk. It keeps SOCOM's stepped zoom, assigned weapon slots and stance rules, with no added sprint or melee. Explicit Separate-mode stance bindings still take their assigned buttons.
+
+**Steam Controller and Steam Deck** work through Steam Input's Gamepad output. Launch the browser through Steam
+with a Gamepad layout; the original Steam Controller can use its right trackpad as Right Joystick for stick aiming.
+Set grip and gyro outputs in Steam Input. In **Controller labels**, choose Steam Controller or Steam Deck when
+Steam Input presents an Xbox controller; Automatic recognizes reported Valve devices. Labels save separately
+from gameplay layouts, remaps and stick calibration. The mapping diagram remains the logical SOCOM controller;
+its binding values show the Steam A/B/X/Y controls. Steam/Quick Access may be reserved by Steam, so use the
+on-screen Home control and choose another Overlay button there if needed. Extra inputs are available only as
+the browser reports or Steam Input assigns them; this adds no native Steamworks/WebHID driver.
+See [Valve's emulation guide](https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices).
 
 **Button mapping** is the launcher's (CX-14, kept by LR.R4): the Controller settings' **Button mapping** row -- the
 actions round the controller picture, the dead zone, the crouch shortcut, hold-to-bind, and a pass that teaches
@@ -1006,8 +1017,8 @@ of the ELF -- the ammo box's `newweapnbkrnd.tif` over x -10..160, y 364..439, th
   (W2.2c: the instruments and the recipe are in the tree, PC research 79, `desktop@be557831:docs/research/79-seal-speed-on-the-console.md`)
   waits for a window the owner names. Until it runs the scope's eye
   heights (the eye 18.3 standing, and the crouched and prone eyes derived from it) and the crouch and prone body
-  columns are estimates, and two numbers are readings only: the crouch diagonal's speed-up along its axis (19.8 at
-  45°) and the headroom ray's start (the stance's idle hips + 2: 7.5 crouched, 4.2 prone). The steep-ground slide is research 201 §3's law (`steepSlide.ts`): ground whose normal's y is under cos 50° slides when the face is at least 4 tall, or the body is prone, or the height cannot be read, gaining `(1 − n_y) × 235` a second from an entry of `n_y` times the horizontal velocity along the fall line. How that height is measured is a named reading (`SLIDE_SPAN_MEASURE_READING`); a capture is still owed.
+  columns are estimates, and two numbers are readings only: the crouch diagonal's split (since H392 in every stance mode and for the bots: the
+  class band's speed along atan2(w, 1 - w) off the forward axis, 45 degrees at 45; research 80 §6g, HUMAN_TASKS H392) and the headroom ray's start (the stance's idle hips + 2: 7.5 crouched, 4.2 prone). The steep-ground slide is research 201 §3's law (`steepSlide.ts`): ground whose normal's y is under cos 50° slides when the face is at least 4 tall, or the body is prone, or the height cannot be read, gaining `(1 − n_y) × 235` a second from an entry of `n_y` times the horizontal velocity along the fall line. How that height is measured is a named reading (`SLIDE_SPAN_MEASURE_READING`); a capture is still owed.
 - **A kerb between 6 and 6.5 units over a lower floor is stepped onto, as a reading.** The mover's probe origin --
   the grounded step's, the spawn's and the fall's -- is the feet + 5.5 (`STEP_PROBE_LIFT_READING`, the console's
   spawn origin), so its pick reaches step_height (research 86 section 6.5; until 2026-10-02 it was walked under). The
@@ -1169,8 +1180,15 @@ free camera: without `?devmode` a `fly` in the address is ignored); `e2e/soloMat
 specs (`weaponExchange*.spec.ts`: the menu is a match's) play it on purpose, and every other spec opens with one of the two. The rules and their sources: [research 91](docs/research/91-the-round.md)
 section 20.
 
-**Protocol 15** (`packages/viewer/src/net/protocol.ts`, `PROTOCOL_VERSION`, 2026-11-11): a page and a server of another
-version refuse each other at the hello, and the old page is told to update. Protocol 15 (PROTO-15, V19.R10) changes no
+**Protocol 16** (`packages/viewer/src/net/protocol.ts`, `PROTOCOL_VERSION`, 2026-11-11): a page and a server of another
+version refuse each other at the hello, and the old page shows the original's version-abort dialog, which has no
+"update" wording (the player's-view plan, the deploy section). Protocol 16 (WIRE-16, the player's-view
+plan's PV-1) carries the player's view's tail, [research 402](docs/research/402-the-players-view.md) section 3: three
+bytes after the command's last -- the page's view state, the scope's sway x and y (a command 15 -> 18 bytes) -- and
+three after the body's `peek` -- the view state with the owner's command clock, and the sway (a body 52 -> 55); the page
+fills the command's, the room the body's from the seat's last live command, zeroed only for a player on the body's other
+side. A `.s2r` of protocol 11 to 15 plays on the frozen 15 decoders
+(`packages/viewer/src/net/codecV15.ts`). Protocol 15 (PROTO-15, V19.R10, 2026-11-11) changes no
 frame: the mover's rules moved -- LADDER-CLIMB's ladder mounted on the Action press, AIR-PROBE's frame-end floor probe,
 STEEP-LAUNCH's push -- and a 14 side and a 15 side would step differently from the same commands; a `.s2r` of protocol
 14 plays on the live decoders. Protocol 14 (ENEMY-RAISE ER-2, 2026-11-09) carries the

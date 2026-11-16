@@ -3,6 +3,8 @@ import { btn, esc, ico, shoulders } from '../icons';
 import { screenHead } from './head';
 import { BROWSE_CUSTOM, BROWSE_KINDS, CUSTOM_UNAVAILABLE_LINE, OVERLAY_LOCK_WORDS, browseCustom, browseRows, countOf, pingBand, roomFull, visibleRooms, type Adapters, type BrowseCustomRow, type ConsoleState, type Room } from '../state';
 import { CUSTOM_WAITING_WORDS } from './lobbies';
+import { PROVIDER_CHARS_MAX } from '../../forge/lobby/packCheck';      // CMV-6
+import { packWords } from '../../packs/readiness';                      // CMV-6: a pack as a player reads it
 
 /**
  * The Browse rooms screen (the S2U Briefing design system's prototype, `renderRooms` / `renderDrawer`; its ScreenHead,
@@ -110,12 +112,28 @@ export function drawerHtml(r: Room & { i: number }, s: ConsoleState, a: Adapters
  */
 const CUSTOM_TAG = 'Custom';
 const CUSTOM_ADAPTATION_WORDS = 'not part of the original game';
+/**
+ * CMV-6 (CMV.R11, the owner's words, 2026-11-12; the main controller's call 3, 2026-11-13: the label goes by the HOST'S
+ * tier): every lobby on a modded host reads this, pack-free or not. A community host's lobby keeps "unranked · HyperNode".
+ */
+export const MODDED_LABEL_WORDS = 'Community mods - unranked';
+/**
+ * CMV-6 (call 2): a modded lobby's provider as the row draws it -- the host's own text, at most 64 characters (the reader
+ * cut it already: `../../forge/lobby/packCheck` `PROVIDER_CHARS_MAX`), escaped whole by `esc` as every server string here
+ * is, so a provider is literal text, never markup. Null when there is none.
+ */
+const providerOf = (r: BrowseCustomRow): string | null =>
+  r.modded === true && typeof r.provider === 'string' && r.provider !== '' ? r.provider.slice(0, PROVIDER_CHARS_MAX) : null;
 function customRowHtml(r: BrowseCustomRow, idx: number, focused: boolean): string {
-  const community = r.community === true;
-  const name = esc(r.name) + (community ? ' · unranked · HyperNode' : '') + (r.locked ? ' · Password' : '') + (r.inMatch ? ' · In match' : '');
-  const mode = community ? 'unranked' : CUSTOM_TAG;
-  const tag = community ? 'HyperNode' : CUSTOM_TAG;
-  const label = [`Custom match ${r.name}`, community ? 'unranked, HyperNode' : '', mapLabel(r.map), `${r.players} of ${r.max} players`, r.locked ? 'password' : '', r.inMatch ? 'in match' : '', r.joinLocked ? OVERLAY_LOCK_WORDS.join : '', CUSTOM_ADAPTATION_WORDS]
+  const modded = r.modded === true;
+  const community = !modded && r.community === true;
+  const provider = providerOf(r);
+  const mark = modded ? ` · ${MODDED_LABEL_WORDS}${provider !== null ? ` · ${esc(provider)}` : ''}` : community ? ' · unranked · HyperNode' : '';
+  const name = esc(r.name) + mark + (r.locked ? ' · Password' : '') + (r.inMatch ? ' · In match' : '');
+  const mode = modded || community ? 'unranked' : CUSTOM_TAG;
+  const tag = modded ? (provider !== null ? esc(provider) : 'Community mods') : community ? 'HyperNode' : CUSTOM_TAG;
+  const marked = modded ? [MODDED_LABEL_WORDS, provider ?? ''].filter((x) => x !== '').join(', ') : community ? 'unranked, HyperNode' : '';
+  const label = [`Custom match ${r.name}`, marked, mapLabel(r.map), `${r.players} of ${r.max} players`, r.locked ? 'password' : '', r.inMatch ? 'in match' : '', r.joinLocked ? OVERLAY_LOCK_WORDS.join : '', CUSTOM_ADAPTATION_WORDS]
     .filter((x) => x !== '').join(', ');
   return `<button type="button" class="cx-room is-custom ${focused ? 'is-focused' : ''}" data-act="room" data-i="${idx}" data-fk="custom-${esc(r.id)}" data-kind="custom" aria-label="${esc(label)}">
     ${nameCell(name)}<span>${esc(mapLabel(r.map))}</span><span>${mode}</span>
@@ -126,11 +144,17 @@ function customRowHtml(r: BrowseCustomRow, idx: number, focused: boolean): strin
 
 /** LR-37 (9): the focused custom match's drawer: its facts, the adaptation's line, JOIN (or its lock over a game). */
 function customDrawerHtml(r: BrowseCustomRow, s: ConsoleState): string {
-  const facts = [['Map', mapLabel(r.map)], ['Players', `${r.players}/${r.max}`], ...(r.locked ? [['Password', 'Asked in the forge']] : []), ...(r.inMatch ? [['State', 'In match']] : [])]
+  // CMV-6: a modded host's lobby -- its provider and the packs it needs, each by id and version, as text (escaped facts)
+  const provider = providerOf(r);
+  const moddedFacts = r.modded === true
+    ? [...(provider !== null ? [['Provider', provider]] : []), ...(r.packs && r.packs.length > 0 ? [['Packs needed', r.packs.map(packWords).join(', ')]] : [])]
+    : [];
+  const facts = [['Map', mapLabel(r.map)], ['Players', `${r.players}/${r.max}`], ...moddedFacts, ...(r.locked ? [['Password', 'Asked in the forge']] : []), ...(r.inMatch ? [['State', 'In match']] : [])]
     .map(([k, v]) => `<dt>${esc(k ?? '')}</dt><dd>${esc(v ?? '')}</dd>`).join('');
   const cta = r.joinLocked ? esc(OVERLAY_LOCK_WORDS.join) : `${btn('cross')}Join · opens the forge`;
+  const mark = r.modded === true ? ` · ${MODDED_LABEL_WORDS}${provider !== null ? ` · ${esc(provider)}` : ''}` : r.community === true ? ' · unranked · HyperNode' : '';
   return `<aside class="cx-drawer is-custom" aria-label="Custom match ${esc(r.name)}">
-    <div class="cx-drawer__map is-guide"><span>Custom match</span><span class="cx-drawer__name">${esc(r.name)}${r.community === true ? ' · unranked · HyperNode' : ''}</span></div>
+    <div class="cx-drawer__map is-guide"><span>Custom match</span><span class="cx-drawer__name">${esc(r.name)}${mark}</span></div>
     <div class="cx-drawer__body">
       <dl class="cx-facts">${facts}</dl>
       <p class="cx-drawer__note">Not part of the original game: a browser adaptation.</p>

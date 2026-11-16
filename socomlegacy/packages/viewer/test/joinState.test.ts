@@ -124,7 +124,7 @@ describe('PF-34: the drops in the envelope (research 234 s1)', () => {
     const { sinks: base } = sinks();
     const s: JoinSinks = { ...base, drops: (all) => { sets.push([...all]); } };
     const weapon: DropWire = { did: 1, kind: 'weapon', item: 62, at: [1, 2, 3], yaw: 0.5, from: 4 };
-    const bundle: DropWire = { did: 0, kind: 'ammo', entries: [{ item: 62, rounds: [17, 30] }], at: [1, 2, 3], yaw: 0.5, from: 4 };
+    const bundle: DropWire = { did: 0, kind: 'ammo', entries: [{ ammo: '5.56 x 45mm', count: 47 }], at: [1, 2, 3], yaw: 0.5, from: 4 };
     applyJoinState({ ...empty, drops: [bundle, weapon, { ...weapon }] }, 0, 0, s, 'respawn');
     expect(sets).toEqual([[bundle, weapon]]);                    // once, a duplicate did dropped
     // A rejoin's envelope after the weapon was taken: the whole set again, the page's own replaced by it.

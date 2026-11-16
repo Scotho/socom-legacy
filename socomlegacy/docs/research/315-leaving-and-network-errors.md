@@ -52,6 +52,12 @@
   one spelling (`versionRefusalText` / `isVersionRefusal`, sent by server `room.ts`); the re-read and what it adds (the
   BRIEFING ROOM's `version_failure_1`) are §11. Reading, pending review; the sentences above that call the version path
   unbuilt are kept as the state they recorded.
+- 2026-11-14, the players-view rehearsal's stage A (i)/(ii): the room refuses a creator's hello some 5 ms after the
+  socket opens, while CREATE GAME is still the built dialog, which binds no MP_VERSION_NUMBER_ERROR -- the post was
+  lost and the page sat in an empty GAME LOBBY. Now held until the GAME LOBBY or the BRIEFING ROOM is built, then
+  posted (`VERSION_ABORT_HELD_ADAPTATION`, `GameLobbyCommands.dialogBuilt`, told by viewer `frontEnd.ts` after each
+  build); the dialog's path from there is unchanged. An adaptation of the timing only; a page built before it (v0.4.21
+  and older) keeps the empty lobby.
 - 2026-10-14, WATCH-DOCS (§6 E6, sprint 19's second half): roadmap 05's ONL-22 and ONL-22a ("Today", "Gap",
   "Unknowns", the landings of §1) and SPRINTS' sprint 23 line for ONL-22a brought up to what the half built; the
   protocol cite re-read -- `kicked` and `abandoned` are now `protocol.ts` :1196 and :1214 (the ":1178, :1196" above is

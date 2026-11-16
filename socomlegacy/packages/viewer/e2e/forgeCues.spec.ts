@@ -6,6 +6,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { ENGINE_CONTRACT_VERSION, ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, validatePack } from '@s2u/creator-contracts';
 import { withCallbackServer } from '../../../tools/forge-agent-probe/callback';
 import { e2ePort } from './ports';
+import { panel as dockPanel, showTab } from './forgeBase';
 import { beginPair, pairBody, PROBE_PAIR_TIMEOUT_MS } from '../../../tools/forge-agent-probe/pairing';
 
 /**
@@ -140,8 +141,9 @@ async function pair(context: BrowserContext, page: Page, pageOrigin: string, que
   await page.goto(`/forge?${query}`);
   await page.waitForLoadState('networkidle');
   if ((page.viewportSize()?.width ?? 1440) <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
-  await page.locator('.fx-right [data-forge-tab="agent"]').click();
-  const agentSection = page.locator('.fx-right details[data-forge-panel="agent"]');
+  // FC2-4 (EDITOR-MAP D2, D6): his dock shell has no one right dock; the Agent tab is a tab of the group over the Inspector.
+  await showTab(page, 'agent');
+  const agentSection = dockPanel(page, 'agent');
   if (!(await agentSection.evaluate((d) => (d as HTMLDetailsElement).open))) await page.getByText('Connect your agent', { exact: true }).click();
   const panel = agentPanel(page);
   // AX-U: one card; the Connect moment's one primary button copies the one connect line.

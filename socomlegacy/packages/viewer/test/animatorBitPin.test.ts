@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { sampleClip, Skeleton, type MotionClip, type PartPose } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
-import { Animator, type AnimEvent, type LayerContext, type MoverSnapshot, type PoseLayer } from '../src/animator';
+import { Animator, PLAY_CLIPS, type AnimEvent, type LayerContext, type MoverSnapshot, type PoseLayer } from '../src/animator';
 import type { GroundMotion, MoverAction, MoverActionName } from '../src/mover';
 import { simSkeletonsFromBytes, type SimSkeleton } from '../src/simMap';
 import { SEAL_ANIMS } from '../src/locomotion';
+import { TRAVERSAL_CLIPS } from '../src/traversal';
 
 /**
  * HIT-ALLOC's pin (a product-track adaptation: the Animator's per-step allocation cut, research 217 s3.6a; no value of
@@ -17,7 +18,7 @@ import { SEAL_ANIMS } from '../src/locomotion';
  * part's local and world matrix (the damage bones' among them), the held nodes' locals (`heldLocal`), `rootY`,
  * `stats()` and the events. Each float is hashed by its bits (a Float32's four bytes, a double's eight: `-0` and `0`
  * differ, as `Object.is` has them), per segment; `GOLDEN` was taken at dd00e82c6 (`agent/hitbox-anim`'s reviewed head),
- * before the cut. Unit-test evidence only.
+ * before the cut, and its turn segments re-recorded for AH-5.2 (at `GOLDEN`). Unit-test evidence only.
  */
 
 const MP2 = fixture('RUN/MP2.ZDB'), PACK = fixture('RUN/MOTION_P.ZAR'), READERC = fixture('RUN/READERC.ZAR');
@@ -204,16 +205,21 @@ function drive(motion: NonNullable<SimSkeleton['motion']>, base: Skeleton, segs:
   };
 }
 
-/** The digests at dd00e82c6, one per segment, in the script's order (`S2U_ANIM_PIN_RECORD=1` prints them). */
+/**
+ * The digests, one per segment, in the script's order (`S2U_ANIM_PIN_RECORD=1` prints them): taken at dd00e82c6;
+ * re-recorded at 71a5d828bb for AH-5.2 (the turn-play step `min(cap, |2 x axis| x cap)`, FUN_00583960): segments 5, 11,
+ * 17 and 26 are the turns, and 6-7, 12, 18 and 27-29 follow one with no reset between, so the turn's clip phase carries
+ * into them; no other segment moved (box a8mix, 2026-11-14).
+ */
 const GOLDEN: readonly string[] = [
   'bf5a961feae38497:30976', '38ba71fe1b6b7cbb:63445', '0ebd81961a1ad3f6:32937', 'e0c11b67ffca80f1:32679',
-  '2ec60dd62b0227ac:20926', 'fafb359dd49871b4:31245', '3946ba364ca59373:25498', 'f05c21f494c5f78f:42665',
-  'dd94f1ac1caee6b2:42393', 'c5ab3bf4d543f61d:32614', '964ead2ac5c9cee7:21742', 'ee48a774194307f6:21313',
-  'b437b5aeb98f9601:42466', 'f8a01b63febd1b27:31408', 'fd37292ade3b0544:42219', 'd11bcb88125cd3a5:21345',
-  'b8d8c2f5cb197fdb:32039', '6059958fb3a19f23:31851', '34e848a810e5e49f:52790', '7617da22d29bd621:21006',
+  '2ec60dd62b0227ac:20926', 'e07adda7ecd9c2f6:31245', '77dfd75848ce5d27:25498', '7b511f9d309b24c1:42665',
+  'dd94f1ac1caee6b2:42393', 'c5ab3bf4d543f61d:32614', '964ead2ac5c9cee7:21742', '08b726af447b440b:21313',
+  '4f1cb6658e4252af:42466', 'f8a01b63febd1b27:31408', 'fd37292ade3b0544:42219', 'd11bcb88125cd3a5:21345',
+  'b8d8c2f5cb197fdb:32039', '76625c8b44b942b3:31851', 'f77247eeae6780dd:52790', '7617da22d29bd621:21006',
   '4c4b4a470b465ac8:24861', 'f75417cfcc5a7559:12811', 'ffc09f821b6041cc:21168', '3e66085d183fbf11:52758',
-  'a50a2db8b16ba8e9:65425', 'd838bf6e5685f6b2:20840', '900272949a70b47e:42126', 'd6ae779a8c8c9845:42815',
-  'd2e4d7bd758d556d:65825', 'badab9ab33505fdc:31855', '9259c31661cdb199:66547', '629aedfd42e3a43c:65809',
+  'a50a2db8b16ba8e9:65425', 'd838bf6e5685f6b2:20840', '575966f8d73cb1f4:42126', 'd795f7790396bb0d:42815',
+  '9034a6288dd41d4e:65776', '37678f2f42a08cc2:31855', '9259c31661cdb199:66547', '629aedfd42e3a43c:65809',
   '07821c00edaa1d03:67690', 'fb291a73f3567470:67236', '203ee25e012f40c4:68018', '27b451ef628ca5aa:66852',
   '1badfa2a657df35d:66736', '9176d647d84d9eed:67240', 'b3624f29c42c906a:64860', '43e1fef8bcddb65f:67505',
   '98d775b34cf50158:60197', 'ae08458ef3d4b763:31269',
@@ -224,7 +230,11 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-ALLOC pin: the Animator's output
 
   it('every part\'s local and world matrix, the held locals, rootY, stats and events, each step, equal the pin taken at dd00e82c6', () => {
     expect(seal?.motion).toBeDefined();
-    const motion = seal!.motion!;
+    // FL-1 (FIRE-LAYER, LATER 1025) added the Fire versions to the room's motion (`../src/net/hitPose` `HIT_POSE_CLIPS`),
+    // appended after the clips the pin was taken on; the pin drives the clips it was taken on, so the Animator's outputs
+    // over them stay bit for bit (the Fire set's own pose is FL-1's `match/test/hitPoseFireLayer.test.ts`).
+    const pinned = new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS]);
+    const motion = { ...seal!.motion!, clips: seal!.motion!.clips.filter((c) => pinned.has(c.name)) };
     expect(motion.clips.length).toBeGreaterThan(100);
     const segs = script(motion.clips);
     const run = drive(motion, seal!.skeleton, segs);

@@ -1,5 +1,5 @@
 {
-  "commit": "3d167bd35a",
+  "commit": "932d0f672ad11d02d58ef9ff4ed0f1788c70031a",
   "sprints": [
     {
       "number": 6,
@@ -1271,6 +1271,11 @@
       "title": "The Forge export sprint (FX) -- plan"
     },
     {
+      "id": "2026-11-11-players-view",
+      "date": "2026-11-11",
+      "title": "The player's view (spectating and replays) -- plan"
+    },
+    {
       "id": "2026-11-11-v0419-release",
       "date": "2026-11-11",
       "title": "v0.4.19 -- the release batch after mega -- plan"
@@ -1279,6 +1284,36 @@
       "id": "2026-11-11-v0420-release",
       "date": "2026-11-11",
       "title": "v0.4.20 -- the patch after v0.4.19, released whole -- plan"
+    },
+    {
+      "id": "2026-11-12-community-mods-validation",
+      "date": "2026-11-12",
+      "title": "Community mods validation (CMV): our side of the community servers' step 4 -- plan"
+    },
+    {
+      "id": "2026-11-12-v0421-release",
+      "date": "2026-11-12",
+      "title": "v0.4.21 -- the release after v0.4.20 -- plan"
+    },
+    {
+      "id": "2026-11-13-forge-crispy2",
+      "date": "2026-11-13",
+      "title": "Crispy's \"Forge/custom maps\" brought in (FORGE-CRISPY2) -- plan"
+    },
+    {
+      "id": "2026-11-14-fire-layer",
+      "date": "2026-11-14",
+      "title": "FIRE-LAYER -- the room's hit pose lays the Fire set -- plan"
+    },
+    {
+      "id": "2026-11-14-move-parity",
+      "date": "2026-11-14",
+      "title": "MOVE-PARITY: a side-by-side harness for movement animation -- plan"
+    },
+    {
+      "id": "2026-11-14-v0422-release",
+      "date": "2026-11-14",
+      "title": "v0.4.22 -- the release after v0.4.21 -- plan"
     }
   ],
   "issues": {
@@ -1366,6 +1401,14 @@
     }
   },
   "news": [
+    {
+      "date": "2026-11-13",
+      "id": "2026-11-12-v0421-release",
+      "title": "v0.4.21 -- the release after v0.4.20",
+      "summary": "release v0.4.21 on the owner's word, never while many play: what v0.4.20 carried over reviewed (the leak rule's tool-default account, the walk freeze, hit registration's empty-spine item), the following hostages brought to what the origina…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-12-v0421-release.md, ## Log, 2026-11-13"
+    },
     {
       "date": "2026-11-11",
       "id": "2026-11-11-v0419-release",

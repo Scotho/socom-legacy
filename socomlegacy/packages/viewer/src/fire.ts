@@ -952,9 +952,10 @@ export class Fire {
    * The eye's aim ray's filter (`FUN_005aa6e0`, research 84 §19): the surfaces its query reaches (`aimQueryAdmits`,
    * 'eye') and the hits it keeps (`aimHitKept`, D:L464145-464159) by the material table (`setMaterials`); without the
    * table (none, or only `setPenetration`'s, which carries no flags) every material is kept -- as the round without a
-   * table -- and only the surface's class judged. The shot's eye ray, the loft's and the accuracy pip's are this one (AD-2).
+   * table -- and only the surface's class judged. The shot's eye ray, the loft's and the accuracy pip's are this one (AD-2);
+   * so is the HUD's range (`./hud` `RangeFinder`, AIM-TRACE-FILTER: `FUN_00216770` reads this query's record, D:L70446).
    */
-  private eyeStops(): (p: WorldPoly) => boolean {
+  eyeStops(): (p: WorldPoly) => boolean {
     return this.aimKeeps('eye');
   }
 
@@ -1301,24 +1302,40 @@ export class Fire {
    * PF-34 (research 234 s4): a firearm's ring set from the room's ten slots -- the weapon in the hand's or a stowed one's
    * -- after an ammunition transfer, or a claim into the slot not in the hand (`replaced`: the weapon that left the kit,
    * its stowed ring forgotten). `only`: the slots the room's transfer wrote (the `kit` event's `filled`), the rest left as
-   * the page holds them. The magazine in the hand's weapon is never set: the page's falls as it fires, before the room
-   * runs those commands (shots in flight), and the transfer never fills it (`AMMO_TRANSFER_PLACEHOLDER`: free slots only,
-   * the magazine in the weapon not one). Nothing is filled.
+   * the page holds them. With `added` (the pour, `PICKUP_POUR_READING`) each of those slots takes the amount the room
+   * poured on top of the page's own count -- the magazine in the hand's weapon among them (a one-magazine weapon's): the
+   * page's falls as it fires, before the room runs those commands (shots in flight), so the amount, not the room's count,
+   * is exact. Without it the magazine in the hand's weapon is never set. Nothing is filled.
    *
    * The same slots go into every saved copy the ring's journal holds (LOW-2, research 223 s6; research 234 s6), each
    * copy's own magazine in the weapon skipped for the hand's ring as the live one is: a round or a reload logged before
    * this kit and refused `stale` after it replays the ring from its copy (`unlog`), which would otherwise erase the room's
-   * transfer (the integration review's probe: 104 -> 88 where the room had 105). Exact for a walk-over's `filled`: a
-   * filled slot was empty and not the room's magazine in the weapon when the kit was sent (`match/src/pickups.ts`
-   * `transferAmmo`), so no operation in flight from the page touched it. A claim's kit (no `filled`: every slot) is the
+   * transfer (the integration review's probe: 104 -> 88 where the room had 105). Exact for a walk-over's `filled` with
+   * `added` (the pour): each amount commutes with the page's operations in flight, whatever the slot held. Without
+   * `added` (a kit from before the pour), a filled slot was empty and not the room's magazine in the weapon when the kit
+   * was sent, so no operation in flight from the page touched it. A claim's kit (no `filled`: every slot) is the
    * room's ring as of the commands it had run: its other slots lag the page's operations still in flight, in the live
    * ring and the copies alike (`KIT_INFLIGHT_READING`, research 234 s6).
    */
-  setRing(record: WeaponRecord, slots: readonly number[], replaced?: string, only?: readonly number[]): void {
+  setRing(record: WeaponRecord, slots: readonly number[], replaced?: string, only?: readonly number[], added?: readonly number[]): void {
     if (replaced !== undefined && replaced !== record.name) this.stowedMags.delete(replaced);
     const inHand = record.name === this.rifle.name;
     const ring = inHand ? this.mags : this.stowedMags.get(record.name);
     if (!ring) { this.stowedMags.set(record.name, MagazineRing.from(record, slots)); return; }
+    // The pour (`kit`'s `added`, PICKUP_POUR_READING): each changed magazine takes the amount the room poured, on top of the
+    // page's own count -- the magazine in the weapon among them (a one-magazine weapon's): the page's count is the room's
+    // less what is in flight, so adding the room's amount keeps them apart by exactly that. The journal's copies too.
+    if (only && added) {
+      const cap = (n: number): number => Math.max(0, Math.min(ring.capacity, n));
+      const live = ring.state();
+      only.forEach((i, k) => { if (i >= 0 && i < live.slots.length) live.slots[i] = cap(live.slots[i]! + (added[k] ?? 0)); });
+      ring.restore(live);
+      for (const e of this.journal) {
+        if (e.ring !== ring) continue;
+        only.forEach((i, k) => { if (i >= 0 && i < e.before.slots.length) e.before.slots[i] = cap(e.before.slots[i]! + (added[k] ?? 0)); });
+      }
+      return;
+    }
     const state = ring.state();
     const write = (only ?? state.slots.map((_, i) => i)).filter((i) => i >= 0 && i < state.slots.length && !(inHand && i === state.current));
     for (const i of write) state.slots[i] = slots[i] ?? 0;

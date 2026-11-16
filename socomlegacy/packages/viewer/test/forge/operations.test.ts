@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FORGE_OPERATIONS, OPERATION_MANUAL } from '@s2u/forge-agent-protocol';
 import { FORGE_AGENT_OPERATIONS, ForgeAgentError, type ForgeAgentApi } from '../../src/forge/agent/api';
 import { FORGE_LAYOUT_OPERATIONS, planForgeLayout } from '../../src/forge/agent/commands';
 import { decodeHistoryStep, encodeHistoryStep, History, historyCaption, undoMeta } from '../../src/forge/history';
@@ -10,6 +11,7 @@ import {
   agentActor, createOperationRegistry, FORGE_EDIT_OPERATIONS, forgeEditLabel, HUMAN, recordOperationStep, type OperationSpec,
 } from '../../src/forge/shell/operations';
 import type { LoadedMap } from '../../src/loadMap';
+import { pressForgeMenu, pressMenubar } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FUI-6 (the review's principle 5, AI-1; a browser adaptation, FG.R2): one command layer for people and agents. An
@@ -108,7 +110,8 @@ describe('FUI-6: the operation registry', () => {
     const table = FORGE_EDIT_OPERATIONS.map((o) => o.id);
     expect(new Set(table).size).toBe(table.length);
     for (const id of FORGE_LAYOUT_OPERATIONS) expect(table, id).toContain(id);
-    for (const id of table) {
+    // FC2 (the main controller's call, 2026-11-13): an edit the list marks person-only is no agent's; the case below pins it.
+    for (const id of FORGE_EDIT_OPERATIONS.filter((o) => !o.personOnly).map((o) => o.id)) {
       const def = FORGE_AGENT_OPERATIONS.find((o) => o.name === id);
       expect(def, id).toBeDefined();
       expect(def!.mutates, id).toBe(true);
@@ -117,6 +120,20 @@ describe('FUI-6: the operation registry', () => {
     expect(forgeEditLabel('piece.delete', { refs: ['piece:0', 'piece:1'] })).toBe('Delete 2');
     expect(forgeEditLabel('bomb.place', { kind: 'start' })).toBe('Place the bomb start');
     expect(forgeEditLabel('no.such', {})).toBe('Edit');
+  });
+
+  it('a person-only edit is no agent\'s: absent from the dispatch allowlist and the manual\'s edits; exactly the two marked (FC2)', () => {
+    // FC2 (a browser adaptation; the main controller's call of 2026-11-13, the owner's to overturn): his switch and Forge
+    // object stay a person's edits -- an entry in `FORGE_OPERATIONS` would be a new agent capability, not a registry fix.
+    const marked = FORGE_EDIT_OPERATIONS.filter((o) => o.personOnly).map((o) => o.id).sort();
+    expect(marked).toEqual(['object.place', 'switch.place']);
+    const published = Object.keys(OPERATION_MANUAL['forge.edit']!.nested ?? {});
+    expect(published.length).toBeGreaterThan(0);
+    for (const id of marked) {
+      expect(FORGE_OPERATIONS.find((o) => o.name === id), id).toBeUndefined();
+      expect(published, id).not.toContain(id);
+      expect(FORGE_LAYOUT_OPERATIONS.has(id), id).toBe(false);
+    }
   });
 });
 
@@ -185,7 +202,7 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     expect(undoBtn().title).toMatch(/^Undo: Move \(agent\)/);
     // OT.R112 (the Forge's UI is its contributor's): Redo is SELECT held on the pad now (06d558635), not L3.
     expect(redoBtn().title).toMatch(/^Redo: Delete \(agent\) · pad hold SELECT/);
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     const rows = [...document.querySelectorAll('.fx-menu .fx-menu-label')].map((n) => n.textContent);
     expect(rows).toContain('Undo: Move (agent)');
     expect(rows).toContain('Redo: Delete (agent)');
@@ -196,7 +213,7 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     for (const at of [[0, 0, 0], [50, 0, 0]]) await api.execute('spawn.place', { team: 'A', at }, api.read().revision);
     expect(await api.execute('selection.set', { refs: ['spawn:1'] }, api.read().revision)).toMatchObject({ ok: true });
     const before = api.read();
-    document.querySelector<HTMLButtonElement>('button[title^="Delete"]')!.click();
+    pressMenubar(document, 'Edit', 'Delete');                     // EDITOR-MAP T7: his Edit > Delete (the toolbar's Delete gone)
     // The person's delete leaves the layout the agent's piece.delete would have planned.
     expect(placed(api.read().layout)).toEqual(planned(before, 'piece.delete', { refs: ['spawn:1'] }));
     expect(undoBtn().title).toMatch(/^Undo: Delete · pad SELECT/);

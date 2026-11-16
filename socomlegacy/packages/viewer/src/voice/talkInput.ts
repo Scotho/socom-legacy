@@ -1,3 +1,4 @@
+import { COD_MODERN_TALK } from '../controllerModern';
 import type { PadButton } from '../gamepad';
 import { CHAT_HOLD_SECONDS, TauntMenu, type TauntMenuDeps } from '../tauntMenu';
 
@@ -51,11 +52,12 @@ import { CHAT_HOLD_SECONDS, TauntMenu, type TauntMenuDeps } from '../tauntMenu';
  */
 
 export type ControllerPreset = 'Default' | 'Reverse' | 'Config4' | 'Goldeneye';
+export type ActiveControllerPreset = ControllerPreset | 'CODModern';
 
 /** One frame's context. */
 export interface TalkOptions {
   phase: 'lobby' | 'round';
-  preset: ControllerPreset;
+  preset: ActiveControllerPreset;
   runAndTalk: boolean;
   /** The Chat menu's own gate (`TauntMenu.frame`'s `allowed`): off for the dead and spectators today (`../matchTaunts`). */
   menuAllowed: boolean;
@@ -98,6 +100,10 @@ export const VOICE_ROUND_TALK_BUTTON_READING: Readonly<Record<ControllerPreset, 
  */
 export const LOBBY_TALK_BUTTON: PadButton = 'Circle';
 
+/** Browser preset adapter; lobby controls and the original talk timing are unchanged. */
+export const controllerTalkBinding = (preset: ActiveControllerPreset): Readonly<TalkBinding> =>
+  preset === 'CODModern' ? COD_MODERN_TALK : VOICE_ROUND_TALK_BUTTON_READING[preset];
+
 /**
  * The shared TeamCommand timer `+0xdb4`, seconds: a menu closed, 0.3 s (`FUN_00235300`'s 0x3e99999a); route A's end,
  * that 0.3 s plus 1.0 s (`DAT_003dcb08`, `FUN_002360d0` case 5 D:L84432 through `FUN_00236a50` D:L84677-84690); route
@@ -138,7 +144,7 @@ type Route = 'none' | 'teamCommand' | 'swapWeapon2' | 'lobby';
  */
 export class TalkInput {
   readonly menu: TauntMenu;
-  private preset: ControllerPreset = 'Default';
+  private preset: ActiveControllerPreset = 'Default';
   private context: string | null = null;
   /** The held set of the last frame after the ignored buttons were taken out. */
   private last = new Set<PadButton>();
@@ -158,7 +164,7 @@ export class TalkInput {
   private waitUntil: number | null = null;
 
   constructor(deps: TauntMenuDeps) {
-    const binding = (): PadButton => VOICE_ROUND_TALK_BUTTON_READING[this.preset].teamCommand;
+    const binding = (): PadButton => controllerTalkBinding(this.preset).teamCommand;
     this.menu = new TauntMenu(Object.create(deps, { teamCommand: { get: binding, enumerable: true } }) as TauntMenuDeps);
   }
 
@@ -189,7 +195,7 @@ export class TalkInput {
       else if (pressed(LOBBY_TALK_BUTTON) && this.route === 'none') this.route = 'lobby';
       else if (this.route === 'lobby' && !pad.has(LOBBY_TALK_BUTTON)) this.release(now);
     } else {
-      const binding = VOICE_ROUND_TALK_BUTTON_READING[o.preset];
+      const binding = controllerTalkBinding(o.preset);
       this.routeB(now, pad, o, binding);
       this.routeA(now, pad, pressed, o, binding);
       const sw = binding.swapWeapon2;

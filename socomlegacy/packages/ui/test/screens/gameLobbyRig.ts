@@ -42,6 +42,8 @@ export interface GameLobbyRigOptions extends BriefingRigOptions {
   joinGame?: (q: JoinGameQuery) => Promise<JoinGameReply>;
   /** What each keyboard types (null: cancelled); a function can answer successive retries. */
   typed?: string | null | (() => string | null);
+  /** A refusal the socket answers its open with instead of a welcome (`seatEnded(4000, refuse)`, as the room's `refused` then its close). */
+  refuse?: string;
   /** The welcome's seat id the socket answers its open with (null: no answer). */
   welcome?: number | null;
   /** The first `gameLobby` after the welcome. */
@@ -88,6 +90,7 @@ export async function gameLobbyRig(o: GameLobbyRigOptions = {}) {
   const socket: GameSocketPort = {
     open: (id, pass) => {
       socketLog.push(pass ? `open ${id} ${pass.door} ${pass.token}` : `open ${id}`);   // SA-6b: a placed game's door and token, logged with the open
+      if (o.refuse !== undefined) { const why = o.refuse; void Promise.resolve().then(() => { commands.seatEnded(4000, why); }); return true; }
       const w = o.welcome === undefined ? 2 : o.welcome;
       if (w !== null) void Promise.resolve().then(() => { commands.welcomed(w); commands.gameLobby(o.lobbyView?.(w) ?? { seats: [seat(1, 'host', 'seal', { host: true }), seat(w, 'socomc', 'terrorist')], countdown: null, launched: false }); });
       return true;
@@ -99,6 +102,7 @@ export async function gameLobbyRig(o: GameLobbyRigOptions = {}) {
   };
   const r = await briefingRig({
     ...o,
+    built: (name) => { commands?.dialogBuilt(name); o.built?.(name); },   // as the page's `frontEnd.ts` tells the rows
     currentGame: () => commands?.currentGame() ?? null,   // GetGameInfo('CurrentGame'): the game held (lobby +0x84, 0x414e00)
     tick: () => { frames++; o.tick?.(); },
     mounted: (m) => {

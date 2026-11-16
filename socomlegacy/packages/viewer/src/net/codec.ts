@@ -3,19 +3,23 @@ import { wrapYaw } from '../yaw';
 
 /** Protocol 10's snapshot (and command) decoders, frozen beside the live ones (NET-WIRE; `./codecV10`): a protocol 10 `.s2r`'s. */
 export { decodeCommandsV10, decodeSnapshotV10, type OwnStateV10, type SnapshotV10 } from './codecV10';
+/** Protocol 11 to 15's, frozen beside the live ones (WIRE-16; `./codecV15`): a protocol 11 to 15 `.s2r`'s, the view's fields 0. */
+export { decodeCommandsV15, decodeSnapshotV15 } from './codecV15';
 
 /**
  * The binary frames (web sprint 3, M3): the commands up and the snapshots down, little-endian, quantised where the
  * game's own precision allows (`./protocol` names the steps). The own state stays float32 (what prediction is compared
  * with, to the thousandth); the others' feet are i16 at `FEET_STEP` from the frame's origin (protocol 11).
  *
- * Sizes (protocol 11, NET-WIRE, research 224): a command is 15 bytes, a batch of 3 is 51 (the frame type its first byte,
- * as before); a snapshot's head is 12 (the frame type, the tick, the sections, the feet's origin), the own state 36 (its
- * facing), a body 52 (the feet 6, the flags 4) and a door 2, and the environment 8 and 3 an instance off its opening
- * state -- only in a snapshot that names it. A snapshot of 15 bodies and one's own is 830 bytes on a map without doors and
- * 836 on Frostfire (three doors; protocol 10: 884 and 890) -- 25.1 KB/s at 30 Hz per client, before the WebSocket's
- * framing. A full room (16 seats, EXTRACTION's three hostages): 986 bytes a player, 1002 a spectator (protocol 10: 1052
- * and 1080); 24 seats' bodies: 1402 and 1418 (1500 and 1528).
+ * Sizes (protocol 16, WIRE-16, research 402 section 3; protocol 11, NET-WIRE, research 224 before it): a command is 18
+ * bytes (15 to protocol 15, then the view's three), a batch of 3 is 60 (51; the frame type its first byte, as before); a
+ * snapshot's head is 12 (the frame type, the tick, the sections, the feet's origin), the own state 36 (its facing), a body
+ * 55 (52 to protocol 15 -- the feet 6, the flags 4 -- then the view's tail 3) and a door 2, and the environment 8 and 3 an
+ * instance off its opening state -- only in a snapshot that names it. A snapshot of 15 bodies and one's own is 875 bytes
+ * on a map without doors and 881 on Frostfire (three doors; protocol 11 to 15: 830 and 836; protocol 10: 884 and 890) --
+ * 26.4 KB/s at 30 Hz per client, before the WebSocket's framing. A full room (16 seats, EXTRACTION's three hostages):
+ * 1040 bytes a player, 1059 a spectator (986 and 1002; protocol 10: 1052 and 1080); 24 seats' bodies: 1480 and 1499
+ * (1402 and 1418; 1500 and 1528).
  */
 
 /**
@@ -115,6 +119,29 @@ export const dqTurn = (q: number): number => q / 1000;
 /** A speed, units a second, to 1/64 (+-512). */
 const qSpeed = (v: number): number => Math.round(clamp(v, -511.98, 511.98) * 64);
 const dqSpeed = (q: number): number => q / 64;
+/**
+ * VIEW_SWAY_STEP_ADAPTATION (WIRE-16, PV-1; research 402 sections 3 and 7): PS2 pixels one unit of the wire's sway i8 is
+ * (`Command.swayX`/`swayY`, `BodyState.swayX`/`swayY`). An adaptation: the wire is ours and the original carries no
+ * sway (research 248 sections 1-2) -- the value is a wire step, not a reading. Sized from the disc: the sway is held inside
+ * `SniperDistLimitX`/`Y` x (0.8 cur + 0.2), cur at most 1 (`../accuracy` `swayLimit`), so never past the record's own
+ * `SniperDistLimit*`; the largest over every weapon record and stance `readKitTable` reads off `RUN/ZWEAPON.ZAR`
+ * (`zweapon.rdr`, ZWEAPON, `SniperDistLimitX`) is 60, the M82A1A's and the M87ELR's standing x (scene's
+ * `test/golden/weapon-records.json`; `test/viewSwayStep.disc.test.ts` re-walks the disc). 0.5 is the smallest round step
+ * that holds it in +-127 (63.5); 0.25 would clip it at 31.75. Half a PS2 pixel is the watcher's error at most a quarter.
+ */
+export const VIEW_SWAY_STEP_ADAPTATION = 0.5;
+/** WIRE-16: a sway, PS2 pixels, to the i8 (`VIEW_SWAY_STEP_ADAPTATION`): the nearest step, clamped to +-127; 0, -0 and NaN to 0. */
+export const qSway = (px: number): number => Math.round(clamp(px / VIEW_SWAY_STEP_ADAPTATION, -127, 127)) || 0;
+export const dqSway = (q: number): number => q * VIEW_SWAY_STEP_ADAPTATION;
+/**
+ * WIRE-16 (research 402 section 3, the `view` byte's row: "a value past 12 is read as 0"; the PV-1 fold): the view state a
+ * value is -- an integer 0-12 (`../zoom`'s states) is itself; anything else (past 12, negative, a fraction, NaN, not a
+ * number) is 0, no view: an unknown state is never read as the deepest scope. The one rule for the byte: both encoders
+ * write through it and both decoders read through it (the body's after its `& 15`, the clock's nibble untouched), and
+ * `quantiseCommand`/`quantiseBody` carry it. A labelled adaptation, our wire's rule (no original carries the view).
+ */
+export const viewState = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) && v > 0 && v <= 12 ? v : 0);
+
 /** Seconds to milliseconds, 0..65534; 65535 is none. */
 const qSeconds = (s: number | null): number => (s === null || !Number.isFinite(s) || s < 0 ? 0xffff : Math.min(0xfffe, Math.round(s * 1000)));
 const dqSeconds = (q: number): number => (q === 0xffff ? -1 : q / 1000);
@@ -128,6 +155,7 @@ export function quantiseCommand(c: Command): Command {
     yaw: dqYaw(qYaw(c.yaw)), pitch: dqPitch(qPitch(c.pitch)), turn: dqTurn(qTurn(c.turn)),
     separate: c.separate === true,                               // SEP-POP: the wire's bit, always read back
     ...(raised ? { raised: true } : {}),                         // ER-2: the wire's bit, read back only when set
+    view: viewState(c.view), swayX: dqSway(qSway(c.swayX ?? 0)), swayY: dqSway(qSway(c.swayY ?? 0)),   // WIRE-16: always read back
   };
 }
 
@@ -137,7 +165,9 @@ export function quantiseCommand(c: Command): Command {
  * `Frame.Commands`: u8 kind, f32 view tick, u8 count, then per command u32 seq, i8 x2, u16 yaw, i16 pitch, i16 turn, u16
  * buttons, u8 stance|separate<<3|weapon<<4|raised<<7 (protocol 12, SEP-POP: `Command.separate` in the stance nibble's
  * bit 3, its codes 0-3; an 11 command never set the bit. Protocol 14, ENEMY-RAISE ER-2: `Command.raised` in bit 7, the
- * weapon narrowed to bits 4-6 -- its codes 0 and 1 -- so a 13 command, which never set bit 7, reads as not raised).
+ * weapon narrowed to bits 4-6 -- its codes 0 and 1 -- so a 13 command, which never set bit 7, reads as not raised), then
+ * (protocol 16, WIRE-16) u8 view (`viewState`), i8 swayX, i8 swayY (`qSway`): 18 bytes a command. A 15 frame is read by
+ * `decodeCommandsV15`.
  */
 export function encodeCommands(batch: CommandBatch): Uint8Array {
   const w = new Writer();
@@ -151,6 +181,7 @@ export function encodeCommands(batch: CommandBatch): Uint8Array {
     w.u16(qYaw(c.yaw)); w.i16(qPitch(c.pitch)); w.i16(qTurn(c.turn));
     w.u16(c.buttons & 0xffff);
     w.u8((c.stance & 0x07) | (c.separate ? 0x08 : 0) | ((c.weapon & 0x07) << 4) | (c.raised ? 0x80 : 0));
+    w.u8(viewState(c.view)); w.i8(qSway(c.swayX ?? 0)); w.i8(qSway(c.swayY ?? 0));   // protocol 16: the view's tail
   }
   return w.bytes();
 }
@@ -164,9 +195,11 @@ export function decodeCommands(bytes: Uint8Array): CommandBatch {
   for (let i = 0; i < n; i++) {
     const seq = r.u32(), forward = dqStick(r.i8()), right = dqStick(r.i8()), yaw = dqYaw(r.u16()), pitch = dqPitch(r.i16());
     const turn = dqTurn(r.i16()), buttons = r.u16(), sw = r.u8();
+    const view = viewState(r.u8()), swayX = dqSway(r.i8()), swayY = dqSway(r.i8());   // protocol 16: a byte past 12 is no view
     commands.push({
       seq, forward, right, yaw, pitch, turn, buttons, stance: sw & 0x07, weapon: (sw >> 4) & 0x07, separate: (sw & 0x08) !== 0,
       ...((sw & 0x80) !== 0 ? { raised: true } : {}),          // ER-2 (protocol 14): only when set, as a command without it
+      view, swayX, swayY,
     });
   }
   return { viewTick, commands };
@@ -189,6 +222,8 @@ function writeBody(w: Writer, b: BodyState, o: readonly [number, number, number]
   w.i16(qTurn(b.turnRate));
   w.u8(b.trav); w.f32(b.travFrame); w.f32(b.travRootY); w.u8(b.travBlend); w.u8(Math.round(clamp(b.travBlendWeight, 0, 1) * 255));
   w.i8(b.peek);
+  // Protocol 16 (WIRE-16): the view's tail, as given -- who gets it whole and who zeroed is the room's (PV.R9).
+  w.u8(viewState(b.view) | (((b.clock ?? 0) & 15) << 4)); w.i8(qSway(b.swayX ?? 0)); w.i8(qSway(b.swayY ?? 0));
 }
 
 function readBody(r: Reader, o: readonly [number, number, number]): BodyState {
@@ -206,11 +241,13 @@ function readBody(r: Reader, o: readonly [number, number, number]): BodyState {
   const turnRate = dqTurn(r.i16());
   const trav = r.u8(), travFrame = r.f32(), travRootY = r.f32(), travBlend = r.u8(), travBlendWeight = r.u8() / 255;
   const peek = r.i8();
+  const viewClock = r.u8(), swayX = dqSway(r.i8()), swayY = dqSway(r.i8());   // protocol 16: a nibble past 12 is no view
   return {
     id, feet, yaw, pitch, vx, vy, vz, flags,
     stance: packed & 3, landing: (packed >> 2) & 3, ground: (packed >> 4) & 3, weapon, slot: (packed >> 6) & 1, stickSnaps: (packed >> 7) & 1,
     jumps, groundForward, groundRight, groundCls, action, actionSerial, actionT, actionSeconds, overlay, overlayT, overlaySeconds,
     turnRate, trav, travFrame, travRootY, travBlend, travBlendWeight, peek,
+    view: viewState(viewClock & 15), clock: viewClock >> 4, swayX, swayY,
   };
 }
 
@@ -249,6 +286,9 @@ export function quantiseBody(b: BodyState, out: BodyState): BodyState {
   out.trav = asU8(b.trav); out.travFrame = Math.fround(b.travFrame); out.travRootY = Math.fround(b.travRootY);
   out.travBlend = asU8(b.travBlend); out.travBlendWeight = asU8(Math.round(clamp(b.travBlendWeight, 0, 1) * 255)) / 255;
   out.peek = asI8(b.peek);
+  const viewClock = asU8(viewState(b.view) | (((b.clock ?? 0) & 15) << 4));   // protocol 16: the view's tail
+  out.view = viewState(viewClock & 15); out.clock = viewClock >> 4;
+  out.swayX = dqSway(asI8(qSway(b.swayX ?? 0))); out.swayY = dqSway(asI8(qSway(b.swayY ?? 0)));
   return out;
 }
 
@@ -270,9 +310,9 @@ function bodiesOrigin(bodies: readonly BodyState[]): [number, number, number] {
 /**
  * `Frame.Snapshot` (protocol 11, NET-WIRE; research 224): u8 frame type (0), u32 tick, u8 sections (bit 0 the own state,
  * bit 1 the environment, bit 2 Chain Reaction's hooks; any other bit refused), i16 x3 the feet's origin (whole units),
- * then [u32 ack, f32 x y z, f32 vx vy vz, f32 yaw pitch] when the own state is there, u8 count, the bodies (52 bytes
+ * then [u32 ack, f32 x y z, f32 vx vy vz, f32 yaw pitch] when the own state is there, u8 count, the bodies (55 bytes
  * each: u8 id, i16 feet x3 at `FEET_STEP` from the origin, u16 yaw, i16 pitch, i16 speed x3, u32 flags, then protocol
- * 10's tail unchanged), u8 door count and two bytes a door (`DoorWire`), then -- when bit 2 is set -- u8 hook count and
+ * 10's tail unchanged, then protocol 16's u8 view|clock<<4, i8 swayX, i8 swayY), u8 door count and two bytes a door (`DoorWire`), then -- when bit 2 is set -- u8 hook count and
  * seven bytes a hook (`CraneWire`: u8 valve, u8 leg, u16 milliseconds, u16 swing milliseconds, u8 mesh), then the
  * environment when named (`EnvWire`:
  * u32 revision, u16 round epoch, u16 count, u16 instance id and u8 state an instance). No trailing byte. `origin`: the

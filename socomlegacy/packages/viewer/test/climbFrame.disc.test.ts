@@ -81,9 +81,12 @@ function load(stem: string): Loaded {
   const models = parseSceneGraph(Zar.parse(zdbMember(bytes, parseZdb(bytes), `${stemOf(path)}_GEO.ZED`)));
   applyR0004MapPatch(models, stemOf(path));                      // R4B-09: the graph the room's hull is built from (research 383)
   const placed = placedFrames(models);
-  expect(placed.length).toBe(polys.length);
+  // CLT-2 (research 422; CLT.R2): the room's hull is the worldmodel's polygons, then the clutter's appended -- the frames
+  // here are the worldmodel's colliders, so they index the hull's prefix; every polygon after it is a clutter owner's.
+  expect(placed.length).toBeLessThanOrEqual(polys.length);
+  expect(polys.slice(placed.length).every((p) => p.path.startsWith('clutter/'))).toBe(true);
   const frames = new Map<number, Frame>();
-  polys.forEach((p, i) => {
+  polys.slice(0, placed.length).forEach((p, i) => {
     const f = placed[i]!;
     for (let k = 0; k < p.points.length; k += 3) {
       const w = toWorld(f, [f.local[k]!, f.local[k + 1]!, f.local[k + 2]!]);
@@ -91,7 +94,7 @@ function load(stem: string): Loaded {
     }
     frames.set(p.points.byteOffset, f);
   });
-  const out = { grid: sim.grid, polys, frames, owners: sim.ground.owners };
+  const out = { grid: sim.grid, polys: polys.slice(0, placed.length), frames, owners: sim.ground.owners };   // the worldmodel's; the grid holds the clutter too
   loaded.set(stem, out);
   return out;
 }

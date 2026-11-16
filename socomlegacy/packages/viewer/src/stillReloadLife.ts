@@ -127,7 +127,7 @@ export class StillReloadLife {
  * D:L460042), a one-shot (`motion.rdr` looped 0 on the six), so the ground driver takes a jump press under it down the
  * one-shot branch (`FUN_00550ef0` D:L418119-418132: the request cleared, D:L418128) and `FUN_0057e1b0` refuses it on the
  * top's looped bit (D:L440810) -- spent, never kept for the pop (the request is set on the button's first down only,
- * `FUN_00594cf0` D:L453210-453215). `window`: the flinch on the commands' seqs, `start` its first command and `until`
+ * `FUN_00594cf0` D:L453210-453215). `span`: the flinch on the commands' seqs, `start` its first command and `until`
  * the command it pops on -- the room's `flinchFrom` .. `flinchUntil` (`room.ts` `jumpRefused`), the page's
  * `setFlinchPose` window as its own commands cut it (`./walk` `WalkMode.jump`). The driver reads the jump before both
  * pops in its tick -- the cut (D:L418174-418190) and the end (`FUN_00582540` D:L418193 -> `FUN_005870e0` D:L418203) --
@@ -137,8 +137,8 @@ export class StillReloadLife {
  * refuses nothing. In the air the fall covers the flinch and the mover refuses the jump itself (`Walker.jump`).
  * *PAR-78's review (F1)*: was `seq < until`, which took the jump on an uncut flinch's pop.
  */
-export function flinchOnTop(window: { readonly start: number; readonly until: number } | null, seq: number): boolean {
-  return window !== null && seq >= window.start && seq <= window.until;
+export function flinchOnTop(span: { readonly start: number; readonly until: number } | null, seq: number): boolean {
+  return span !== null && seq >= span.start && seq <= span.until;
 }
 
 /**

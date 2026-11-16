@@ -718,7 +718,19 @@ describe.skipIf(!MP2)(`HF2-slim's cost cut leaves every walker state as it was${
     // base refused its sub-steps and the segments' depth push then threw it 10 units along +z (`di_shed01`), while the
     // frame-end probe puts it back 0.5 at the last hit and it lands. The launches and stands are unchanged; the
     // 'sub-step' arm restores a27ba877... exactly (measured headless, the owner's host, the same walk).
+    // AIR-HEAD-LINE (2026-11-13, research 217 s2.2; `AIR_POSED_HEAD_READING`): the airborne head line is the jump clip's
+    // posed head + 2 at its key (`FUN_0054aa30` D:L415437-415446), 0.44 to 2.83 under the idle head's 19.394. 4 of the
+    // 144 walkers (3, 39, 69, 138) meet a wall or ceiling differently in the air -- walker 39 ends 0.4 off in z, the others
+    // where they ended -- the launches and stands unchanged; with the airborne line set back to the idle head the walk
+    // gives d7a59742... again exactly (measured headless on the seat box, the same walk), so the hash re-measured.
+    // THROTTLE-FRAME (2026-11-14, MISSION R8.1; `FUN_00586c10` D:L445017-445031): the walk redraws `right: 1` from rest
+    // every 45 ticks, and a full lateral press from rest no longer snaps at its 60 Hz tail (0.833 -> 1): the snap is
+    // judged from the last game frame's value, so the press ramps to 1 a tick later, as the original's 30 Hz ramp does
+    // (the capture rig's Q12). The launches and stands are unchanged (383 and 116, held above); the states move, so the
+    // hash re-measured: b0's box ft1 at da0f756c8e (data view; was 0de963e2...). The later stateless frame numbering
+    // (baadb10904) ends the same frames for these walkers (direct ticks counted from the placing: `throttleFrameEnds`
+    // equals the accumulator tick for tick, pinned in throttleFrame.test.ts), so the value stands at it.
     expect([launched, stood]).toEqual([383, 116]);
-    expect(digest).toBe('d7a59742eb6ca139339fce7aa077be2157d5c8980a0d6766b1fca433d55d4754');
+    expect(digest).toBe('1f1b983b2ea089d37b11a1d89fb40cebbe246b6a51961b8551a360d8fc1b9132');
   }, 120_000);
 });

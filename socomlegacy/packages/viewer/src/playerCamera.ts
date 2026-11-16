@@ -161,11 +161,19 @@ export const INIT_AIM_PITCH = SEAL_TUNING.initAimPitch;
  */
 export const ROOT_RATE_READING = (STANCE.stand.rootY - STANCE.crouch.rootY) / ACTION_SECONDS.standToCrouch;
 /**
- * INV-SPECTATE C (research 314 §5.7; reading, pending review): the camera's blend rate, a second. With the blend flag
- * +0x45 set and +0x46 clear, `FUN_00296f10` takes the factor `dt * 6` (D:L140739) and clamps it to 1 (D:L140747-140749);
- * `FUN_00297410` sets the flag (and clears +0x46) only with the death camera at 7 and the new bind's latch +0x44 spent
- * (D:L141028-141032). [reading: the rate of the original's camera calls -- the dt `FUN_002998f0` hands down -- is not
- * traced against the page's frame; the port applies it once a page frame with the page's dt]
+ * INV-SPECTATE C (research 314 §5.7): the camera's blend rate, a second. With the blend flag +0x45 set and +0x46 clear,
+ * `FUN_00296f10` takes the factor `dt * 6` (D:L140739) and clamps it to 1 (D:L140747-140749); `FUN_00297410` sets the
+ * flag (and clears +0x46) only with the death camera at 7 and the new bind's latch +0x44 spent (D:L141028-141032).
+ * PV-12, 2026-11-12 (research 314 §5.7's measured entry), **proven** -- a capture comparison of the original running
+ * (SPECTATE-EASE), within the tolerance stated before the compare, reviewed fresh 2026-11-12 -- for the factor itself
+ * (+0x48 = 6 x the game frame's own step on 514 of 514 steps: the original's camera runs once a game frame, dt
+ * 0.0333672 s at 29.97 Hz, 0.0167 s on a half step), for the stored target's x, z stepping by it (all 262 steps
+ * with a residual >= 0.05 inside; 219 of 219 with one >= 0.5, 11 and 14 at rates 5.9 and 6.1; reproduced by the tool
+ * `easeCapture.ts` on a build box), and for the spectator's rigid follow. [reading: the eye in the strafes (the frame
+ * target, the bound body's x, z, plus the captured rest offset: a reconstructed sum -- level corrected 2026-11-14); the
+ * eye's point on a turn and the heights, unsettled without the bound actor's yaw and the frame's root height; the call rate
+ * -- this port steps it once a page frame (the teammate view) or once a 60 Hz mover tick (the own death camera at 7),
+ * not once a 29.97 Hz game frame: LATER 972, which also carries the name's suffix (a rename touches other lanes' code)]
  */
 export const WATCHED_EASE_RATE_READING = 6;
 /** The blend's factor for a frame of `dt` seconds: `dt * WATCHED_EASE_RATE_READING`, at most 1 (D:L140739, D:L140747-140749). */

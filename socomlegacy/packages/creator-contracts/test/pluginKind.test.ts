@@ -28,16 +28,26 @@ const hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).di
 const BUILD: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: [] };
 const MEMBER = enc.encode('{"plugin":"zombies"}');
 const PATH = "plugin/zombies.json";
+const SCRIPT = enc.encode("export default function plugin(){return []}\n");
+const SCRIPT_PATH = "plugin/main.js";
 
 function pack(over: Record<string, unknown> = {}): PackFile[] {
+  const rows = [
+    { path: SCRIPT_PATH, sha256: hex(SCRIPT), size: SCRIPT.length, role: "plugin" },
+    { path: PATH, sha256: hex(MEMBER), size: MEMBER.length, role: "data" },
+  ];
   const manifest = {
     format: "s2u-pack", formatVersion: 2, id: "fuse.zombies-server", version: "0.1.0", name: "Zombies server", target: PACK_TARGET_US, contract: "^0.2.0",
     kinds: ["plugin"], sides: "server", dependencies: [],
-    files: [{ path: PATH, sha256: hex(MEMBER), size: MEMBER.length, role: "data" }],
-    intents: [{ kind: "new-behaviour", files: [PATH] }],
+    files: rows,
+    intents: [{ kind: "new-behaviour", files: rows.map((row) => row.path) }],
     ...over,
   };
-  return [{ path: PACK_MANIFEST_FILE, bytes: enc.encode(JSON.stringify(manifest)) }, { path: PATH, bytes: MEMBER }];
+  const byPath = new Map<string, Uint8Array>([[SCRIPT_PATH, SCRIPT], [PATH, MEMBER]]);
+  return [
+    { path: PACK_MANIFEST_FILE, bytes: enc.encode(JSON.stringify(manifest)) },
+    ...(manifest.files as { path: string }[]).map((row) => ({ path: row.path, bytes: byPath.get(row.path)! })),
+  ];
 }
 const found = (v: PackValidation): [string, string, string | undefined][] => v.report.diagnostics.map((d) => [d.code, d.severity, d.field]);
 
@@ -70,7 +80,8 @@ describe("FX-5 the plugin kind, reserved (OT.R118)", () => {
   });
 
   it("warns nothing for a pack that holds no plugin, the plugin beside other kinds warned once", async () => {
-    const content = await validatePack(pack({ kinds: ["content"], sides: "both", intents: [{ kind: "new-behaviour", files: [PATH] }] }), BUILD);
+    const dataOnly = [{ path: PATH, sha256: hex(MEMBER), size: MEMBER.length, role: "data" }];
+    const content = await validatePack(pack({ kinds: ["content"], sides: "both", files: dataOnly, intents: [{ kind: "new-behaviour", files: [PATH] }] }), BUILD);
     expect(found(content)).toEqual([]);
     const mixed = await validatePack(pack({ kinds: ["content", "plugin"] }), BUILD);
     expect(found(mixed)).toEqual([[PACK_CODES.kindNotApplied, "warning", "kinds"]]);

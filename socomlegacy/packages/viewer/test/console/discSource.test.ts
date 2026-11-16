@@ -64,7 +64,7 @@ const folderFiles = (name: string): File[] => [
   picked(text(`BOOT2 = cdrom0:\\${SOCOM2_US_BOOT};1\r\nVER = 1.00\r\nVMODE = NTSC\r\n`), `${name}/SYSTEM.CNF`),
   picked(new Uint8Array(4), `${name}/RUN/UI/READERC.ZAR`),
 ];
-const GOOD = (): File => new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
+const GOOD = (): File => new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
 
 const imageInput = (): HTMLInputElement => document.getElementById('disc-page-file') as HTMLInputElement;
 const folderInput = (): HTMLInputElement => document.querySelector<HTMLInputElement>('input[webkitdirectory]')!;

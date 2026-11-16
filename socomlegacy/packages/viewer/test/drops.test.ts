@@ -37,7 +37,7 @@ describe('PF-34: the drops on the page (research 234 s5)', () => {
     expect(made[0]).toMatchObject({ item: 62, at: [10, 0, -5], removed: false });
     expect(made[0]!.rotation.y).toBeCloseTo((0.25 * Math.PI) / 180, 12);   // the wire's yaw is the walker's, in degrees
     // A bundle: kept (its did known) but no model asked for.
-    drops.place({ did: 0, kind: 'ammo', entries: [{ item: 62, rounds: [17] }], at: [10, 0, -5], yaw: 0.25, from: 3 });
+    drops.place({ did: 0, kind: 'ammo', entries: [{ ammo: '5.56 x 45mm', count: 17 }], at: [10, 0, -5], yaw: 0.25, from: 3 });
     expect(made).toHaveLength(1);
     expect(drops.dids()).toEqual([1, 0]);
     // The same did again (a bundle's residual, a rejoin's envelope): the old one replaced, never doubled.
@@ -71,7 +71,7 @@ describe('PF-34: the drops on the page (research 234 s5)', () => {
     drops.place(weapon(1, [0, 0, -15]));
     drops.place(weapon(2, [3, 0, -8]));
     drops.place(weapon(3, [0, 0, 8]));                          // behind
-    drops.place({ did: 4, kind: 'ammo', entries: [{ item: 62, rounds: [30] }], at: [0, 0, -2], yaw: 0, from: 3 });   // a bundle: walked, not prompted
+    drops.place({ did: 4, kind: 'ammo', entries: [{ ammo: '5.56 x 45mm', count: 30 }], at: [0, 0, -2], yaw: 0, from: 3 });   // a bundle: walked, not prompted
     expect(drops.prompt(feet, ahead)).toBe(2);                   // the nearest in front
     drops.remove(2);
     expect(drops.prompt(feet, ahead)).toBe(1);
@@ -207,7 +207,7 @@ describe('NU-5 L1: a rocket launcher offered only to a kit FUN_005bac30 answers 
     drops.place(weapon(1, [0, 0, 0], 62));                       // another seat's
     drops.place(weapon(2, [0, 0, 0], 62), true);                 // the page's own rifle
     drops.place(weapon(3, [0, 0, 0], 15), true);                 // the page's own sidearm
-    drops.place({ did: 4, kind: 'ammo', entries: [{ item: 62, rounds: [17] }], at: [0, 0, 0], yaw: 0, from: 3 }, true);
+    drops.place({ did: 4, kind: 'ammo', entries: [{ ammo: '5.56 x 45mm', count: 17 }], at: [0, 0, 0], yaw: 0, from: 3 }, true);
     expect(own).toEqual([62, 15]);
     expect(() => new WorldDrops({ model: () => null, remove: () => undefined }).place(weapon(5, [0, 0, 0]), true)).not.toThrow();
     const scene = { add: () => undefined, remove: () => undefined };

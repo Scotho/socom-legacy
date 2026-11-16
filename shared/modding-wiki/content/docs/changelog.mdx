@@ -20,6 +20,7 @@ publishes its own version, and a pack whose range does not include it is refused
 | `PACK_FORMAT_VERSION` | `2` | The `formatVersion` every v2 manifest names. |
 | `ENGINE_CONTRACT_VERSION` | `0.2.0` | The newest engine contract this build reads, the one it publishes. It also reads every version in `ENGINE_CONTRACT_VERSIONS`. |
 | `RULES_PACK_CONTRACT_FLOOR` | `0.1.1` | The lowest engine contract a `rules` pack may admit. It stays 0.1.1 when the engine contract moves on. |
+| `PACK_CONTRACT_0_2_FLOOR` | `0.2.0` | The lowest engine contract a `plugin` pack, and the other 0.2 fields, may admit. |
 | `RULES_VOCABULARY_VERSION` | `0` | The version of the rules vocabulary (events, conditions, actions). |
 | `PACK_TARGET_US` | `SCUS-97275` | The disc revision a pack's `target` names. |
 
@@ -30,6 +31,14 @@ the middle one.
 ## History
 
 Newest first. Dates are when the change landed in the code, except where an entry says it is dated when written.
+
+### 2026-11-12 -- the plugin role
+
+*Dated when written: this lands with the loader.*
+
+Kind `plugin` and role `plugin`. One module, `plugin/main.js`, other members data JSON, `sides` `server`, and a
+contract that admits no engine before `0.2.0`. A community match child loads it in a worker only when the host's
+opt-in is on. The opt-in is off by default. The page does not run it. Stage 1 is a text scan, not a sandbox.
 
 ### 2026-11-11 -- content map bounds: raised, and two new caps that narrow
 

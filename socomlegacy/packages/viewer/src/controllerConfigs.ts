@@ -1,4 +1,5 @@
 import type { RdrNode } from '@s2u/archive';
+import { codModernChosen, COD_MODERN_MAPPINGS, COD_MODERN_NAME, setCodModernChosen } from './controllerModern';
 
 /**
  * OPT-14, CONTROLLER PRESETS (issue #87; web research 344): `controller.rdr`'s four `ControllerConfigs`, the record
@@ -26,6 +27,8 @@ import type { RdrNode } from '@s2u/archive';
 /** The four configs' names, in `controller.rdr`'s order. */
 export const CONTROLLER_CONFIG_NAMES = ['Default', 'Reverse', 'Goldeneye', 'Config4'] as const;
 export type ControllerConfigName = (typeof CONTROLLER_CONFIG_NAMES)[number];
+/** Includes the explicitly selected browser adaptation, separate from the disc's names. */
+export type ActiveControllerConfigName = ControllerConfigName | typeof COD_MODERN_NAME;
 
 /** The digital results, in the order of the name table at 0x3f2be0 (research 85 §9; `FUN_002c67f0` D:L167143-167152). */
 export const CONTROLLER_RESULTS = [
@@ -82,6 +85,14 @@ export const PRESET_PAGE_CONFIG: Readonly<Record<1 | 2 | 3 | 4, ControllerConfig
 /** `UIStoreOptions`' table (`FUN_0027b960` D:L125232-125247): `SelectedControllerConfig` 4, 3, 2, 1 and any other value. */
 export function storedControllerConfig(selected: number | undefined): ControllerConfigName {
   return selected === 4 ? 'Goldeneye' : selected === 3 ? 'Config4' : selected === 2 ? 'Reverse' : 'Default';
+}
+
+/**
+ * The page's config for the card's `SelectedControllerConfig`: COD Modern while this browser's own choice holds it
+ * (V20.R4, `./controllerModern` `codModernChosen`), else the original's table (`storedControllerConfig`).
+ */
+export function browserStoredControllerConfig(selected: number | undefined): ActiveControllerConfigName {
+  return codModernChosen() ? COD_MODERN_NAME : storedControllerConfig(selected);
 }
 
 /** A stick as a record holds it: 0 none, 1 the left, 2 the right. */
@@ -180,7 +191,9 @@ export class ControllerConfigs {
   private flag = false;
   private changes = 0;
 
-  constructor(private readonly configs: Readonly<Record<string, readonly ControllerMapping[]>> = CONTROLLER_CONFIGS_READING) { this.reset(); }
+  constructor(private readonly configs: Readonly<Record<string, readonly ControllerMapping[]>> = CONTROLLER_CONFIGS_READING,
+    private readonly configForValue: (value: number | undefined) => string = storedControllerConfig,
+    private readonly selected?: (name: string) => void) { this.reset(); }
 
   /** The game's start again (`FUN_002c5e70`): for a test, or a page that boots its console again. */
   reset(): void {
@@ -191,7 +204,7 @@ export class ControllerConfigs {
   }
 
   /** The active config's name. */
-  get active(): ControllerConfigName { return this.records[this.current]!.name as ControllerConfigName; }
+  get active(): ActiveControllerConfigName { return this.records[this.current]!.name as ActiveControllerConfigName; }
   /** `DAT_0044d500`: FIRE RATE as last stored or toggled. */
   get fireModeSwap(): boolean { return this.flag; }
   /** Bumped at every change (the pad map's cache key). */
@@ -205,6 +218,7 @@ export class ControllerConfigs {
     if (i < 0) return false;
     this.current = i;
     this.changes++;
+    this.selected?.(this.records[i]!.name);
     return true;
   }
 
@@ -217,7 +231,7 @@ export class ControllerConfigs {
     const on = (value('FIREMODESWAP_CONTROLLER') ?? 0) !== 0;
     if (on !== this.flag) this.swap();
     this.flag = on;
-    this.select(storedControllerConfig(value('SelectedControllerConfig')));
+    this.select(this.configForValue(value('SelectedControllerConfig')));
     this.changes++;
   }
 
@@ -235,5 +249,19 @@ export class ControllerConfigs {
   }
 }
 
+/**
+ * A page's controller configs: the original four and COD Modern (V20.R4, the page's own choice), the card's value read
+ * through `browserStoredControllerConfig`; an original config made active while COD Modern is chosen -- only an explicit
+ * choice can (the original's `SetControllerConfig`, or a store under a choice already ended) -- ends that choice. The
+ * original reader and the class's defaults are unchanged.
+ */
+export function pageControllerConfigs(): ControllerConfigs {
+  return new ControllerConfigs(
+    { ...CONTROLLER_CONFIGS_READING, [COD_MODERN_NAME]: COD_MODERN_MAPPINGS },
+    browserStoredControllerConfig,
+    (name) => { if (!same(name, COD_MODERN_NAME) && codModernChosen()) setCodModernChosen(false); },
+  );
+}
+
 /** The page's controller config (the console's one). */
-export const controllerConfigs = new ControllerConfigs();
+export const controllerConfigs = pageControllerConfigs();

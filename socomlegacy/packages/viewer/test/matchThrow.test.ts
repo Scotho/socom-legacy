@@ -159,7 +159,7 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
   it('the throwables\' NetPage hooks: every one PART_DEPS lists, each onto the grenade page', () => {
     const { t } = rig();
     const d = t.netDeps();
-    expect(Object.keys(d).sort()).toEqual([...PART_DEPS.throwables, 'roundEndEffects'].sort());   // ROUND_END_EFFECTS_READING: optional, handed with them
+    expect(Object.keys(d).sort()).toEqual([...PART_DEPS.throwables, 'roundEndEffects', 'handItem'].sort());   // ROUND_END_EFFECTS_READING, ROOM-HAND's re-tell: optional, handed with them
     const giveBack = vi.spyOn(t.grenade, 'giveBack'), launch = vi.spyOn(t.grenade, 'launchRemote');
     d.staleThrow?.('M67');
     expect(giveBack).toHaveBeenCalledWith('M67');                                          // LOW-2: the item back
@@ -457,7 +457,8 @@ describe('PAR-36 (c): both pages post the claymore\'s refusal on the HUD\'s mess
 
   it('main.ts and matchMount.ts hand the part refusalLine(hud), imported from ./matchMessages; no toast, no placeholder left', () => {
     for (const f of ['main.ts', 'matchMount.ts']) {
-      expect(src(f), f).toMatch(/import \{ refusalLine \} from '\.\/matchMessages';/);
+      // FC2-4: his import names postScriptMessage beside it (main.ts:142, matchMount.ts:85): refusalLine among the names.
+      expect(src(f), f).toMatch(/import \{ [^}]*\brefusalLine\b[^}]*\} from '\.\/matchMessages';/);
       expect(src(f), f).toMatch(/refuse: refusalLine\(hud\),/);
       expect(src(f), f).not.toMatch(/refuse: \(text\) => \{ ui\.toast\(text\); \}/);
     }

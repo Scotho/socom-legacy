@@ -266,33 +266,56 @@ export function createDockShell(options: DockShellOptions): ForgeShellPage {
     });
     return el;
   };
-  /** A sash between a split's children `ia` and `ib` (`drawn` its live ones): its drag moves the share between the two. */
+  /** A sash between a split's children `ia` and `ib` (`drawn` its live ones): its drag or its arrow keys move the share between the two. */
   const sash = (split: DockSplit, ia: number, ib: number, drawn: readonly number[]): HTMLElement => {
     const el = doc.createElement('div');
     el.className = 'fx-dg-sash';
     el.setAttribute('role', 'separator');
     el.setAttribute('aria-orientation', split.dir === 'row' ? 'vertical' : 'horizontal');
+    // FC2-6 (ours; a browser adaptation, FG.R2): the dock resizer this replaced was keyboard-operable -- focusable,
+    // labelled, the arrows moving it 10 px (40 with Shift) -- and the sash keeps that: reached by Tab, its keys below.
+    el.tabIndex = 0;
+    el.setAttribute('aria-label', 'Resize panes: drag, or the arrow keys');
+    /** A move's measure: the split's length (px), the drawn children's total, the pair's share and its least. */
+    const measure = (): { length: number; total: number; pair: number; min: number } => {
+      const box = el.parentElement!.getBoundingClientRect();
+      const length = Math.max(1, split.dir === 'row' ? box.width : box.height);
+      const total = drawn.reduce((a, x) => a + split.sizes[x]!, 0) || 1;
+      const pair = split.sizes[ia]! + split.sizes[ib]!;
+      return { length, total, pair, min: Math.min(pair / 2, (MIN_PANE_PX / length) * total) };
+    };
+    /** The share before the sash set to `want`, clamped (each pane `min` at least), both neighbours drawn: the pointer's and the keys' one path. */
+    const apply = (want: number, m: { total: number; pair: number; min: number }): void => {
+      const na = Math.min(m.pair - m.min, Math.max(m.min, want));
+      split.sizes[ia] = na;
+      split.sizes[ib] = m.pair - na;
+      // Over the drawn children's total, as `draw` sets them (the shares made whole).
+      const before = el.previousElementSibling as HTMLElement | null, after = el.nextElementSibling as HTMLElement | null;
+      if (before) before.style.flex = `${split.sizes[ia] / m.total} 1 0`;
+      if (after) after.style.flex = `${split.sizes[ib] / m.total} 1 0`;
+    };
+    // The old resizer's keys (FC2-6): along the split only -- Left/Right for a row, Up/Down for a column; Right or Down
+    // grows the pane before the sash, Left or Up shrinks it; 10 px a press, 40 with Shift, made a share as the pointer's px.
+    el.addEventListener('keydown', (e) => {
+      const grow = split.dir === 'row' ? 'ArrowRight' : 'ArrowDown', shrink = split.dir === 'row' ? 'ArrowLeft' : 'ArrowUp';
+      if (e.key !== grow && e.key !== shrink) return;
+      e.preventDefault();
+      const m = measure();
+      const px = (e.key === grow ? 1 : -1) * (e.shiftKey ? 40 : 10);
+      apply(split.sizes[ia]! + (px / m.length) * m.total, m);
+      save();
+    });
     el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       el.classList.add('is-resizing');
-      const box = el.parentElement!.getBoundingClientRect();
-      const length = Math.max(1, split.dir === 'row' ? box.width : box.height);
-      const total = drawn.reduce((a, x) => a + split.sizes[x]!, 0) || 1;
-      const startA = split.sizes[ia]!, startB = split.sizes[ib]!;
-      const pair = startA + startB;
+      const m = measure();
+      const startA = split.sizes[ia]!;
       const from = split.dir === 'row' ? e.clientX : e.clientY;
-      const min = Math.min(pair / 2, (MIN_PANE_PX / length) * total);
-      const before = el.previousElementSibling as HTMLElement | null, after = el.nextElementSibling as HTMLElement | null;
       const move = (ev: PointerEvent): void => {
-        const d = (((split.dir === 'row' ? ev.clientX : ev.clientY) - from) / length) * total;
-        const na = Math.min(pair - min, Math.max(min, startA + d));
-        split.sizes[ia] = na;
-        split.sizes[ib] = pair - na;
-        // Over the drawn children's total, as `draw` sets them (the shares made whole).
-        if (before) before.style.flex = `${split.sizes[ia] / total} 1 0`;
-        if (after) after.style.flex = `${split.sizes[ib] / total} 1 0`;
+        const d = (((split.dir === 'row' ? ev.clientX : ev.clientY) - from) / m.length) * m.total;
+        apply(startA + d, m);
       };
       const up = (): void => {
         el.removeEventListener('pointermove', move);

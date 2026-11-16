@@ -8,6 +8,7 @@ import { dsAlias, fontsAlias, shipFontLicences } from '../../../shared/vite';
 import { fmvPlugin } from '../../tools/fmvShip';
 import { describeLobby, injectLobbyHead, isLobbyId, lobbyStateHash, lobbyStateMaterial, publicLobbyFromJson, withId } from '../central/src/lobbyData';
 import { sitePageRoutes } from '../ui/src/routes/sitePaths';
+import { devClientErrorSink } from './devClientErrorSink';
 import { devLocalProxy } from './devProxy';
 import { pwaPlugin } from './pwaPlugin';
 import { releaseVersion } from './releaseVersion';
@@ -147,6 +148,12 @@ export default defineConfig(({ command, isPreview }) => {
     // Keep dev and preview equivalent to the static host's clean-route contract.
     configureServer(server) { projectRoutes(server.middlewares, server.config.base); statsPageRoutes(server.middlewares, server.config.base); },
     configurePreviewServer(server) { projectRoutes(server.middlewares, server.config.base); statsPageRoutes(server.middlewares, server.config.base); },
+  }, {
+    // LATER 950 (a development adaptation, a test aid; `./devClientErrorSink`): the local servers answer the page's client
+    // error beacon (`POST /api/client-error`, 204) as central does, unless the dev proxy forwards `/api` to a local server.
+    name: 'dev-client-error-sink',
+    configureServer(server) { const sink = devClientErrorSink(process.env); if (sink) server.middlewares.use(sink); },
+    configurePreviewServer(server) { const sink = devClientErrorSink(process.env); if (sink) server.middlewares.use(sink); },
   }],
   };
 });

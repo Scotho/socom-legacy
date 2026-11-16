@@ -113,13 +113,15 @@ export function imageMembers(disc: string = DISC): IsoMember[] {
  * `replayViewer.spec.ts`'s disc files (OVERLAY-CONSOLE fold 3; its `discImage`, the image RV-1 ran green on): every file
  * under `root`'s `RUN/` but the multiplayer maps other than `map`'s (`RUN/MP<n>.ZDB`), each the tree's own bytes. Its
  * framed test room renders the match from them (`../src/modern/replays/worldHost.ts` `ReplayWorldHost.disc`), so none
- * is stood in for.
+ * is stood in for. PV-13 (the controller's ruling B, 2026-11-13): `map` may be a list -- the maps kept, each the tree's own
+ * file, every other `RUN/MP<n>.ZDB` left out as before; one map named is exactly the image it always was.
  */
-export function runTreeFiles(root: string, map: string): IsoMember[] {
+export function runTreeFiles(root: string, map: string | readonly string[]): IsoMember[] {
+  const kept = new Set((typeof map === 'string' ? [map] : map).map((m) => `RUN/${m.toUpperCase()}.ZDB`));
   return readdirSync(join(root, 'RUN'), { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile())
     .map((e) => relative(root, join(e.parentPath, e.name)).replace(/\\/g, '/'))
-    .filter((p) => !/^RUN\/MP\d+\.ZDB$/i.test(p) || p.toUpperCase() === `RUN/${map.toUpperCase()}.ZDB`)
+    .filter((p) => !/^RUN\/MP\d+\.ZDB$/i.test(p) || kept.has(p.toUpperCase()))
     .sort()
     .map((p) => ({ path: p, bytes: new Uint8Array(readFileSync(join(root, p))) }));
 }
@@ -128,7 +130,7 @@ export function runTreeFiles(root: string, map: string): IsoMember[] {
  * `replayViewer.spec.ts`'s image's members: `runTreeFiles` made whole for DX-3's extraction (`wholeImageMembers`: the
  * generated `SYSTEM.CNF`, the tree's files, an empty stand-in for each name of the read set the tree lacks).
  */
-export function runTreeImageMembers(root: string, map: string): IsoMember[] {
+export function runTreeImageMembers(root: string, map: string | readonly string[]): IsoMember[] {
   return wholeImageMembers(runTreeFiles(root, map), 'replayViewer\'s discImage');
 }
 

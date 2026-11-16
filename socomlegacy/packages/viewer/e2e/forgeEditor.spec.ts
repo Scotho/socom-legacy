@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { OUTLINER_USER_ROW, placingTool } from './forgeBase';
+import {
+  OUTLINER_USER_ROW, openOutlinerFilter, openSaves, outlinerFilter, outlinerFilterKind, outlinerSearch, placingTool, pressDelete, pressDuplicate,
+} from './forgeBase';
 import { forgeStoredList } from './forgeStore';
 
 /**
@@ -56,17 +58,25 @@ test('keeps an unknown piece through save and reopen, and names the file', async
   await expect(missing).toHaveCount(1, { timeout: 30_000 });
   await expect(missing).toContainText('does_not_exist');
   await expect(missing).toContainText('missing');
-  await page.locator('.fx-outliner-tools select').selectOption('missing');
+  // FC2-4 (EDITOR-MAP O6): his Outliner has no type select; its Filter dropdown has a switch and a Solo per kind
+  // (`../src/forge/panels/outlinerPanel.ts` `OUTLINER_KINDS`). The old select's Missing is Missing pieces' Solo, Spawns
+  // the Spawns kind's Solo, and All that Solo pressed again ("press again to list every kind", `page.ts`).
+  await openOutlinerFilter(page);
+  await outlinerFilterKind(page, 'Missing pieces').getByRole('button', { name: 'Solo' }).click();
   await expect(missing).toHaveCount(1);
-  await page.locator('.fx-outliner-tools select').selectOption('spawns');
-  // OT.R112: the Outliner is a tree; the Spawns filter shows User Data's Spawns branch, its empty line the page's own
-  // words (`../src/forge/page.ts` `drawOutliner`, `userSpawns`), not the flat list's "Nothing matches".
-  await expect(page.locator('.fx-outliner li[data-tree-branch="userSpawns"] li.fx-empty'))
-    .toHaveText('No spawns: the Spawn SEAL and Spawn Terrorist tools place them');
-  await page.locator('.fx-outliner-tools select').selectOption('all');
-  await page.locator('.fx-outliner-tools input').fill('does_not');
+  await outlinerFilterKind(page, 'Spawns').getByRole('button', { name: 'Solo' }).click();
+  // OT.R112 / FC2-4 (EDITOR-MAP O2): the tree's sections are two rows, User Objects and Map Objects, the rows one level
+  // under each; with nothing the Filter shows, User Objects' one row is the page's own empty line (`page.ts`
+  // `drawOutliner`: "Nothing the Filter shows" while something is placed) -- the old Spawns branch's own words are gone.
+  await expect(missing).toHaveCount(0);
+  await expect(page.locator('.fx-outliner > li.fx-outliner-section[data-outliner-section="user"] + li.fx-empty'))
+    .toHaveText('Nothing the Filter shows');
+  await outlinerFilterKind(page, 'Spawns').getByRole('button', { name: 'Solo' }).click();
   await expect(missing).toHaveCount(1);
-  await page.locator('[data-forge="saves"]').click();
+  await outlinerFilter(page).locator(':scope > summary').click();     // the dropdown shut again
+  await outlinerSearch(page).fill('does_not');
+  await expect(missing).toHaveCount(1);
+  await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   const downloadPromise = page.waitForEvent('download');
   await page.locator('.fx-modal').getByRole('button', { name: 'Download' }).click();
   expect((await downloadPromise).suggestedFilename()).toBe('Night op.json');
@@ -111,10 +121,12 @@ test('duplicate undo selects the original, and redo selects the copy in its own 
   await placingTool(page, 'Spawn Terrorist').click();
   await view.click({ position: { x: 420, y: 300 } });
   await page.locator('.fx-outliner li.fx-missing').click();
-  await page.locator('button[title^="Duplicate"]').click();
-  // OT.R112: the tree's branches are `li`s too; the placed rows, User Data's Props branch first (the original, then
-  // its copy), are `li[data-user-prop]` (`./forgeBase` `OUTLINER_USER_ROW`).
-  const rows = page.locator(OUTLINER_USER_ROW);
+  await pressDuplicate(page);                                           // FC2-4 (EDITOR-MAP T7): Edit > Duplicate
+  // OT.R112: the placed rows are `li[data-user-prop]` (`./forgeBase` `OUTLINER_USER_ROW`). FC2-4 (EDITOR-MAP O2): his tree
+  // has no Props branch to hold the original then its copy -- its User Objects rows are every placement in the layout's
+  // order (`../src/forge/page.ts` `outlineSorted`), the spawns among them -- so the copy's row is the second missing row
+  // (a copy is placed after its original), not the second placed row.
+  const rows = page.locator(`${OUTLINER_USER_ROW}.fx-missing`);
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(2);
   await expect(rows.nth(1)).toHaveClass(/fx-missing/);
   await expect(rows.nth(1)).toHaveClass(/is-on/);
@@ -142,7 +154,7 @@ test('multi-delete undo selects every restored item, and redo selects nothing', 
   await page.locator('.fx-outliner li.fx-missing').click();
   await page.locator('.fx-outliner li.fx-team-a').click({ modifiers: ['Shift'] });
   await expect(page.locator('.fx-outliner li.is-on')).toHaveCount(2);
-  await page.locator('button[title^="Delete"]').click();
+  await pressDelete(page);                                              // FC2-4 (EDITOR-MAP T7): Edit > Delete
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(0);
   await expect(page.locator('.fx-outliner li.fx-team-a')).toHaveCount(0);
   await expect(page.locator('.fx-outliner li.fx-team-b')).toHaveCount(1);

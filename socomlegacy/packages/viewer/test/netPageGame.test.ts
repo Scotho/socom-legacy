@@ -289,7 +289,7 @@ describe('PF-31: the spectator wiring (wave 4)', () => {
     globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight' }));
     p.run(20);
     expect([p.net.spectator.mode, p.net.spectator.target]).toEqual(['follow', 2]);
-    expect(poses.at(-1)).toMatchObject({ x: 100, y: 25.709, z: 24.906, pitch: -9.167 });
+    expect(poses.at(-1)).toMatchObject({ x: 100, y: 21.484, z: 28.75, pitch: 0 });
     p.net.close();
     // A player alive in the round: no key or pad edge moves the camera.
     const shots: unknown[] = [];

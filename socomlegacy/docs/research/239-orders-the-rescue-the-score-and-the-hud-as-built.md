@@ -331,6 +331,11 @@ at 250/s (`OBJECTIVE_MARK_PULSE_READING`): the HUD steps it (`Hud.timing().marks
 Online the jump table (0x3e44b0, `FUN_00211510` D:L68148) shows types 1-8, 12, 13 whatever the distance: the port's
 objective marks are never filtered (`compassMarks`).
 
+*2026-11-13 (reading, pending review):* the bomb's mark type is read -- type 1 (`FUN_0059dab0` D:L457521-457523), with
+no colour of its own (`FUN_002a28f0` sets `+0x18` -1) -- so the port draws it in type 1's (62, 62, 32) and pulses it
+(`BombPage.marks()` `pulse`), closing XR-06's open row (research 214 s6). Not measured: no frame of the original with
+the bomb on the compass has been scored.
+
 - `ret_hostage` (`HOSTAGE_MARK_READING`) on each living hostage that has not entered 0x11 this round: the anchor is
   made at the AI's set-up (`FUN_005434b0(actor, 4, 0)` D:L434920) when the fireteam words share a bit (both sides), and
   freed on entering 0x11 (`FUN_00543480` at `FUN_005594b0` D:L422308) -- never made again, so a HOLD inside the fade
@@ -675,10 +680,10 @@ screen are the gate's browser check.
 | `HOSTAGE_MARK_READING` | viewer `hostageMarks.ts` | `'type 4, (62,49,36), always, pulsing'`: `FUN_005434b0` D:L434920, D:L410155; `FUN_0056f4c0` D:L432836-432841 |
 | `EXTRACTION_MARK_READING` | viewer `hostageMarks.ts` (`extractionPoints`) | `'type 6 at the centre cell, (36,40,62)'`: `FUN_002abd40` D:L151857, `FUN_002a42b0` D:L147723 |
 | `MARK_REMOVED_ON_RESCUE_READING` | viewer `hostageMarks.ts` | `'freed on entering 0x11'`: `FUN_00543480` at `FUN_005594b0` D:L422308; a dead hostage's mark unread, none drawn |
-| `OBJECTIVE_MARK_PULSE_READING` | viewer `hud.ts` | `{ min: 64, max: 128, rate: 250 }`: `DAT_0040c070`, D:L68043-68050, D:L68126-68130 (87 s1.7, 190 D); only marks with `pulse` (the hostage's, the zone's) |
+| `OBJECTIVE_MARK_PULSE_READING` | viewer `hud.ts` | `{ min: 64, max: 128, rate: 250 }`: `DAT_0040c070`, D:L68043-68050, D:L68126-68130 (87 s1.7, 190 D); only marks with `pulse` (the hostage's, the zone's; the base's since BOMB-MARKS; the bomb's since 2026-11-13) |
 | `EXTRACT_CAPTION_READING` | viewer `hud.ts` (`gameCaption`, `setGame`) | `'EXTRACT'`: 0x3e5848, `FUN_0022be20` D:L79744-79758 |
 | `MODE_CAPTION_READING` | none | resolved: the other four captions are read at the same switch (BREACH, DEMOLITION, ESCORT, SUPPRESSION: the mode names upper-cased); never code |
-| `OBJECTIVE_MARK_RGB_READING` | viewer `hud.ts` | re-valued from one colour to a table by bitmap: the hostage's (62, 49, 36) and the extraction's (36, 40, 62) read (D:L68670-68705); the bomb's and the base's rows left at XR-06's (32, 62, 32), open (research 214 s6) |
+| `OBJECTIVE_MARK_RGB_READING` | viewer `hud.ts` | re-valued from one colour to a table by bitmap: the hostage's (62, 49, 36) and the extraction's (36, 40, 62) read (D:L68670-68705); the bomb's and the base's rows left at XR-06's (32, 62, 32), open (research 214 s6) -- since closed: the base's type 2's (BOMB-MARKS), the bomb's type 1's (62, 62, 32) (2026-11-13) |
 
 ## 9. Owed
 

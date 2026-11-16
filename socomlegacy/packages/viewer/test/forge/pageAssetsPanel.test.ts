@@ -82,10 +82,10 @@ describe('R4: the shared local packs, dot\'s Assets panel and the pulse on the m
     expect(handed).toBe(packs);
     // dot's Assets panel. FUI-22 (D5, FUI.R21): its grid of the palette's names is gone (the page's one list is the left
     // dock's only list); what stays of the panel is its pack loading, the Local files panel, the right dock's Content tab.
-    const assets = document.querySelector<HTMLDetailsElement>('.fx-right > details.fx-panel[data-forge-panel="creator-assets"]');
+    const assets = document.querySelector<HTMLDetailsElement>('details.fx-panel[data-forge-panel="creator-assets"]');
     expect(assets).not.toBeNull();
     expect(assets!.querySelector(':scope > summary')!.textContent).toBe('Local files');
-    expect(document.querySelectorAll('.fx-left ul.fx-assets')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-forge-panel="asset-browser"] ul.fx-assets')).toHaveLength(1);
     expect(assets!.querySelector('ul.fx-assets')).toBeNull();
     // the drag's hint (the one list's tiles') sits in the view, the editor's viewport (the positioned .fx-viewport)
     expect(document.querySelector('.fx-viewport > .fx-asset-drop-hint')).not.toBeNull();

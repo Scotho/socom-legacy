@@ -38,7 +38,6 @@ describe("a hostage's death and flinch clips (FUN_005a0950; damanim.rdr's TEAMMA
     expect(deathClip('blast', PART.BODY, 'prone', at(0))).toBe('death_prone_chest01');
     // the players' lists are untouched: the default family is theirs, byte for byte
     expect(deathClip('bullet', PART.HEAD, 'stand', at(0))).toBe('death_stand_head01');
-    expect(deathClip('bullet', PART.RARM, 'crouch', at(0))).toBe('death_crouch_back01');
     expect(deathClip('bullet', PART.BODY, 'stand', at(0.99), 'player')).toBe('death_stand_groin01');
     // the page asks the pack for the five buddy clips with the players'
     for (const c of ['death_buddy_stand01', 'death_buddy_stand02', 'death_buddy_stand03', 'death_buddy_crouch01', 'death_buddy_prone01']) expect(DEATH_CLIPS).toContain(c);
@@ -46,5 +45,21 @@ describe("a hostage's death and flinch clips (FUN_005a0950; damanim.rdr's TEAMMA
     expect(HOSTAGE_FLINCH_READING).toBe('the players\' lists');
     expect(flinchClip(PART.RARM, 'stand', at(0))).toBe('seal_flinch_rarm');
     expect(FLINCH_CLIPS).toEqual(['seal_flinch_rarm', 'seal_crouch_rflinch', 'seal_prone_rflinch', 'seal_flinch_larm', 'seal_flinch_rleg', 'seal_flinch_lleg']);
+  });
+});
+
+describe("a player's limb death (FUN_005a0950's player branch; LIMB-DEATH)", () => {
+  it("a player's limb kill plays BODY STAND's first, Die, standing, crouched and prone (D:L458942-458959)", () => {
+    const at = (r: number) => () => r;
+    // A player's limb kill plays BODY STAND's first, Die, in every stance (LIMB-DEATH, 2026-11-12; research 91 s3 as
+    // corrected): FUN_005a0950's player branch finds no list for a limb (count 0, D:L458942-458943) and its tail
+    // returns *DAT_0044cee4, the BODY row's standing list's first (D:L458957-458959); the stance's own BODY first is
+    // only the fallback for a -1 entry of a drawn list (D:L458954). A reading: the original's crouched kill that drew
+    // type 7 (research 421 s11) had its killing part unread, so it does not measure this case.
+    for (const part of [PART.RARM, PART.LARM, PART.RLEG, PART.LLEG]) {
+      for (const stance of ['stand', 'crouch', 'prone'] as const) {
+        for (const r of [0, 0.5, 0.99]) expect(deathClip('bullet', part, stance, at(r)), `${part} ${stance} ${r}`).toBe('death_stand_chest01');
+      }
+    }
   });
 });

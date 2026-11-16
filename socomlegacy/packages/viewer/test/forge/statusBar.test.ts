@@ -8,6 +8,7 @@ import { agentPresence } from '../../src/agent/activity';
 import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
+import { pressSaves, toolbarButton } from './helpers/editor';
 
 /**
  * FUI-4 (the review's IA-7, VP-5, VP-13, AI-2's page half; principle 3; a browser adaptation, FG.R2): every lasting
@@ -149,8 +150,8 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
-const toolbar = (label: string): HTMLButtonElement =>
-  [...document.querySelectorAll<HTMLButtonElement>('.fx-top button.fx-tool')].find((b) => b.textContent?.trim() === label)!;
+// FC2-4: a toolbar button by its word, through the contributor's editor (`./helpers/EDITOR-MAP.md`, T5-T10).
+const toolbar = (label: string): HTMLButtonElement => toolbarButton(document, label);
 /** A chip's word as shown: null when the chip is absent or hidden (nothing to say). */
 const chipWord = (id: string): string | null => {
   const chip = document.querySelector<HTMLElement>(`.fx-status [data-forge-chip="${id}"]`);
@@ -186,11 +187,12 @@ describe('the mounted Forge\'s status bar (FUI-4)', () => {
     expect(chipWord('save')).toBe('Saving…');
     await vi.waitFor(() => expect(chipWord('save')).toBe('Autosaved'));
 
-    // A refusal (the toolbar's Saves over the check's open card) persists in the status line, not only in the toast.
+    // A refusal (Saves over the check's open card) persists in the status line, not only in the toast. Map T4: Saves is
+    // the contributor's File > Saves... (its toolbar button gone), the same button's press.
     document.querySelector<HTMLButtonElement>('.fx-play')!.click();
     await vi.waitFor(() => expect(document.querySelector('.fx-check-card h2')?.textContent).toBe('This map has problems'));
     expect(chipWord('issues'), 'the check before Play counts too').toMatch(/^\d+ issues?$/);
-    toolbar('Saves').click();
+    pressSaves(document);
     const line = document.querySelector<HTMLElement>('.fx-status-msg')!;
     expect(line.textContent).toMatch(/card/i);
     expect(line.classList.contains('is-bad')).toBe(true);

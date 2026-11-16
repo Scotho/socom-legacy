@@ -847,7 +847,8 @@ describe("NCW-2 B-trade, Codex's review of PR #698", () => {
     expect(got.got.rows.map((r) => r.out)).toEqual(['decided', 'decided', 'fire: trade: reload or empty', 'fire: trade: reload or empty', 'fire: not alive']);
     expect(got.got.trade).toEqual({ decided: 1, refused: 2 });
     // The bundle as the death laid it, nothing added since: the rifle's [1, 30, 30] and the sidearm's full ring.
-    expect(ammoOf(w.seen.told)).toEqual([[{ item: M4A1.id, rounds: [1, 30, 30] }, { item: DE.id, rounds: ringFor(DE).entries() }]]);
+    // The bundle by ammunition, each slot summed (PICKUP_AMMO_MATCH_READING): the M4A1's 1 + 30 + 30, the DE's ring whole.
+    expect(ammoOf(w.seen.told)).toEqual([[{ ammo: M4A1.ammo, count: 61 }, { ammo: DE.ammo, count: ringFor(DE).total() }]]);
     expect(ammoOf(w.seen.lying)).toEqual(ammoOf(w.seen.told));
     expect(w.seen.ringTotal, 'the body keeps no round: nothing given back to it').toBe(0);
     expect(['play', 'decided']).toContain(w.seen.phase);

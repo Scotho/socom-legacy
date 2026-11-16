@@ -183,3 +183,51 @@ describe('the death landing (FUN_005af590: `Land forward` in state 8)', () => {
     expect(headAngle(sk)).toBeCloseTo(0, 9);
   });
 });
+
+// DEAD-HEAD-LOOK (reading, pending review): FUN_0057a330 runs the head look only when FUN_00587b40 answers (D:L439156-
+// 439158), and FUN_00587b40 answers false in state 8, the dead's (D:L445494-445496): a dead body with no death clip --
+// a kill the room sends with none, a corpse in `landBackwards` -- glances no more than one drawn with its clip.
+describe('the dead state (FUN_00587b40 refuses state 8): no head look on a corpse drawn without its death clip', () => {
+  const idle = { ...REST, aimWeight: 0 };
+  const settle = (anim: Animator, mover: MoverSnapshot, seconds: number): boolean => {
+    let on = false;
+    for (let t = 0; t < seconds - 1e-9; t += TICK) { anim.step(TICK, mover); on ||= anim.stats().look.on && anim.stats().look.yaw !== 0; }
+    return on;
+  };
+
+  it('dead, no traversal pose, at rest past the 4 s glance: the look stays off and the head at rest', () => {
+    const sk = chain();
+    const anim = new Animator(sk, [still('seal_stand')], null, { random: () => 0 });
+    expect(settle(anim, { ...idle, dead: true }, 6)).toBe(false);
+    expect(anim.stats().look.on).toBe(false);
+    expect(headAngle(sk)).toBeCloseTo(0, 9);
+  });
+
+  it('dead and turning: still no look', () => {
+    const sk = chain();
+    const anim = new Animator(sk, [still('seal_stand')], null, { random: () => 0 });
+    expect(settle(anim, { ...idle, turnRate: SEAL_TUNING.turnMaxRate, dead: true }, 1)).toBe(false);
+    expect(headAngle(sk)).toBeCloseTo(0, 9);
+  });
+
+  it('alive, standing and crouched, the same 6 s: the glance comes (the living unchanged)', () => {
+    for (const mover of [idle, { ...idle, dead: false }, { ...idle, crouched: true, stance: 'crouch' as const }]) {
+      const sk = chain();
+      const anim = new Animator(sk, [still('seal_stand'), still('seal_crouch')], null, { random: () => 0 });
+      expect(settle(anim, mover, 6)).toBe(true);
+    }
+  });
+
+  it('the refusals stand alive: prone, a traversal pose, the death landing', () => {
+    const cases: MoverSnapshot[] = [
+      { ...idle, stance: 'prone' },
+      { ...idle, traversal: { clip: 'seal_stand', frame: 0, loop: true, rootY: null } },
+      { ...idle, action: { name: 'landDeath', serial: 1, t: 0, seconds: 0.36, reversed: false } },
+    ];
+    for (const mover of cases) {
+      const sk = chain();
+      const anim = new Animator(sk, [still('seal_stand'), still('seal_prone'), still('seal_landforward01')], null, { random: () => 0 });
+      expect(settle(anim, mover, 6)).toBe(false);
+    }
+  });
+});

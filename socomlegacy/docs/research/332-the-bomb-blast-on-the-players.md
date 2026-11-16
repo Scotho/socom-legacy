@@ -145,7 +145,8 @@ that hurts a player is always owned by that player. What follows, each from the 
 the same body path (§1). So each would hurt a player inside 300 u of its node, and the terrorist base's destruction
 fires a second MPBOMB blast at the base (its `healthy` node) besides the bomb's. Two things differ and are not read:
 the switch's program may carry a type-9 context (the presser), which would make **him** the owner on every console
-(D:L107286-107297) -- whether it does is not traced (research 213 §2.2, "whether a switch's presser is that context") --
+(D:L107286-107297) -- whether it does is not traced (research 213 §2.2, "whether a switch's presser is that context");
+the original running credits the presser in the kill feed (Q14, 2026-11-14, research 213 §2.2; LATER 1038) --
 and the order of the base's blast against its swap (the program's `WAIT 0.15` comes after the FIRE_WEAPON).
 
 **Not built.** These blasts are the room's world's (`viewer/src/worldState.ts`: the host's `fireWeapon` falls through,

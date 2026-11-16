@@ -14,3 +14,4 @@ export * from "./geometry.js";
 export * from "./handlers.js";
 export * from "./rules.js";
 export * from "./mapPack.js";
+export * from "./declared.js";

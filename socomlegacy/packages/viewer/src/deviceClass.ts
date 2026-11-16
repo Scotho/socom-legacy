@@ -134,10 +134,14 @@ export const XBOX_GRAPHICS_ADAPTATION = 'webgl2' as const;
  * S2: the backend a resolved choice asks for on `deviceClass` -- VS-7's Xbox class on WebGL2 under every preset, not only
  * Automatic: a named preset's rows carry `graphics: 'auto'` (`./videoSettings`) and the test room's and the Forge's
  * renderers read `readGraphicsBackend()`, and 'auto' asks WebGPU (`./graphicsBackend` `asksForWebGPU`). Only 'auto' on the
- * Xbox class changes (to `XBOX_GRAPHICS_ADAPTATION`), and not when an address override (`?renderer=`, `overridden`) named
- * it; a player's 'webgpu' or 'webgl2' and the Xbox pick ('xbox', the Xbox preset) are kept. `./renderer`'s
- * `createRenderer` applies it. A browser adaptation: which backend draws the same picture, nothing the game does.
+ * Xbox class changes (to `XBOX_GRAPHICS_ADAPTATION`). XBOX-WEBGL2-ONLY (#790, 2026-11-14; the main controller's
+ * product-track safety call, for the owner to overturn): a WebGPU choice on the Xbox class -- the player's saved or handed-in
+ * 'webgpu', or the address's (`?renderer=webgpu`, or `?renderer=auto`, which asks WebGPU) -- is WebGL2 too, override or not
+ * (`overridden` no longer exempts the class): a console page's WebGPU device was lost on 2026-11-13T20:18:30Z (central's
+ * contextdiag, `gpudevicelost`, the console's own adapter). 'webgl2' and the Xbox pick ('xbox', the Xbox preset) are kept,
+ * and every other class is as before, its address override included. `./renderer`'s `createRenderer` applies it. A browser
+ * adaptation: which backend draws the same picture, nothing the game does.
  */
-export function classGraphics(graphics: GraphicsBackendPreference, deviceClass: DeviceClass, overridden: boolean): GraphicsBackendPreference {
-  return graphics === 'auto' && deviceClass === 'xbox' && !overridden ? XBOX_GRAPHICS_ADAPTATION : graphics;
+export function classGraphics(graphics: GraphicsBackendPreference, deviceClass: DeviceClass, _overridden: boolean): GraphicsBackendPreference {
+  return deviceClass === 'xbox' && (graphics === 'auto' || graphics === 'webgpu') ? XBOX_GRAPHICS_ADAPTATION : graphics;
 }

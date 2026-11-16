@@ -752,3 +752,118 @@ describe('LATER 792: the swap gate refuses a held trigger (FUN_005a8cb0 D:L46317
     r.dispose();
   });
 });
+
+// ---- LATER 792 item 1: the pop's edge remap, for every gated throw --------------------------------------------------
+
+/**
+ * LATER 792 item 1 (reading, pending review; the chain measured, research 326 §7.2). A throw's release sets the
+ * controller's bit 0x80 (`+0x170`, D:L453520-453537); the branch it guards runs on the first update `FUN_0059d830`
+ * passes and `FUN_005a7d10(actor, 0)` finds no throw on top (D:L453478-453480, D:L453484; the two read the same list of
+ * throw types, D:L457352-457355 and D:L462579-462582), and there it lowers the rifle and moves the edge `+0x118` as a
+ * let-go: 3 -> 0, 2 or 1 -> 3, 0 -> 0 (D:L453485-453501). A throw in that list -- every rifle-hand throw and the pistol
+ * hand's crouched and prone ones -- holds the branch until its pop; so with R1 held through the slot's last grenade the
+ * edge reads 1, then 3 at the pop, 2, 1 (GR-1's last leg: "At the pop ... the edge 3, 2, 1", 3/3), and the swap gate,
+ * refusing at 1 alone (`FUN_005a8cb0` D:L463174-463181), takes an L1 on the two updates after the pop. The pistol
+ * hand's standing throw is in neither list (`Pistol throw grenade`, `FUN_0058c820`'s pair D:L494748): its branch runs
+ * on the update after the release, under the clip, so at its pop the held edge is 1 and the L1 is refused. Was (the
+ * port): the branch run only for the pistol's standing throw (`lowerNext`), the edge 1 through every other pop.
+ */
+describe("LATER 792 item 1: the pop's edge remap under a held R1 (D:L453484-453501)", () => {
+  const lastOne = (r: ReturnType<typeof part>): void => {
+    for (let n = 0; n < 8 && r.t.grenade.stats().left > 1; n++) r.attempt();
+    expect(r.t.grenade.stats().left).toBe(1);
+  };
+  /** The slot's last grenade thrown, R1 pressed while it is pending and held (GR-1's last leg); frames to its pop. */
+  const toPop = (r: ReturnType<typeof part>): void => {
+    let thrown = 0;
+    r.t.grenade.on('throw', () => { thrown++; });
+    r.press(true);
+    for (let i = 0; i < 30; i++) r.frame();
+    r.press(false);
+    for (let i = 0; i < 120 && r.t.grenade.phase() !== 'throwing'; i++) r.frame();
+    expect(r.t.grenade.phase()).toBe('throwing');
+    r.press(true);                                                  // pressed while pending, and held
+    for (let i = 0; i < 240 && r.t.grenade.phase() === 'throwing'; i++) r.frame();
+    expect(thrown).toBe(1);
+    expect(r.t.grenade.phase()).not.toBe('throwing');               // the pop: the clip off the top
+    expect(r.t.grenade.stats().left).toBe(0);
+    expect(r.t.grenade.equipped()).toBe(true);                      // the empty slot in the hand (research 361 §2)
+    expect(r.play!.weaponStats().raise.edge).toBe(1);               // held, the slot empty
+  };
+  /** The edge from the pop on, each change once (the page's frames run two to a game frame here). */
+  const edgesAfterPop = (r: ReturnType<typeof part>, frames: number): number[] => {
+    const out: number[] = [r.play!.weaponStats().raise.edge];
+    for (let i = 0; i < frames; i++) {
+      r.frame();
+      const e = r.play!.weaponStats().raise.edge;
+      if (out[out.length - 1] !== e) out.push(e);
+    }
+    return out;
+  };
+  /** Frames after the pop until the edge reads `edge` (at most 8): true once it does. */
+  const untilEdge = (r: ReturnType<typeof part>, edge: number): boolean => {
+    for (let i = 0; i < 8; i++) { r.frame(); if (r.play!.weaponStats().raise.edge === edge) return true; }
+    return false;
+  };
+  type Rig = { name: string; pistol: boolean; crouched: boolean };
+  const setUp = (rig: Rig): ReturnType<typeof part> => {
+    const r = part(false, ['M67', 'AN-M8', null], 'rifle', true);
+    if (rig.pistol) {
+      r.firearm!.kit.place('pistol');
+      vi.spyOn(r.walk, 'swapWeapon').mockReturnValue({ action: 'swapStand', overlay: false, reversed: false, seconds: 1 } as never);
+    }
+    expect(r.t.takeSlot(2)).toBe(true);
+    if (rig.crouched) {
+      r.walk.crouch();
+      for (let i = 0; i < 60; i++) r.frame();
+      expect(r.walk.snapshot()?.stance).toBe('crouch');
+    }
+    expect(r.play!.weaponStats().item).toBe(rig.pistol ? 'pistol' : 'rifle');
+    lastOne(r);
+    return r;
+  };
+  const GATED: Rig[] = [
+    { name: 'the rifle hand, standing', pistol: false, crouched: false },
+    { name: 'the rifle hand, crouched', pistol: false, crouched: true },
+    { name: "the pistol hand, crouched (the rifle's throw type)", pistol: true, crouched: true },
+  ];
+  for (const rig of GATED) {
+    it(`${rig.name}: at the pop the held edge goes 1 -> 3 -> 2 -> 1`, () => {
+      const r = setUp(rig);
+      toPop(r);
+      expect(edgesAfterPop(r, 10)).toEqual([1, 3, 2, 1]);
+      r.press(false);
+      r.dispose();
+    });
+    for (const at of [3, 2] as const) {
+      it(`${rig.name}: L1 under the held R1 on the ${at === 3 ? 'first' : 'second'} update after the pop (the edge ${at}) is taken`, () => {
+        const r = setUp(rig);
+        toPop(r);
+        expect(untilEdge(r, at)).toBe(true);
+        r.firearm!.selectFirearm('rifle');                          // L1, R1 still held
+        expect(r.t.grenade.equipped()).toBe(false);                 // taken (was: refused, the edge 1)
+        r.press(false);
+        r.dispose();
+      });
+    }
+    it(`${rig.name}: from the third update after the pop (the edge 1 again) L1 is refused`, () => {
+      const r = setUp(rig);
+      toPop(r);
+      expect(untilEdge(r, 2)).toBe(true);
+      expect(untilEdge(r, 1)).toBe(true);
+      r.firearm!.selectFirearm('rifle');
+      expect(r.t.grenade.equipped()).toBe(true);                    // refused
+      r.press(false);
+      r.dispose();
+    });
+  }
+  it("the pistol hand, standing (`Pistol throw grenade`, in neither list): the branch ran under the clip, so the held edge stays 1 at the pop and L1 is refused", () => {
+    const r = setUp({ name: 'pistol standing', pistol: true, crouched: false });
+    toPop(r);
+    expect(edgesAfterPop(r, 10)).toEqual([1]);
+    r.firearm!.selectFirearm('rifle');
+    expect(r.t.grenade.equipped()).toBe(true);                      // refused
+    r.press(false);
+    r.dispose();
+  });
+});

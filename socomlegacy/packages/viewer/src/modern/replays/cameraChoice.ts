@@ -21,8 +21,18 @@ export const REPLAY_CAMERA_KEY = 's2u.replay.camera.v1';
 /** RV2.R1: the viewer's camera with nothing kept -- PLAYER, the spectator's follow mode. */
 export const REPLAY_CAMERA_DEFAULT: SpectatorMode = 'follow';
 
-/** The modes a kept value may name: the spectator camera's three (`../../spectatorView` `SpectatorMode`). */
-const MODES: readonly SpectatorMode[] = ['follow', 'free', 'scenic'];
+/**
+ * PV-8 (the player's-view lane; a browser adaptation, no original): a camera of the replay strip -- one of the spectator
+ * camera's three modes, or `'pov'`, the follow with the player's view on (`../../spectatorView` `SpectatorView.pov`,
+ * PV-6a). `'pov'` is no `SpectatorMode`: the strip reaches it by the follow's presses, then `setPov` (`./worldStage`).
+ */
+export type ReplayCamera = SpectatorMode | 'pov';
+
+/**
+ * The cameras a kept value may name: the strip's (PV-8: the spectator camera's three and the player's view). The kept
+ * choice is the replay viewer's (RV2-06), not the live watch's -- the live page keeps no choice of the view (PV.R5).
+ */
+const MODES: readonly ReplayCamera[] = ['follow', 'pov', 'free', 'scenic'];
 
 /** Where the choice is kept: the page's settings (`pageSettings`), or a test's. */
 export interface CameraChoiceStore {
@@ -30,10 +40,13 @@ export interface CameraChoiceStore {
   set(key: string, value: string): unknown;
 }
 
-const isMode = (v: unknown): v is SpectatorMode => typeof v === 'string' && (MODES as readonly string[]).includes(v);
+const isMode = (v: unknown): v is ReplayCamera => typeof v === 'string' && (MODES as readonly string[]).includes(v);
 
-/** The kept camera choice, or `follow` (nothing kept, a storage that throws, a value that names no mode). */
-export function readCameraChoice(store: CameraChoiceStore = pageSettings): SpectatorMode {
+/**
+ * The kept camera choice, or `follow` (nothing kept, a storage that throws, a value that names no camera). PV-8: a kept
+ * `'pov'` is read as it is; a recording that carries no view shows PLAYER for that watch without writing here.
+ */
+export function readCameraChoice(store: CameraChoiceStore = pageSettings): ReplayCamera {
   try {
     const v = store.get(REPLAY_CAMERA_KEY);
     return isMode(v) ? v : REPLAY_CAMERA_DEFAULT;

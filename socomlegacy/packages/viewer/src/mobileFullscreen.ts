@@ -24,10 +24,15 @@ export interface DocumentFullscreen {
 
 export function documentFullscreen(document: Document, element: HTMLElement = document.documentElement): DocumentFullscreen {
   const doc = document as FullscreenDocument, el = element as FullscreenRoot;
-  const requestOf = (): (() => Promise<void> | void) | undefined => el.requestFullscreen ?? el.webkitRequestFullscreen;
-  const exitOf = (): (() => Promise<void> | void) | undefined => doc.exitFullscreen ?? doc.webkitExitFullscreen;
+  const requestOf = (): (() => Promise<void> | void) | undefined => {
+    if (doc.fullscreenEnabled !== false && el.requestFullscreen) return el.requestFullscreen;
+    if (doc.webkitFullscreenEnabled !== false && el.webkitRequestFullscreen) return el.webkitRequestFullscreen;
+    return undefined;
+  };
+  const exitOf = (): (() => Promise<void> | void) | undefined => doc.webkitFullscreenElement && !doc.fullscreenElement
+    ? doc.webkitExitFullscreen ?? doc.exitFullscreen : doc.exitFullscreen ?? doc.webkitExitFullscreen;
   return {
-    available: () => (doc.fullscreenEnabled ?? doc.webkitFullscreenEnabled) !== false && !!requestOf(),
+    available: () => !!requestOf(),
     active: () => !!(doc.fullscreenElement || doc.webkitFullscreenElement),
     request: () => { const f = requestOf(); return f ? Promise.resolve(f.call(el)) : null; },
     exit: () => { const f = exitOf(); return f ? Promise.resolve(f.call(doc)) : null; },
@@ -50,63 +55,81 @@ export function toggleFullscreen(fullscreen: DocumentFullscreen, refused: () => 
   request.catch(() => { refused(); });
 }
 
-export function mountMobileFullscreen(root: HTMLElement): () => void {
-  // The test room already owns a fullscreen button and its binding (Ui.onFullscreen).
-  if (root.querySelector('[id="fullscreen"]')) return () => {};
-  const doc = root.ownerDocument as FullscreenDocument;
+/** One activation path for the menu/match control and the existing test-room button in every build. */
+export function bindFullscreenButton(button: HTMLButtonElement): () => void {
+  const doc = button.ownerDocument;
   const fullscreen = documentFullscreen(doc);
-  const template = doc.createElement('template'); template.innerHTML = FULLSCREEN_BUTTON_MARKUP;
-  const button = template.content.firstElementChild as HTMLButtonElement;
   const status = doc.createElement('p');
   status.dataset['fullscreenStatus'] = ''; status.className = 'mobile-fullscreen-status';
   status.setAttribute('role', 'status'); status.hidden = true;
-  root.append(button, status);
+  button.parentElement?.append(status);
   let disposed = false, pending = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const active = (): boolean => fullscreen.active();
   const update = (): void => {
     if (disposed) return;
-    const label = active() ? 'Exit fullscreen' : 'Enter fullscreen';
+    const active = fullscreen.active();
+    const label = active ? 'Exit fullscreen' : 'Enter fullscreen';
     button.title = label; button.setAttribute('aria-label', label);
-    button.setAttribute('aria-pressed', String(active()));
+    button.setAttribute('aria-pressed', String(active));
+    if (active) status.hidden = true;
   };
   const unavailable = (): void => {
     if (disposed) return;
-    status.textContent = 'Fullscreen is not available in this browser right now.';
+    status.textContent = fullscreen.available()
+      ? 'Fullscreen was blocked. Tap this button to try again, or open this build directly in your browser.'
+      : 'Page fullscreen is not available in this browser. If it offers Add to Home Screen, open the game from there for an app view.';
     status.hidden = false;
-    clearTimeout(timer); timer = setTimeout(() => { status.hidden = true; }, 5000);
+    clearTimeout(timer); timer = setTimeout(() => { status.hidden = true; }, 7000);
   };
   const toggle = async (): Promise<void> => {
     if (pending || disposed) return;
     pending = true; status.hidden = true;
     try {
-      if (active()) {
+      if (fullscreen.active()) {
         const exit = fullscreen.exit();
         if (!exit) { unavailable(); return; }
         await exit;
       } else {
-        // Invoke directly from the tap so the browser's user activation is still valid.
+        // No timer, frame, dynamic import or orientation request before the native request:
+        // it must consume the tap's user activation in this same event handler.
         const request = fullscreen.request();
         if (!request) { unavailable(); return; }
         await request;
         if (disposed) return;
         const orientation = doc.defaultView?.screen.orientation as (ScreenOrientation & { lock?: (value: string) => Promise<void> }) | undefined;
-        try { await orientation?.lock?.('landscape'); } catch { /* fullscreen is useful without a rotation lock */ }
+        // Rotation is optional. A browser may leave its promise pending; it must never lock the button.
+        try { void orientation?.lock?.('landscape')?.catch(() => undefined); } catch { /* fullscreen works without a rotation lock */ }
       }
       update();
     } catch { unavailable(); }
     finally { pending = false; }
   };
-  const click = (event: Event): void => { event.stopPropagation(); void toggle(); };
+  const stopPointer = (event: Event): void => { event.stopPropagation(); };
+  const click = (event: MouseEvent): void => {
+    event.preventDefault(); event.stopPropagation();
+    void toggle();
+  };
+  button.addEventListener('pointerdown', stopPointer);
   button.addEventListener('click', click);
   doc.addEventListener('fullscreenchange', update);
   doc.addEventListener('webkitfullscreenchange', update);
   update();
   return () => {
     disposed = true; clearTimeout(timer);
+    button.removeEventListener('pointerdown', stopPointer);
     button.removeEventListener('click', click);
     doc.removeEventListener('fullscreenchange', update);
     doc.removeEventListener('webkitfullscreenchange', update);
-    button.remove(); status.remove();
+    status.remove();
   };
+}
+
+export function mountMobileFullscreen(root: HTMLElement): () => void {
+  // The test room's existing button is bound by Ui.onFullscreen with the same handler.
+  if (root.querySelector('[id="fullscreen"]')) return () => {};
+  const template = root.ownerDocument.createElement('template'); template.innerHTML = FULLSCREEN_BUTTON_MARKUP;
+  const button = template.content.firstElementChild as HTMLButtonElement;
+  root.append(button);
+  const unbind = bindFullscreenButton(button);
+  return () => { unbind(); button.remove(); };
 }

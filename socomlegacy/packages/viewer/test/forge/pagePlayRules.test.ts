@@ -9,6 +9,7 @@ import { forgeAuthoringText, sealForgeRules, type ForgeLayout } from '../../src/
 import { FORGE_LAYOUT_KEY } from '../../src/pageStore';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
+import { pressSaves } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 /**
  * FCW-32 round 2, held items 1 and 2 (product track; a browser adaptation with no original): the Forge's Play start
@@ -168,7 +169,7 @@ describe('FCW-32 round 2: Play runs the layout\'s rules; their messages as text'
     window.addEventListener('unhandledrejection', unhandled);
     process.on('unhandledRejection', unhandled);
     try {
-      document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+      pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
       const share = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Share link')!;
       share.click();
       await vi.waitFor(() => expect(document.body.textContent).toContain('A layout with rules travels as a file'));

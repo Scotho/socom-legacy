@@ -40,6 +40,22 @@ export interface ReplayWorldSpectator {
   readonly remembered: SpectatorMode;
   /** The view's own keys (its original's controls, on release): the camera's buttons press them. */
   key(e: SpectatorKey): boolean;
+  /**
+   * PV-8 (the player's-view lane; a browser adaptation, no original): `SpectatorView`'s own PV-6a members, so the page's
+   * view handed through `attached` (main.ts's `{ spectator: net.spectator }`) carries them unchanged -- the player's view
+   * chosen; drawn this frame; choose it or leave it (it holds only while a body is followed). Optional on the seam: a
+   * spectator without them (a test's) is still one, and the strip's fourth camera then never lands.
+   */
+  readonly pov?: boolean;
+  readonly povShown?: boolean;
+  setPov?(on: boolean): void;
+  /** RVK-A (LATER 966): the followed player, or null (`SpectatorView.target`); read in follow only. Absent: none known. */
+  readonly target?: number | null;
+  /**
+   * RVK-A (LATER 966, V21.R7; a browser adaptation): the roster's name -- the view follows body `id` as its cycle would
+   * land there (`SpectatorView.followBody`). Optional: a host without it follows no name.
+   */
+  followBody?(id: number): boolean;
 }
 
 /** What the test room hands back once its page is built. */
@@ -70,6 +86,68 @@ export interface ReplayWorldHost {
    * stands held until it (`./worldStage`). A host without it is still a host: nothing is told.
    */
   ready?(): void;
+  /**
+   * RVK-B (LATER 966, V21.R7; optional, additive; a browser adaptation): the viewer's keyboard-and-mouse steer lane
+   * (`replaySteerLane`), written by the viewer in this page and read by the test room once a frame where its pad input is
+   * built (`./worldSteer` `readReplaySteer`, `../../main.ts`'s replay world only). Absent: the frame reads nothing.
+   */
+  steer?: ReplaySteerLane;
+}
+
+/**
+ * RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully navigable with keyboard and mouse.
+ * Every view."; a browser adaptation with no original -- the game plays no recording back): what the viewer holds on the
+ * world's camera from the keyboard, as a pad's lanes are held -- the left stick (`moveX` right, `moveY` forward / up),
+ * the lift (1 up, -1 down), the stick boost, and the right stick's rates (`lookX` right, `lookY` up), each in the pad's
+ * own unit range. The frame merges them into its pad input (`./worldSteer`), so FREE flies through the pad's own path and
+ * SCENIC turns and zooms through the spectator's own sticks.
+ */
+export interface ReplaySteerHeld { moveX: number; moveY: number; lift: number; boost: boolean; lookX: number; lookY: number }
+
+/** RVK-B: nothing held -- the frame's input untouched (`./worldSteer` `steerInput`). */
+export const REPLAY_STEER_IDLE: Readonly<ReplaySteerHeld> = Object.freeze({ moveX: 0, moveY: 0, lift: 0, boost: false, lookX: 0, lookY: 0 });
+
+/** RVK-B: one frame's read of the lane -- what is held, and the drag's pixels and the wheel's notches since the last read. */
+export interface ReplaySteerFrame extends ReplaySteerHeld {
+  /** The mouse's drag on the world since the last read, in CSS pixels (right, down positive). */
+  lookDx: number;
+  lookDy: number;
+  /** The wheel's notches on the world since the last read: positive away from the user (faster in FREE, in in SCENIC). */
+  notches: number;
+}
+
+/** RVK-B: the lane the viewer writes (`set`, `look`, `notch`, `zero`) and the frame reads once a frame (`take`). */
+export interface ReplaySteerLane {
+  /** What the keyboard holds now (the whole of it: a field not given is not held). */
+  set(held: ReplaySteerHeld): void;
+  /** A drag's movement, added up until the frame's next read. */
+  look(dx: number, dy: number): void;
+  /** Wheel notches, added up until the frame's next read. */
+  notch(n: number): void;
+  /** Everything let go: nothing held, the drag and the wheel not yet read dropped. */
+  zero(): void;
+  /** The frame's read: what is held, and the deltas since the last read (spent by it). */
+  take(): ReplaySteerFrame;
+}
+
+/** RVK-B: a fresh lane, idle. Plain numbers only, so the frame of the other realm reads them as they are. */
+export function replaySteerLane(): ReplaySteerLane {
+  let held: ReplaySteerHeld = { ...REPLAY_STEER_IDLE };
+  let lookDx = 0, lookDy = 0, notches = 0;
+  const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
+  return {
+    set(h) {
+      held = { moveX: finite(h.moveX), moveY: finite(h.moveY), lift: finite(h.lift), boost: h.boost === true, lookX: finite(h.lookX), lookY: finite(h.lookY) };
+    },
+    look(dx, dy) { lookDx += finite(dx); lookDy += finite(dy); },
+    notch(n) { notches += finite(n); },
+    zero() { held = { ...REPLAY_STEER_IDLE }; lookDx = 0; lookDy = 0; notches = 0; },
+    take() {
+      const out: ReplaySteerFrame = { ...held, lookDx, lookDy, notches };
+      lookDx = 0; lookDy = 0; notches = 0;
+      return out;
+    },
+  };
 }
 
 /** Hangs `host` on the frame element (the viewer's side). */

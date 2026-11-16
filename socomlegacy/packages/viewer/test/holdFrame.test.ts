@@ -77,7 +77,7 @@ describe('cps-frame-hash-2: every world clock of the frame loop reads the held f
       'walk.frame(dt);',
       'pageWorld?.step(dt);',
       'firearm.effectsFrame(dt, fly.camera);',
-      'view?.frame(fly.camera, dt, zoom.renderView());',
+      'view?.frame(fly.camera, dt, firearm.renderView());',
       'play.frame(dt, walk, fly.camera, frameTime.real(),',
       'net?.frame(dt, fly.camera, fire.triggerHeld() || acts.triggerHeld(), frameTime.real());',
       'created.setGlow(throws.frame(dt, frameTime.real()));',

@@ -23,11 +23,12 @@ import { noteDiscSource } from './pwa/fileDisc';
 
 /**
  * Opens the visitor's disc for the front end (`./discSource` `openDisc`, DA-3), refused in the reader's own words. An
- * image: `IsoAssetSource` over it, refused when it is not a 2048-byte-sector ISO9660 image (`not an ISO9660 image ...`)
- * or holds no `RUN/UI/READERC.ZAR`, the front end's first dialog archive (`FRONT_END_FILES.dialogs`; `ISO: no
- * RUN/UI/READERC.ZAR on the disc image`). A picked folder: `DirectoryAssetSource` over its entries, refused when its
- * `SYSTEM.CNF` boots no release of SOCOM II (`discIdentity`'s words, DA.R8) or it holds no `RUN/UI/READERC.ZAR`. One
- * directory walk (or `SYSTEM.CNF` and a size) and no other file's bytes: the front end reads the rest as it needs it.
+ * image: `IsoAssetSource` over it, refused when it is not a 2048-byte-sector ISO9660 image (`not an ISO9660 image ...`),
+ * when its `SYSTEM.CNF` is missing or boots no release of SOCOM II (`discIdentity`'s words, DA.R8; checked first, since
+ * a SOCOM U.S. Navy SEALs (USA) image holds the probed file too) or when it holds no `RUN/UI/READERC.ZAR`, the front end's
+ * first dialog archive (`FRONT_END_FILES.dialogs`; `ISO: no RUN/UI/READERC.ZAR on the disc image`). A picked folder:
+ * `DirectoryAssetSource` over its entries, refused the same two ways. `SYSTEM.CNF` and a size, and no other file's
+ * bytes: the front end reads the rest as it needs it.
  */
 export async function openFrontEndDisc(request: DiscOpen): Promise<AssetSource> {
   const call = ++opening;
@@ -43,7 +44,7 @@ export async function openFrontEndDisc(request: DiscOpen): Promise<AssetSource> 
   return source;
 }
 
-/** `openFrontEndDisc` for an image: `IsoAssetSource` over it, exactly as before DA-3 (`./discSource` `openDisc`, iso). */
+/** `openFrontEndDisc` for an image: `IsoAssetSource` over it, identified then probed (`./discSource` `openDisc`, iso). */
 export async function openFrontEndImage(file: Blob): Promise<IsoAssetSource> {
   return await openFrontEndDisc({ kind: 'iso', file }) as IsoAssetSource;
 }

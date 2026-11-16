@@ -2241,7 +2241,8 @@ export class ConsoleController {
     if (S.overlay === 'viewer') {
       // CX-15: the pad goes to the viewer -- the D-pad walks its controls, Cross presses -- and Circle is Close. The
       // other buttons are not read there (OPTIONS is not START while a replay plays).
-      if (b === 'circle') this.closeViewer();
+      // RVK-B (LATER 966): an inner layer of the viewer (its keys list, `ReplayWatch`'s optional `back`) takes Circle first
+      if (b === 'circle') { const w = A.replays.watching?.(); if (!(w && 'back' in w && typeof w.back === 'function' && w.back() === true)) this.closeViewer(); }
       else if (b === 'cross' || b === 'up' || b === 'down' || b === 'left' || b === 'right') A.replays.watching?.()?.press(b);
       this.render();
       return;

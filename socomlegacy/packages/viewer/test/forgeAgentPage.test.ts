@@ -6,6 +6,7 @@ import { FORGE_LAYOUT_KEY, FORGE_VIEW_KEY, pageSettings } from '../src/pageStore
 import { saveNamed } from '../src/forge/saves';
 import { freshSavesDb, readStoredList, writeStoredSaves } from './forge/fakeSaves';
 import type { LoadedMap } from '../src/loadMap';
+import { pressSaves, pressMenubar, pressForgeMenu } from './forge/helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 const archiveLoad = vi.hoisted(() => vi.fn<(stem: string) => Promise<LoadedMap>>());
 const archiveEntries = vi.hoisted(() => [] as { stem: string; path: string; label: string; campaign: boolean }[]);
@@ -161,7 +162,7 @@ describe('mounted Forge agent facade', () => {
       await vi.waitFor(async () => expect(JSON.parse((await readStoredList('autosave')).text!).camera).toEqual(currentCamera));
       expect(pageSettings.get(FORGE_LAYOUT_KEY)).toBeNull();
     }
-    document.querySelector<HTMLButtonElement>('[data-forge="saves"]')!.click();
+    pressSaves(document);                                         // EDITOR-MAP T4: File > Saves...
     expect(document.querySelector('.fx-saves-list')!.textContent).not.toContain('Imported pack map');
     const beforeExternal = api.read();
     const autosave = await readStoredList('autosave');
@@ -193,7 +194,7 @@ describe('mounted Forge agent facade', () => {
   /** R6 (the rendered pass's R4): the toolbar's Starters button is gone; the panel is shown from START > Panels. */
   const openStarters = (): void => {
     expect(document.querySelector('[data-forge="examples"]')).toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    pressForgeMenu(document);   // EDITOR-MAP T1: Controls > Forge menu (M), the old button's toggle
     document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="panel-starters"]')!.click();
   };
   it('mounts starter discovery and refuses missing base without replacing current work', async () => {
@@ -439,17 +440,18 @@ describe('mounted Forge agent facade', () => {
     // A placement the human makes between the read and the write conflicts.
     expect(await api.execute('selection.set', { refs: ['spawn:0'] }, api.read().revision)).toMatchObject({ ok: true });
     const current = api.status().revision;
-    document.querySelector<HTMLButtonElement>('button[title^="Duplicate"]')!.click();
+    pressMenubar(document, 'Edit', 'Duplicate');                  // EDITOR-MAP T7: Edit > Duplicate
     expect(api.read().layout!.spawns).toHaveLength(2);
     expect((await api.execute('layout.name', { name: 'Stale' }, current)).code).toBe('STALE_REVISION');
   }, 90_000);
   it("a copied door's Map changed: its Door field resets to that map's first door, the layout the same", async () => {
     document.body.replaceChildren();
     archiveEntries.push({ stem: 'MP2', path: 'RUN/MP2.ZDB', label: 'FROSTFIRE', campaign: false }, { stem: 'MP73', path: 'RUN/MP73.ZDB', label: 'SANDSTORM', campaign: false });
-    // The worker's census (`../src/forge/mapCensus` `copiesOf`) names every kind, the contributor's `flare` too (OT.R112).
+    // The worker's census (`../src/forge/mapCensus` `copiesOf`) names every kind, the contributor's `flare` too (OT.R112), and
+    // (FC2-4) his `sound`, `effect` and `ambient`: `censusOfCopies` reads each (mapCensus.ts:91), a census without them throws.
     archiveCensus.mockImplementation(async (stem) => (stem === 'MP2'
-      ? { door: [['bdoor_4', 'bdoor_4 · a'], ['wdoor_1', 'wdoor_1 · b']], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [] }
-      : { door: [['door_ft1', 'door_ft1 · c'], ['door_ft2', 'door_ft2 · d']], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [] }));
+      ? { door: [['bdoor_4', 'bdoor_4 · a'], ['wdoor_1', 'wdoor_1 · b']], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [], ambient: [] }
+      : { door: [['door_ft1', 'door_ft1 · c'], ['door_ft2', 'door_ft2 · d']], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [], ambient: [] }));
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
     await mountForge(document, { onAgentReady: target => { api = target; } });
@@ -465,7 +467,7 @@ describe('mounted Forge agent facade', () => {
   it("a hostage's Map changed: its Character field resets to that map's first hostage character, the layout the same", async () => {
     document.body.replaceChildren();
     archiveEntries.push({ stem: 'MP6', path: 'RUN/MP6.ZDB', label: 'DESERT GLORY', campaign: false }, { stem: 'MP52', path: 'RUN/MP52.ZDB', label: 'THE MIXER', campaign: false });
-    archiveCensus.mockImplementation(async (stem) => ({ door: [], turret: [], ladder: [], gate: [], barrier: [], flare: [], hostage: stem === 'MP6' ? [['mp_fem1', 'mp_fem1'], ['mp_fem2', 'mp_fem2']] : [['mp_algerian_h1', 'mp_algerian_h1'], ['mp_algerian_h2', 'mp_algerian_h2']] }));
+    archiveCensus.mockImplementation(async (stem) => ({ door: [], turret: [], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [], ambient: [], hostage: stem === 'MP6' ? [['mp_fem1', 'mp_fem1'], ['mp_fem2', 'mp_fem2']] : [['mp_algerian_h1', 'mp_algerian_h1'], ['mp_algerian_h2', 'mp_algerian_h2']] }));
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
     await mountForge(document, { onAgentReady: target => { api = target; } });
@@ -478,6 +480,45 @@ describe('mounted Forge agent facade', () => {
       field('Map').value = stem;
       field('Map').dispatchEvent(new Event('change'));
       await vi.waitFor(() => expect([field('Map').value, field('Character').value]).toEqual([stem, first]));
+    }
+  }, 90_000);
+  it("a hostage's Map changed before the census lands: its Character field still shows that map's first hostage character (FC2-6 probe)", async () => {
+    document.body.replaceChildren();
+    archiveEntries.push({ stem: 'MP2', path: 'RUN/MP2.ZDB', label: 'FROSTFIRE', campaign: false },
+      { stem: 'MP6', path: 'RUN/MP6.ZDB', label: 'DESERT GLORY', campaign: false }, { stem: 'MP52', path: 'RUN/MP52.ZDB', label: 'THE MIXER', campaign: false });
+    // The census never lands, so `switchCopyMap` takes `first()` (`hostageLibOf` -> `hostageCharactersOf`, its
+    // `types.escortees` characters) and the Character row lists `copyLists.hostage`, both read off the loaded archive.
+    archiveCensus.mockImplementation(() => new Promise<unknown>(() => undefined));
+    // Synthetic archives (no disc): MP2 is the blank floor's library, its own hostages (`escortees`) the home characters;
+    // MP6 and MP52 lend theirs through their bodies (`types.escortees`).
+    const lent = async (stem: string, characters: string[]): Promise<LoadedMap> => ({ ...(await syntheticArchive(stem)),
+      types: { seal: [], terrorist: [], escortees: characters.map((character) => ({ character }) as never) } });
+    const home = { ...(await syntheticArchive('MP2')), escortees: ['mp2_h1', 'mp2_h2'].map((character, i) =>
+      ({ name: `Hostage${i + 1}`, character, loc: { map: 0, x: 0, z: 0 }, at: [0, 0, 0], yaw: 0, team: 0 }) as never) };
+    const maps: Record<string, LoadedMap> = { MP2: home, MP6: await lent('MP6', ['mp_fem1', 'mp_fem2']), MP52: await lent('MP52', ['mp_algerian_h1', 'mp_algerian_h2']) };
+    archiveLoad.mockImplementation((stem) => (maps[stem] ? Promise.resolve(maps[stem]!) : Promise.reject(new Error('No disc supplied'))));
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    expect(await api.execute('layout.base', { base: { kind: 'blank', library: 'MP2' } }, api.read().revision)).toMatchObject({ ok: true });
+    expect(api.read().layout!.base).toBe('blank:MP2');
+    expect(await api.execute('type.set', { type: 4 }, api.read().revision)).toMatchObject({ ok: true });
+    expect(await api.execute('hostage.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const field = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+    const hostage = () => ((api.read().layout as unknown as { hostages: unknown[][] }).hostages[0]![4] ?? {}) as { character?: string; source?: string };
+    await vi.waitFor(() => expect([...field('Map').options].map((o) => o.value)).toEqual(expect.arrayContaining(['MP2', 'MP6', 'MP52'])));
+    expect(archiveCensus).toHaveBeenCalled();                     // asked, and never answered: the path under probe
+    for (const [stem, first, source] of [['MP52', 'mp_algerian_h1', 'MP52'], ['MP6', 'mp_fem1', 'MP6'], ['MP2', 'mp2_h1', undefined]] as const) {
+      field('Map').focus();
+      field('Map').value = stem;
+      field('Map').dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect([field('Map').value, field('Character').value]).toEqual([stem, first]));
+      await vi.waitFor(() => expect([...field('Character').options].map((o) => o.textContent).join('|')).not.toMatch(/reading/));
+      await new Promise(r => setTimeout(r, 0));
+      expect(field('Character').value).toBe(first);               // the read done: never left ''
+      expect(hostage().character).toBe(first);
+      if (source) expect(hostage().source).toBe(source);
+      else expect(hostage()).not.toHaveProperty('source');       // home: the base's own character, nothing lent
     }
   }, 90_000);
   it('Escape on any tool goes back to Select and lets the selection go', async () => {
@@ -559,7 +600,7 @@ describe('mounted Forge agent facade', () => {
     await mountForge(document, { onAgentReady: target => { api = target; } });
     expect(await api.execute('point.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     const key = (code: string, ctrl = false) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.replace('Key', '').toLowerCase(), ctrlKey: ctrl, bubbles: true }));
-    key('KeyC');                                                           // duplicate
+    key('KeyD', true);                                                     // duplicate: his Ctrl+D (keys.ts:148; EDITOR-MAP T7), was C alone
     await vi.waitFor(() => expect((api.read().layout as unknown as { tacPoints?: unknown[] }).tacPoints ?? []).toHaveLength(2));
     key('KeyC', true); key('KeyV', true);                                  // copy, paste
     await vi.waitFor(() => expect((api.read().layout as unknown as { tacPoints?: unknown[] }).tacPoints ?? []).toHaveLength(3));
@@ -574,7 +615,7 @@ describe('mounted Forge agent facade', () => {
     expect(row).not.toBeNull();
     const titled = (root: Element, t: string) => [...root.querySelectorAll('button')].some((b) => b.title.startsWith(t));
     expect([titled(top, 'Select'), titled(top, 'Place: the object chosen')]).toEqual([true, true]);
-    for (const t of ['Place a door', 'Place a gate', 'Place a C4 barrier', 'Place a ladder', 'Place a turret', 'Place a hostage', 'Place a team A spawn']) {
+    for (const t of ['Place a door', 'Place a gate', 'Place a damage trigger', 'Place a ladder', 'Place a turret', 'Place a hostage', 'Place a team A spawn']) {
       expect(titled(row, t), t).toBe(true);
       expect(titled(top, t), t).toBe(false);
     }

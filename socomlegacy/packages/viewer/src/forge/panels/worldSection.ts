@@ -113,7 +113,8 @@ export function buildWorldSection(doc: Document): WorldSection {
         const word = `${list === 'indoor' ? 'Indoor' : 'Outdoor'} ${zone + 1}`;
         const d = forgeEl(doc, 'input', 'fx-range');
         d.type = 'range'; d.min = '0'; d.max = '1'; d.step = '0.01'; d.value = String(depth);
-        const t = forgeEl(doc, 'input', 'fx-num fx-setting-num');
+        // FC2 (ours; the dock's one stepper control, FUI-22 D2, as every docked number field): `fx-stepper`.
+        const t = forgeEl(doc, 'input', 'fx-num fx-setting-num fx-stepper');
         t.type = 'number'; t.min = '0'; t.max = String(REVERB_SECONDS_MAX); t.step = '0.1'; t.value = String(seconds);
         for (const [input, part] of [[d, 'depth'], [t, 'seconds']] as const) {
           Object.assign(input.dataset, { world: 'reverb', list, zone: String(zone), part });

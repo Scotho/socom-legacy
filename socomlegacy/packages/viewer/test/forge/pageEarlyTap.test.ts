@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
+import { menuOpen, toolbarButton } from './helpers/editor';
 
 /**
  * The early tap (product track, a browser adaptation with no original -- the game has no editor): a press on the Forge's
@@ -45,19 +46,27 @@ function holdRenderer(): { release: () => void } {
   return { release: () => release() };
 }
 
-const menuButton = (): HTMLButtonElement | null => document.querySelector<HTMLButtonElement>('header.fx-top button[data-forge="menu"]');
-const menuHost = (): HTMLElement | null => document.querySelector<HTMLElement>('.fx-padmenu');
+/**
+ * FC2-4: the contributor's toolbar has no forge-menu button (EDITOR-MAP T1: built, never attached; his menu's pointer way
+ * in is Controls > "Forge menu (M)", whose card sits outside the toolbar the early press holds). The press held while the
+ * renderer starts is shown on a toolbar button of his that is on screen then and not inert: Docks (EDITOR-MAP D10), held
+ * by `holdEarlyPresses` on the toolbar (page.ts:2170) and pressed at `release` (page.ts:13560), its press turning the docks
+ * off (page.ts:11751) after the page has drawn them on (page.ts:12277).
+ */
+const docksButton = (): HTMLButtonElement | null => document.querySelector<HTMLButtonElement>('header.fx-top button[aria-label="Docks"]');
+const docksOff = (): boolean => document.body.classList.contains('fx-docks-off');
 const loadingCard = (): HTMLElement | null => document.querySelector<HTMLElement>('.fx-loading');
 /**
- * The controls held inert until wired: the placing tools' row, the viewport, Play, and Open (the review's 1: its file
- * chooser needs the press's own user activation, which a replay after a slow start may have lost).
+ * The controls held inert until wired: the placing tools' row, the viewport, Play. (Open is inert too while the renderer
+ * starts, then leaves the toolbar for his File menu once wired: page.ts:12233, EDITOR-MAP T3.)
  */
 const sceneControls = (): (HTMLElement | null)[] => [
   document.querySelector<HTMLElement>('nav.fx-tools-row'),
   document.querySelector<HTMLElement>('main.fx-viewport'),
   document.querySelector<HTMLElement>('header.fx-top .fx-play'),
-  [...document.querySelectorAll<HTMLButtonElement>('header.fx-top button')].find((b) => b.title === 'Open a layout file') ?? null,
 ];
+const openButton = (): HTMLButtonElement | null =>
+  [...document.querySelectorAll<HTMLButtonElement>('header.fx-top button')].find((b) => b.title === 'Open a layout file') ?? null;
 
 describe('the early tap: a press on the shell while the renderer starts is not lost', () => {
   beforeEach(() => {
@@ -77,20 +86,64 @@ describe('the early tap: a press on the shell while the renderer starts is not l
     vi.unstubAllGlobals();
   });
 
-  it('the menu button pressed while the renderer starts opens the menu once the page is wired', async () => {
+  it('a toolbar button (Docks) pressed while the renderer starts is pressed once the page is wired', async () => {
     const start = holdRenderer();
     const { mountForge } = await import('../../src/forge/page');
     const mounted = mountForge(document, {});
     await new Promise((r) => setTimeout(r, 0));
-    const menu = menuButton();
-    expect(menu, 'the shell is on the page while the renderer starts (the trace: the button drawn)').not.toBeNull();
-    menu!.click();                                         // the trace's tap, inside the renderer's start
+    const docks = docksButton();
+    expect(docks, 'the shell is on the page while the renderer starts (the trace: the button drawn)').not.toBeNull();
+    docks!.click();                                        // the trace's tap, inside the renderer's start
     start.release();
     await mounted;
-    await vi.waitFor(() => {
-      expect(menuButton()!.getAttribute('aria-expanded'), 'the press held and pressed: the menu open').toBe('true');
-      expect(menuHost()!.hidden).toBe(false);
-    }, { timeout: 5000 });
+    await vi.waitFor(() => expect(docksOff(), 'the press held and pressed: the docks off').toBe(true), { timeout: 5000 });
+  }, 60_000);
+
+  /**
+   * FC2-6, the Forge menu's early press from Controls: Controls (wired early, page.ts:2303) then the help card's "Forge
+   * menu (M)" (`data-help-menu`, page.ts:2112) while the renderer starts. The card's listener (page.ts:2304) presses the
+   * menu's own button, which is never on the page (EDITOR-MAP T1) and whose listener is wired only after the await
+   * (page.ts:12650): without the hold the press reached nothing and the menu never opened.
+   */
+  it('Controls > "Forge menu (M)" pressed while the renderer starts opens the forge menu once the page is wired (FC2-6)', async () => {
+    const start = holdRenderer();
+    const { mountForge } = await import('../../src/forge/page');
+    const mounted = mountForge(document, {});
+    await new Promise((r) => setTimeout(r, 0));
+    toolbarButton(document, 'Controls').click();
+    const way = document.querySelector<HTMLButtonElement>('.fx-help footer button[data-help-menu]');
+    expect(way, 'the help card\'s Forge menu button is on the page while the renderer starts').not.toBeNull();
+    way!.click();                                          // inside the renderer's start
+    start.release();
+    await mounted;
+    await vi.waitFor(() => expect(menuOpen(document), 'the press held and pressed: the forge menu open').toBe(true), { timeout: 5000 });
+    expect(document.querySelector('.fx-help')!.closest<HTMLElement>('.fx-modal')!.hidden, 'the help card hidden').toBe(true);
+  }, 60_000);
+
+  /**
+   * FC2-6, found by the runner's `fc2-early-8c51788df` (an unhandled error in every run of the case above): Controls is
+   * wired before the renderer's await (page.ts:2303), and his `setHelp` reads `playing` to pick the card's tab
+   * (page.ts:2302), declared only after the await (page.ts:3431), so an early press of Controls threw (`Cannot access
+   * 'playing' before initialization`) and the card never opened. On `main` `setHelp` read nothing of the kind.
+   */
+  it('Controls pressed while the renderer starts opens its card on the editor\'s tab, and throws nothing (FC2-6)', async () => {
+    const thrown: unknown[] = [];
+    const onError = (e: ErrorEvent): void => { thrown.push(e.error ?? e.message); e.preventDefault(); };
+    window.addEventListener('error', onError);
+    try {
+      const start = holdRenderer();
+      const { mountForge } = await import('../../src/forge/page');
+      const mounted = mountForge(document, {});
+      await new Promise((r) => setTimeout(r, 0));
+      toolbarButton(document, 'Controls').click();                // inside the renderer's start
+      expect(thrown.map(String), 'the press threw nothing').toEqual([]);
+      expect(document.querySelector('.fx-help')!.closest<HTMLElement>('.fx-modal')!.hidden, 'the card open').toBe(false);
+      expect(document.querySelector('.fx-help [data-help-tab="editor"]')?.getAttribute('aria-selected'), 'on the editor\'s tab').toBe('true');
+      start.release();
+      await mounted;
+    } finally {
+      window.removeEventListener('error', onError);
+    }
   }, 60_000);
 
   it('the scene\'s controls are inert and the loading card says so while the renderer starts; neither once the page is wired', async () => {
@@ -98,19 +151,19 @@ describe('the early tap: a press on the shell while the renderer starts is not l
     const { mountForge } = await import('../../src/forge/page');
     const mounted = mountForge(document, {});
     await new Promise((r) => setTimeout(r, 0));
-    for (const c of sceneControls()) {
+    for (const c of [...sceneControls(), openButton()]) {
       expect(c, 'each scene control is on the page').not.toBeNull();
       expect(c!.hasAttribute('inert'), `${c!.className}: inert while the renderer starts`).toBe(true);
     }
-    expect(menuButton()!.hasAttribute('inert'), 'the menu button takes the press (held), never inert').toBe(false);
-    expect(menuButton()!.closest('[inert]'), 'nor inside an inert container').toBeNull();
+    expect(docksButton()!.hasAttribute('inert'), 'Docks takes the press (held), never inert').toBe(false);
+    expect(docksButton()!.closest('[inert]'), 'nor inside an inert container').toBeNull();
     expect(loadingCard()!.hidden, 'the loading card is shown while the renderer starts').toBe(false);
     expect(document.querySelector('.fx-loading-title')!.textContent).toBe('Starting the Forge');
     start.release();
     await mounted;
     for (const c of sceneControls()) expect(c!.hasAttribute('inert'), `${c!.className}: not inert once wired`).toBe(false);
     await vi.waitFor(() => expect(loadingCard()!.hidden, 'the loading card gone once the first layout is open').toBe(true), { timeout: 5000 });
-    expect(menuButton()!.getAttribute('aria-expanded'), 'nothing pressed: the menu stays closed').toBe('false');
+    expect(docksOff(), 'nothing pressed: the docks stay shown').toBe(false);
   }, 60_000);
 
   it('a renderer that does not start hides the loading card and says so in the line; the page stops as before (review finding 2)', async () => {

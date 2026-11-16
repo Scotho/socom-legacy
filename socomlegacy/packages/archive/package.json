@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./node": "./src/node.ts",
-    "./mapNames": "./src/mapNames.ts"
+    "./mapNames": "./src/mapNames.ts",
+    "./discArchives": "./src/discArchives.ts"
   }
 }

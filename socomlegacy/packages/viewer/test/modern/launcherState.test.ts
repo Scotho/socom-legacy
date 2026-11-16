@@ -127,7 +127,7 @@ describe('launcherState: one truth with the console (MU2-7)', () => {
     const state = launcherState(document);
     expect([state.kind!(), state.label!()]).toEqual([null, '']);
     // An image opened by the page's reader (`openFrontEndDisc`, the console's and the game page's).
-    const file = new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
+    const file = new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
     publishDisc(document, { state: 'reading', filename: 'socom2.iso' });
     const opening = openFrontEndDisc({ kind: 'iso', file });
     expect([state.kind!(), state.label!()]).toEqual([null, '']);   // reading: nothing open yet

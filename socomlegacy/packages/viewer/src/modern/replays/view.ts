@@ -1,12 +1,18 @@
 import { mapDisplayName } from '@s2u/archive/mapNames';
 import { NARROW_PX } from '../../console/fit';
 import { ico as cxIco, P as CX_MARKS, type IconName as CxIconName } from '../../console/icons';
-import { loadKindOf, type ReplayLoadKind } from '../../replay/refusalKind';
+import { loadKindOf, REPLAY_NEWER_VERSION, type ReplayLoadKind } from '../../replay/refusalKind';
 import type { IconName } from '../icons';
 import { durationText, type ReplayEntry, type ReplayListFailure, type ReplayResult } from './data';
 import { mountReplayHud, type ReplayHud } from './hud';
-import type { ReplayStage, ReplayStageContext, ReplayStageHandle } from './stage';
+import { mountKeysList, type KeysList } from './keysList';
+import type { ReplayStage, ReplayStageContext, ReplayStageHandle, SpectatorPress } from './stage';
 import { HELD_STATUS, mountTransport, type Transport, type TransportClient } from './transport';
+import {
+  REPLAY_BOOST_DOUBLE_TAP_MS_ADAPTATION, rowOf, sameSteer, STEER_CODES, steerOf, VIEWER_CAMERA_KEYS, VIEWER_LOOK_KEYS, VIEWER_STEER_KEYS, viewerCode,
+  type SteerPart, type ViewerCamera,
+} from './viewerKeys';
+import { REPLAY_STEER_IDLE, type ReplaySteerHeld } from './worldHost';
 import { worldStage } from './worldStage';
 
 /**
@@ -67,14 +73,45 @@ import { worldStage } from './worldStage';
  * stage's client, drawn each frame with the rest, taken away with the stage; the transport hands it the seek note
  * (`onSeekNote`), its toast the one note. The persona is the session's player name while a ticket is held.
  *
+ * **RVK-B: the keyboard and the mouse, every camera, every build** (LATER 966, V21.R7; the owner, 2026-11-12: "The replay
+ * mode should be fully navigable with keyboard and mouse. Every view."; a browser adaptation with no original). The
+ * viewer's one table (`./viewerKeys`) is read on the viewer's own element -- never the window, since the viewer also opens
+ * in the overlay over a game page -- wherever the caller's `keys` says (both callers' default: true):
+ * - *The keys*: the transport's (`./transport`); 1 / 2 / 3 the strip's cameras; X, the arrows and C the spectator's own
+ *   controls (`SpectatorControls.press`), acted on at their release as the spectator's own keys are
+ *   (SPECTATOR_RELEASE_READING, `../../spectatorView`); W A S D E Q and the Shift arrows held on the world's camera
+ *   (`SpectatorControls.steer`, `steerOf`: FREE flies, SCENIC zooms and looks, PLAYER takes them and does nothing); `?`
+ *   the keys list (`./keysList`); Escape Back, the open keys list first. Never with Ctrl, Alt or Meta; a typed field keeps
+ *   its keys; the focused seek bar keeps its arrows (`SEEK_BAR_KEYS`); Enter and Space on a focused control are its own.
+ * - *The world surface* (`data-surface`): a parent element over the framed world, under the HUD and the strip, which
+ *   takes the mouse's press, drag and wheel and keeps the keyboard's focus in this page, so the keys and Escape always
+ *   work after a click on the picture; its drag looks and its wheel trims FREE's speed or zooms SCENIC
+ *   (`SpectatorControls.look`, `notch`); in PLAYER they do nothing and the wheel scrolls the page. **Touch as before**: on
+ *   a device whose primary pointer is coarse (`(pointer: coarse)`, read as the viewport changes) the surface is not drawn
+ *   (`hidden`), so a finger reaches the framed world's own touch layer and drag look as it did.
+ * - *Something to click for each action*: the strip's context buttons (`data-press`) -- in PLAYER the previous / next
+ *   player and the player in view, in SCENIC the previous / next view -- real buttons, so the pad's walk reaches them;
+ *   the strip's and the transport's buttons take no focus from a mouse press (Space stays play / pause), Tab reaches each.
+ * - *Let go*: a held key released, the viewer's focus lost, the window's blur or the page hidden zero the lane.
+ *
  * Every server string -- a name, a map, the rules, a mode, a refusal -- is set as text, never as markup.
  */
 
 /**
  * RV2-04: the camera strip's words for the stage's modes (§2: PLAYER · FREE · SCENIC), each in its mode's accessible
  * name (`./worldStage` `CAMERA_MODES`); a mode not named here shows its label. The viewer's own words (no original).
+ * PV-8 (PV.R6): the player's view's, "Player's View" (the strip's styling does the capitals); its refusal's sentence is
+ * the stage's (`./worldStage` REPLAY_POV_REFUSED_ADAPTATION, answered through `SpectatorControls.refused`).
  */
-const CAMERA_WORDS: Readonly<Record<string, string>> = { follow: 'Player', free: 'Free', scenic: 'Scenic' };
+const CAMERA_WORDS: Readonly<Record<string, string>> = { follow: 'Player', pov: "Player's View", free: 'Free', scenic: 'Scenic' };
+
+/**
+ * ROSTER_DEAD_ADAPTATION, ROSTER_ABSENT_ADAPTATION (RVK-A, LATER 966): why a player's name in the roster cannot put the
+ * camera on that player now -- the body dead at the playhead, or not in the match there. The viewer's own words, a
+ * browser adaptation with no original (the replay viewer has none).
+ */
+export const ROSTER_DEAD_ADAPTATION = 'Dead at this point in the recording.';
+export const ROSTER_ABSENT_ADAPTATION = 'Not in the match at this point.';
 
 /**
  * RV2-08: the short landscape's greatest height (`../../console/console.css` `(max-height: 550px) and (orientation:
@@ -153,12 +190,24 @@ export const REPLAY_REFUSAL_WORDS: Readonly<Record<ReplayRefusalKind, readonly [
 const REFUSAL_SENTENCES: readonly (readonly [RegExp, ReplayRefusalKind])[] = [
   [/^This recording was made with network protocol \d+;/, 'version'],
   [/^This recording's file format is version \d+;/, 'version'],
+  [/^This replay is from a newer version: reload the page\.$/, 'version'],      // FL-2b: REPLAY_NEWER_VERSION
   [/^This recording was not found on the match server, or it is not yours to watch\.$/, 'missing'],
   [/^(This recording is damaged|The recording is not a readable gzip file|This file is not a replay recording|The recording is empty|The recording holds no whole record yet)/, 'corrupt'],
 ];
 export function replayRefusalKind(reason: string): ReplayRefusalKind {
   for (const [sentence, kind] of REFUSAL_SENTENCES) if (sentence.test(reason)) return kind;
   return 'unavailable';
+}
+
+/**
+ * FL-2b: a refusal's title and line -- its kind's (`REPLAY_REFUSAL_WORDS`), but a recording newer than this build reads
+ * (`REPLAY_NEWER_VERSION`, the loader's sentence) has its own title and no line: the sentence, drawn as the alert under
+ * the title, says what to do (reload the page), and the kind's line ("a version ... this page does not play") would
+ * contradict it. The modern UI's own words (MU2-13's).
+ */
+export function refusalWords(kind: ReplayRefusalKind, why: string): readonly [string, string | null] {
+  if (kind === 'version' && why === REPLAY_NEWER_VERSION) return ['Recorded by a newer version', null];
+  return REPLAY_REFUSAL_WORDS[kind];
 }
 
 /**
@@ -254,9 +303,10 @@ export interface ReplayViewerOptions {
    */
   discReading?: () => boolean;
   /**
-   * RV-12 review (OT.R29, CX.R6): whether a key reaches the viewer. False -- the console launcher's release build -- and
-   * it takes no key (no Escape for Back, no transport key) and names none (`../replays/transport` `keys`) -- but Back's
-   * Escape, named in every build since OT.R62 (the console's own Escape closes the viewer, `../../console/input`). Absent, true.
+   * RV-12 review (OT.R29, CX.R6): whether a key reaches the viewer. False and it takes no key (no Escape for Back, no
+   * transport or camera key, no keys list) and names none (`../replays/transport` `keys`) -- but Back's Escape, named in
+   * every build since OT.R62 (the console's own Escape closes the viewer, `../../console/input`). Absent, true. RVK-B: in
+   * every build (the module's doc).
    */
   keys?: boolean;
   /**
@@ -282,6 +332,11 @@ export interface ReplayViewer {
   locked(): boolean;
   /** Back, as its button asks it: `onClose`. */
   close(): void;
+  /**
+   * RVK-B (the controller's ruling B): the console's Circle -- and so its Escape -- asks this first: an inner layer of the
+   * viewer (the open keys list) takes the press and closes, true; nothing open, false, and the console closes the viewer.
+   */
+  back(): boolean;
   /** Closes the stage and takes the viewer's element away; `onClose` is not called. */
   dispose(): void;
 }
@@ -304,6 +359,27 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
   const { el, ico, lockBlock: lockBlockOf } = makers(doc);
   const lockBlock = (): HTMLElement => lockBlockOf(o.discReading?.() ?? false);
   const keys = o.keys ?? true;
+
+  /**
+   * RVK-B (the module's doc): the keys held on the world's camera (by code: the letters, and the Shift arrows' look), the
+   * double tap's boost and its last press, what the lane was last told, the spectator presses waiting for their release,
+   * the keys list, the world surface and its drag, and whether the primary pointer is coarse.
+   */
+  const steerKeys = new Set<string>();
+  const lookKeys = new Set<string>();
+  let boost = false;
+  let forwardPressed = Number.NEGATIVE_INFINITY;
+  let steerSent: ReplaySteerHeld = REPLAY_STEER_IDLE;
+  const pressDown = new Map<string, SpectatorPress>();
+  /**
+   * The RVK-B fold (finding 2): the code each physical key (`e.code`) was read as at its keydown (`viewerCode`), so its keyup
+   * lets go of the same code though NumLock was toggled while it was held (a numpad key types a digit or a key by NumLock).
+   */
+  const downCode = new Map<string, string>();
+  let keysList: KeysList | null = null;
+  let surface: HTMLElement | null = null;
+  let drag: { id: number; x: number; y: number } | null = null;
+  const coarse = win.matchMedia?.('(pointer: coarse)') ?? null;
 
   let handle: ReplayStageHandle | null = null;
   let transport: Transport | null = null;
@@ -337,6 +413,7 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
   const serial = ++viewerSerial;
 
   const closeStage = (): void => {
+    letGo();                                                 // RVK-B: nothing held past the stage
     transport?.dispose();
     transport = null;
     hud?.dispose();
@@ -357,6 +434,10 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     handFocus();
     drawRoster();
     syncCameras();
+    syncFollow();                                          // RVK-A: the roster's pressed and refused names
+    syncSteer();                                           // RVK-B: the held keys on the camera the strip shows now
+    syncSurface();
+    syncKeysButton();                                      // RVK polish: the Keys button where a keyboard may be
     drawLamp();
     drawPartial();
     applyLayout();
@@ -384,10 +465,35 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     const modes = handle?.spectator;
     if (!modes || !root) return;
     const now = modes.current();
+    stripNow = now;
+    if (noteAt !== null && now !== noteAt) sayNote(null);    // PV-RVK F2: the camera moved, by whatever path -- the line gone
     for (const b of root.querySelectorAll<HTMLButtonElement>('button[data-camera]')) {
-      const on = b.dataset['camera'] === now;
+      const id = b.dataset['camera']!;
+      const on = id === now;
       if (b.getAttribute('aria-pressed') !== String(on)) b.setAttribute('aria-pressed', String(on));
       b.classList.toggle('is-current', on);
+      // PV-8 (PV.R6): a camera the stage refuses now -- drawn `aria-disabled` only (the review's F4: no `disabled`, so it keeps
+      // its place in the tab order and its sentence stays reachable), its sentence its title and description; a camera chosen
+      // but fallen back this frame -- marked (`data-camera-waiting`). Neither touches a button the stage never names.
+      const why = modes.refused?.(id) ?? null;
+      const refusedNow = b.getAttribute('aria-disabled') === 'true';
+      if (why !== null && (!refusedNow || b.title !== why)) {
+        b.setAttribute('aria-disabled', 'true');
+        b.setAttribute('aria-description', why);
+        b.title = why;
+      } else if (why === null && refusedNow) {
+        b.removeAttribute('aria-disabled');
+        b.removeAttribute('aria-description');
+        const m = modes.modes.find((x) => x.id === id);
+        b.title = m ? cameraTitle(m) : b.title;              // PV-RVK: its rest title, its key with it (`camerasView`)
+      }
+      const back = on && (modes.fallback?.(id) ?? false);
+      if (b.hasAttribute('data-camera-waiting') !== back) b.toggleAttribute('data-camera-waiting', back);
+    }
+    for (const b of root.querySelectorAll<HTMLButtonElement>('button[data-press]')) {   // RVK-B: the camera's own context buttons
+      // PV-RVK (ruling 3): the player's view is a follow -- PLAYER's buttons (previous / next player, the player in view) its own
+      const show = b.dataset['for'] === now || (b.dataset['for'] === 'follow' && now === 'pov');
+      if (b.hidden === show) b.hidden = !show;
     }
     const chip = parts?.cameraToggle;
     if (chip && cameraShown !== now) {
@@ -440,6 +546,28 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     }
   }
 
+  /**
+   * PV-RVK (ruling 2; a browser adaptation): the strip's status line -- a refused camera's sentence, said when its key is
+   * pressed (`chooseCamera`); hidden otherwise. The review's F2: its own class and place, directly under the camera strip
+   * (`../../console/replay.css`, `.cx-replay__camera-note`), clear of the loading lamp and the kill feed; gone as soon as a
+   * camera is chosen by any path -- a key, the strip's click, a roster name, a spectator's control, the world itself
+   * (`syncCameras`) -- and at the viewer's end. No listener, no tab stop, no `data-status` (the transport's and the
+   * lamp's hook); its text written only when it changes.
+   */
+  const cameraNote = el('p', 'cx-replay__camera-note');
+  cameraNote.dataset['cameraNote'] = '';
+  cameraNote.setAttribute('role', 'status');
+  cameraNote.hidden = true;
+  /** The camera the strip showed at its last sync, and the one it showed when the note was said (null: nothing said). */
+  let stripNow: string | null = null;
+  let noteAt: string | null = null;
+  function sayNote(why: string | null): void {
+    const text = why ?? '';
+    if (cameraNote.textContent !== text) cameraNote.textContent = text;
+    if (cameraNote.hidden !== (why === null)) cameraNote.hidden = why === null;
+    noteAt = why === null ? null : stripNow ?? '';
+  }
+
   /** RV2-04 (RV2.R2): the loading lamp over the world, shown while the stage's client is held. */
   const lamp = el('p', 'cx-replay__lamp');
   lamp.dataset['status'] = '';
@@ -467,6 +595,222 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
   /** RB-32: the head enters once (`data-enter`), at its first drawing; a rebuild's head stands. */
   let entered = false;
 
+  /**
+   * RVK-B: what the held keys hold on the camera the strip shows now (`steerOf`), told to the stage's lane only when it
+   * changes -- at each key, each frame (a camera changed under a held key) and at the let-go.
+   */
+  function syncSteer(): void {
+    const modes = handle?.spectator;
+    if (!modes?.steer) return;
+    const camera = modes.current();
+    const map = (VIEWER_STEER_KEYS as Readonly<Record<string, Readonly<Record<string, SteerPart>>>>)[camera] ?? {};
+    const parts = new Set<SteerPart>();
+    for (const c of steerKeys) { const p = map[c]; if (p) parts.add(p); }
+    for (const c of lookKeys) { const p = VIEWER_LOOK_KEYS[c]; if (p) parts.add(p); }
+    const held = steerOf(camera, parts, boost && steerKeys.has('KeyW'));
+    if (sameSteer(held, steerSent)) return;
+    steerSent = held;
+    modes.steer(held);
+  }
+
+  /** RVK-B: every held key let go, the presses waiting dropped, the drag ended, the lane told nothing is held. */
+  function letGo(): void {
+    steerKeys.clear();
+    lookKeys.clear();
+    pressDown.clear();
+    downCode.clear();
+    boost = false;
+    drag = null;
+    if (sameSteer(steerSent, REPLAY_STEER_IDLE)) return;
+    steerSent = REPLAY_STEER_IDLE;
+    handle?.spectator?.steer?.(REPLAY_STEER_IDLE);
+  }
+
+  /**
+   * RVK-B: a camera of the strip chosen by its key, as its button's press. PV-RVK (ruling 2): a camera the stage refuses
+   * now (the player's view on a recording or a page without it) is what its button is there -- nothing pressed, nothing
+   * kept -- and its key says the stage's sentence, the one the button carries (`refused`), in the strip's status line
+   * (`cameraNote`) until a camera is next chosen: never a silent nothing.
+   */
+  function chooseCamera(id: ViewerCamera): void {
+    const modes = handle?.spectator;
+    if (!modes || !modes.modes.some((m) => m.id === id)) return;
+    const why = modes.refused?.(id) ?? null;
+    sayNote(why);
+    if (why !== null) return;
+    modes.set(id);
+    syncCameras();
+    syncSteer();
+  }
+
+  /** RVK-B: one of the spectator's own controls pressed (its key's release, a context button), then the strip drawn. */
+  function pressSpectator(p: SpectatorPress): void {
+    const modes = handle?.spectator;
+    if (!modes?.press) return;
+    sayNote(null);                                           // PV-RVK F2: a control pressed -- the refusal's line gone
+    modes.press(p);
+    syncCameras();
+    syncFollow();
+    syncSteer();
+  }
+
+  /** RVK-B: the world surface not drawn on a coarse primary pointer (touch as before); drawn again when it is fine. */
+  function syncSurface(): void {
+    if (!surface) return;
+    const off = coarse?.matches === true;
+    if (surface.hidden !== off) { surface.hidden = off; if (off) drag = null; }
+  }
+
+  /**
+   * RVK polish (v0.4.21; the rendered phone view showed KEYS at the head of a phone): the keys list's button drawn only
+   * where a keyboard may be. The signal is the one this viewer already trusts for its input class, the coarse primary
+   * pointer the world surface reads (`coarse`, `(pointer: coarse)`, polled each frame -- no listener): a phone or a tablet
+   * has no button (`hidden`: Tab and the console's pad walk pass it), a desktop, a laptop with a touch screen (a fine
+   * primary pointer) and a television with a pad keep it. The `?` key opens the list wherever a key arrives (a tablet with
+   * a keyboard attached loses nothing but the button). A browser adaptation.
+   * The review's N1 (the controller's ruling, 2026-11-13): a pad keeps the button -- the one place that lists the
+   * controller's reach is reachable by the controller (`./keysList`) -- so it hides on a coarse pointer only while no pad
+   * is connected. The pads are `navigator.getGamepads()` read in this same frame's sync (no listener, and only when the
+   * pointer is coarse), as the Forge reads "a pad connected" (`../../forge/page.ts` `padConnected`): the console's own pad
+   * poll is not handed to the viewer, which the public replay page mounts with no console. A pad connecting brings the
+   * button back on the next frame; disconnecting hides it again (the focus kept, `./keysList` `showButton`).
+   */
+  function syncKeysButton(): void {
+    keysList?.showButton(coarse?.matches !== true || padConnected());
+  }
+  /** N1: whether a pad is connected now (`navigator.getGamepads()`; none without the API or on its throw). */
+  function padConnected(): boolean {
+    try {
+      const nav = win.navigator as Navigator & { getGamepads?: () => ArrayLike<Gamepad | null> };
+      return Array.from(nav.getGamepads?.() ?? []).some((g) => g?.connected === true);
+    } catch { return false; }
+  }
+
+  const TYPED = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
+  /** RVK-B: the camera the strip shows now, or null with no camera controls. */
+  const cameraNow = (): string | null => handle?.spectator?.current() ?? null;
+
+  /** RVK-B: the viewer's keys (the module's doc), on its own box; the transport's are its own listener's beside it. */
+  function onViewerKey(e: KeyboardEvent): void {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key === 'Escape') {
+      // An Escape already taken (a dialog's, the fold's) is not Back's too: one press closes one thing -- the keys list first.
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      if (keysList?.isOpen()) keysList.close();
+      else back();
+      return;
+    }
+    const t = e.target as HTMLElement | null;
+    const onBar = t?.matches?.('[data-seek] input[type="range"]') === true;
+    if (t && !onBar && (TYPED.has(t.tagName) || t.isContentEditable)) return;   // a typed field keeps its keys
+    if (e.key === '?') {
+      e.preventDefault();
+      if (!e.repeat) keysList?.toggle();
+      return;
+    }
+    // The review's finding 3: Enter and Backspace on the viewer's box or the world surface -- no control there -- are taken
+    // and do nothing, so the console's every-build menu keys (Enter as Cross, Backspace as Circle) never press a control
+    // the user cannot see nor close the viewer unasked. On a control they stay that control's (its own activation).
+    if ((e.key === 'Enter' || e.key === 'Backspace') && (t === e.currentTarget || t?.matches?.('[data-surface]') === true)) {
+      e.preventDefault();
+      return;
+    }
+    const modes = handle?.spectator;
+    if (!modes) return;                                      // no camera: the transport's keys alone
+    const code = viewerCode(e);                              // finding 6: a numpad key as what it types
+    if (!downCode.has(e.code)) downCode.set(e.code, code);   // the fold's finding 2: its keyup reads this code (repeats keep it)
+    const arrow = Object.hasOwn(VIEWER_LOOK_KEYS, code);
+    if (arrow && onBar) return;                              // the focused bar's own arrows (`SEEK_BAR_KEYS`)
+    if (arrow && e.shiftKey) {                               // Shift: the arrows look (FREE, SCENIC); taken in PLAYER
+      e.preventDefault();
+      lookKeys.add(code);
+      syncSteer();
+      return;
+    }
+    if (STEER_CODES.has(code)) {                             // W A S D E Q: held on the camera, taken in every camera
+      e.preventDefault();
+      if (code === 'KeyW' && !steerKeys.has('KeyW')) {       // the press, not the OS repeat: the double tap's boost
+        const now = Date.now();
+        boost = now - forwardPressed < REPLAY_BOOST_DOUBLE_TAP_MS_ADAPTATION;
+        forwardPressed = now;
+      }
+      steerKeys.add(code);
+      syncSteer();
+      return;
+    }
+    const act = Object.hasOwn(VIEWER_CAMERA_KEYS, code) ? VIEWER_CAMERA_KEYS[code]! : null;
+    if (!act) return;
+    if (act.kind === 'camera') {
+      e.preventDefault();
+      if (!e.repeat) chooseCamera(act.camera);
+    } else if (act.kind === 'press') {
+      e.preventDefault();                                    // taken now; acted on at its release (the spectator's rule)
+      if (modes.press && !e.repeat) pressDown.set(code, act.press);
+    }
+  }
+
+  /** RVK-B: a held key let go; a spectator press acted on at its key's release. */
+  function onViewerKeyUp(e: KeyboardEvent): void {
+    const code = downCode.get(e.code) ?? viewerCode(e);      // the fold's finding 2: the code its keydown read
+    downCode.delete(e.code);
+    let changed = false;
+    if (steerKeys.delete(code)) { changed = true; if (code === 'KeyW') boost = false; }
+    if (lookKeys.delete(code)) changed = true;
+    if (changed) { e.preventDefault(); syncSteer(); }
+    const p = pressDown.get(code);
+    if (p === undefined) return;
+    pressDown.delete(code);
+    e.preventDefault();
+    pressSpectator(p);
+  }
+
+  /** RVK-B: the window's blur or the page hidden: no key up will come, so everything held is let go. */
+  const onWinBlur = (): void => { letGo(); };
+  const onVisibility = (): void => { if (doc.hidden) letGo(); };
+  win.addEventListener('blur', onWinBlur);
+  doc.addEventListener('visibilitychange', onVisibility);
+
+  /**
+   * RVK-B: the world surface over the framed world (the module's doc): a press takes the focus here (never the frame's),
+   * a primary press's drag looks, the wheel trims or zooms -- in FREE and SCENIC; in PLAYER the drag does nothing and
+   * the wheel is the page's.
+   */
+  const surfaceView = (): HTMLElement => {
+    const s = el('div', 'cx-replay__surface');
+    s.dataset['surface'] = '';
+    s.tabIndex = -1;                                         // focusable by a press, not a Tab stop
+    s.addEventListener('pointerdown', (e) => {
+      if (s.hidden) return;                                  // a coarse pointer's device: not drawn, nothing taken
+      s.focus({ preventScroll: true });
+      if (e.button !== 0) return;
+      e.preventDefault();                                    // no text selected by the drag
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      try { s.setPointerCapture?.(e.pointerId); } catch { /* not captured: the drag ends at the release still */ }
+    });
+    s.addEventListener('pointermove', (e) => {
+      if (!drag || drag.id !== e.pointerId) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      const cam = cameraNow();
+      if ((cam === 'free' || cam === 'scenic') && (dx !== 0 || dy !== 0)) handle?.spectator?.look?.(dx, dy);
+    });
+    const end = (e: PointerEvent): void => { if (drag?.id === e.pointerId) drag = null; };
+    s.addEventListener('pointerup', end);
+    s.addEventListener('pointercancel', end);
+    s.addEventListener('lostpointercapture', end);
+    s.addEventListener('blur', () => { letGo(); });
+    s.addEventListener('wheel', (e) => {
+      const cam = cameraNow();
+      const notch = handle?.spectator?.notch;
+      if (s.hidden || (cam !== 'free' && cam !== 'scenic') || !notch || e.deltaY === 0) return;   // PLAYER: the page scrolls
+      e.preventDefault();
+      notch(e.deltaY < 0 ? 1 : -1);
+    }, { passive: false });
+    return s;
+  };
+
   const roster = el('ul', 'cx-replay__roster');
   roster.dataset['roster'] = '';
   roster.id = `cx-replay-roster-${serial}`;
@@ -474,11 +818,19 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
   /**
    * RV-4, RV2-04: the client's roster as the console's player tiles -- the side's dot (SEALs, Terrorists; none for a
    * spectator), the person or an eye for a spectator, the name as text, the side's word, and a bot's "Bot" chip.
+   * RVK-A (LATER 966, V21.R7; the owner, 2026-11-12: "Clicking a name in the replays should allow you to jump to that
+   * characters view"; a browser adaptation): with a stage that follows a body (`SpectatorControls.follow`), a player's
+   * tile is a real button in its row (`data-follow`, the id) -- the mouse, the keyboard's focus with Enter and Space
+   * (the browser's own activation; the transport takes neither on a button), the pad's walk (`button`) and its Cross --
+   * that puts the camera on that player; a spectator's row stays text (no body to follow). Its pressed and refused
+   * states are `syncFollow`'s, each frame, on the same nodes.
    */
   function drawRoster(): void {
     const c = handle?.client;
     const players = c && c.state === 'open' ? c.roster() : [];
-    const key = JSON.stringify(players.map((p) => [p.id, p.name, p.team, p.role, p.bot === true]));
+    const modes = handle?.spectator;
+    const follows = typeof modes?.follow === 'function';
+    const key = JSON.stringify([follows, ...players.map((p) => [p.id, p.name, p.team, p.role, p.bot === true])]);
     if (key === rosterShown) return;
     rosterShown = key;
     if (parts) {                                             // RV2-08: the phone's chip names the count
@@ -486,21 +838,80 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
       parts.rosterToggle.setAttribute('aria-label', `Players (${players.length})`);
     }
     roster.replaceChildren(...players.map((p) => {
-      const li = el('li', 'cx-player cx-replay__player');
-      li.dataset['team'] = p.team ?? 'none';
+      const button = follows && p.role === 'player';
+      const li = el('li', button ? 'cx-replay__row' : 'cx-player cx-replay__player');
+      const tileRow = button ? el('button', 'cx-player cx-replay__player cx-replay__follow') : li;
+      tileRow.dataset['team'] = p.team ?? 'none';
       const tile = el('span', 'cx-player__tile');
       tile.append(ico(p.role === 'player' ? 'user' : 'eye'));
       if (p.team === 'seal' || p.team === 'terrorist') tile.append(el('span', 'cx-player__dot'));
       const side = el('span', 'cx-replay__side', p.team === 'seal' ? SIDE_WORDS.seal : p.team === 'terrorist' ? SIDE_WORDS.terrorist : 'Spectating');
       side.dataset['side'] = '';
-      li.append(tile, el('span', 'cx-player__name', p.name), side);
+      tileRow.append(tile, el('span', 'cx-player__name', p.name), side);
       if (p.bot === true) {
         const bot = el('span', 'cx-replay__bot', 'Bot');
         bot.dataset['bot'] = '';
-        li.append(bot);
+        tileRow.append(bot);
+      }
+      if (button) {
+        const b = tileRow as HTMLButtonElement;
+        b.type = 'button';
+        b.dataset['follow'] = String(p.id);
+        // RVK-B's fold of the RVK-A review (F1): its name a sentence, not its spans glued ("Follow <name>, <side>", ", Bot"),
+        // which the console's legend reads (`../../console/adapters/replays` `focused`)
+        b.setAttribute('aria-label', `Follow ${p.name}, ${side.textContent ?? ''}${p.bot === true ? ', Bot' : ''}`);
+        b.setAttribute('aria-pressed', 'false');
+        b.addEventListener('mousedown', (e) => { e.preventDefault(); });   // RVK-B: a mouse press leaves the focus where it was
+        b.addEventListener('click', () => { followRow(b, p.id); });
+        li.append(b);
       }
       return li;
     }));
+    syncFollow();
+  }
+
+  /**
+   * RVK-A: a name's press -- read at the press (the playhead may have moved since the last frame), refused rows
+   * moving nothing -- then the strip and the rows drawn at once.
+   */
+  function followRow(b: HTMLButtonElement, id: number): void {
+    const modes = handle?.spectator;
+    if (!modes?.follow) return;
+    syncFollow();
+    if (b.getAttribute('aria-disabled') === 'true') return;
+    sayNote(null);                                           // PV-RVK F2: a name pressed -- the refusal's line gone
+    modes.follow(id);
+    syncCameras();
+    syncFollow();
+  }
+
+  /**
+   * RVK-A: each player's button says, on the same node every frame (the list's DOM is not rebuilt, so a focused row or
+   * a press in progress survives), whether it is the body the page follows (`aria-pressed`) and whether the page could
+   * follow it now -- a dead or absent body's refused (`aria-disabled`, never `disabled`: it stays reachable, as a refused
+   * camera does) with its reason as `title` and `aria-description` (`ROSTER_DEAD_ADAPTATION`, `ROSTER_ABSENT_ADAPTATION`).
+   * Written only when it changes.
+   */
+  function syncFollow(): void {
+    const modes = handle?.spectator;
+    if (!modes?.follow) return;
+    const followed = modes.followed?.() ?? null;
+    for (const b of roster.querySelectorAll<HTMLButtonElement>('button[data-follow]')) {
+      const id = Number(b.dataset['follow']);
+      const pressed = String(id === followed);
+      if (b.getAttribute('aria-pressed') !== pressed) b.setAttribute('aria-pressed', pressed);
+      const can = modes.canFollow?.(id) ?? 'yes';
+      // RVK-B (F3): 'wait' -- the world's page not attached yet -- neither refused nor followable: no reason, a press kept
+      if (b.hasAttribute('data-wait') !== (can === 'wait')) b.toggleAttribute('data-wait', can === 'wait');
+      const why = can === 'dead' ? ROSTER_DEAD_ADAPTATION : can === 'absent' ? ROSTER_ABSENT_ADAPTATION : null;
+      if (why === null) {
+        if (b.hasAttribute('aria-disabled')) { b.removeAttribute('aria-disabled'); b.removeAttribute('title'); b.removeAttribute('aria-description'); }
+      } else if (b.getAttribute('aria-description') !== why) {
+        b.setAttribute('aria-disabled', 'true');
+        b.title = why;
+        b.setAttribute('aria-description', why);
+      }
+    }
   }
 
   /**
@@ -558,6 +969,7 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
       part('rules', entry.rules), ' rules · ', part('players', `${n} ${n === 1 ? 'player' : 'players'}`));
     text.append(crumb, line, facts);
     head.append(text);
+    if (keys && keysList) head.append(keysList.el);         // RVK-B: the keys list, at the head's end
     if (entry.result) {
       // RB-32: the result's label over the big score (`D:265-273`), the whole said once by `resultWords`
       const r = entry.result;
@@ -587,6 +999,15 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     return head;
   };
 
+  /**
+   * RVK-B: a camera button's title at rest -- its label, and its key where keys reach the viewer (`./viewerKeys`). PV-RVK: one
+   * function for the strip's drawing and for a refusal's end (`syncCameras`), so a camera offered again keeps its key named.
+   */
+  function cameraTitle(m: { id: string; label: string }): string {
+    const row = rowOf({ kind: 'camera', camera: m.id as ViewerCamera });
+    return keys && row ? `${m.label} (${row.caps.join(' or ')})` : m.label;
+  }
+
   /** RV2-04: the camera strip over the world's corner -- the console's kind buttons, its icons and the modes' words. */
   const camerasView = (modes: NonNullable<ReplayStageHandle['spectator']>): HTMLElement => {
     const strip = el('div', 'cx-kinds cx-replay__cameras');
@@ -598,9 +1019,29 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
       b.type = 'button';
       b.dataset['camera'] = m.id;
       b.setAttribute('aria-label', m.label);
-      b.title = m.label;
+      // RVK-B: its key (`./viewerKeys`), named where keys reach the viewer
+      const row = rowOf({ kind: 'camera', camera: m.id as ViewerCamera });
+      if (keys && row) b.setAttribute('aria-keyshortcuts', row.shortcut);
+      b.title = cameraTitle(m);
       b.append(ico(m.icon), el('span', 'cx-label', CAMERA_WORDS[m.id] ?? m.label));
+      b.addEventListener('mousedown', (e) => { e.preventDefault(); });   // RVK-B: a mouse press leaves the focus where it was
       b.addEventListener('click', () => {
+        // PV-8 (the review's F4): a refused camera (`aria-disabled`) is not asked of the stage -- nothing pressed, nothing
+        // kept, the focus where it is; the event itself is not prevented. PV-13 (the controller's ruling, 2026-11-13): it says
+        // why, as its key does (`chooseCamera`) -- the stage's sentence in the strip's status line, cleared by the same paths --
+        // since a tap has no hover to show the title (the join's ruling 2: never a silent nothing). On a phone the open dropup
+        // would cover the line (the dropup sits over the world's top right, where the phone's sheet places it), so the tap
+        // closes it, as a mode pressed does, the focus back on its chip.
+        if (b.getAttribute('aria-disabled') === 'true') {
+          sayNote(modes.refused?.(m.id) ?? null);
+          if (phone && camerasOpen) {
+            camerasOpen = false;
+            applyOpen();
+            parts?.cameraToggle?.focus({ preventScroll: true });
+          }
+          return;
+        }
+        sayNote(null);                                       // PV-RVK F2: a camera chosen by the mouse -- the line gone
         modes.set(m.id);
         syncCameras();
         // RV2-08: on a phone the dropup closes on the mode pressed, the focus back on its chip
@@ -613,6 +1054,35 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
       return b;
     });
     strip.append(...buttons);
+    // RVK-B: the camera's own context buttons -- PLAYER's previous / next player and the player in view, SCENIC's previous /
+    // next view -- each drawn in its camera alone (`syncCameras`), when the stage can press the spectator's controls.
+    // PV-13c item 1: in one box at the strip's end (`data-presses`), after the cameras, in the same order: wide it takes no
+    // box (`display: contents`), on a phone it is the dropup's foot, one row (`../../console/replay.css`).
+    if (modes.press) {
+      const foot = el('div', 'cx-replay__presses');
+      foot.dataset['presses'] = '';
+      // PV-13c item 2: the player in view's mark is the console's ring and hub (`disc`), read here as a target -- PLAYER's
+      // person mark (`user`) stood beside it twice once the labels hide; the reticle (`armory`) is the player's view's
+      const context: readonly (readonly [SpectatorPress, ViewerCamera, string, string])[] = [
+        ['previous', 'follow', 'left', 'Previous player'], ['jump', 'follow', 'disc', 'The player in view'], ['next', 'follow', 'right', 'Next player'],
+        ['scenicPrevious', 'scenic', 'left', 'Previous view'], ['scenicNext', 'scenic', 'right', 'Next view'],
+      ];
+      for (const [press, camera, mark, label] of context) {
+        const b = el('button', 'cx-kind cx-replay__press');
+        b.type = 'button';
+        b.dataset['press'] = press;
+        b.dataset['for'] = camera;
+        b.setAttribute('aria-label', label);
+        const row = rowOf({ kind: 'press', press });
+        if (keys && row) { b.setAttribute('aria-keyshortcuts', row.shortcut); b.title = `${label} (${row.caps.join(' or ')})`; } else b.title = label;
+        b.append(ico(mark));
+        b.hidden = true;
+        b.addEventListener('mousedown', (e) => { e.preventDefault(); });
+        b.addEventListener('click', () => { pressSpectator(press); });
+        foot.append(b);
+      }
+      strip.append(foot);
+    }
     return strip;
   };
 
@@ -674,15 +1144,15 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     wrap.dataset['viewer'] = entry.id;
     wrap.tabIndex = 0;
     wrap.setAttribute('aria-label', 'Replay viewer');
-    // An Escape already taken (a dialog's, the fold's) is not Back's too: one press closes one thing. LATER 86 (OT.R29):
-    // a development build's key alone, at the site -- a release drops it whatever its caller's `keys` says.
-    if (import.meta.env.DEV && keys) {
-      wrap.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape' || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey) return;
-        e.preventDefault();
-        back();
-      });
-    }
+    // RVK-B (LATER 966, V21.R7; the owner, 2026-11-12: "The replay mode should be fully navigable with keyboard and mouse.
+    // Every view."): the viewer's own keys -- Escape for Back among them -- in every build where `keys` says, on the
+    // viewer's own box, never the window (the module's doc). (Was LATER 86's development fold, Escape alone.)
+    if (keys) wrap.addEventListener('keydown', onViewerKey);
+    if (keys) wrap.addEventListener('keyup', onViewerKeyUp);
+    // RVK-B: the focus gone from the viewer (no key up will come here): everything held let go
+    wrap.addEventListener('focusout', (e) => { if (!wrap.contains(e.relatedTarget as Node | null)) letGo(); });
+    keysList = keys ? mountKeysList(doc, `cx-replay-keys-${serial}`) : null;
+    syncKeysButton();                                        // RVK polish: from the first drawing (a state's view has no frames)
     const head = headView();
     wrap.append(head);
     parts = null;
@@ -694,16 +1164,20 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
       // sorted by the words (`replayRefusalKind`: the text-only reasons). RV2-04: the console's empty block.
       const kind = (error !== null ? errorKind : refusedKind) ?? replayRefusalKind(why);
       wrap.dataset['refusal'] = kind;
-      const [title, line] = REPLAY_REFUSAL_WORDS[kind];
+      const [title, line] = refusalWords(kind, why);         // FL-2b: a newer recording's own title, no line
       const p = el('div', 'cx-empty cx-replay__state is-alert');
       const t = el('h3', 'cx-item__title', title);
       t.dataset['refusalTitle'] = '';
-      const l = el('p', 'cx-item__sub', line);
-      l.dataset['refusalLine'] = '';
       const s = el('p', 'cx-replay__sentence', why);
       s.dataset['status'] = '';
       s.setAttribute('role', 'alert');
-      p.append(ico(kind === 'missing' ? 'replay' : 'alert', 'cx-replay__state-icon'), t, l, s);
+      p.append(ico(kind === 'missing' ? 'replay' : 'alert', 'cx-replay__state-icon'), t);
+      if (line !== null) {
+        const l = el('p', 'cx-item__sub', line);
+        l.dataset['refusalLine'] = '';
+        p.append(l);
+      }
+      p.append(s);
       return stateView(wrap, p);
     }
     if (!handle) {
@@ -717,6 +1191,12 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     const world = el('div', 'cx-replay__world');
     world.dataset['world'] = handle.world;
     if (handle.view) world.append(handle.view);              // MU-11: the world itself, put here once
+    surface = null;
+    if (handle.view && handle.spectator) {                   // RVK-B: the world surface over it, under the HUD and the strip
+      surface = surfaceView();
+      world.append(surface);
+      syncSurface();
+    }
     if (handle.world === 'unwired') {
       const u = el('div', 'cx-empty cx-replay__unwired');
       u.append(ico('display', 'cx-replay__state-icon'),
@@ -731,6 +1211,7 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     });
     world.append(lamp);
     drawLamp();
+    if (handle.spectator) world.append(cameraNote);          // PV-RVK: a refused camera's key says why
     const strip = handle.spectator ? camerasView(handle.spectator) : null;
     if (strip) world.append(strip);
     // RV2-04: the transport's mount point, under the world; RV2-05's bar is drawn on the console's sheets.
@@ -814,10 +1295,18 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     },
     locked: () => locked,
     close: back,
+    back(): boolean {
+      if (disposed || !keysList?.isOpen()) return false;
+      keysList.close();
+      return true;
+    },
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      sayNote(null);                                         // PV-RVK F2: nothing said past the viewer
       closeStage();
+      win.removeEventListener('blur', onWinBlur);            // RVK-B
+      doc.removeEventListener('visibilitychange', onVisibility);
       root?.remove();
       root = null;
     },

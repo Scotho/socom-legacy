@@ -499,11 +499,16 @@ the outcomes measured (upload pending).
 
 - **The gate (reading).** Every swap passes `FUN_005a8cb0` (D:L463150-463189): L1 and L2 in the player control
   (`FUN_00594cf0` D:L453288-453312, buttons 9 and 10 on the slots kept at `ctrl+0x224` / `+0x228`; refused, the denied
-  sound `FUN_003419c0`) and the inventory menu's take (`FUN_0021bda0` D:L72684-72693; `FUN_0021c6f0`'s at D:L72830). Its
-  last clause (D:L463174-463181): with `+0xeb8` 0 it passes only when the body has no controller (`body+0xc0`, set with
-  its back pointer `ctrl+4` by `FUN_002a26f0` D:L146774-146781) or the controller's edge `+0x118` is not 1; at 1, held, it
-  answers 0. The swap's test runs before the update's trigger step (D:L453288-453312 before D:L453543-453567), so it
-  reads the edge the last update left: a press is 2 on its own update -- passed -- and 1 from the next.
+  sound `FUN_003419c0`, which plays nothing -- 2026-11-13, reading, pending review: `FUN_003419c0` (D:L241460-241467)
+  plays only while `DAT_0048dd90` is non-null, and `DAT_0048dd90` is set after every block load (D:L242747) to
+  `FUN_00344f30`'s lookup of the literal at ELF 0x3f7858, `SND_NEG`, which no `sounds.rdr` `SETS` entry of any block and
+  no `GROUPS` group carries (research 122 R122.10 and section 8; the whole script pinned by
+  `packages/sound/test/refusalSoundDisc.test.ts`)) and the inventory menu's take (`FUN_0021bda0` D:L72684-72693;
+  `FUN_0021c6f0`'s at D:L72830). Its last clause (D:L463174-463181): with `+0xeb8` 0 it passes only when the body has no
+  controller (`body+0xc0`, set with its back pointer `ctrl+4` by `FUN_002a26f0` D:L146774-146781) or the controller's
+  edge `+0x118` is not 1; at 1, held, it answers 0. The swap's test runs before the update's trigger step
+  (D:L453288-453312 before D:L453543-453567), so it reads the edge the last update left: a press is 2 on its own update
+  -- passed -- and 1 from the next.
 - **Where a held R1 is not the edge 1 (reading; the primary leg measured).** A hand grenade up (the selected slot's class
   'y', `FUN_005c8040` D:L480686-480696) with one in its slot (`FUN_005bdb00` D:L474543-474549) takes the press into the
   wind-up and remaps it 2 -> 3 -> 0 (D:L453633-453661); the wind-up's chase (D:L453507-453518) does not step the edge.
@@ -545,6 +550,15 @@ the outcomes measured (upload pending).
   then 3 -> 2 -> 1 (measured, research 326 §7.2: "At the pop ... the edge 3, 2, 1"), so for the two updates after the last
   grenade's pop it would take an L1; the port's raise runs that branch only for the pistol hand's ungated throw
   (`lowerNext`), so its edge stays 1 and refuses there -- about 67 ms, not built (the same pop as
-  `THROW_LAST_GRENADE_RAISE_READING`). (2) The port counts the edge's updates on game frames, as its raise does
-  (`RAISE_ENVELOPE_STEP_READING`). (3) Route B (the Action quick-use of the charges, `+0x828`) and the M67's own pass are
-  not in the capture's rows.
+  `THROW_LAST_GRENADE_RAISE_READING`). *Built 2026-11-13* (POP-EDGE-REMAP, `agent/pop-edge-remap` c530191a0b; reading,
+  pending review): the raise keeps the controller's bit 0x80 from a release (D:L453520-453537) and runs its branch at
+  the pop for a gated throw -- every rifle-hand throw, the pistol's crouched and prone; the update `FUN_0059d830`
+  passes and `FUN_005a7d10(actor, 0)` finds no throw, the two reading one list (D:L457352-457355, D:L462579-462582) --
+  and on the next update for the pistol's standing throw, as before (in neither list, so at its pop a held edge is
+  1 and L1 is refused). The kit's pop reaches the raise as `ItemRaise.pop` (`./matchThrow`: the phase off
+  `throwing`, not at a death). L1 under a held R1 is taken on the two updates after a gated pop, refused from the
+  third; `throwAgain.test.ts` "LATER 792 item 1". The branch's lower comes with it (one update down at the last
+  grenade's pop: `THROW_LAST_GRENADE_RAISE_READING` re-filed). The room needs nothing: `swapRefused` has no edge
+  clause, so it takes the swaps the page now sends.
+  (2) The port counts the edge's updates on game frames, as its raise does (`RAISE_ENVELOPE_STEP_READING`). (3) Route B
+  (the Action quick-use of the charges, `+0x828`) and the M67's own pass are not in the capture's rows.

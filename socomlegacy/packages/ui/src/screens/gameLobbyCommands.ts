@@ -128,6 +128,18 @@ const EJECT_TEXTS: ReadonlySet<string> = new Set([TOO_MANY_SPECTATORS_TEXT, TOO_
  * game version; ONL-32's transcript of two consoles of different versions, if a pair exists, is the proven level. [reading]
  */
 export const VERSION_REFUSAL_ABORT_READING = 'a game hello refused for its protocol version posts MP_VERSION_NUMBER_ERROR' as const;
+/**
+ * VERSION_ABORT_HELD_ADAPTATION (the players-view rehearsal's stage A (i)/(ii), 2026-11-14; an adaptation of the timing,
+ * not of the dialog): the port's room refuses a hello some milliseconds after the socket opens, while CREATE GAME (or
+ * any dialog between) is still the built one -- it binds no MP_VERSION_NUMBER_ERROR, and the post was lost, the page
+ * left in an empty GAME LOBBY. The original meets the mismatch where a dialog answers it (`FUN_002c0850` posts to the
+ * current dialog, D:L163320-163326: the GAME LOBBY's `version_failure_2`, the BRIEFING ROOM's `version_failure_1`), so
+ * a refusal that lands while another dialog is built is held and posted once one of the two is built
+ * (`GameLobbyCommands.dialogBuilt`); a new socket or a leave drops it.
+ */
+export const VERSION_ABORT_HELD_ADAPTATION = 'a version refusal before its dialog is built is posted once the GAME LOBBY or the BRIEFING ROOM is' as const;
+/** The dialogs that answer MP_VERSION_NUMBER_ERROR (`version_failure_2`, `version_failure_1`): `VERSION_ABORT_HELD_ADAPTATION`. */
+const VERSION_ABORT_DIALOGS: ReadonlySet<string> = new Set([GAME_LOBBY, 'dlgMPBriefingRoom.rdr']);
 /** The version refusal's two fixed parts: its one spelling, which the room sends and `isVersionRefusal` matches. */
 const VERSION_REFUSAL_HEAD = 'protocol ';
 const VERSION_REFUSAL_SPEAKS = ', this server speaks ';
@@ -379,6 +391,20 @@ export const MATCH_ENDING_READY_LINE = 'Match ending -- READY opens when the lob
  * `launch_10sec_anim`, and `ForceMPLaunch` sends the bridge's `launch` (the host's force, `HOST_LAUNCH_READING`).
  */
 export const EIGHTY_READY_SERVER_ADAPTATION = 'MP_EIGHTY_READY is the server\'s to decide; no page raises it' as const;
+
+/**
+ * EIGHTY_READY_HOST_PAGE_READING (LOBBY-START, research 159 §10.1 item 4; reading, pending review): the countdown's start
+ * on the host's own dialog. The original raises MP_EIGHTY_READY on the host (`FUN_002c40c0` D:L165503-165506, through
+ * the event sink `DAT_0044f3c8` into the console's own dialog), and its `launch_10sec_anim` (P:L7631-7648) runs there:
+ * .DINK, then `STOP switch_teams_anim`, `NoTriangle` 1, `mp_locked_game` 1, `ForceMediusStatusReport`, `ForceMPLaunch`
+ * and the three buttons disabled -- at once, before `CountDown`'s own (the clock under 11). The server
+ * decides here (`EIGHTY_READY_SERVER_ADAPTATION`), so when the room's `gameLobby` view brings a new countdown to the
+ * host's page, the page gives its dialog the event and the disc's script runs as written; that run's `ForceMPLaunch` is
+ * the countdown the server already started and sends nothing (a second would call it off). Its #356 branch is not met:
+ * `mp_team_unbalance` is 0 while a countdown runs (`gameLobby`). The other pages are given nothing, as the original's.
+ * [reading]
+ */
+export const EIGHTY_READY_HOST_PAGE_READING = 'the host\'s page runs launch_10sec_anim at a new countdown; its ForceMPLaunch sends nothing' as const;
 
 /**
  * CREATE_BY_JOIN_GATE_READING: `JoinMPGame` with a name no record of the room holds starts a game of that name --
@@ -733,6 +759,13 @@ export class GameLobbyCommands {
    * second pass, finding 2; the room's return to the lobby after a match is ONL-20b's, research 309 §7.1).
    */
   private relaunchable = true;
+  /**
+   * LOBBY-START (`EIGHTY_READY_HOST_PAGE_READING`): MP_EIGHTY_READY given to the host's dialog for a countdown the server
+   * already started, so that run's `ForceMPLaunch` sends nothing; cleared only by it (or set again by the next post) --
+   * kept through the room's call-off, so an animation queued before the call-off and still run sends no `launch` (the
+   * re-read's F1; the call-off's recovery also stops the queued animation, `lobbyRecovery.ts`).
+   */
+  private eightyEcho = false;
   /** `DAT_00414e98`, `DAT_00414e90`: READY's and SWITCH TEAMS' next times. */
   private nextReady = -Infinity;
   private nextSwitch = -Infinity;
@@ -1021,7 +1054,7 @@ export class GameLobbyCommands {
   /** `FUN_0027e4c0` (D:L126454-126477): the game's socket opened (`GAME_JOIN_NO_DME_ADAPTATION`); 0 when it cannot be (#425). */
   ConnectToGameServer: UiCommandHandler = (cmd) => {
     this.o.uiVars.set(this.o.uiVars.add(GAME_LOBBY_CHAT_VAR, null, 2), { type: 'array', value: [] });   // D:L126462 -> FUN_002a76d0 D:L149534-149539
-    this.connected = false; this.seatId = null; this.opened = false;
+    this.connected = false; this.seatId = null; this.opened = false; this.versionAbortHeld = false;
     const socket = this.o.socket, id = this.worldId;
     if (id < 0 || !socket) return this.answer('ConnectToGameServer', cmd, false);
     // The host: the socket only on a report accepted (its room made, research 159 §2); a report not accepted opens none
@@ -1063,6 +1096,7 @@ export class GameLobbyCommands {
     const had = this.worldId >= 0;
     this.o.socket?.close();
     this.connected = false; this.seatId = null; this.inLobby = false; this.view = null; this.told = new Map(); this.clans = new Map();
+    this.versionAbortHeld = false;
     this.drawBotSettings();
     this.pass = null;                                                              // SA-6b: the left game's pair forgotten
     if (had) this.o.service?.leaveGame().catch(() => { /* never answered */ });
@@ -1357,6 +1391,7 @@ export class GameLobbyCommands {
    * the bridge's `launch`, whose server holds the two branches and the host's gate (`HOST_LAUNCH_READING`). 1.
    */
   ForceMPLaunch: UiCommandHandler = (cmd) => {
+    if (this.eightyEcho) { this.eightyEcho = false; return this.answer('ForceMPLaunch', cmd, true); }   // EIGHTY_READY_HOST_PAGE_READING
     if (this.connected) this.o.socket?.send('launch');
     return this.answer('ForceMPLaunch', cmd, true);
   };
@@ -1404,6 +1439,8 @@ export class GameLobbyCommands {
     const first = this.view === null;
     const cancelled = this.view?.countdown != null && !this.view.launched && view.countdown === null && !view.launched;
     const lateEnded = this.lateJoiner && !view.launched;
+    // LOBBY-START (EIGHTY_READY_HOST_PAGE_READING): a countdown new to a standing lobby
+    const counted = !first && (this.view!.countdown == null || this.view!.launched) && view.countdown != null && !view.launched;
     // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the room's lobby again lets the held READY go, recovered as a late wait's end
     const heldEnded = this.ending && !view.launched;
     if (heldEnded) this.ending = false;
@@ -1443,6 +1480,7 @@ export class GameLobbyCommands {
     if (!view.launched) this.relaunchable = true;
     // LATE_SEAT_NEVER_READY_PLACEHOLDER: the game back in its lobby ends a late seat's late state (the port's stand-in).
     if (!view.launched && this.lateJoiner) { this.lateJoiner = false; this.setValve('late_joiner', 0); }
+    if (counted && own?.host) { this.eightyEcho = true; this.post('MP_EIGHTY_READY'); }   // EIGHTY_READY_HOST_PAGE_READING
     if (view.launched || view.countdown !== null) this.recovery = null;
     else if (cancelled || lateEnded || heldEnded) {
       // Browser/server adaptation: the original cancel stops clock writes (FUN_002a6b90, D:L149013-149016).
@@ -1539,12 +1577,35 @@ export class GameLobbyCommands {
     const was = this.inLobby && !this.started;
     this.connected = false; this.seatId = null;
     if (refusal !== null && EJECT_TEXTS.has(refusal)) { this.post('MP_EJECT_SPECTATOR', refusal); return; }
-    if (isVersionRefusal(refusal)) { this.post('MP_VERSION_NUMBER_ERROR'); return; }   // VERSION_REFUSAL_ABORT_READING: no errno
+    if (isVersionRefusal(refusal)) { this.versionAbort(); return; }   // VERSION_REFUSAL_ABORT_READING: no errno
     if (!was) return;
     this.inLobby = false;
     if (code === 4007) { this.o.switchMenu?.(NET_ABANDONED); return; }
     this.setValve('mp_net_errno', NET_ERRNO_DISCONNECTED_READING);
     this.post('MP_MEDIUS_ERROR');
+  }
+
+  /**
+   * A dialog built, by its name (the page's front end, after each build): `VERSION_ABORT_HELD_ADAPTATION`'s held post
+   * goes to a dialog that answers it once its build has run its ONSTART (the next microtask: the machine installs the
+   * design after its `built`).
+   */
+  dialogBuilt(name: string | null): void {
+    this.builtDialog = name;
+    if (!this.versionAbortHeld || name === null || !VERSION_ABORT_DIALOGS.has(name)) return;
+    void Promise.resolve().then(() => {
+      if (!this.versionAbortHeld || this.builtDialog !== name) return;
+      this.versionAbortHeld = false;
+      this.post('MP_VERSION_NUMBER_ERROR');
+    });
+  }
+  /** The last dialog built (`dialogBuilt`); null until the page tells one -- then a version refusal is posted at once, as before. */
+  private builtDialog: string | null = null;
+  /** A version refusal waiting for a dialog that answers it (`VERSION_ABORT_HELD_ADAPTATION`). */
+  private versionAbortHeld = false;
+  private versionAbort(): void {
+    if (this.builtDialog === null || VERSION_ABORT_DIALOGS.has(this.builtDialog)) { this.post('MP_VERSION_NUMBER_ERROR'); return; }
+    this.versionAbortHeld = true;
   }
 
   /** The socket dropped and is being opened again (a drop, 4010): the seat not counted until the next welcome. */

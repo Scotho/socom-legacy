@@ -10,6 +10,8 @@ import { agentModeOf, FORGE_REFUSALS, forgeEditRefusal, forgeSurfaceState, LOBBY
 import { FORGE_PANELS_KEY, PAGE_SETTING_KEYS } from '../../src/pageStore';
 import type { LoadedMap } from '../../src/loadMap';
 import type { MenuItem } from '../../src/forge/padMenu';
+// FC2-4: the mounted page found and pressed through the contributor's editor (`./helpers/EDITOR-MAP.md`).
+import { dockOf, drawn, drawnPanels, openMenu, menuRow, outlinerFilter, panel as shownPanel, panelMounted, showTab, tabButton } from './helpers/editor';
 
 /**
  * FUI-1 (the review's IA-9, UX-1, UX-2, UX-7, UX-12, UX-13; FUI.R3, FUI.R5; a browser adaptation, FG.R2): the Forge's
@@ -547,9 +549,12 @@ describe('the Forge shell: its stylesheet (A2, A3, A4)', () => {
   const ruleOf = (selector: string): string => rules.filter((r) => r.selectors.includes(selector)).map((r) => r.body).join(';');
 
   it('A2: a card registered into a dock takes the dock\'s width; the dialog\'s card keeps its 420 px', () => {
-    expect(ruleOf('.fx-dock .fx-card')).toMatch(/(^|;)\s*width:\s*auto\s*(;|$)/);
-    expect(ruleOf('.fx-dock .fx-card')).toMatch(/max-width:\s*100%/);
-    expect(ruleOf('.fx-dock .fx-card')).toMatch(/overflow-x:\s*hidden/);
+    // FC2-4: the contributor's rule names the old docks and his workbench in one selector, `:is(.fx-dock, .fx-workbench)
+    // .fx-card` (forge.css), which the comma split above cuts in two: read by its whole selector (EDITOR-MAP D4).
+    const docked = rules.filter((r) => r.selectors.join(', ') === ':is(.fx-dock, .fx-workbench) .fx-card').map((r) => r.body).join(';');
+    expect(docked).toMatch(/(^|;)\s*width:\s*auto\s*(;|$)/);
+    expect(docked).toMatch(/max-width:\s*100%/);
+    expect(docked).toMatch(/overflow-x:\s*hidden/);
     expect(ruleOf('.fx-card')).toMatch(/width:\s*min\(420px, calc\(100vw - 32px\)\)/);
   });
 
@@ -609,22 +614,30 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
   });
   afterEach(() => { window.dispatchEvent(new PageTransitionEvent('pagehide')); vi.unstubAllGlobals(); });
 
-  const summaries = (): string[] => [...document.querySelectorAll('.fx-right > details.fx-panel > summary')].map((s) => s.textContent ?? '');
+  /**
+   * FC2-4: the old right dock (`.fx-right`) has no one element in the contributor's dock shell (EDITOR-MAP D2): its
+   * panels are read from the shell the page returns (`panels()`, by order: the dock shell's `ForgeShellPage`), each one's
+   * summary its title, the right-hand docks' panels alone (the Assets list and the viewport are the left and the centre).
+   */
+  const OFF_THE_RIGHT = new Set(['asset-browser', 'viewport']);
+  const rightPanels = (shell: unknown): string[] => (shell as ForgeShellPage).panels().filter((id) => !OFF_THE_RIGHT.has(id));
+  const summaries = (shell: unknown): string[] => rightPanels(shell).map((id) => panelMounted(document, id).querySelector(':scope > summary')?.textContent ?? '');
 
   it('registers Inspector, Outliner and Settings with their classes unchanged, then the starters; returns the shell', async () => {
     const { mountForge } = await import('../../src/forge/page');
     let api!: ForgeAgentApi;
     const shell = await mountForge(document, { onAgentReady: (a) => { api = a; } });
     expect(api.read().ready).toBe(true);
-    // FUI-22 (D5): the Local files panel (the creator's pack loading) joins the right dock last, so six draw the tabs
-    // even before the agent's dock is handed in. View controls live in the viewport dropdown, not a World panel.
-    // The Environment panel (World: the map's light rig, fog, night and shadows) between Rules and Settings, its summary
-    // "Light rig" (OT.R112: the contributor's title, `../../src/forge/panels/environmentPanel`).
-    expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Light rig', 'Settings', 'Starter experiences', 'Local files']);
-    const panels = [...document.querySelectorAll<HTMLDetailsElement>('.fx-right > details.fx-panel')];
-    // The Object tab shows at mount; Environment and Settings sit in World's (closed until it shows), Rules starts folded.
-    expect(panels.map((d) => d.open)).toEqual([true, true, false, false, false, false, false]);
-    expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
+    // FUI-22 (D5): the Local files panel (the creator's pack loading) joins the right-hand docks last. View controls live
+    // in the viewport dropdown, not a World panel. FC2-4: in the contributor's order and words (OT.R112; each panel's own
+    // `order` and `title`): Map Settings (was Settings, order 25), the Light rig (35), then Rules (36).
+    expect(summaries(shell)).toEqual(['Outliner', 'Inspector', 'Map Settings', 'Light rig', 'Rules', 'Starter experiences', 'Local files']);
+    // The Object tab shows at mount, with the Inspector's own; the Map tab's (Settings, the Light rig, Rules, the
+    // starters) and Content's wait till their tab shows; Rules starts folded (FC2-4: was "World", EDITOR-MAP D6, D8).
+    expect(drawnPanels(document)).toEqual(['asset-browser', 'viewport', 'outliner', 'inspector']);
+    expect((panelMounted(document, 'rules') as HTMLDetailsElement).open).toBe(false);
+    // FC2-4: dropped -- `.fx-right`'s `data-forge-dock-layout` "tabs" (no right dock, EDITOR-MAP D2; his shell's
+    // `layoutOf` answers "tabs" for every dock).
     // The bodies the e2e specs reach, as they were: directly under each details.
     expect(document.querySelector('[data-forge-panel="inspector"] > .fx-inspector .fx-fields .fx-field input.fx-num')).not.toBeNull();
     expect(document.querySelector('[data-forge-panel="outliner"] > div > .fx-outliner-tools > input.fx-search')).not.toBeNull();
@@ -636,13 +649,17 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     // START > Panels shows it (R6: the toolbar's Starters button is gone, the rendered pass's R4), its Close folds it again.
     expect(document.querySelector('[data-creator-examples]')).toBeNull();
     expect(document.querySelector('[data-forge="examples"]')).toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
-    document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="panel-starters"]')!.click();
-    expect(panels[5]!.open).toBe(true);
-    expect(document.querySelector('.fx-dock [data-forge-panel="starters"] > .fx-card[data-creator-examples]')).not.toBeNull();
+    // FC2-4: the menu opened his way (Controls > "Forge menu (M)", EDITOR-MAP T1, M3); the starters shown in his Map tab.
+    const starters = panelMounted(document, 'starters') as HTMLDetailsElement;
+    openMenu(document);
+    menuRow(document, 'panel-starters').click();
+    expect(starters.open).toBe(true);
+    expect(shownPanel(document, 'starters').querySelector(':scope > .fx-card[data-creator-examples]')).not.toBeNull();
     [...document.querySelectorAll<HTMLButtonElement>('[data-creator-examples] button')].find((b) => b.textContent === 'Close')!.click();
-    expect(panels[5]!.open).toBe(false);
-    expect(document.querySelector('[data-creator-examples]')).toBeNull();
+    expect(starters.open).toBe(false);
+    // FC2-4: his dock shell folds the section by setting `open` (shell/dockShell.ts:320) and calls no update; the starters
+    // drop their card on the details' own toggle event (creator/examplesPanel.ts:187-199), which the DOM fires a task later.
+    await vi.waitFor(() => expect(document.querySelector('[data-creator-examples]')).toBeNull());
     expect(document.querySelector('.fx-workspace[data-forge-dock="workspace"][data-forge-workspace]')).not.toBeNull();
     expect(shell.register).toBeTypeOf('function');
   }, 90_000);
@@ -653,24 +670,26 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
       menuSection: () => [{ id: 'panel-agent', label: 'Connect your agent' }],
       mount: (host, ctx) => { expect(ctx.forge.status().mode).toBe('forge-editor'); host.append(document.createElement('section')); return { dispose: () => undefined }; } };
     const shell = await mountForge(document, { panels: [Promise.resolve(late)] });
-    await vi.waitFor(() => expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Light rig', 'Settings', 'Connect your agent', 'Starter experiences', 'Local files']));
-    expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="agent"]')!.open).toBe(false);
-    // FUI.R5: the panels draw the tabs, Object open (the e2e specs' Outliner and Inspector together; Settings under World).
-    expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
-    expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Object', 'World', 'Agent', 'Content']);
-    expect([...document.querySelectorAll<HTMLDetailsElement>('.fx-right > details.fx-panel')].filter((d) => d.open).map((d) => d.dataset['forgePanel']))
-      .toEqual(['outliner', 'inspector']);
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    await vi.waitFor(() => expect(summaries(shell)).toEqual(['Outliner', 'Inspector', 'Map Settings', 'Light rig', 'Rules', 'Connect your agent', 'Starter experiences', 'Local files']));
+    expect((panelMounted(document, 'agent') as HTMLDetailsElement).open).toBe(false);
+    expect(drawn(panelMounted(document, 'agent')), 'its tab waits till pressed').toBe(false);
+    // FUI.R5: the panels draw the tabs, Object open (the e2e specs' Outliner, and the Inspector in its own group). FC2-4:
+    // his tabs by their keys (EDITOR-MAP D6: World is his Map, the Agent tab after Content in his default tree); dropped,
+    // `.fx-right`'s `data-forge-dock-layout` (no right dock, D2).
+    const tabs = (): string[] => [...dockOf(document, 'object').querySelectorAll<HTMLElement>(':scope > .fx-dg-tabs .fx-dg-tab')].map((b) => b.dataset['forgeTab'] ?? '');
+    expect(tabs()).toEqual(['object', 'map', 'content', 'agent']);
+    expect(drawnPanels(document).filter((id) => !OFF_THE_RIGHT.has(id))).toEqual(['outliner', 'inspector']);
+    openMenu(document);
     const labels = [...document.querySelectorAll('.fx-menu li .fx-menu-label')].map((l) => l.textContent);
-    const wanted = ['Inspector', 'Outliner', 'Settings', 'Wireframe', 'Night / day', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
+    // FC2-4: Settings is his "Map Settings" (its panel's title, OT.R112); its lighting row "Night / day" (this branch's).
+    const wanted = ['Inspector', 'Outliner', 'Map Settings', 'Wireframe', 'Night / day', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
     for (const label of wanted) expect(labels).toContain(label);
     expect(labels.filter((l) => l === 'Connect your agent')).toHaveLength(1);
     expect([...document.querySelectorAll('.fx-menu li.is-head')].map((h) => h.textContent)).toContain(PANELS_MENU_HEADING);
     shell.unregister('agent');
-    expect(summaries()).not.toContain('Connect your agent');
-    // FUI-22: six remain (the Local files panel's), so the tabs stay; the Agent tab goes with its panel.
-    expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
-    expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Object', 'World', 'Content']);
+    expect(summaries(shell)).not.toContain('Connect your agent');
+    // FUI-22: the Agent tab goes with its panel; the others stay.
+    expect(tabs()).toEqual(['object', 'map', 'content']);
   }, 90_000);
 
   it('A4 fix-up: in tabs (the agent dock handed in), every dock control the e2e specs drive sits in an open panel -- Settings shows with World', async () => {
@@ -678,56 +697,74 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     const late: ForgePanel = { id: 'agent', title: 'Connect your agent', dock: 'right', order: 50, defaultOpen: false, padLegend: [], tab: 'Agent',
       mount: (host) => { host.append(document.createElement('section')); return { dispose: () => undefined }; } };
     await mountForge(document, { panels: [Promise.resolve(late)] });
-    await vi.waitFor(() => expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs'));
+    // FC2-4: the agent's panel registered (no right dock to read "tabs" from, EDITOR-MAP D2).
+    await vi.waitFor(() => panelMounted(document, 'agent'));
     // Playwright drives a control only once it is visible, and a closed details' content is not (forgeDemolition.spec's
     // `getByLabel('Game type').selectOption`, forgeEditor.spec's outliner filter and search and the inspector's fields).
-    const shown = (sel: string): boolean => {
-      const at = document.querySelector(sel);
-      if (!at) return false;
-      for (let e: Element | null = at; e; e = e.parentElement) if (e instanceof HTMLDetailsElement && !e.open) return false;
+    // FC2-4: nor is a panel waiting in his dock shell's stash (EDITOR-MAP D8); an element's own details may be shut (the
+    // Filter is one: its summary shows).
+    const shownEl = (at: Element | null): boolean => {
+      if (!drawn(at)) return false;
+      for (let e: Element | null = at.parentElement; e; e = e.parentElement) if (e instanceof HTMLDetailsElement && !e.open) return false;
       return true;
     };
-    for (const sel of ['.fx-outliner-tools select', '.fx-outliner-tools input', '.fx-inspector .fx-field input', 'ul.fx-outliner']) {
+    const shown = (sel: string): boolean => shownEl(document.querySelector(sel));
+    // FC2-4: the outliner's filter is his Filter dropdown, no select (EDITOR-MAP O6).
+    expect(shownEl(outlinerFilter(document)), 'the outliner\'s Filter').toBe(true);
+    for (const sel of ['.fx-outliner-tools input', '.fx-inspector .fx-field input', 'ul.fx-outliner']) {
       expect(shown(sel), sel).toBe(true);
     }
-    expect(document.querySelector('.fx-right > [data-forge-tabs] [aria-selected="true"]')!.textContent).toBe('Object');
-    expect(document.querySelector('.fx-right > [data-forge-tabs] [data-forge-tab="object"]')!.getAttribute('title')).toContain('Outliner');
-    // Settings is under World: its Game type shown once that tab is (forgeDemolition.spec opens it first).
-    document.querySelector<HTMLButtonElement>('.fx-right > [data-forge-tabs] [data-forge-tab="world"]')!.click();
+    // FC2-4: his Object tab (EDITOR-MAP D6), by its key.
+    expect(dockOf(document, 'object').querySelector<HTMLElement>(':scope > .fx-dg-tabs .fx-dg-tab[aria-selected="true"]')!.dataset['forgeTab']).toBe('object');
+    expect(tabButton(document, 'object').getAttribute('title')).toContain('Outliner');
+    // Settings is under his Map tab (was World): its Game type shown once that tab is (forgeDemolition.spec opens it first).
+    showTab(document, 'map');
     expect(shown('select.fx-game-type[aria-label="Game type"]')).toBe(true);
-    expect(document.querySelector('.fx-right > [data-forge-tabs] [data-forge-tab="world"]')!.getAttribute('title')).toContain('Settings');
+    expect(tabButton(document, 'map').getAttribute('title')).toContain('Settings');
   }, 90_000);
+
+  /*
+   * FC2-4: the two fold cases below folded the Outliner. In the contributor's dock shell the Outliner is alone in its
+   * Object tab and a tab of one section is always open, its fold neither taken nor kept (EDITOR-MAP D9; dockShell.ts:173,
+   * 660) -- by his design. The same intent, a folded section kept across a reload, on a tab of several sections: Map
+   * Settings in his Map tab, the Light rig beside it the control that stays open (as the Inspector was).
+   */
+  const foldSettings = async (): Promise<void> => {
+    showTab(document, 'map');
+    const settings = shownPanel(document, 'settings') as HTMLDetailsElement;
+    expect(settings.open).toBe(true);
+    settings.open = false;
+    settings.dispatchEvent(new Event('toggle'));
+    await new Promise((done) => setTimeout(done, 5));              // the browser's own queued toggle events run
+  };
+  const expectSettingsFolded = (): void => {
+    showTab(document, 'map');
+    expect((shownPanel(document, 'settings') as HTMLDetailsElement).open).toBe(false);
+    expect((shownPanel(document, 'environment') as HTMLDetailsElement).open).toBe(true);
+  };
 
   it('remembers a folded panel across a reload of the page', async () => {
     const { mountForge } = await import('../../src/forge/page');
     await mountForge(document);
-    const outliner = document.querySelector<HTMLDetailsElement>('[data-forge-panel="outliner"]')!;
-    outliner.open = false;
-    outliner.dispatchEvent(new Event('toggle'));
+    await foldSettings();
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     await mountForge(document);
-    expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="outliner"]')!.open).toBe(false);
-    expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="inspector"]')!.open).toBe(true);
+    expectSettingsFolded();
   }, 90_000);
 
-  it('R3-A (2): with the agent dock handed in (six panels, tabs), a folded Outliner stays folded across a reload', async () => {
+  it('R3-A (2): with the agent dock handed in (six panels, tabs), a folded section stays folded across a reload', async () => {
     const { mountForge } = await import('../../src/forge/page');
     const agentDock = (): ForgePanel => ({ id: 'agent', title: 'Connect your agent', dock: 'right', order: 50, defaultOpen: false, padLegend: [], tab: 'Agent',
       mount: (host) => { host.append(document.createElement('section')); return { dispose: () => undefined }; } });
-    const layout = (): string | null => document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout');
+    // FC2-4: the agent's panel registered (no right dock to read "tabs" from, EDITOR-MAP D2).
     await mountForge(document, { panels: [Promise.resolve(agentDock())] });
-    await vi.waitFor(() => expect(layout()).toBe('tabs'));
-    const outliner = document.querySelector<HTMLDetailsElement>('[data-forge-panel="outliner"]')!;
-    expect(outliner.open).toBe(true);
-    outliner.open = false;
-    outliner.dispatchEvent(new Event('toggle'));
-    await new Promise((done) => setTimeout(done, 5));              // the browser's own queued toggle events run
+    await vi.waitFor(() => panelMounted(document, 'agent'));
+    await foldSettings();
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     await mountForge(document, { panels: [Promise.resolve(agentDock())] });
-    await vi.waitFor(() => expect(layout()).toBe('tabs'));
+    await vi.waitFor(() => panelMounted(document, 'agent'));
     await new Promise((done) => setTimeout(done, 5));
-    expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="outliner"]')!.open).toBe(false);
-    expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="inspector"]')!.open).toBe(true);
+    expectSettingsFolded();
   }, 90_000);
 
   it('B2: ctx.editor stages the real piece off the scene and places it as one history step; a lapsed admission is refused and disposed', async () => {
@@ -769,7 +806,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     // Staged, then the admission lapses (the START menu opened over the editor): refused, disposed, nothing written.
     const lapsed = await editor.stagePiece('MP84:synthetic');
     expect(lapsed).not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    openMenu(document);                                            // FC2-4: his way in, Controls > "Forge menu (M)" (EDITOR-MAP T1)
     expect(c.state()).toMatchObject({ canEdit: true, canPlace: false, reason: FORGE_REFUSALS.card });
     const refused = await editor.place(lapsed!, [40, 0, 0]);
     expect(refused).toMatchObject({ ok: false, code: 'ADMISSION_LOST' });

@@ -183,6 +183,9 @@ export function followerKept(x: { at: readonly number[]; ai: number; rescued: bo
   return flat(x.at, seal) < FOLLOW_NEAR || (flat(x.at, from) <= 1 && trailCells < FOLLOW_START_ALLOWANCE);
 }
 
+/** Why a walk ends short of its point (`walkStallClock` `ended`): no gain, the page's clock standing, or the outer timeout. */
+export type WalkEnd = 'stalled' | 'frozen' | 'timeout';
+
 /**
  * The walk's stall clock (`./sceneRoundRig` `walkTo`; a test instrument, nothing the game does changes): the walk is
  * stalled when its feet have not gained more than 1 u on the point for `stallMs`. A standing turn (`turnTo`) is no
@@ -190,18 +193,32 @@ export function followerKept(x: { at: readonly number[]; ai: number; rescued: bo
  * the gain then measured from the last read (the feet stand through a turn). The box run of 2026-11-09 (20261109T0252Z, Desert Glory's
  * round) had one `turnTo` take 4.2 s on a stalled host and the old clock, set at the first read only, fire after 1.4 s
  * of W. It counts how long W was held, overall and since the last restart, for the stall's message.
+ *
+ * Its time `t` (every method's, and `now`) is the page's own: the walk's ticks in ms (`walkTo` reads `ephFrame().tick`),
+ * so "no gain for `stallMs`" is `stallMs` of the page's walking. A frozen page steps nothing -- it sends no commands, and
+ * the room steps a player only on queued ones -- so its standing feet are no stall (the shadow PC's A4500 run of
+ * desertGloryRound.spec.ts, 2026-11-10: "no gain for 6000 ms" read off the wall clock, the room's feet unmoved). Given
+ * `opts.wall` (the wall clock at `now`), each `progress` also takes the wall clock, and `ended` the outer timeout
+ * (`opts.timeoutMs` of wall clock): past it, `frozen` when the page's clock has not moved for `stallMs` of wall clock,
+ * else `timeout`. Without `opts` the time is the wall clock itself, as before: no outer timeout, never frozen.
  */
-export function walkStallClock(stallMs: number, now: number): {
-  progress(d: number, now: number): void; restart(now: number): void; walking(now: number): void; standing(now: number): void;
-  stalled(now: number): boolean; best(): number; heldMs(now: number): number; heldSinceRestartMs(now: number): number;
+export function walkStallClock(stallMs: number, now: number, opts: { wall?: number; timeoutMs?: number } = {}): {
+  progress(d: number, now: number, wall?: number): void; restart(now: number): void; walking(now: number): void; standing(now: number): void;
+  stalled(now: number): boolean; ended(now: number, wall?: number): WalkEnd | null; best(): number; heldMs(now: number): number;
+  heldSinceRestartMs(now: number): number; elapsed(now: number): number; frozenMs(wall: number): number;
 } {
   let base = Infinity, last = Infinity, overall = Infinity, at = now, held = 0, downAt: number | null = null, sinceRestart = 0, restartAt = now;
+  const t0 = now, wall0 = opts.wall ?? now, timeoutMs = opts.timeoutMs ?? Infinity;
+  let lastT = now, movedAt = wall0;                                // the page's clock last read, and the wall clock it last moved at
   const restart = (t: number): void => { at = t; restartAt = t; sinceRestart = 0; base = last; };
+  const stalled = (t: number): boolean => t - at > stallMs;
+  const frozenMs = (w: number): number => w - movedAt;
   return {
-    progress(d, t) {
+    progress(d, t, w = t) {
       overall = Math.min(overall, d);
       last = d;
       if (d < base - 1) { base = d; at = t; }
+      if (t > lastT) { lastT = t; movedAt = w; }
     },
     restart,
     walking(t) {
@@ -215,9 +232,16 @@ export function walkStallClock(stallMs: number, now: number): {
       sinceRestart += t - Math.max(downAt, restartAt);
       downAt = null;
     },
-    stalled: (t) => t - at > stallMs,
+    stalled,
+    ended(t, w = t) {
+      if (stalled(t)) return 'stalled';
+      if (w - wall0 > timeoutMs) return frozenMs(w) > stallMs ? 'frozen' : 'timeout';
+      return null;
+    },
     best: () => overall,
     heldMs: (t) => held + (downAt === null ? 0 : t - downAt),
     heldSinceRestartMs: (t) => sinceRestart + (downAt === null ? 0 : t - Math.max(downAt, restartAt)),
+    elapsed: (t) => t - t0,
+    frozenMs,
   };
 }

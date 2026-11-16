@@ -20,6 +20,14 @@ export type ReplayLoadKind = 'version' | 'corrupt' | 'missing' | 'unavailable';
 export const REPLAY_LOAD_KINDS: readonly ReplayLoadKind[] = Object.freeze(['version', 'corrupt', 'missing', 'unavailable']);
 
 /**
+ * FL-2b (the main controller's ruling, 67, 2026-11-14): the `version` refusal of a recording NEWER than this build
+ * reads -- its format past every one of `REPLAY_FORMATS`, or its protocol past every one of `REPLAY_PROTOCOLS` -- at a
+ * host's door and from a file alike (`./load` `refusal`): a page tab left open across a release. Here, the leaf, so the
+ * modern Replays view reads it without the loader; `./load` re-exports it beside `REPLAY_DOOR_OTHER_VERSION`.
+ */
+export const REPLAY_NEWER_VERSION = 'This replay is from a newer version: reload the page.';
+
+/**
  * The kind of a refusal `e`, when it is a `./load` `ReplayLoadError` (known by its `name`, not `instanceof`: this module
  * does not import the loader) carrying one of the four; else null -- a reason that never came through the loader, which
  * a reader sorts by its words if at all (`../modern/replays/view` `replayRefusalKind`).

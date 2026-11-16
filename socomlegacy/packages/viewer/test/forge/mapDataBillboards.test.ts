@@ -95,11 +95,14 @@ describe('billboardSpecs', () => {
     }
     // The bomb as the disc keeps it, the map's and the user's alike: its start (StartBomb) a switch, its plant sites
     // context actions (MPBOMB), under Context actions.
-    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'bombStart')!.kinds).toEqual(['bombStart']);
-    expect(user.find((t) => t.id === 'userActions')!.kinds).toEqual(['userSiteSeal', 'userSiteTerrorist', 'userSwitches']);   // a placed switch a context action too
+    // FC2 (ours): his one list (MAP_DATA_KIND_TOGGLES' doc comment, the owner, 2026-11-10: "only have a single list") puts
+    // the user's kind on its map kind's switch, as his `slots` and `doors` cases above assert; these three lines still
+    // read the bomb's switch as the map's alone and the gone User data switches (`userActions`, `userDamage`).
+    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'bombStart')!.kinds).toEqual(['bombStart', 'userBombStart']);
+    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'actions')!.kinds).toEqual(['actions', 'userSiteSeal', 'userSiteTerrorist', 'userSwitches']);   // a placed switch a context action too
     expect(userMarkKind({ switch: true })).toBe('userSwitches');
     // A placed damage trigger (a C4 barrier or a hit trigger) under Damage triggers, its own mark, not the context actions' !.
-    expect(user.find((t) => t.id === 'userDamage')!.kinds).toEqual(['userBarriers']);
+    expect(MAP_DATA_KIND_TOGGLES.find((t) => t.id === 'damage')!.kinds).toEqual(['damage', 'userBarriers']);
     expect(MAP_DATA_MARKS['damage']!.glyph).not.toBe(MAP_DATA_MARKS['actions']!.glyph);
     expect(MAP_DATA_MARKS['damage']!.colour).not.toBe(MAP_DATA_MARKS['actions']!.colour);
     expect(userMarkKind({})).toBeNull();

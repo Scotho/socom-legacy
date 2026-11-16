@@ -9,8 +9,10 @@ import { bodyOf, snapshotOf } from '../../../viewer/src/net/body';
 import { decodeSnapshot, encodeSnapshot } from '../../../viewer/src/net/codec';
 import type { clipsFromPack, motionTableFromArchive } from '../../../viewer/src/motionTable';
 import { TRAVERSAL_CLIPS } from '../../../viewer/src/traversal';
+import { FIRE_VERSIONS } from '../../../viewer/src/weaponPose';
 import type { SimSkeleton } from '../../../viewer/src/simMap';
 import { Room, type Conn } from '../../src/room';
+import type { RoomRecorder } from '../../src/replay/recorder';
 
 /**
  * HIT-POSE's room (`../hitPoseRewind.test.ts`, `../hitPoseAnimated.test.ts`): two seats on a flat floor, on the SEAL's
@@ -54,8 +56,11 @@ export const EXTRAS = { alive: true, weapon: 0 as const, aiming: false, trigger:
  * past which a crouched body stands and runs.
  */
 export const CROUCH_WALK = 0.6;
-/** The clips the page draws a copy with (`PLAY_CLIPS` and the traversal moves'). */
-export const PAGE_CLIPS = [...new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS])];
+/**
+ * The clips the page draws a copy with (`PLAY_CLIPS`, the traversal moves' and, FIRE-LAYER FL-1, the rifle's Fire versions
+ * out of its `WEAPON_CLIPS`: `HIT_POSE_CLIPS`). This file's copy lays no Fire layer; `../hitPoseFireLayer.test.ts` does.
+ */
+export const PAGE_CLIPS = [...new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS, ...Object.values(FIRE_VERSIONS)])];
 
 type Surface = { distance: number; tag?: { id: number; part: number } };
 type Rewind = { rewoundBodies(p: unknown, from: V3, dir: V3, reach: number, at: number): Surface[] };
@@ -72,11 +77,12 @@ export function toWorld(feet: V3, yaw: number, v: V3): V3 {
  * a tick after every room step while B lives.
  */
 export function hitPoseRoom(seal: SimSkeleton, clips: ReturnType<typeof clipsFromPack>, table: ReturnType<typeof motionTableFromArchive>,
-  extra: { kits?: SimKits; combatReport?: boolean } = {}) {
+  extra: { kits?: SimKits; combatReport?: boolean; recorder?: RoomRecorder; held?: Partial<Record<1 | 2, Partial<Command>>> } = {}) {
   let seed = 1;
   const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  // BONE-BOXES (`../boneBoxes.test.ts`): a kit table and the combat report, when asked; neither changes what the room does
-  const room = new Room(map(), null, { now: () => 0, random, ...(extra.combatReport ? { combatReport: true } : {}) },
+  // BONE-BOXES (`../boneBoxes.test.ts`): a kit table and the combat report, when asked; neither changes what the room does.
+  // FIRE-LAYER FL-2 (`../replayRewindRecord.test.ts`): a replay recorder, when asked (an instrument: it changes nothing judged)
+  const room = new Room(map(), null, { now: () => 0, random, ...(extra.combatReport ? { combatReport: true } : {}), ...(extra.recorder ? { recorder: extra.recorder } : {}) },
     { seal: [seal], terrorist: [seal] }, extra.kits ?? null);
   const clients = [0, 1].map((i) => {
     const c = new Client();
@@ -108,6 +114,8 @@ export function hitPoseRoom(seal: SimSkeleton, clips: ReturnType<typeof clipsFro
   const at: V3[] = [[0, 0, 0], [100, 0, 0]];
   at.forEach((p, i) => room.player(i + 1)!.sim.walker.place(p[0], p[1] + 20, p[2]));
   const held = new Map<number, Partial<Command>>();
+  // PV-2p (`../roomViewPose.test.ts`): command fields held from the first command, A's (seat 1) or B's, when asked
+  for (const id of [1, 2] as const) if (extra.held?.[id]) held.set(id, { ...extra.held[id] });
   /** `ticks` room steps, each seat's command its held stick and buttons (A still, looking along +x; B facing A). */
   const run = (ticks: number, once: Partial<Command> = {}): void => {
     for (let i = 0; i < ticks; i++) {

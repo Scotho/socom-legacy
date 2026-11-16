@@ -2,7 +2,7 @@ import { pressurePad, PRESSURE_PAD_ID, PRESSURE_PAD_INDEX } from './pressurePad'
 import { pressureConnectOffered } from './pressureDetect';
 import { ControllerInput, MENU_REQUIRED, buttonDown, padHasTouchpad, resolveConflict } from './controllerInput';
 import { readOverlayButton } from './modern/overlay/binding';
-import { padFamily } from './padFamily';
+import { controllerLabelFamily, isSteamFamily, steamButtonName } from './controllerLabels';
 import type { PadLike, PadSource } from './gamepad';
 import {
   HOLD_TO_BIND_MS_ADAPTATION, STANDARD_AXIS_COUNT, STANDARD_BUTTON_COUNT, TEACH_STEPS, detectAxis, detectSource, sameSource,
@@ -197,7 +197,8 @@ export class PadBinding {
   label(physical: number): string {
     if (physical < 0) return 'Unbound';
     const id = this.input.raw?.id ?? '';
-    const family = padFamily(id);
+    const family = controllerLabelFamily(id);
+    if (isSteamFamily(family)) return steamButtonName(physical) ?? `Button ${physical + 1}`;
     if (family === 'xbox') return physical === XBOX_GUIDE ? 'Guide' : XBOX_NAMES[physical] ?? PAD_BUTTON_NAMES[physical] ?? `Button ${physical + 1}`;
     if (family === 'playstation' && PLAYSTATION_NAMES[physical]) return physical === 8 && DUALSENSE_ID.test(id) ? 'Create' : PLAYSTATION_NAMES[physical]!;
     return PAD_BUTTON_NAMES[physical] ?? `Button ${physical + 1}`;

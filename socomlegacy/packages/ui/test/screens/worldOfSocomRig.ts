@@ -72,6 +72,8 @@ export const NO_INVITATION: ClanInvitationReply = { status: 1, clanInvitationId:
 export const announced = (announcement: string, status = 0): AnnouncementReply => ({ status, announcementId: 1, announcement, endOfList: true });
 
 export interface WorldRigOptions {
+  /** A dialog built, by its name (the machine's `built`; the page's `frontEnd.ts` tells GAME LOBBY's rows the same). */
+  built?: (name: string) => void;
   /** The start dialog: SOCOM II ONLINE by default. */
   start?: string;
   /** LOBBY-INVITE: the dialog lookup wrapped as the page wraps it (`withInviteButton`); absent, the disc's as read. */
@@ -233,7 +235,7 @@ export function worldRig(o: WorldRigOptions = {}) {
   m = new FrontEndMachine({
     dialog: (n) => { opened = n; return lookup(n); }, sets, host, popups: slot, startDialog: start,
     build: { face, captions },
-    built: (b) => { parts.built(b); builtName = opened; builds.push(opened); }, draw: skb ? skb.drawOver(parts.draw) : parts.draw, widgetsTick: parts.widgetsTick, setEnabled: parts.setEnabled,
+    built: (b) => { parts.built(b); builtName = opened; builds.push(opened); o.built?.(opened); }, draw: skb ? skb.drawOver(parts.draw) : parts.draw, widgetsTick: parts.widgetsTick, setEnabled: parts.setEnabled,
     ...(skb ? { focusTick: skb.tick } : {}), input: input.dispatch, pad: input.read, activate: input.activate, movie, onLaunch: (l) => { launches.push(l); },
     valves: o.valves ? () => o.valves! : undefined,
     ...(o.systemMessages ? { systemMessages: o.systemMessages } : {}),

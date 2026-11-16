@@ -9,18 +9,22 @@ import { showInspectorData } from '../../src/forge/panels/inspectorPanel';
  * copied door, turret or hostage lists only the maps that have one to copy.
  */
 describe('the map census', () => {
+  // FC2 (ours): his later steps added `ambient` (a map's ambient effects) and the common effects every map offers a
+  // script (`scriptAssets.ts` COMMON_SCRIPT_EFFECTS, "offered on every map"; his `scriptAssets.test.ts` pins
+  // `scriptEffectsOf([])` as those two): a map with no programs counts effect 2, ambient 0.
   it("counts a map's doors, turrets and hostage characters", () => {
     const map = { doors: [{}, {}], turrets: [{}], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }, null] } };
-    expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
-    expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
+    expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0 });
+    expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0 });
   });
 
   it("a map's copies: its hostage characters each once, by name; none of a kind, an empty list; their counts the census", () => {
     // A loaded map always carries its props (`LoadedMap.props`); the flares' copies are read off them.
     const map = { doors: [], turrets: [], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }] } };
     const copies = copiesOf(map as never);
-    expect(copies).toEqual({ door: [], turret: [], hostage: [['a', 'a'], ['b', 'b']], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: [] });
-    expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0 });
+    const common = [['dust_explode_long', 'dust_explode_long'], ['fire_explode_med', 'fire_explode_med']];   // FC2 (ours): as above
+    expect(copies).toEqual({ door: [], turret: [], hostage: [['a', 'a'], ['b', 'b']], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: common, ambient: [] });
+    expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0 });
   });
 
   it('lists every map at all times, each with what it has: a count, "counting..." until read, greyed "none"; the current never greyed', () => {
@@ -52,7 +56,10 @@ describe.skipIf(!ISO || !existsSync(ISO))('the map census on the disc (SOCOM_ISO
     const { loadMap } = await import('../../src/loadMap');
     const source = new IsoAssetSource(fsBlob(ISO!));
     // Its flare count is not pinned here (not yet read off the disc for this test): the other six kinds are.
-    expect(censusOf(await loadMap(source, 'RUN/MP2.ZDB'))).toMatchObject({ door: 3, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0 });   // its 5 ladders are its buildings'
+    // FC2 (ours): barrier 3, was 0 -- his later step takes every destructible's root as a damage trigger (`accessTemplates`,
+    // "every trigger from every map", the owner, 2026-11-10), no longer only those whose death executes a map action; the
+    // 3 is the runner's measure (fc2-w-b5b37ed00), not a reading of ours.
+    expect(censusOf(await loadMap(source, 'RUN/MP2.ZDB'))).toMatchObject({ door: 3, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 3 });   // its 5 ladders are its buildings'
     expect(censusOf(await loadMap(source, 'RUN/MP6.ZDB'))).toMatchObject({ hostage: 3 });
     // The copies the Map choice switches to at once: the first of each list, named as the door's own node.
     const doors = copiesOf(await loadMap(source, 'RUN/MP2.ZDB')).door;

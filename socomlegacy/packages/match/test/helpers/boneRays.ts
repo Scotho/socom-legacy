@@ -19,11 +19,6 @@ const DAMAGE: Readonly<Record<string, number>> = {
   rthigh: PART.RLEG, rcalf: PART.RLEG, lthigh: PART.LLEG, lcalf: PART.LLEG,
 };
 
-/** The next joint of a BODY bone's chain (v0.4.18's trunk capsules ran `spinelo` -> `spinehi` -> `neck`); `hips` none. */
-const NEXT_JOINT: Readonly<Record<string, string>> = { spinelo: 'spinehi', spinehi: 'neck' };
-/** `SPINELO_BAND_PLACEHOLDER`'s 2.0, written here apart from the source (v0.4.18's spinelo capsule radius). */
-const BAND_HALF = 2.0;
-
 export interface TestBox { bone: string; part: number; lo: V3; hi: V3; inv: number[]; centre: V3 }
 export interface TestRecord { bone: string; part: number; t: number }
 
@@ -59,24 +54,8 @@ export function testBoxes(sk: Skeleton, feet: V3, yaw: number): TestBox[] {
     const b = p.bbox;
     const hiX = p.name === 'spinehi' ? Math.min(b[3]!, Math.fround(3.01)) : b[3]!;
     const lo: V3 = [b[0]!, b[1]!, b[2]!], hi: V3 = [hiX, b[4]!, b[5]!];
-    // SPINELO-FALLBACK (`SPINELO_BAND_PLACEHOLDER`, research 217 s3.6b; a placeholder for an unmeasured outcome), this
-    // file's own transcription of the rule: a BODY damage bone whose bbox is all six zero and which has its next joint
-    // among its children gets a box in its own frame -- along the axis where that joint's BIND translation is largest
-    // (the first on a tie), 0 to the translation; across the other two, the span of 0 and the translation grown by 2.0
-    // each way. On the SEAL, `spinelo` (next joint `spinehi`).
-    const next = NEXT_JOINT[p.name];
-    const child = next ? sk.parts.find((q) => q.name === next && q.parent === p.index) : undefined;
-    if (DAMAGE[p.name] === PART.BODY && child && [...b].every((v) => v === 0)) {
-      const tr: V3 = [child.bindLocal[12]!, child.bindLocal[13]!, child.bindLocal[14]!];
-      let axis = 0;
-      if (Math.abs(tr[1]) > Math.abs(tr[axis]!)) axis = 1;
-      if (Math.abs(tr[2]) > Math.abs(tr[axis]!)) axis = 2;
-      for (let a = 0; a < 3; a++) {
-        const grow = a === axis ? 0 : BAND_HALF;
-        lo[a] = Math.fround(Math.min(0, tr[a]!) - grow);
-        hi[a] = Math.fround(Math.max(0, tr[a]!) + grow);
-      }
-    }
+    // SPINELO-EMPTY (research 217 s3.6b, "The shooting legs on the original"): an all-zero bbox -- `spinelo`'s on the
+    // scuba SEALs -- is kept as the disc has it, a point a line meets only through it exactly (measure zero).
     const mid: V3 = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
     const centre: V3 = [
       X[0] * mid[0] + Yc[0] * mid[1] + Z[0] * mid[2] + T[0],

@@ -84,4 +84,6 @@ export interface RoomRuleHost {
   request(player: number, raw: Readonly<Record<string, unknown>>): void;
   /** The end of each room step, after the tick's outcomes. */
   endStep(): void;
+  /** The game is over. A plugin host drops the worker it still holds. A host with no plugin does nothing. */
+  dispose?(): void;
 }

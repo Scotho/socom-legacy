@@ -89,4 +89,74 @@ describe('holdEarlyPresses: a press before the page is wired is held, then press
     other.click();
     expect(early.pending()).toEqual([]);
   });
+
+  it('a caught press on a button taken off the page before the release is not pressed (control, unchanged by FC2-6)', () => {
+    const { root, a, b } = toolbar();
+    const early = holdEarlyPresses(root);
+    a.click();
+    b.click();
+    const seen: string[] = [];
+    a.addEventListener('click', () => seen.push('a'));
+    b.addEventListener('click', () => seen.push('b'));
+    a.remove();
+    early.release();
+    expect(seen).toEqual(['b']);
+  });
+});
+
+/**
+ * FC2-6, the Forge menu's early press from Controls: the help card's "Forge menu (M)" presses the menu's own button, which
+ * is never on the page (EDITOR-MAP T1) and whose listener the page wires only after the renderer starts. `press` names such
+ * a button: held in order with the caught presses, pressed at the release whether or not it is on the page.
+ */
+describe('holdEarlyPresses: press(), a press the page makes itself (FC2-6)', () => {
+  it('press() while holding queues the button in order with the caught presses; a button never on the page is pressed at release', () => {
+    const { root, a, b } = toolbar();
+    const offPage = document.createElement('button');   // never attached, as the forge menu's button
+    offPage.type = 'button';
+    const early = holdEarlyPresses(root);
+    a.click();
+    early.press(offPage);
+    b.click();
+    expect(early.pending()).toEqual([a, offPage, b]);
+    const seen: string[] = [];
+    a.addEventListener('click', () => seen.push('a'));
+    offPage.addEventListener('click', () => seen.push('offPage'));
+    b.addEventListener('click', () => seen.push('b'));
+    expect(seen, 'nothing pressed while holding').toEqual([]);
+    early.release();
+    expect(seen).toEqual(['a', 'offPage', 'b']);
+    expect(early.pending()).toEqual([]);
+  });
+
+  it('press() after the release presses the button at once', () => {
+    const { root } = toolbar();
+    const offPage = document.createElement('button');
+    const early = holdEarlyPresses(root);
+    early.release();
+    const seen: string[] = [];
+    offPage.addEventListener('click', () => seen.push('offPage'));
+    early.press(offPage);
+    expect(seen).toEqual(['offPage']);
+    expect(early.pending()).toEqual([]);
+  });
+
+  it('a button queued by press() that is disabled or inert at the release is not pressed', () => {
+    const { root } = toolbar();
+    const off = document.createElement('button');        // off the page, disabled by release
+    const host = document.createElement('div');           // off the page, under an inert ancestor by release
+    const inner = document.createElement('button');
+    host.append(inner);
+    const early = holdEarlyPresses(root);
+    early.press(off);
+    early.press(inner);
+    expect(early.pending()).toEqual([off, inner]);
+    const seen: string[] = [];
+    off.addEventListener('click', () => seen.push('off'));
+    inner.addEventListener('click', () => seen.push('inner'));
+    off.disabled = true;
+    host.toggleAttribute('inert', true);
+    early.release();
+    expect(seen).toEqual([]);
+  });
 });

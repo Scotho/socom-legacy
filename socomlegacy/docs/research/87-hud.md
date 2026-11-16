@@ -549,6 +549,49 @@ in the binoculars, `FUN_001f6ce0`) is over 1.01: the readout at (20, 420), the r
 (515, 40) in the binoculars (since 2026-10-01, research 84 §7, §9) from the range finder's metres (§1.12), and hides the
 ammo box. The night vision's (515, 70) is not drawn: its value is 1.01.
 
+### 13.1 What the range measures (AIM-TRACE-FILTER, 2026-11-13; reading, pending review)
+ The owner's collision audit (seat 8a's skeptic) found the port's range accepting every face and measuring from the eye.
+Re-read at the source (r0001):
+
+- **The record.** `FUN_00216770` takes the local actor (`FUN_001fcd70`, D:L70321; `iVar13`, D:L70357) and reads
+  `FUN_005aa6d0`'s record, actor+0x3c0 (D:L464015-464018), without tracing again (D:L70446). No record, or its +0x1c
+  zero, prints `"RANGE(m): ----"` (0x3e4860, D:L70447-70448); otherwise the distance from the record's point to `iVar13
+  + 0x1c` -- the actor's position, not the eye -- / 10, through `"RANGE(m): %.0f"` (0x3e4850, D:L70451-70461).
+- **Who writes it.** The eye's aim trace `FUN_005aa6e0`: a class-1 query (`FUN_002d4fd0(1)` / `(0)` around
+  `FUN_0031e160`, D:L464117-464125, so bit-19 faces are not reached), then the hit rule D:L464145-464159 (an empty
+  material slot, an `m_cameratype` 1 face, a VOLUMETRIC or LIQUID material, or PENETRATION >= 0.98 without PICKUP is not
+  kept), the nearest kept hit (D:L464162-464169), stored at +0x3c0..+0x3dc (D:L464277-464286) or, when none, cleared
+  with +0x1c (+0x3dc) zero -- only `if (!bVar3)` (D:L464259-464269). The segment is the trace's own reach: the held
+  item's range floored at 600 and capped at the camera's +0xec (D:L464097-464108; the port's `aimReach`,
+  `Fire.eyeReach`), so a wall beyond it has no record. The port's copy of that filter is `aimQueryAdmits` 'eye' +
+  `aimHitKept` (`net/aimQuery.ts`), composed by `Fire.eyeStops`.
+- **r0004** (`game/r0004/match.json`): `FUN_005aa6e0` -> 0x005b0370 (relinked-body, unique); `FUN_00216770` ->
+  0x00216770 (relinked-body, unique); `FUN_005aa6d0` -> 0x005b0360 (seed+delta, not a body match); `FUN_005df4e0` ->
+  0x005e6cb0 (exact). The r0004 bodies were not read line by line.
+
+**The viewer** (`hud.ts` `RangeFinder.measure`) takes the shot's eye filter (`Fire.eyeStops`), its reach
+(`Fire.eyeReach`) and the walker's feet (`walk.feet()`, the port's actor position) from `matchFirearm.ts`, at both of
+its reads (the HUD line and ARMING-GREY's aimed distance, which share the finder's 0.2 s cache); null draws `"RANGE(m):
+----"`. Pinned by `viewer/test/rangeFinderAimTrace.test.ts`.
+
+**Not established:**
+- The record's +0x1c is the hit's word 7, which `FUN_005aa6e0`'s not-kept branch casts as an owner object
+  (D:L464172-464183). The port treats every kept hit as having one; a kept hull hit whose word 7 is zero would print
+  "----" in the original and a number here. Not read: what `FUN_0031e160`'s walk writes there for a hull polygon.
+- **A known difference: the paths that leave the record as it was.** `FUN_005aa6e0` returns before its trace when the
+  actor's +0xc0 object answers yes to its vtable +0x30 or +0x34 (D:L464080-464095), and the `FUN_005ab1c0` branch
+  (D:L464202-464256) sets `bVar3` and drops the kept hit, so neither stores nor clears +0x3c0: on those frames the
+  original shows the last range it recorded, while the port measures again. Not modelled (no code change); what those
+  vtable calls and `FUN_005ab1c0` stand for was not read.
+- **The rocket's aim point.** The brief's lead, `FUN_005c09f0` (D:L476313-476342), is not the launcher's aim read: it
+  returns a fire-mode multiplier of a record's +0x50 (1.0, x0.8 or x0.2 by the slot's mode), and reads no aim point. The
+  readers of the aim target (actor+0x1458, set by `FUN_005df4e0` D:L493908-493918) enumerated by a text search of the
+  r0001 decompilation for `+ 0x1458)`: D:L142166, 142238, 142299 (camera code), D:L450587 (`FUN_0058fbe0`: copies it
+  into an object's +0x5c), D:L464326 (`FUN_005aa6e0` itself), D:L474229 (`FUN_005bd100`) and D:L477766 (`FUN_005c3360`)
+  (both a screen-space spread from the target's depth), D:L493790 (a copy from +0x147c), D:L508129 (`FUN_005f95d0`:
+  copies it into a struct). Which, if any, sets the rocket's launch direction was not followed; so `rocket.ts:263` is
+  not changed and is not a finding of this task (a reading still owed, LATER 1002).
+
 ## 14. The message window's posts (2026-09-29, third round)
 
 `FUN_002b6530(scale, window, text, colour, centred, fade)` (L157901): a scale of 0 is the window's own, else scale x

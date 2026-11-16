@@ -684,3 +684,83 @@ describe("REMOTE-RELOAD: a reload heard for another body starts its play's reloa
     expect(output.reloadStops.slice(before)).toEqual([[at, 'flinch'], [at, 'death']]);
   });
 });
+
+/**
+ * PV-5b (the player's-view lane; product track, a labelled browser adaptation -- research 402 s2, plan PV.R3): while
+ * the player's view draws a body from its head, that one body is not drawn, as the owner's own body is not drawn in his
+ * first person (`RemotePlayers.setPovHidden`, kept by id as the ghosts are). Its play still runs -- its posed root is
+ * the rig's own input (`cameraRoot`), its clips' sounds still fire -- and its weapon's node still gives the muzzle flash
+ * its place (the owner's first person keeps his own flash, `matchFirearm.ts` `effects.onRound(e, weaponFrame(), ...)`);
+ * its name tag's anchor (`headAt`) goes with the body.
+ */
+describe("PV-5b: the watched body hidden while the player's view draws it from the head (RemotePlayers.setPovHidden)", () => {
+  const KIT = [54, 15, 121, 255, 255];
+  const model = (id: number): HeldRef => { const g = new Group(); g.name = `model${id}`; return { object: g, points: [] }; };
+  const kitOf: SideKit = (_team, kit) => {
+    const k = kit ?? KIT;
+    return { rifle: model(k[0]!), pistol: model(k[1]!), loadout: k, ids: [k[0]!, k[1]!], launcher: null };
+  };
+  function two() {
+    for (const list of Object.values(output)) list.length = 0;
+    const remote = new RemotePlayers(new Scene()), camera = new PerspectiveCamera();
+    remote.setMap({ body: {} } as LoadedMap, DEFAULT_LIGHTING, kitOf);
+    const frame = (): void => { remote.frame(1 / 60, [state(3, true), state(4, true)], camera); };
+    const group = (id: number) => remote.seenForDev().bodies.find((b) => b.id === id)!.group;
+    return { remote, frame, group };
+  }
+
+  it('hides exactly that id, at once and on every frame after; its play still runs; null shows it again at once', () => {
+    const { remote, frame, group } = two();
+    frame();
+    remote.setPovHidden(3);
+    expect(group(3).visible).toBe(false);
+    expect(group(4).visible).toBe(true);
+    const before = output.snapshots.length;
+    frame();
+    expect(group(3).visible).toBe(false);
+    expect(group(4).visible).toBe(true);
+    expect(output.snapshots.length - before).toBe(2);                 // both bodies' plays ran
+    remote.setPovHidden(null);
+    expect(group(3).visible).toBe(true);
+    frame();
+    expect(group(3).visible).toBe(true);
+  });
+
+  it("what it takes: the name tag's anchor (headAt) goes; the weapon's node for the muzzle flash (weaponFrame) stays", () => {
+    const { remote, frame } = two();
+    frame();
+    expect(remote.headAt(3)).not.toBeNull();
+    expect(remote.weaponFrame(3)).not.toBeNull();
+    remote.setPovHidden(3);
+    frame();
+    expect(remote.headAt(3)).toBeNull();
+    expect(remote.weaponFrame(3)).not.toBeNull();
+    expect(remote.headAt(4)).not.toBeNull();
+  });
+
+  it('a ghost stays hidden when the hide lets go; a copy built later for the id is hidden; clear() forgets the id', () => {
+    const { remote, frame, group } = two();
+    remote.markGhost(4);
+    remote.frame(1 / 60, [state(3, true), state(4, false)], new PerspectiveCamera());   // a ghost: dead, never spawned
+    expect(group(4).visible).toBe(false);
+    remote.setPovHidden(4);
+    remote.setPovHidden(null);
+    expect(group(4).visible).toBe(false);
+    expect(remote.weaponFrame(4)).toBeNull();
+    remote.setPovHidden(3);
+    remote.forget(3);
+    frame();                                                          // a new copy for 3
+    expect(group(3).visible).toBe(false);
+    remote.clear();
+    remote.frame(1 / 60, [state(3, true)], new PerspectiveCamera());
+    expect(group(3).visible).toBe(true);
+  });
+
+  it("mounted(id): the turret pose's own answer (`setMountPose`), for the view's fallback on a turret (PV.R6)", () => {
+    const { remote } = two();
+    expect(remote.mounted(3)).toBe(false);
+    remote.setMountPose((id) => (id === 3 ? ({} as never) : null));
+    expect(remote.mounted(3)).toBe(true);
+    expect(remote.mounted(4)).toBe(false);
+  });
+});

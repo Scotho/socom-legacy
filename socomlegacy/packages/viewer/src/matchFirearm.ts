@@ -1,5 +1,5 @@
 import { Matrix4, Vector3, type Object3D, type PerspectiveCamera, type Scene } from 'three';
-import { ITEM, itemClass, materialTable, SEAL_TUNING, tracerRound, UNITS_PER_METRE, type KitRound, type Side, type WeaponRecord, type WeaponRumble } from '@s2u/scene';
+import { ITEM, itemClass, materialTable, SEAL_TUNING, tracerRound, UNITS_PER_METRE, type KitRound, type KitTable, type Side, type WeaponRecord, type WeaponRumble } from '@s2u/scene';
 import { Accuracy, defaultFireMode, fireInterval, FIRE_MODE_NAMES, itemReticleOf, kickStarts, kickTicks, lookRates, nextFireMode, perturb, roundsPerPull, type Cone } from './accuracy';
 import type { BodyView } from './bodyView';
 import type { FlyCamera } from './camera';
@@ -13,7 +13,7 @@ import { RangeFinder, type Hud, type HudSources } from './hud';
 import { Kit, pressShoulder, type Firearm } from './kit';
 import type { LensRows } from './lensFx';
 import type { LoadedMap } from './loadMap';
-import { firearmSlotPresent, heldWeaponModels, initialFirearmSlot, type FirearmSlot, type PlayerLoadout } from './loadout';
+import { firearmSlotPresent, heldWeaponModels, initialFirearmSlot, kitRecords, wireLoadout, type FirearmSlot, type PlayerLoadout } from './loadout';
 import { MarkClipper } from './markClip';
 import { pitchStickInView } from './look';
 import { fireWeaponOf, type NetPage } from './netPage';
@@ -24,8 +24,8 @@ import { reloadHoldPeriod } from './reloadClip';
 import { reloadPopped, StillReloadLife } from './stillReloadLife';
 import type { HeldRef, RemotePlayers } from './remotePlayers';
 import {
-  handReticleType, Perception, perceptionLook, perceptionMagnification, Reticle, reticleClimbing, reticleShown, reticleTargetState,
-  type HudRenderer, type PerceptionLook, type ReticleTarget,
+  handReticleType, Perception, perceptionLook, perceptionMagnification, PIP_FADE, PIP_FULL, Reticle, reticleClimbing, reticleShown,
+  reticleTargetState, type HudRenderer, type PerceptionLook, type ReticleTarget,
 } from './reticle';
 import { enemyCount, escorteeWord, seatWord } from './reticle';   // ENEMY-RAISE ER-1: the controller's ctrl+0xc0
 import { FONT_TEXT_01 } from './hudFont';
@@ -34,12 +34,14 @@ import { lensStep, scopeBitmaps, showScopeNodes, thermalFitted, viewLens, type V
 import { surfaceShade, type SurfaceShade } from './surfaceShade';
 import type { WalkMode } from './walk';
 import type { WorldView } from './world';
-import { heldRefOf } from './matchCore';
+import { heldRefOf, sideLoadoutOf } from './matchCore';
 import { takeKit as takeRoomKit, type TakeKitDeps } from './takeKit';
 import { launcherKitRounds } from './net/pickupRules';
-import { eyeBob, fireRefused, reloadRefused, Zoom, type ZoomHold } from './zoom';
+import { eyeBob, fireRefused, reloadRefused, Zoom, type RenderView, type ZoomHold } from './zoom';
 import { shortTurn } from './yaw';
-import { TICK_HZ } from './net/protocol';
+import { BodyFlag, STANCE_CODES, TICK_HZ, type BodyState } from './net/protocol';
+import { POV_MAX_TICKS_ADAPTATION, type PovPose } from './povCamera';
+import { PovLens, type PovLensInput } from './povLens';
 import { TURRET_RETICLE_STANCE_READING } from './net/emplacement';   // AR-6: the one name, headless (the room's too)
 import { TURRET_MOUNT_ASK_WINDOW_READING } from './turretPage';
 import { lookContextOf } from './net/lookGate';
@@ -177,6 +179,16 @@ export interface FirearmHands {
 export const SWAP_HELD_EDGE_READING = 1;
 
 /**
+ * PICKUP-SCOPE (research 323 §8; the page's reading, pending the original's): what a claim into the hand's slot does to a
+ * scope state (`+0x200` >= 5) whose new record has no scope -- `'first-person'`, the page's `Zoom.setWeapon` drop, applied
+ * by `kitTaker.renew`. Unsourced for a pickup: `FUN_005bc410` refreshes the hand when the slot is the hand's (D:L473852-
+ * 473868, research 323 R323.3) and what that refresh does to `+0x200` is not read; the switch `FUN_005c4b10` keeps a
+ * scope state (research 201 §2, A31), and whether the original allows a claim while scoped at all is not read either.
+ * Settles: a rig capture -- scope a sniper, walk over an unscoped rifle, claim it, read `+0x200`.
+ */
+export const PICKUP_SCOPE_CLAIM_READING: 'first-person' = 'first-person';
+
+/**
  * PAR-56: `FUN_005bc300` (D:L473775-473806): the fire-mode row is hidden for the hand's item of the classes
  * (`FUN_003d1a60`, `@s2u/scene` `itemClass`) 121 grenade, 151 explosive, 190 gear, 201 armour and 230 -- the
  * MGL FRAG TURRET's (D:L473799-473803) -- and shown for every other, PKM's and LMG's turret class 205 among them.
@@ -202,6 +214,33 @@ export interface FirearmSound {
   roundPast?(from: readonly [number, number, number], to: readonly [number, number, number], actor: readonly [number, number, number]): void;
 }
 
+/**
+ * PV-7b (the player's view; product track, a browser adaptation with no original -- research 402 sections 1-2, plan
+ * PV-7): the watched player on a frame the player's view placed the page's camera (`./matchNet` `spectatePov`, after
+ * `placeView`): his seat's id, his command clock's time (fractional, unwrapped) and epoch (`NetClient.commandClock`),
+ * his body after a whole command (`NetClient.bodyAtCommand`; null where none is kept), his seat's spawn count at that
+ * command (0 where the client has none), and the rig's pose this frame (`./povCamera` `PovPose`).
+ */
+export interface SubjectView {
+  id: number;
+  cmd: number;
+  epoch: number;
+  at(k: number): BodyState | null;
+  spawns(k: number): number;
+  pose: PovPose;
+}
+
+/**
+ * A browser adaptation with no original (research 402 sections 1-2: the player's view does not exist in the game): how
+ * many commands past the lens's newest a watched player's round may be stamped with -- the newest command the client
+ * holds a body for when the round's event comes (`SubjectView.at` walked forward), so the lens blooms it once its clock
+ * has run that body (`PovLens.shot`). 64 commands, about a second: the command clock keeps far fewer ahead of its time.
+ */
+export const POV_SHOT_PROBE_ADAPTATION = 64;
+
+/** PV-7b review F1: the item classes a body's `weapon` names a firearm by (`@s2u/scene` `itemClass`, `FUN_003d1a60`'s ranges). */
+const SUBJECT_FIREARM_CLASSES: ReadonlySet<string> = new Set(['pistol', 'smg', 'rifle', 'shotgun', 'mg', 'sniper', 'grenadeLauncher']);
+
 export interface MatchFirearmDeps {
   scene: Scene;
   fly: FlyCamera;
@@ -211,7 +250,7 @@ export interface MatchFirearmDeps {
    * The others: a body under the reticle is the aim point (INT-NET-2); another's round's muzzle. NU-3b C4: the bodies the
    * eye's pick ray meets, a player's side and feet -- the reticle's target (`FUN_005aa690`); absent, no target.
    */
-  remote: Pick<RemotePlayers, 'aimDistance' | 'weaponFrame'> & Partial<Pick<RemotePlayers, 'aimBodies' | 'aimRecords' | 'teamOf' | 'feet' | 'neckAt'>>;
+  remote: Pick<RemotePlayers, 'aimDistance' | 'weaponFrame'> & Partial<Pick<RemotePlayers, 'aimBodies' | 'aimRecords' | 'teamOf' | 'feet' | 'neckAt' | 'playerKit' | 'playerType'>>;
   hud: Hud;
   loadouts: PlayerLoadout;
   view(): WorldView | null;
@@ -339,7 +378,8 @@ export interface MatchFirearm {
    * no fill; a page that mounts the world drops hands it as its `kitChanged` (`./matchNet` `PART_DEPS`).
    */
   takeKit(loadout: readonly number[], slot: FirearmSlot | null, rounds: [number[], number[]], filled?: [number[], number[]],
-    resumed?: { pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1 }): void;
+    resumed?: { pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1 },
+    added?: [number[], number[]]): void;
   /** `NetPageDeps`: the page's own death (MATCH-04), another's round, the own round's room hit. */
   died(): void;
   /** j5t3o2iU: the page's own body hurt and alive (`NetPageDeps.ownHurt`): `FUN_00597b00`'s motors (`./rumble` `hurtRumble`). */
@@ -373,6 +413,16 @@ export interface MatchFirearm {
    * bloom, as the original rolls at `+0x74` (D:L475601) before the round's step (D:L475604). Not mounted: the hand's cone.
    */
   turretCone(): Cone;
+  /**
+   * PV-7b (`SubjectView`; a browser adaptation): the watched player handed on a frame the player's view placed the
+   * camera, null on the first frame it does not (PV-5b's undraw, after its `setPose`). While set, the FOV, the look's
+   * divisor, the "ZOOM" readout, the lit colours' lens, the far range and detail (`renderView`), the reticle and the
+   * subject's own muzzle flash are the subject's, through the same writers; the page's own gun runs on underneath. A
+   * frame with no call is a null one (checked at the next `gunFrame`).
+   */
+  setSubjectView(s: SubjectView | null): void;
+  /** The frame's render view (the far range and the detail): the subject's while one is set, else the page's own zoom's. */
+  renderView(): RenderView;
   /** Everything the firearm made let go (a front end's match is mounted and let go per game). */
   dispose(): void;
 }
@@ -804,7 +854,12 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   const kitTaker: TakeKitDeps = {
     loadouts, fire, accuracy, hand: () => kitItem, records: (r) => { kitRecs = r; }, modes: fireModes, heldRounds: () => kitRounds.held(),
     inHand: () => !hands?.itemUp() && !hands?.launcherUp(),   // research 323 F1: an item up, the selection is no firearm's
-    renew: () => { fireMode = fireModes[kitItem]; if (d.view()) hangKit(); showFireMode(); },
+    // PICKUP-SCOPE: the zoom's record to the selected slot's after the claim -- d-pad Up reads `NumZoomModes` off the
+    // record in the hand at each press (`FUN_005445b0` via `FUN_005c3780`; research 323 R323.3, s1.3), so a sniper claimed
+    // into the hand's slot scopes; a scope the new record has none of drops to first person (`Zoom.setWeapon`;
+    // `PICKUP_SCOPE_CLAIM_READING`, the page's reading -- the switch keeps a scope state, a pickup's is not read). A claim
+    // into the other slot leaves the selected record as it was, and `setWeapon` with it changes nothing.
+    renew: () => { fireMode = fireModes[kitItem]; zoom.setWeapon(slotRecord()); if (d.view()) hangKit(); showFireMode(); },
     // NU-5 L1 (research 323 §1.6): the kit's round slots after a launcher claim -- each carried round keeping its rounds,
     // the claimed launcher's round with `rounds` (`launcherKitRounds`) -- handed to the launcher (`FirearmHands.kitTaken`).
     launcherTaken: (_slot, round, rounds) => {
@@ -906,6 +961,11 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   // carries it (`Command.raised` -> the room's `BodyFlag.Raised` -> the others' copies), the result of every term above,
   // as the original's owner packs its body's `FUN_005e0010` into byte +0x7e every frame (`FUN_002bd640` D:L161978).
   walk.setRaiseSource?.(() => play.raisedUp());
+  // PV-3 (WIRE-16; research 402 section 3; the player's view, a browser adaptation with no original): each command also
+  // reports the page's view state (`zoom.state()`, the call the fire's refusal reads) and the scope's sway as the kit holds
+  // it (`accuracy.state().sway`, PS2 pixels; the raw sway, not `viewOffset`: the watcher's lens applies it). Read only:
+  // dead, in the death camera, on a turret or behind the binoculars, whatever they are then is sent, not special-cased.
+  walk.setViewSource?.(() => { const [swayX, swayY] = accuracy.state().sway; return { view: zoom.state(), swayX, swayY }; });
   // PARITY-1 D02 (research 251 s6): the still reload's clip on the page's command clock, asked by the walk's jump -- the
   // room's `reloadLife` from the command its `reload` names (`NetPage`: the last one sent at `reloadStart`).
   const stillReload = new StillReloadLife();
@@ -970,6 +1030,10 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   /** W2.4 (`./reticle`): the game's rifle reticle, a HUD pass over the world, in walk mode only; the range finder. */
   const reticle = new Reticle();
   const rangeFinder = new RangeFinder();
+  // AIM-TRACE-FILTER: the range is the eye query's kept hit (`fire.eyeStops`) within its reach (`fire.eyeReach`), from the
+  // actor's position (`FUN_00216770` D:L70446-70461; `./hud` `RangeFinder`). Both reads pass the same: the finder's 0.2 s
+  // cache serves either.
+  const rangeQuery = () => ({ stops: fire.eyeStops(), actor: walk.feet(), reach: fire.eyeReach() });
   /** The weapon id whose scope bitmaps the reticle holds (`scopeBitmaps`), -1 for none yet. */
   let scopeBitmapsOf = -1;
   /** NU-3a C3: what was in the hand at the last HUD frame (the item's id, else the firearm's) and the set it asked, or null. */
@@ -977,6 +1041,172 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   /** The look a frame ago, degrees (the turn and pitch rates the bloom reads), or null to start again. */
   let lastLook: { yaw: number; pitch: number } | null = null;
   let lastFov = -1;
+  /**
+   * PV-7b (`SubjectView`; the player's view, a browser adaptation with no original -- research 402 sections 1-2): the
+   * watched player while, and only while, the view is drawn, and his lens (`./povLens`): one for the subject in hand,
+   * `reset()` at a change of his id or of his command clock's epoch, kept across a frame not drawn (its ticks capped as
+   * the rig's are, so a return after more than `POV_MAX_TICKS_ADAPTATION` commands settles at once). While `subject` is
+   * set each reader below asks the lens in place of the page's own `Zoom`, at the same line, through the same writer.
+   */
+  let subject: SubjectView | null = null;
+  let subjectLens: PovLens | null = null;
+  let subjectKey: { id: number; epoch: number } | null = null;
+  /** The newest whole command the lens has run, or null: none since a reset (the next sample is placed at once). */
+  let subjectN: number | null = null;
+  /** A subject handed since the last `gunFrame`: a frame the page handed none (no net's frame ran) is a null one. */
+  let subjectHanded = false;
+  /** The view's first reticle frame: the pip, the watcher's own, faded out whole there (`subjectReticle`). */
+  let subjectPipFresh = false;
+  /** From the newest body run: the item in the subject's hand for the set (`handReticleType`, as `aimReticle`'s), and his firearm's id. */
+  let subjectHand: { item: number | null; record: number } = { item: null, record: -1 };
+  /** The subject's rounds heard, each stamped with the newest command the client then held: bloomed once the lens runs it. */
+  let subjectShots: number[] = [];
+  /**
+   * The subject's kit as this page resolves another player's (the room's named kit, else his side's type's), cached by its
+   * ids; `named`: the room named it (else the side's is a guess -- /testroom's remote stand-in names none).
+   */
+  let subjectKit: { ids: string; table: KitTable | null; recs: readonly [WeaponRecord, WeaponRecord]; thermal: boolean; named: boolean } | null = null;
+  const subjectKitOf = (id: number): NonNullable<typeof subjectKit> => {
+    const map = d.map(), table = map?.arsenal?.table ?? loadouts.tables();
+    // `./matchCore` `setRemoteMap`'s rule: the kit the room named (protocol 7), else the side's type's (protocol 9);
+    // `./netPage`'s `sideOf ?? 'seal'` for a seat with no side known.
+    const given = wireLoadout(remote.playerKit?.(id) ?? null);
+    const kit = given ?? sideLoadoutOf(map, remote.teamOf?.(id) ?? 'seal', remote.playerType?.(id) ?? 0);
+    const ids = `${given ? 'named' : 'side'}:${kit.join(',')}`;
+    if (!subjectKit || subjectKit.ids !== ids || subjectKit.table !== table) {
+      subjectKit = { ids, table, recs: kitRecords(table, kit), thermal: thermalFitted(kit), named: given !== null };
+    }
+    return subjectKit;
+  };
+  /**
+   * The subject's body after command `k` as the lens takes it (`PovLensInput`'s doc, each field). The record for the zoom
+   * and the cone (review F1): the firearm the wire names in his hand (`BodyState.weapon`, a firearm class's id) through
+   * the page's own table, as the page resolves any item id (`./matchNet` `recordOf`); with an item up or an id the table
+   * does not know, the selected slot's (`BodyState.slot`) through his kit -- and where that kit is the side's guess (the
+   * room named none), no scope is drawn from it: a scope state reads as first person (1), so a wrong scope's FOV, range
+   * and bitmaps are never shown. A turret's id is not on the wire nor in this firearm's deps: the firearm's (the PV-7b
+   * report). An item up when the hand's id is a throwable, a charge or the gear (`itemClass` 'grenade', 'explosive',
+   * 'gear': the owner's `FirearmHands.itemUp`), a raised LAW or RPG-7 the hand's `ITEM.LAW` for the set, as `aimReticle`
+   * asks it; the fire mode not on the wire (1).
+   */
+  const subjectInput = (b: BodyState, s: SubjectView, k: number): PovLensInput => {
+    const kit = subjectKitOf(s.id), cls = itemClass(b.weapon);
+    const wired = SUBJECT_FIREARM_CLASSES.has(cls) ? kit.table?.records.get(b.weapon) ?? null : null;
+    const record = wired ?? kit.recs[b.slot === 1 ? 1 : 0];
+    const view = wired === null && !kit.named && (b.view ?? 0) >= 5 ? 1 : b.view ?? 0;
+    const itemUp = cls === 'grenade' || cls === 'explosive' || cls === 'gear';
+    subjectHand = { item: itemUp ? b.weapon : cls === 'rocketLauncher' ? ITEM.LAW : null, record: record.id };
+    return {
+      view, record, coneRecord: record, spawns: s.spawns(k), mapNight: !!d.map()?.night?.mission,
+      alive: (b.flags & BodyFlag.Alive) !== 0, yaw: b.yaw, pitch: b.pitch, velocity: [b.vx, b.vy, b.vz],
+      airborne: (b.flags & BodyFlag.Airborne) !== 0, posture: STANCE_CODES[b.stance] ?? 'stand',
+      trigger: (b.flags & BodyFlag.Trigger) !== 0, thermal: kit.thermal, itemUp,
+    };
+  };
+  /**
+   * The lens run to the subject's command time: once for each whole command crossed since the last, oldest first; at a new
+   * subject or epoch, a step back, a gap or past `POV_MAX_TICKS_ADAPTATION`, `reset()` and the newest alone (the lens
+   * places it at once). Then his rounds whose command it has run. True when the lens was placed afresh this frame.
+   */
+  const tickSubject = (s: SubjectView): boolean => {
+    const n = Math.floor(s.cmd);
+    if (!Number.isFinite(n)) return false;
+    let fresh = false;
+    if (!subjectLens || !subjectKey || subjectKey.id !== s.id || subjectKey.epoch !== s.epoch) {
+      if (subjectLens) subjectLens.reset(); else subjectLens = new PovLens();
+      subjectKey = { id: s.id, epoch: s.epoch };
+      subjectN = null;
+      subjectShots = [];
+      fresh = true;
+    }
+    const lens = subjectLens;
+    const run = (k: number): boolean => {
+      const b = s.at(k);
+      if (!b) return false;
+      lens.tick(subjectInput(b, s, k));
+      subjectN = k;
+      return true;
+    };
+    const newest = (): void => { lens.reset(); fresh = true; subjectN = null; run(n); };
+    if (subjectN === null) run(n);
+    else if (n < subjectN || n - subjectN > POV_MAX_TICKS_ADAPTATION) newest();
+    else for (let k = subjectN + 1; k <= n; k++) if (!run(k)) { newest(); break; }
+    const ran: number | null = subjectN;
+    if (ran !== null && subjectShots.some((at) => at <= ran)) {
+      for (const at of subjectShots) if (at <= ran) lens.shot();
+      subjectShots = subjectShots.filter((at) => at > ran);
+    }
+    return fresh;
+  };
+  /** The view let go: the readers are the page's own again; the FOV written again (PV-5b's `setPose` put it at rest). */
+  const leaveSubject = (): void => { subject = null; subjectShots = []; lastFov = -1; };
+  /**
+   * The view's one writer -- of the FOV, the look's divisor, the kit's offset, the "ZOOM" readout, the goggles' flag on
+   * the reticle and the lit colours' lens -- fed the page's own `Zoom`, or the subject's lens while one is set (PV-7b).
+   * `voiced`: the goggles' sound is the subject's own switch (none at the view's entry, a change of subject or a reset).
+   * `quiet`: the view let go this call -- the lens steps back to the page's own with the fog, but no goggles' sound: the
+   * change is nobody's switch (a page that has just respawned is walking again when PV-5b's undraw runs, at its spawn).
+   */
+  const viewFrame = (walking: boolean, voiced: boolean, quiet = false): void => {
+    const lens = subject ? subjectLens : null;
+    const fov = lens ? lens.fov(baseFov) : zoom.fov(baseFov);
+    if (Math.abs(fov - lastFov) > 1e-6) { fly.setFov(fov); lastFov = fov; }
+    // The look's divisor (FUN_005966a0, `FUN_005be660`): the LOOK workstream's law takes the magnification and mode 4.
+    const state = lens ? lens.lens().state : zoom.state();
+    fly.setZoom(1 / (lens ? lens.lookScale() : zoom.lookScale()) / (state === 4 ? 5 : 1), state === 4);
+    // Research 381: the scope's sway moves the view (FUN_005b9030 D:L471951-471957; FUN_005bd100
+    // D:L474218-474223; PlayerUpd D:L453669-453676) -- the world under the scope's fixed cross, which so stays on
+    // the round; 0 below state 4. PV-7b: walking only (`FlyCamera.setKitOffset`), and never the watcher's while a subject
+    // is set -- the subject's sway is PV-5b's `setSubjectOffset`, placed from the rig's pose.
+    if (!lens) fly.setKitOffset(...accuracy.viewOffset(zoom.state()));
+    // FUN_001f6ce0: the readout is the state's own value (9.0 in the binoculars, ZoomMode[state - 4] in a scope), and
+    // the RANGE line sits where the view's ChangeReticule type puts it (the binoculars' (515, 40)).
+    hud.setZoom(lens ? lens.hudZoom() : zoom.hudZoom(), lens ? lens.binoculars() : zoom.binoculars());
+    // The lit colours' one lens (`./sights` `viewLens`, `lensStep`): the night vision's goggles in view state 3, or a
+    // scoped view's lens (FUN_001f0750 L53084-53160, research 94 section C7): `to_thermal_lens_fx` while the kit holds
+    // item 195, else the scope's own -- one owner, one write a change; none with an item up. PV-7b: the subject's from
+    // his state, kit and hand (`PovLens.lens`).
+    reticle.setNight(lens ? lens.reticle().night : zoom.view() === 'nightvision');
+    const want = lens ? lens.lens().lens : viewLens(zoom.state(), thermalFitted(loadouts.loadout()), !!d.map()?.night?.mission, walking && !hands?.itemUp());
+    const step = lensStep(lensOn, want);
+    if (step) {
+      lensOn = step.apply;
+      if (step.apply === 'goggles') setNightVision(nightLens);   // the lit colours through VU1 command 0x5c (`./nightVision`)
+      else setLensRows(step.apply ? lensRows.get(step.apply)?.rows ?? null : null);
+      if (step.goggles) {
+        d.refreshFog(step.apply === 'goggles' ? nightLens : null);   // and the fog's colour times the lens's (`cam+0xd0`)
+        // Without a place: vtable+0xc (decomp 410944). PV-7b: a subject's only on his own switch while drawn (`voiced`).
+        if (!quiet && (lens ? voiced : walking)) sound?.goggles(step.apply === 'goggles');
+      }
+    }
+  };
+  /**
+   * PV-7b: the reticle pass for the subject (`aimReticle` while one is set) -- the existing setters fed the subject's:
+   * the aim point the rig's `pose.target` through the owner's `aimPoint(fly.camera, ...)` (the frame's centre in a head
+   * view), less the screen's shift (the subject's sway, PV-5b's offset) as the owner's is; the size and knock, mode, set,
+   * tube and scope bitmaps from his lens. The watcher's own knowledge is hidden: no pip (faded out whole on the view's
+   * first frame), no target name or bar, the rest colour, no throw power (the meter's 0: his wind-up is not on the wire).
+   */
+  const subjectReticle = (dt: number): void => {
+    const s = subject, lens = subjectLens;
+    if (!s || !lens) return;
+    fly.camera.updateMatrixWorld();
+    const [nx, ny] = aimPoint(fly.camera, s.pose.target);
+    const [sx, sy] = fly.screenShift();
+    reticle.setAimPoint(nx - sx, ny - sy);
+    const r = lens.reticle(), state = lens.lens().state;
+    if (r.size !== null) reticle.setSize(r.size, r.offset);   // scoped or dead: no bloom, the drawn size kept
+    reticle.setMode(r.mode);
+    const set = subjectHand.item === null ? r.set : handReticleType(subjectHand.item, subjectHand.record, state, 1, 1);
+    reticle.setSet(set);
+    reticle.setTube(set === 0 && state === 2);
+    reticle.setMeter(0);
+    if (subjectHand.record !== scopeBitmapsOf) { scopeBitmapsOf = subjectHand.record; reticle.setScopeBitmaps(scopeBitmaps(subjectHand.record)); }
+    reticle.setColour('rest');
+    reticle.setTarget(null, null);
+    reticle.setPip(null, state > 4, subjectPipFresh ? PIP_FULL / PIP_FADE / 60 : dt);
+    subjectPipFresh = false;
+  };
   /**
    * The SELECTED slot's record as the reticle's colour pass reads it (`FUN_005c3780` D:L477826-477834 in `FUN_00215c10`
    * D:L70222-70258: `FUN_005c6600` on `+0x824`, the round's slot for a carrier in a round mode), for its arming grey
@@ -1159,8 +1389,8 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   return {
     fire, kit, zoom, accuracy, reticle, effects, rangeFinder, trigger, stepZoom, setZoom, switchFireMode, showFireMode, hangKit, spawnKit,
     // The mode in the hand kept with its firearm first (`spawnKit`'s first line): `renew` re-reads it after a claim.
-    takeKit: (l, s, r, f, resumed) => {
-      fireModes[kitItem] = fireMode; takeRoomKit(kitTaker, l, s, r, f);
+    takeKit: (l, s, r, f, resumed, added) => {
+      fireModes[kitItem] = fireMode; takeRoomKit(kitTaker, l, s, r, f, added);
       walk.setHeldModels?.(heldWeaponModels(loadouts.tables(), loadouts.loadout()));   // SEGMENT-BODY part 4 (F1): the pickup's kit
       // OT.R59 (condition 4 (a)): the room's firearm in the hand at once, no swap clip -- the Fire record, the HUD's box and
       // the hung model with it; then the room's pouch and launcher (`hands.resumed`).
@@ -1190,7 +1420,8 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       walk.setScopedMove(walking && zoom.moveScale() < 1);   // FUN_005966a0: the move stick x 0.2 in the 9x view or a scope
       walk.setBinoculars(walking && zoom.binoculars());      // the others see the binoculars raised (`Button.Binoculars`)
     },
-    beforeMove: () => { fly.setBody(walk.mode() === 'walk' && eyeBob(zoom.state()), walk.posture() === 'prone'); },   // the bob: states 1-3 (research 83)
+    // The bob: states 1-3 (research 83). PV-7b: off while a subject is set -- the rig owns the eye.
+    beforeMove: () => { fly.setBody(subject === null && walk.mode() === 'walk' && eyeBob(zoom.state()), walk.posture() === 'prone'); },
     gunFrame: (dt, walking) => {
       // The view a switch is weighed against: once a walk tick (`Zoom.markTick`, sprint 25).
       if (walk.ticks() !== zoomTicks) { zoomTicks = walk.ticks(); zoom.markTick(); accuracy.markViewTick(); }
@@ -1242,32 +1473,12 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       menuWasOpen = menuOpen;
       if (snap && !menuOpen && zoom.state() >= 4) pulse.tick(dt, accuracy.state().exertion, zoom.state(), rumble);
       rumbleOut(rumble.frame(dt), padActuator());
-      const fov = zoom.fov(baseFov);
-      if (Math.abs(fov - lastFov) > 1e-6) { fly.setFov(fov); lastFov = fov; }
-      // The look's divisor (FUN_005966a0, `FUN_005be660`): the LOOK workstream's law takes the magnification and mode 4.
-      fly.setZoom(1 / zoom.lookScale() / (zoom.state() === 4 ? 5 : 1), zoom.state() === 4);
-      // Research 381: the scope's sway moves the view (FUN_005b9030 D:L471951-471957; FUN_005bd100
-      // D:L474218-474223; PlayerUpd D:L453669-453676) -- the world under the scope's fixed cross, which so stays on
-      // the round; 0 below state 4.
-      fly.setKitOffset(...accuracy.viewOffset(zoom.state()));
-      // FUN_001f6ce0: the readout is the state's own value (9.0 in the binoculars, ZoomMode[state - 4] in a scope), and
-      // the RANGE line sits where the view's ChangeReticule type puts it (the binoculars' (515, 40)).
-      hud.setZoom(zoom.hudZoom(), zoom.binoculars());
-      // The lit colours' one lens (`./sights` `viewLens`, `lensStep`): the night vision's goggles in view state 3, or a
-      // scoped view's lens (FUN_001f0750 L53084-53160, research 94 section C7): `to_thermal_lens_fx` while the kit holds
-      // item 195, else the scope's own -- one owner, one write a change; none with an item up.
-      reticle.setNight(zoom.view() === 'nightvision');
-      const want = viewLens(zoom.state(), thermalFitted(loadouts.loadout()), !!d.map()?.night?.mission, walking && !hands?.itemUp());
-      const step = lensStep(lensOn, want);
-      if (step) {
-        lensOn = step.apply;
-        if (step.apply === 'goggles') setNightVision(nightLens);   // the lit colours through VU1 command 0x5c (`./nightVision`)
-        else setLensRows(step.apply ? lensRows.get(step.apply)?.rows ?? null : null);
-        if (step.goggles) {
-          d.refreshFog(step.apply === 'goggles' ? nightLens : null);   // and the fog's colour times the lens's (`cam+0xd0`)
-          if (walking) sound?.goggles(step.apply === 'goggles');      // without a place: vtable+0xc (decomp 410944)
-        }
-      }
+      // PV-7b: a subject not handed since the last frame (no net's frame ran: PV-5b's undraw never came) is let go here.
+      const left = subject !== null && !subjectHanded;
+      if (left) leaveSubject();
+      subjectHanded = false;
+      // The zoom's FOV, the look, the readout and the lens (`viewFrame`, the one writer; the subject's while one is set).
+      viewFrame(walking, false, left);
     },
     kitFrame: (dt, walking) => {
       if (walking) kit.frame(dt); else kit.settle();   // WEAPON: the swap's hand-off and end (`./kit`)
@@ -1312,6 +1523,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       // ChangeReticule and the draw), its breadths and alphas to the reticle's eight quads.
       threat.frame(dt);
       reticle.setThreat(threat.values());
+      if (subject) { subjectReticle(dt); return; }      // PV-7b: the pass runs for the subject instead
       const aim = walk.aim();
       if (!aim) return;
       // The reticle on the aim point (FUN_00297410's, 1000 ahead along the look): the frame's centre at rest.
@@ -1361,7 +1573,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       // Grey while the aimed point is inside the selected record's arming distance -- a rocket launcher's or its rocket's
       // only (ARMING-GREY, `armingGreyOf`; R94.16; the range finder's metres x 10).
       const arming = roundArming();
-      const aimed = arming === null ? null : rangeFinder.measure(walk.grid(), walk.fireAim(), performance.now() / 1000);
+      const aimed = arming === null ? null : rangeFinder.measure(walk.grid(), walk.fireAim(), performance.now() / 1000, rangeQuery());
       // WEAPON: the accuracy pip (FUN_005aa6e0 / FUN_00215250): where the raised muzzle's ray is blocked short of the aim.
       // PB-2b F2: none mounted -- the rifle rides the back (TURRET_HELD_WEAPON_READING) and the hand is the turret's.
       const block = play.weaponStats().raise.weight > 0 && !zoom.scoped() && !item && !hands?.mounted() ? fire.blockedMuzzle() : null;
@@ -1390,14 +1602,20 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       reticle.setTarget(drawn.name, drawn.bar);
       reticle.setPip(pip, zoom.state() > 4, dt);
     },
-    showReticle: (renderer, walking, tacMap, scoreboard, spawned) => {
+    showReticle: (renderer, walker, tacMap, scoreboard, spawnedOwn) => {
       // No reticle while dead -- the death camera to the spawn (`FUN_00216770` L70413: ChangeReticule -1; `reticleShown`).
       // PAR-94 B2: none before the room's spawn of the page either (the HUD's actor gate, `FUN_001f7ff0` D:L56631).
       const screenUp = d.net()?.screenUp() ?? false;
-      reticle.setVisible(reticleShown({ walking, spawned, dead: walk.isDead(), tacMap, scoreboard, screenUp }));
+      // PV-7b: while a subject's view is drawn (never by a walker) the gate is asked for his view -- a walker's, alive, and
+      // spawned by the room -- so his reticle shows under the same screens' hides (the tactical map, the scoreboard, a
+      // round screen). Review F2: only the room's spawn is forced, never past a screen holding the page's input
+      // (`blocked`: the ARMORY that `pageSpawned` folds into `spawnedOwn`, WEAPON EXCHANGE, the taunts, the loading hold).
+      const viewing = subject !== null, walking = walker || viewing, spawned = spawnedOwn || (viewing && !d.blocked());
+      reticle.setVisible(reticleShown({ walking, spawned, dead: walk.isDead() && !viewing, tacMap, scoreboard, screenUp }));
       // THREAT-MARKS (THREAT_DEAD_FADE_READING): the marks' gate is the reticle's but the death, which hides quads 0-3 only;
       // under the tactical map, the scoreboard and a round screen, hidden with the reticle (THREAT_SCREENS_HIDE_READING).
-      reticle.setThreatGate(reticleShown({ walking, spawned, dead: false, tacMap, scoreboard, screenUp }), walk.isDead());
+      // PV-7b: the marks are the watcher's own knowledge: hidden while a subject's view is drawn.
+      reticle.setThreatGate(!viewing && reticleShown({ walking, spawned, dead: false, tacMap, scoreboard, screenUp }), walk.isDead());
       reticle.render(renderer);
     },
     feedHud: (walking, extra = {}) => {
@@ -1427,7 +1645,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
         // (FUN_005463c0 D:L412189), so the shown actor stays the SEAL (LATER 414's review).
         yaw: fly.pose().yaw, ...(walk.takeStanceTaken() ? { stanceTaken: walk.stance() } : {}),
         climb: extra.climb,   // the traversal's climb (absent: none fed)
-        range: walking ? rangeFinder.measure(walk.grid(), walk.fireAim(), performance.now() / 1000) : null,
+        range: walking ? rangeFinder.measure(walk.grid(), walk.fireAim(), performance.now() / 1000, rangeQuery()) : null,
         nearby: extra.nearby ?? null,                  // the page's action prompt (`/testroom`'s doors, switches, bomb, turret)
         position: walking ? feetXZ() : null,
       });
@@ -1494,7 +1712,18 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       // A browser adaptation: a hidden tab starts no effect run for it (`onVisibility`); its sounds below still play.
       if (!pageHidden()) {
         const mounted = d.mountedMuzzle?.(id) ?? null;
-        effects.onRound(e, mounted ? { node: new Matrix4().fromArray(Array.from(mounted)), muzzle: [0, 0, 0] } : remote.weaponFrame(id), false);
+        // PV-7b: the subject's own round while his view is drawn from the head (his lens past third person) plays the
+        // zoomed muzzle, as the owner's page plays its own in a head view (`walk.view() === 'scope'`); every other body's,
+        // and his at any other time, today's.
+        const zoomed = subject !== null && id === subject.id && subjectLens !== null && subjectLens.lens().view !== 'third';
+        effects.onRound(e, mounted ? { node: new Matrix4().fromArray(Array.from(mounted)), muzzle: [0, 0, 0] } : remote.weaponFrame(id), zoomed);
+      }
+      // PV-7b: the subject's round, stamped with the newest command his client holds (`POV_SHOT_PROBE_ADAPTATION`), blooms
+      // his lens once it has run that command (`tickSubject`; `PovLens.shot`: the event names no command).
+      if (subject && id === subject.id) {
+        let k = subjectN ?? Math.floor(subject.cmd);
+        for (let i = 0; i < POV_SHOT_PROBE_ADAPTATION && subject.at(k + 1); i++) k++;
+        subjectShots.push(k);
       }
       sound?.roundFired(e);
       // LATER 644 (research 81 "A round passing"): `FUN_00598000` takes a projectile's segment against the
@@ -1560,6 +1789,21 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       for (const t of drawn.through) effects.onRound({ ...e, to: t.point, normal: t.normal, material: t.material ?? null, hit: true, tracer: undefined, tracerKind: undefined }, null, false);
       sound?.fireEvent(e);
     },
+    setSubjectView: (s) => {
+      if (!s) {
+        if (!subject) return;
+        leaveSubject();
+        viewFrame(walk.mode() === 'walk', false, true);   // the same frame: the page's own FOV, lens and readout again
+        return;
+      }
+      const same = subject !== null && subject.id === s.id;
+      if (!subject) subjectPipFresh = true;
+      subject = s;
+      subjectHanded = true;
+      const fresh = tickSubject(s);
+      viewFrame(false, same && !fresh);
+    },
+    renderView: () => (subject && subjectLens ? subjectLens.renderView() : zoom.renderView()),
     dispose: () => {
       rumble.reset(); rumbleOut(rumble.bytes(), padActuator());   // CTL-2: no motor left running past the match
       hud.setC4FuseBar(null);
@@ -1576,6 +1820,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       if (lensOn) { setLensRows(null); setNightVision(null); lensOn = null; }   // the page-wide lens let go
       play.setWeaponInput(() => ({ trigger: false, aiming: false }));
       walk.setRaiseSource?.(null);                     // ER-2: no page, no raise sent
+      walk.setViewSource?.(null);                      // PV-3: no page, no view sent (the three bytes 0)
       heldKit = { rifle: null, pistol: null };
     },
   };

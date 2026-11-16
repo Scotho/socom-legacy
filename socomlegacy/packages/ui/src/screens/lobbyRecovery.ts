@@ -19,7 +19,10 @@ export function recoverLobbyControls(parts: DialogParts | null, dialog: string |
   if (!scripts) return false;
   if (state.reset) {
     // These animations were stopped by CountDown; also stop a late wait's unfinished instance before recovering.
-    for (const name of ['switch_teams_anim', 'CountButtonFiveST', 'STCountButtonFiveWS', 'CycleReadyButton', 'CountButtonFive', 'ClientDAReadyButton']) {
+    // LOBBY-STEPS (the re-read's F1; EIGHTY_READY_HOST_PAGE_READING): and the host's `launch_10sec_anim`, queued by the
+    // countdown's post and not yet run when the room called the countdown off -- left, it would close BACK and the
+    // buttons after this recovery. The runtime's stop takes a queued instance (`ZAnimRuntime.stop`: its entry killed).
+    for (const name of ['switch_teams_anim', 'CountButtonFiveST', 'STCountButtonFiveWS', 'CycleReadyButton', 'CountButtonFive', 'ClientDAReadyButton', 'launch_10sec_anim']) {
       const instance = scripts.runtime.find(name);
       if (instance) scripts.runtime.stop(instance);
     }

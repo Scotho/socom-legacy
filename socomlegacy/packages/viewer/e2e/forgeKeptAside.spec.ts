@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { openSaves } from './forgeBase';
 import { forgeStoredList } from './forgeStore';
 
 /**
@@ -30,7 +31,7 @@ async function walk(page: Page, press: 'click' | 'tap'): Promise<void> {
   const opened: string[] = [];
   page.context().on('page', (p) => opened.push(p.url()));
   await seeded(page);
-  await page.locator('[data-forge="saves"]')[press]();
+  await openSaves(page, press);                                         // FC2-4 (EDITOR-MAP T4): File > Saves...
   const kept = page.locator('[data-kept-aside]');
   await expect(kept.locator('h3')).toHaveText('Kept aside');
   await expect(kept.locator('li .fx-save-name')).toHaveText(['Earlier autosave 1', 'Earlier autosave 2', 'Earlier saved list']);

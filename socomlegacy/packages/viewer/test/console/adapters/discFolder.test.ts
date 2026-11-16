@@ -280,7 +280,7 @@ describe('CX-10a: the sample adapters\' folder state (SAMPLE_DATA, for the brows
  * already reads READING, so a second press of either chooser waits for it (the grammar's check).
  */
 describe('CX-10a review: the newest choice wins over a folder still being walked', () => {
-  const GOOD = (): File => new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
+  const GOOD = (): File => new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
   /** A gate the fake's walk waits on. */
   const gate = () => { let open = (): void => {}; const shut = new Promise<void>((r) => { open = r; }); return { shut, open: () => { open(); } }; };
 

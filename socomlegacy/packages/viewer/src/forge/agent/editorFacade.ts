@@ -100,7 +100,7 @@ export function createForgeAgentRevisions(): ForgeAgentRevisions {
 }
 
 /** The editor clipboard's rows the paste reads (`../page` `ClipItem`). */
-export interface ForgeAgentClip { asset: string | null; team: 'A' | 'B' | null; respawn: 'A' | 'B' | null; npc: { side: Side; type: number } | null; offset: Vec3; q: Quat; content: Piece['content'] | null }
+export interface ForgeAgentClip { asset: string | null; team: 'A' | 'B' | null; respawn: 'A' | 'B' | null; npc: { side: Side; type: number } | null; offset: Vec3; q: Quat; s?: Vec3 | null; content: Piece['content'] | null }
 type CreatorCatalogue = ReturnType<typeof createCreatorCatalogue>;
 
 /** LATER 422: what the facade needs from the page -- its reads, then its actions (each the page's own code). */
@@ -498,7 +498,9 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
         else if (c.respawn) { picked.push(`respawn:${l.respawns?.length ?? 0}`); (l.respawns ??= []).push({ team: c.respawn, p: [p[0], p[1], p[2]], yaw: yawOf(c.q) }); }
         else if (c.npc) { picked.push(`npc:${l.npcs?.length ?? 0}`); (l.npcs ??= []).push({ ...c.npc, p: [p[0], p[1], p[2]], yaw: yawOf(c.q) }); }
         else if (c.asset) {
-          const r = new Object3D(); r.position.set(...p); r.quaternion.set(...c.q); r.updateMatrix();
+          const r = new Object3D(); r.position.set(...p); r.quaternion.set(...c.q);
+          if (c.s) r.scale.set(...c.s);                              // FX-9's review: the copy's scale, as its turn
+          r.updateMatrix();
           picked.push(`piece:${l.pieces.length}`); l.pieces.push({ asset: c.asset, m: r.matrix.toArray(), ...(c.content ? { content: JSON.parse(JSON.stringify(c.content)) as Piece['content'] } : {}) });
         }
       });

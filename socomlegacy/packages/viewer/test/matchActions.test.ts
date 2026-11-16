@@ -182,7 +182,9 @@ describe('mountActions: the action button and its pages, one part', () => {
         node: 'lever', path: LEVER, at: [0, 0, 10], type: 'SWITCH', typeCode: 2, valve: '', anims: [], team: null,
         range: 1000, elevation: -1, points: 0, ...o,
       };
-      return { grid, meta: { actions: [record] }, valve: () => 0, revision: 0 };
+      // FC2 (ours): the action page now asks `world.actionUsed` (his USED_SWITCH_PROMPT_ADAPTATION); the stand-in answers
+      // as `WorldState.actionUsed` does when nothing was used this round.
+      return { grid, meta: { actions: [record] }, valve: () => 0, actionUsed: () => false, revision: 0 };
     };
     const offer = (o: { bitmap: string; descriptor: string }) => {
       const r = rig({ world: () => world(o) as never });
@@ -1280,7 +1282,8 @@ describe('CPS collision step 3: one switch cast per prompt', () => {
       node: 'lever', path: LEVER, at: [0, 0, 10], type: 'SWITCH', typeCode: 2, valve: '', anims: [], team: null,
       range: 1000, elevation: -1, points: 0, bitmap: '',
     };
-    return { grid, meta: { actions: [record] }, valve: () => 0, revision: 0 };
+    // FC2 (ours): `actionUsed` as `WorldState.actionUsed` answers when nothing was used this round (his new call).
+    return { grid, meta: { actions: [record] }, valve: () => 0, actionUsed: () => false, revision: 0 };
   }
   /** The rig on the lever's world, the feet at z 30, the look ray from each eye in turn (the last one kept) 30 along -z. */
   function lit(eyes: [number, number, number][], world: object = leverWorld()) {

@@ -18,7 +18,9 @@ the game's own round, run by the game's own code.
 
 ## Data, never code
 
-A pack never carries code that runs. That covers scripts, JavaScript and WebAssembly, or anything else.
+A rules pack never carries code that runs. That covers scripts, JavaScript and WebAssembly, or anything else.
+Kind `plugin` is the one pack that holds a module, and it does not run here: it runs on a community server, and
+only as the actions below. See [Pack kinds](/kinds/).
 
 A rules pack is data that the engine reads and runs itself. The contract describes three levels of authoring, all over
 the same events, conditions and actions:
@@ -29,8 +31,12 @@ the same events, conditions and actions:
 2. **Rules.** Rules written as data: *when* an event happens, *if* some conditions hold, *then* do some actions. For
    example: when a player enters the zone `vault` and has the item `key`, open the door `vault-door`; otherwise show a
    message.
-3. **Scripting.** Planned, and not enabled. If it ever comes, it would see only what a rule sees and do only what an
-   action does. Running uploaded code waits for its own design and the project owner's decision.
+3. **Scripting.** On a community server, a plugin is that level for this class only. Its input is JSON: the event,
+   that event's fields, a plain copy of the room view (tick and each player's id, team, alive, out and feet), and
+   plain copies of the rule variables, phase and timers. Its output is a list of actions from the rules list,
+   except `hit.scale`. A reply counts if it arrives within 4 ticks. After 3 misses in a round the plugin is off
+   for that round. A recording stores what the room did and does not run the module again. The page does not run
+   a plugin. With the host's opt-in off, which is the default, a match is the retail room.
 
 Events come from the engine only; a pack can never raise one itself. Actions come from a fixed list. Anything the
 vocabulary does not name is refused by name when the pack is checked, not discovered halfway through a match.

@@ -20,7 +20,7 @@ import { holdFamily, holdOf,
   applyFall, applyHit, bodyOf, fallKills, bulletDamage, DAMAGE_SCALE, quantiseHit, fragmentCount, fragmentDamage, fragmentPart, decodeCommands, encodeSnapshot, feetOriginOf, Frame, frameKind, freshHealth, groundPolygons, isDead, Lobby,
   ACTION_TYPE_CODES, actionAtPick, bareMeta, CraneSet, cranePressSlack, DoorSet, doorInReach, doorPick, GateSet, openDoorClip, type DoorActor, LOOK_KIT_LEAD_PLACEHOLDER, lookContextOf, lookScaleOf, looserLookContext, MoverSim, OPEN_LOOK_CONTEXT, ROOM_SKIP_EFFECTS_READING, under, WorldState, overall, ringFor, roundPath, shortTurn, Traversal, Walker, wrapYaw, type MagazineRing,
   fallDamageFraction, KNOCK_LANDING_SPEED_FACTOR, MP_HEALTH, PART, type Landing, decodeVoiceUp, encodeVoiceDown,
-  healthTold, PART_HEALTH_INTERVAL_TICKS_READING, partHealthBytes,
+  healthTold, PART_HEALTH_INTERVAL_TICKS_READING, partHealthBytes, viewTold, viewState, qSway, dqSway,
   BUILT_AT_PATTERN, Button, HOLD_SHIFT, STANCE_CODES, isSessionToken, MAX_LOADOUT_PICKS, MAX_REWIND_MS, REWIND_CEILING_MS_ADAPTATION, INTERP_DELAY_MS, PROTOCOL_VERSION, SESSION_REPLACED_CLOSE, SNAPSHOT_HZ, TICK_HZ,
   eliminatedHoldS, eliminationWatchS, eliminationWinner, ESCORT_ELIMINATION_HOLD_READING, isMatchOver, MAX_ROUNDS, modeRules, OWNER_LAUNCH_COUNTDOWN_S, timeoutHoldS, type Rules,
   EYE_HEIGHT, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, rootY, toWorld, probeLiftOf, headPoint, reloadHoldPeriod, reloadLockSeconds, reloadMoving, reloadSeconds, ShotCone, lookFitsPoint,
@@ -35,6 +35,7 @@ import { holdFamily, holdOf,
   type LoadoutRefusal, type Member, type PlaySnapshot, type RoomPhase, type ScoreRow, type ServerEvent, type SimClips, type SimMap, type SimSkeleton, type Team,
 } from '../../viewer/src/sim';
 import { fourthArmoryTypeOpen } from '@s2u/scene';
+import { itemReticleOf, type ItemReticle } from '../../viewer/src/accuracy';   // ROOM-HAND (LATER 652)
 import { readProfile, type ArmoryProfile } from '../../viewer/src/armoryState';
 import { equipmentLimit, equipmentLimitKit, equipmentLimitValves } from '../../viewer/src/equipmentLimit';
 import { firearmSlotPresent, heldWeaponModels, initialFirearmSlot } from '../../viewer/src/loadout';
@@ -44,7 +45,7 @@ import { detonationOf } from '../../viewer/src/smoke';
 import { bodyRecords, bodyVolumes, NO_PART, placedVolumes, rayBody, rayRecords, stanceVolumes, type BoneBox, type HitBody as PlacedBody, type StanceVolumes, type V3 } from '../../viewer/src/net/hitVolumes';
 import { HIT_POSE_MOUNT_READING, HitPoser } from '../../viewer/src/net/hitPose';
 import { corpseShownS, deathCause, deathClip, DEATH_CAUSE, flinchBodyOf, flinchClip, flinchRefused, VOICE_GATE_S } from '../../viewer/src/net/deaths';
-import { applyKnock, blastExposed, blastFlashLevel, BLAST_RING_SECONDS, blastSeen, BLAST_RING_VOLUME, KNOCK_COVER_RELOAD_READING, KNOCK_LETHAL_IN_MOVE_READING, mountFallRefuses, mountPop, releaseMove, resolveBlast, type Knock } from '../../viewer/src/net/blast';
+import { applyKnock, blastExposed, blastFlashLevel, BLAST_HEAD_OVER_READING, blastLine1, BLAST_LINE1_END_PLACEHOLDER, blastPoint, BLAST_RING_SECONDS, blastSeen, BLAST_RING_VOLUME, KNOCK_COVER_RELOAD_READING, lethalKnockLaid, mountFallRefuses, mountPop, releaseMove, resolveBlast, type Knock } from '../../viewer/src/net/blast';
 import { CHARGE_GROUND_SLACK_PLACEHOLDER, chargeRests } from '../../viewer/src/net/placing';
 import { combatHealthSummary } from '../../viewer/src/net/combatHealth';
 import { fireAllowed, fireCapability } from '../../viewer/src/net/fireCapability';
@@ -73,7 +74,7 @@ import { bodyApplications, walkOrder } from './bodyWalk';
 import { WorldDrops } from './worldDrops';
 import { channelOf, hears, VoiceFloor, VOICE_CHANNEL_MAP_READING, VOICE_LATE_JOINER_READING, type VoiceAsk } from './voiceFloor';
 import type { RoomRecorder } from './replay/recorder';
-import type { ReplayRefusal } from './replay/format';
+import type { ReplayRefusal, ReplayRewind } from './replay/format';
 import { objectiveFields, type RoomRuleHost, type RuleEventInput, type RulePlayer, type RuleRoom, type RulesWire } from './creator/rules';   // FCW-31 (RULES_ADAPTATION)
 import { LIMB_SPILL_PIERCING } from '../../viewer/src/net/damage';
 import { actionPoints, carriesTeam, objectivePoints, statKind, teamCarry, type ObjectiveEvent } from '../../viewer/src/net/objectiveScore';
@@ -1327,6 +1328,36 @@ export const REFUSED_ROUND_CONE_ADAPTATION = 'a round refused one tick short of 
 export const ROOM_RAISE_TRUST_ADAPTATION = "the room models no raise envelope: a round from a lowered rifle or launcher is the page's to refuse" as const;
 
 /**
+ * [adaptation] ROOM-HAND (LATER 652; the investigation seat 8a's finding, 2026-11-13): the room takes the page's word for
+ * the selected non-firearm item (a grenade, a charge, the Detonator; `kit+0x824`) -- the client event `hand` naming the
+ * page's last command, applied from command `seq + 1` (`Player.hand`). The original sends the item in hand every frame in
+ * the player record (`FUN_002bd640` packs `FUN_005c89d0(kit)`, D:L162059-162066); the port's page sends it only when it
+ * changes, and the room models no selection of its own (no headless kit: LATER 641's raise model is not built). The room's
+ * cone runs the item's reticle on those commands (`ShotCone.setItem`), as the page's kit does, so an honest round after a
+ * grenade swap is not refused `fire: cone`. Each `hand` takes effect on its own commands only (`Room.handAt`): one
+ * arriving while earlier commands are still queued changes none of them (the review's finding 1). A round named on a
+ * command with an item up is refused 'fire: hand' (the original's R1 with a hand item selected is the throw, not the
+ * firearm: research 321 s3.4, D:L453478-453541, D:L453568). What the guard does not close: a forged page may claim an
+ * item up on the commands between two rounds and put it away before the trigger, and the room runs the item's knock
+ * return (the grenade's 60 a second) on those commands. The original allows a real swap there too, at the raise's cost,
+ * which the room does not model (`ROOM_RAISE_TRUST_ADAPTATION`); that lever stays open until LATER 641's raise model.
+ * A page that never sends `hand` (an older one) is judged as before.
+ */
+
+/**
+ * ROOM-HAND (the review's finding 1): the most `hand` changes a seat keeps waiting (`Player.hand.next`); one
+ * past it folds the oldest into the hand in force. A bound of the network's, not the original's.
+ */
+const HAND_PENDING_MAX = 8;
+/**
+ * ROOM-HAND (the review's finding 1): how many commands a run `hand` change is kept for after its first command before it
+ * folds into the hand in force -- the cone's own history (`../../viewer/src/net/shotCone.ts` `RING`, 64): a round named
+ * on a command older than that has no frame (`fire: no frame`), so no lookup reaches past it.
+ */
+const HAND_KEEP_COMMANDS = 64;
+export const ROOM_HAND_TRUST_ADAPTATION = "the room takes the page's hand item from the command after the one it names; a round with an item up is refused" as const;
+
+/**
  * [adaptation] LATER 107 (the network's; research 215 s8.2): a round, or an R, named on a command the room ran before it
  * took the mount -- the ask's own command, or one before it arriving late (within `FIRE_ARRIVAL_JITTER_TICKS`) -- is the
  * hand's, judged on the hand's path: its magazine, rate, lock and cone, the hand's record lent to the cone for the check
@@ -1437,8 +1468,11 @@ const SCRIPT_BLASTS_A_TICK = 64;
  * (D:L107286-107297); each console fires its own and hurts its own SEAL with it, so the round that hurts a player is his
  * own, as the bomb's (`MPBOMB_BLAST_OWNER_READING`). A destructible's death starts its program with entries of types 2, 6
  * and 5 only (`FUN_00273a50` D:L121010-121060; research 386 §3.3): no type 9, so its round is the console's own SEAL's
- * [reading: whether a switch's press starts its program with a type-9 entry -- the presser -- is not traced; a capture of
- * a player killed by a bridge's blast (H421) settles it].
+ * [reading: whether a switch's press starts its program with a type-9 entry -- the presser -- is open. Traced since,
+ * reading, pending review: `FUN_002b44e0` builds the switch program's context with entries of types 3, 4 and 1, no 9
+ * (`FUN_00272bb0`, D:L156826-156827, D:L156837-156838), and its peers reach it through D:L160543. Settled by a capture
+ * of a player killed by a Crossroads bridge's blast another player set off: the Shadow rig's queued Q14
+ * (`agent-mail/handoffs/shadow-held-next-start-2026-11-14.md`, F127). H421 covers MP1 and MP12 only.]
  */
 export const SCENE_ROUND_OWNER_READING = 'victim' as const;
 /**
@@ -1500,8 +1534,6 @@ export const THROW_TAIL_S = Math.min(...THROW_ROWS.map((a) => throwClipSeconds(a
 export const THROW_START_WINDOW_S = Math.max(...[...THROW_ROWS, ...THROW_ROWS.flatMap((a) => PISTOL_HAND_ANIMS[a.clip] ?? [])].map((a) => releaseSeconds(a)));
 /** The dead's stick: at rest (the dead take no stick, `FUN_00592560`). */
 const DEAD_STICK = { forward: 0, right: 0, boost: false } as const;
-/** The head over the feet by posture, for the blast's line of sight to the head node (research 91 section 5). */
-const HEAD_OVER: Readonly<Record<'stand' | 'crouch' | 'prone', number>> = { stand: 18.3, crouch: 11.1, prone: 1.7 };
 
 /**
  * A projectile the room flies: its thrower (m-13 of review 2: the name a kill by a thrower who has since left is told
@@ -1640,6 +1672,12 @@ interface Past {
    */
   pose?: HitPoser;
   poseAt?: number;
+  /**
+   * FIRE-LAYER FL-2 (REPLAY_ADAPTATION): the body's raise at the tick as the room relayed it (`BodyFlag.Raised`,
+   * `body`'s `raised`). Read only by the replay's `rewind` record (`rewindRecord`); nothing judged reads it. Absent (a
+   * hostage's): none.
+   */
+  raised?: boolean;
 }
 
 /** HIT-POSE: a past's posed bone boxes (`Past.pose` at `poseAt`, the ring's own: no copy), or null -- the idle sets meet the round. */
@@ -2131,6 +2169,16 @@ class Player {
    * binoculars or a scope -- the same bit `ShotCone`'s `scoped` reads in `aim`.
    */
   scopeView = false;
+  /**
+   * PV-2 (protocol 16, WIRE-16; PV.R4; research 402 section 3): the page's view state (`Command.view`, through
+   * `viewState`: an integer 0-12, else 0) and its scope sway (`Command.swayX`/`swayY`, PS2 pixels at the wire's i8 step)
+   * on its last command run alive -- a relayed picture state for a watcher's player's view, a browser adaptation with no
+   * original. Read by `body` and by nothing else: the mover, the cone, a hit, a rule and the score never read them
+   * (`scopeView` above is the only view input the room acts on). 0 for a new body and at a takeover.
+   */
+  view = 0;
+  swayX = 0;
+  swayY = 0;
   lastYaw = 0; lastPitch = 0;
   /** The last landing the fall's damage was read from (`fallDamage`): each landing of the mover is read once. */
   lastLanding: Landing | null = null;
@@ -2150,6 +2198,14 @@ class Player {
    */
   held: number | null = null;
   heldReadyAt = -1;
+  /**
+   * ROOM-HAND (LATER 652, `ROOM_HAND_TRUST_ADAPTATION`): the selected non-firearm, non-launcher item the page names
+   * (`hand`), or null for the firearm: `now` before the first change waiting, and `next` each change from its own command
+   * (the event's seq + 1), in order (`Room.handAt`, `handTake`, `handRan`; the launcher's `heldNext` keeps one, this a
+   * few: a take-up and a put-away may both wait on queued commands). Never the launcher's `held`, which
+   * feeds the body's weapon, the launcher's clips and the throw's refusal.
+   */
+  hand: { now: number | null; next: { item: number | null; from: number }[] } = { now: null, next: [] };
   /**
    * NU-6 F1 (research 324 §6; the fresh review of 384b7d288): the item `held` takes on a later command -- a raise's
    * launcher, a still lower's null -- the command its clip begins (the event's seq + 1), so the body's item and the clip
@@ -2389,6 +2445,75 @@ export const REFUSAL_LINES_PER_ROUND = 5;
 export const REFUSAL_RECORD_ADAPTATION = 'a fire: cone: * refusal is recorded (replay-only) and logged with the room eye locus; nothing judged changes' as const;
 /** SIMDROP-INSTR: a `fire: cone: *` refusal's log line (`Room.takeRefusals`): the replay record's fields and its tick. */
 export type RefusalLine = ReplayRefusal & { tick: number };
+
+/**
+ * PV-2 (PV.R9; research 402 section 3; the plan's Log 2026-11-11T16:22Z and 16:24Z): the snapshot build's ONE
+ * per-recipient pass, shared with the fog of war's lane -- a browser adaptation with no original (the original carries
+ * no view, research 248 sections 1-2; `VIEW_RECIPIENTS_ADAPTATION`). Each ordered pair (a recipient's seat, a body) has
+ * a small integer mask, no object: bit 0 (`TAIL_ZEROED`) the body's view tail zeroed (this lane's, `viewTold`); bit 1
+ * (`PLACELESS`) the body withheld placeless (the fog of war's; never set in this release, `Room.fog` null). A body has
+ * at most three wire variants in a tick, each built lazily once and shared by every recipient that gets it, as today's
+ * `list.filter` shares the stored objects: variant 0 the stored object itself; variant 1 a copy with the tail zeroed (a
+ * body whose tail is already four zeros IS its variant 1, no copy); variant 2 the fog's `placeless` of variant 1 (never
+ * of the stored object, so "bit 1 implies the tail zeroed" never rests on the other lane's function).
+ */
+export const TAIL_ZEROED = 1, PLACELESS = 2;
+
+/**
+ * PV-2: the fog of war's seam (FOW-8 assigns `Room.fog` and steps its own state before the loop over connections; null
+ * in this release, assigned by nothing). `withheld` answers false for everything the pass need not know (a recipient's
+ * own side, a corpse, a hostage, a page that did not ask, any mode but that lane's); the ids are the connection's seat
+ * id and the body's `BodyState.id` (a hostage's from 240). `placeless` returns a NEW body and never mutates its input.
+ */
+export interface RoomFog {
+  withheld(recipientId: number, bodyId: number): boolean;
+  placeless(b: BodyState): BodyState;
+}
+
+/** PV-2: one tick's variants of the snapshot's bodies, by their place in the list; `copies` counts the variant-1 copies made. */
+export interface BodyVariants { readonly zeroed: (BodyState | undefined)[]; readonly placeless: (BodyState | undefined)[]; copies: number }
+
+/** PV-2: a tick's empty variant cache (`recipientBodies`). */
+export function bodyVariants(): BodyVariants {
+  return { zeroed: [], placeless: [], copies: 0 };
+}
+
+/**
+ * PV-2: a seat's connection's bodies for one snapshot -- today's `list.filter((b) => b.id !== recipient)` with each body's
+ * variant picked by `mask(recipient, body id)` (`TAIL_ZEROED`, `PLACELESS`), from and into the tick's `variants`. One
+ * array a call (today's), no `BodyState` a pair: at most one tail-zeroed copy a body a tick, and one placeless body,
+ * however many recipients get it. A mask of 0 hands the stored object. Bit 1 without a `fog` (it never comes: the room
+ * asks no bit 1 while `fog` is null) gets variant 1, never more than bit 0 alone gives. Pure: no stored body is
+ * mutated. A spectator's connection is not passed here: it is told every tail and never asked about bit 1 (the stored
+ * list, as today).
+ */
+export function recipientBodies(
+  list: readonly BodyState[], recipient: number, mask: (recipientId: number, bodyId: number) => number, variants: BodyVariants,
+  // Not `Pick<RoomFog, 'placeless'>`: this file imports the loadout's `Pick` (@s2u/scene), which hides TypeScript's own.
+  fog: { placeless: RoomFog['placeless'] } | null,
+): BodyState[] {
+  const out: BodyState[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const b = list[i]!;
+    if (b.id === recipient) continue;
+    const m = mask(recipient, b.id);
+    if (m === 0) { out.push(b); continue; }
+    let zeroed = variants.zeroed[i];
+    if (zeroed === undefined) {
+      zeroed = !b.view && !b.clock && !b.swayX && !b.swayY ? b : { ...b, view: 0, clock: 0, swayX: 0, swayY: 0 };
+      if (zeroed !== b) variants.copies++;
+      variants.zeroed[i] = zeroed;
+    }
+    if ((m & PLACELESS) === 0 || fog === null) { out.push(zeroed); continue; }
+    let placeless = variants.placeless[i];
+    if (placeless === undefined) variants.placeless[i] = placeless = fog.placeless(zeroed);
+    out.push(placeless);
+  }
+  return out;
+}
+
+/** PV-2: a command's sway as the seat holds it -- the wire's i8 step (`qSway`, `VIEW_SWAY_STEP_ADAPTATION`), clamped to its range; a non-number 0. */
+const heldSway = (v: unknown): number => (typeof v === 'number' ? dqSway(qSway(v)) : 0);
 
 export class Room {
   /**
@@ -2776,7 +2901,8 @@ export class Room {
         const posture = p.sim.walker.stance;
         return { id: p.id, feet: [w.x, w.y, w.z] as V3, alive: p.alive, team: p.team === 'seal' ? SEAL_TEAM_MASK : TERRORIST_TEAM_MASK,
           yaw: w.yaw, velocity: [w.vx, w.vy, w.vz] as V3, topSpeed: stanceBody(posture).bands.forward,
-          stance: posture === 'prone' ? 2 as const : posture === 'crouch' ? 1 as const : 0 as const };
+          stance: posture === 'prone' ? 2 as const : posture === 'crouch' ? 1 as const : 0 as const,
+          placement: p.sim.walker.placement };                  // LATER 960: each placing zeroes the body's trail
       }),
       send: (ev) => this.broadcast(ev),
       // HX-4a (research 239 s9.1): the orders' seats, pick and tally.
@@ -3472,9 +3598,11 @@ export class Room {
     p.throwStart = null; p.throwHoldSeq = -1; p.holdStartsSeen = p.sim.walker.holdStarts; p.placeStart = null;
     // RECONNECT_HELD_LAUNCHER_ADAPTATION (condition 4 (b)): the launcher lowered at once, as the spawn's kit does.
     p.held = null; p.heldNext = null; p.heldReadyAt = -1; p.firearmReadyAt = -1;
+    p.hand = { now: null, next: [] };                            // ROOM-HAND: the new page tells its own hand
     p.launcherSet = null; p.launcherUp = null; p.movingLowerUntil = -Infinity; p.raiseAfterStick = null;
     p.raise = false;                                             // OBF-14 review F1: a controller's raise is not the page's
     p.raised = false;                                            // ER-2: down until the page's next command says
+    p.view = 0; p.swayX = 0; p.swayY = 0;                        // PV-2: and its view, the new page's own
     p.sim.launcherClips.clear(); p.sim.walker.dropLauncherClip();
     p.lastActive = this.opts.now();
     this.healthSent.delete(old);                                  // NU-3c: the new connection has been told no part bytes
@@ -4192,6 +4320,12 @@ export class Room {
       case 'reload':
         if (isInt(ev.seq)) this.timed(id, raw as Timed['ev']);
         return;
+      case 'hand': {                                               // ROOM-HAND (LATER 652; ROOM_HAND_TRUST_ADAPTATION)
+        const p = this.players.get(id);
+        if (!(isInt(ev.seq) && ev.seq >= 0 && (ev.item === null || (isInt(ev.item) && ev.item >= 1 && ev.item <= 255)))) { this.dropped('hand', 'shape', p); return; }
+        if (p) this.handTake(p, ev.item as number | null, (ev.seq as number) + 1);   // from the command after, as `heldNext`
+        return;
+      }
       case 'reloadPress': {                                        // LATER 72: the delay timer's press, for the climb lock
         const p = this.players.get(id);
         if (p && isInt(ev.seq)) this.reloadPress(p, ev.seq);    // at its arrival, dated by its numbers (never late by the queue)
@@ -4839,6 +4973,8 @@ export class Room {
       p.binoculars = (cmd.buttons & Button.Binoculars) !== 0;
       p.raised = cmd.raised === true;                            // ER-2: the owner's raise state, relayed (`body`)
       p.scopeView = (cmd.buttons & Button.Scope) !== 0;
+      // PV-2 (PV.R4): the page's view and sway, relayed to `body` alone -- nothing the room simulates reads them.
+      p.view = viewState(cmd.view); p.swayX = heldSway(cmd.swayX); p.swayY = heldSway(cmd.swayY);
       // LATER 104 (`TURRET_RELEASE_SEQ_ADAPTATION`, research 215 s7.9): a dismount is taken before the first command above its
       // `seq` the room runs (a parked seat's neutral ones too: `parkedStep` queues them), not at its arrival -- before this
       // command's steer step and hold, so the command runs released. While the steer still runs it is held (ruling (b)): the
@@ -5079,6 +5215,12 @@ export class Room {
     this.opts.recorder?.command?.(this.tick, p.id, cmd);
     // TURRET-CONE (research 215 s8.2): mounted, the cone runs the turret record at its stance row whatever the body's --
     // TURRET_RETICLE_STANCE_READING's 'stand' (`../../viewer/src/net/emplacement.ts`), as the page's `gunFrame` runs the kit.
+    // ROOM-HAND (LATER 652): the command's item in the hand, as the page's kit runs it -- `FUN_005c2670` ticks the selected
+    // slot's item (research 321 s3.4). A choice of the port's: none while mounted or with the launcher up, mirroring the
+    // page's own rule (`../../viewer/src/matchFirearm.ts:1206`, `accuracy.setItem`); the original's case is not read.
+    const handItem = this.handAt(p, cmd.seq);                    // the review's finding 1: the item at this command, not the newest
+    p.cone.setItem(handItem !== null && p.mounted === null && p.held === null ? this.itemReticleFor(handItem) : null);
+    this.handRan(p, cmd.seq);
     p.cone.tick(cmd, {
       feet: [s.x, s.y, s.z], velocity: [s.vx, s.vy, s.vz], airborne: walker.airborne, posture: walker.posture,
       stance: walker.stance, moveRoot: this.aimRootOf(p), peek: moves?.peek() ?? 0, weapon: w,   // JUMP-AIM-ROOT
@@ -5112,7 +5254,8 @@ export class Room {
     const at = this.hitPose(p);                                  // HIT-POSE: the live skeleton's pose kept at this tick
     const past: Past = { tick: this.tick, feet: [s.x, s.y, s.z], yaw: s.yaw, posture: p.sim.walker.posture, alive: p.alive, tilt: p.sim.walker.rootTilt.q,
       peek: p.sim.moves?.peeking() ?? 0,                         // LEAN-HIT: the held peek, the body's lean set
-      pose: at ? p.poser!.pose : undefined, poseAt: at };        // one shape for every entry, posed or not
+      pose: at ? p.poser!.pose : undefined, poseAt: at,          // one shape for every entry, posed or not
+      raised: p.alive && (p.raised || p.raise) };                // FL-2: the raise `body` relays, for the replay's `rewind` only
     p.history.push(past);
     if (p.history.length > HISTORY) p.history.shift();
   }
@@ -5234,6 +5377,7 @@ export class Room {
     this.scoreDirty = true;
     p.raise = false;                                             // OBF-14: a new body asks no raise until its controller does
     p.raised = false;                                            // ER-2: nor its page (the body is constructed down, D:L419662)
+    p.view = 0; p.swayX = 0; p.swayY = 0;                        // PV-2: a new body has no view until its page's command says
     p.deadAtLoad = false;
     p.diedSeq = -1;                                              // NCW-2 B-trade: a new life trades nothing of the last
     p.tradeRounds = [0, 0];                                      // nor spends its last life's rounds (Codex's P1, PR #698)
@@ -5282,6 +5426,7 @@ export class Room {
     p.rounds = new KitRounds(this.kits?.table ?? null, p.loadout);   // M4: every round slot full
     p.rocketWaitUntil = -1;
     p.held = null; p.heldNext = null; p.heldReadyAt = -1; p.firearmReadyAt = -1;
+    p.hand = { now: null, next: [] };                            // ROOM-HAND: a new body's hand is the firearm
     p.launcherSet = null;                                        // PAR-81: a new body holds no launcher's set
     p.launcherUp = null;                                         // PAR-83: nor a launcher up
     p.movingLowerUntil = -Infinity; p.raiseAfterStick = null;    // PAR-83, F1: nor its moving lower, nor a raise after it
@@ -5636,6 +5781,41 @@ export class Room {
   // ---- fire (W3.R4) ----
 
   /**
+   * ROOM-HAND (LATER 652): the item `id`'s reticle off the kit table (`../../viewer/src/accuracy` `itemReticleOf`), or null
+   * (a firearm, no table, none read). A seam: a test room with no kit table names its own.
+   */
+  itemReticleFor(id: number): ItemReticle | null {
+    return itemReticleOf(this.kits?.table ?? null, id);
+  }
+
+  /**
+   * ROOM-HAND (the review's finding 1): the item in the hand at command `seq` -- the last change waiting whose own command
+   * is at or before it, else the hand in force (`Player.hand`).
+   */
+  private handAt(p: Player, seq: number): number | null {
+    let item = p.hand.now;
+    for (const e of p.hand.next) { if (e.from <= seq) item = e.item; else break; }
+    return item;
+  }
+
+  /**
+   * ROOM-HAND: a `hand` change from command `from` on. A change naming an earlier command than one waiting replaces those
+   * from it on (the page's newest word on them); past `HAND_PENDING_MAX` the oldest folds into the hand in force.
+   */
+  private handTake(p: Player, item: number | null, from: number): void {
+    const next = p.hand.next.filter((e) => e.from < from);
+    next.push({ item, from });
+    while (next.length > HAND_PENDING_MAX) p.hand.now = next.shift()!.item;
+    p.hand.next = next;
+  }
+
+  /** ROOM-HAND: command `seq` has run; a change whose first command is `HAND_KEEP_COMMANDS` behind it folds into the hand in force. */
+  private handRan(p: Player, seq: number): void {
+    const next = p.hand.next;
+    while (next.length > 0 && next[0]!.from <= seq - HAND_KEEP_COMMANDS) p.hand.now = next.shift()!.item;
+  }
+
+  /**
    * A round (W3.R4), decided at its command (`timed`): the weapon is the server's mover's (the kit's selected slot
    * `+0x824`, set only by the swap: `FUN_005c0fd0` 476592-476625, `FUN_005bd030` 474178), never the event's; its rate
    * and its reload's lock count on the player's own command clock (`Player.ran`); the round must leave from the body,
@@ -5644,6 +5824,13 @@ export class Room {
    */
   private fire(p: Player, ev: Extract<ClientEvent, { type: 'fire' }>): void {
     if (this.victoryPlaying.has(p.id)) return;
+    // ROOM-HAND (LATER 652, ROOM_HAND_TRUST_ADAPTATION): a round named on a command the page's own `hand` puts an item up
+    // on is refused before anything is spent -- the original's R1 with a hand item selected is the throw, not the firearm
+    // (research 321 s3.4, D:L453478-453541, D:L453568) -- no round under a claimed item (the claim between rounds is
+    // ROOM_HAND_TRUST_ADAPTATION's open lever, LATER 641). A choice of the port's: a turret's round is not the hand's and
+    // is not refused here (the mount takes the slot, `FUN_005463c0` D:L412218). Before the alive check: a dead seat's
+    // traded round with an item up was no round either. The item is the one AT the round's command (`handAt`).
+    if (this.handAt(p, ev.seq) !== null && (p.cone.frame(ev.seq)?.turret ?? null) === null) return this.dropped('fire', 'hand', p);
     if (!p.alive || this.state.phase === 'over') {
       // NCW-2 B-trade: a round the dead shooter's page sent before it could know of the death is decided as if he lived,
       // on his last command run alive (`tradeFrame`); any other refused, as before.
@@ -5836,7 +6023,9 @@ export class Room {
       // OWNER-3: the eye, the aim inside the cone, and the round down the eye's ray. LATER 305: the hull the cone reproduces
       // a claimed eye on for the view line (`ShotCone.setGrid`), as it stands now.
       p.cone.setGrid(this.map.grid);
-      const verdict = p.cone.check(ev.seq, { eye: ev.eye, aim: ev.aim, from, dir });
+      // SHOTGUN-PELLET-CONE (LATER 934): a pull's later ray against the cone its earlier rays bloomed (`FUN_005be9a0`
+      // D:L475604 -> `FUN_005c5340` -> `FUN_005c3360` D:L479542: the bloom between the pellets' draws).
+      const verdict = p.cone.check(ev.seq, { eye: ev.eye, aim: ev.aim, from, dir }, ofVolley);
       // REFUSED_ROUND_CONE_ADAPTATION (LATER 326): the console bloomed this round (`FUN_005c3360`). The room's muzzle
       // check has no original. Inside the cone, bloom and keep the reason; outside, do not bloom. Not a volley's later
       // ray: those skip the rate and are counted only when taken (`v.rays`), so a bloom there would be unbounded -- K
@@ -5962,6 +6151,9 @@ export class Room {
     // console walking the round to its end (research 91 s23); the blood, the body hit and the report stay `to`'s.
     const roundEnd = path.hit ? path.hit.point : path.end;
     const past = first && roundEnd.some((v, i) => v !== end[i]) ? { end: [...roundEnd] as V3 } : {};
+    // FIRE-LAYER FL-2 (REPLAY_ADAPTATION): the round's rewind and each struck body's raise, to the recorder only,
+    // just before its `shot` -- read after the judgement, it changes nothing above or below.
+    if (this.opts.recorder?.rewind) this.opts.recorder.rewind(this.tick, this.rewindRecord(p, ev, at, shown, bodies));
     this.broadcast({ ...shot, ...(through.length ? { through } : {}), ...past }, id);
     if (body !== null) this.send(id, { ...shot, type: 'impact', body });   // the shooter's page walked the rest itself
     // PF-36 (PF.R56; research 235 s4): the resting `Volitile` charges the round met (their damage interface, `FUN_003c8920`
@@ -6050,6 +6242,27 @@ export class Room {
       bodyRecords(from, dir, reach, past.feet, past.yaw, past.posture, this.hostageVolumes(h), past.tilt, past.peek ?? 0, push(h.id, true));
     }
     return walkOrder(extra);
+  }
+
+  /**
+   * FIRE-LAYER FL-2 (REPLAY_ADAPTATION; LATER 1026; a playtest and field-report instrument with no original -- it
+   * decides nothing, sends nothing, damages nothing): a judged round's replay-only `rewind` record -- the seat and the
+   * round's `seq`, the tick its bodies were rewound to (`at`), its displayed tick when `shownOf` accepted one (the claim's
+   * `shownTick`, before the cap's clamp) and its `viewTick`, and for each body record its walk struck (`bodies`, in the
+   * walk's order) the body, hostage or not, the part, and its raise at `at`: its past's `raised` and the Fire weight its
+   * poser kept with that past's pose (`HitPoser.fireWeightAt`; null without a kept pose). A hostage has no raise (nulls).
+   */
+  private rewindRecord(p: Player, ev: Extract<ClientEvent, { type: 'fire' }>, at: number, shown: { lead: number; at: number } | null,
+    bodies: readonly { tag?: unknown }[]): ReplayRewind {
+    return {
+      seat: p.id, seq: ev.seq, at, shown: shown ? ev.shownTick as number : null, viewTick: ev.viewTick,
+      bodies: bodies.map((s2) => {
+        const { id, part, hostage } = s2.tag as { id: number; part: number; hostage?: true };
+        if (hostage) return { id, hostage: true, part, raised: null, weight: null };
+        const q = this.players.get(id), past = q ? this.past(q, at) : null;
+        return { id, hostage: false, part, raised: past?.raised ?? null, weight: past?.pose && past.poseAt ? past.pose.fireWeightAt(past.poseAt) : null };
+      }),
+    };
   }
 
   /**
@@ -6426,7 +6639,7 @@ export class Room {
     const died = applyHit(this.woundable(victim), part, laid, piercing) && !this.deathless(victim);   // CPS cell-alive
     this.send(victimId, { type: 'hurt', health: [...victim.health.hp], from: [...from], part });
     this.combat(p, victim, { ...onBody, status: 'applied', rawDamage: laid, healthBefore, armourBefore, killed: died });
-    if (died) this.kill(victim, p, this.weaponName(record.id, record.name), 'weapon', deathCause('bullet', part), deathClip('bullet', part, victim.sim.walker.posture, this.opts.random), undefined, part);
+    if (died) this.kill(victim, p, this.weaponName(record.id, record.name), 'weapon', deathCause('bullet', part), deathClip('bullet', part, victim.sim.walker.stance, this.opts.random), undefined, part);
     else this.flinch(victim, part, was);
   }
 
@@ -6726,7 +6939,7 @@ export class Room {
     this.combat(p, victim, {
       ...report, status: 'applied', part: hits.length === 1 ? part : null, hitLocations: hits, rawDamage: laid * hits.length, healthBefore, armourBefore, killed: died,
     });
-    if (died) this.kill(victim, p, this.weaponName(record.id, record.name), 'weapon', deathCause('bullet', part), deathClip('bullet', part, victim.sim.walker.posture, this.opts.random), undefined, part);
+    if (died) this.kill(victim, p, this.weaponName(record.id, record.name), 'weapon', deathCause('bullet', part), deathClip('bullet', part, victim.sim.walker.stance, this.opts.random), undefined, part);
     else this.flinch(victim, part, was);
   }
 
@@ -8700,7 +8913,7 @@ export class Room {
     this.combat(thrower, q, { ...report, status: 'applied', rawDamage: laid, healthBefore, armourBefore, killed: died });
     if (died) {
       const how: KillHow = q === f.owner ? 'suicide' : thrower ? 'weapon' : 'orphan';
-      this.kill(q, thrower, this.weaponName(r.id, r.name), how, deathCause('bullet', body.part), deathClip('bullet', body.part, q.sim.walker.posture, this.opts.random), how === 'orphan' ? f.name : undefined);
+      this.kill(q, thrower, this.weaponName(r.id, r.name), how, deathCause('bullet', body.part), deathClip('bullet', body.part, q.sim.walker.stance, this.opts.random), how === 'orphan' ? f.name : undefined);
     } else {
       // Alive, it flinches for the others as a bullet's hit does (`flinch`; FUN_005a54d0 L461397-461405): under
       // IMPACT_HIT_READING the hit is a bullet's (cause 5, as FUN_005abbc0 L464731 passes), not a blast's (cause 4,
@@ -8750,7 +8963,7 @@ export class Room {
     const t = this.thrown(f.kind);
     if (!t) return;
     const thrower = this.thrower(f);
-    const point: V3 = [at[0]!, at[1]!, at[2]!];
+    const point: V3 = [at[0]!, at[1]!, at[2]!];                  // the round's point (its node); LATER 992's lift is the consumers' (`blastPoint`)
     this.blastPlayers(t, point, () => thrower, f.facing, f.name);
     this.blastHostages(t, point, f.facing, thrower, f.name);   // HX-1, LATER 354
     this.blastCharges(t, point, f.facing, () => thrower, f);   // PF-36
@@ -8764,6 +8977,27 @@ export class Room {
       return f.facing && r.id === CLAYMORE.id && !claymoreCone([to[0] - point[0], to[1] - point[1], to[2] - point[2]], f.facing, r.explosionRadius) ? 1 / 32 : 1;
     });
     this.actionDied(died, thrower);                              // PF-14: the charge's owner (ACTION_POINTS_ACTOR_READING)
+  }
+
+  /**
+   * NADE-BLAST (V21-AA; research 400 s6; simulation track, reading, pending review): whether a blast at `point` reaches a
+   * body standing at `feet` in `posture` -- a SEAL's (`blastPlayers`) or a hostage's (`blastHostages`) -- by the two lines
+   * the original asks, both clear. LINE 1, the explosion's own walk (`FUN_003c7dd0` D:L318974-318992 -> `FUN_003c80e0`
+   * D:L319096-319143), run first and skipping the body when refused (`blastLine1`, to `BLAST_LINE1_END_PLACEHOLDER` over
+   * the feet: the PENETRATION product, one-sided); then LINE 2, the body's own to the posed head (`FUN_005ac070`
+   * D:L464841-464853 -> `FUN_005a0e70`; `blastExposed`, to `BLAST_HEAD_OVER_READING` over the feet), vetoed by the first
+   * face that is cover. Both from the impact's lift (`sightFrom`). The caller skips both for `IgnoreExplosionDI`. Was:
+   * line 2 alone, to `HEAD_OVER` (18.3 / 11.1 / 1.7) -- a body whose head cleared a sill or a low wall took the blast the
+   * original stops on line 1 (research 400 s3.1: 29% / 36% of Desert Glory's hurt cases, 8% / 10% of Frostfire's).
+   */
+  private blastLines(point: V3, feet: V3, posture: 'stand' | 'crouch' | 'prone', radius: number): boolean {
+    const def = this.map.defaultMaterial ?? '';
+    const end: V3 = [feet[0], feet[1] + BLAST_LINE1_END_PLACEHOLDER[posture], feet[2]];
+    // FORGE_SCRIPT_BLAST_ADAPTATION (the merge, ours): a Forge script explosion's own object is passed on both lines
+    // (`blastSource`; undefined for every other blast, so these are NADE-BLAST's two calls unchanged).
+    if (!blastLine1(this.map.grid, sightFrom(point, end), end, radius, def, this.blastSource)) return false;
+    const head: V3 = [feet[0], feet[1] + BLAST_HEAD_OVER_READING[posture], feet[2]];
+    return blastExposed(this.map.grid, sightFrom(point, head), head, def, this.blastSource);   // LATER 416; R4B-10
   }
 
   /**
@@ -8784,9 +9018,9 @@ export class Room {
       if (facing && record.id === CLAYMORE.id && !claymoreCone([feet[0] - point[0], feet[1] - point[1], feet[2] - point[2]], facing, record.explosionRadius)) {
         record = { ...record, explosionDamage: record.explosionDamage / 32 };
       }
-      const head: V3 = [feet[0], feet[1] + HEAD_OVER[posture], feet[2]];
-      const seen = record.ignoreExplosionDI === true || blastExposed(this.map.grid, sightFrom(point, head), head, this.map.defaultMaterial ?? '', this.blastSource);   // LATER 416; R4B-10
-      const out = resolveBlast(h.health, { feet, posture, yaw: h.yaw }, point, { record, piercing: t.piercing, fragments: t.fragments, flash: record.id === FLASHBANG_ID }, this.opts.random, seen);
+      const lifted = blastPoint(point);                          // LATER 992: the walk's lines and the handler's +0x48 terms
+      const seen = record.ignoreExplosionDI === true || this.blastLines(lifted, feet, posture, record.explosionRadius);   // NADE-BLAST
+      const out = resolveBlast(h.health, { feet, posture, yaw: h.yaw }, lifted, { record, piercing: t.piercing, fragments: t.fragments, flash: record.id === FLASHBANG_ID }, this.opts.random, seen, point);
       if (out?.knock) h.motion?.knock(out.knock);
       if (!out?.died) continue;
       this.hostageKilled(h, thrower, {
@@ -8800,7 +9034,8 @@ export class Room {
    * PF-36 (PF.R56; research 235 s4): after the players, the resting `Volitile` charges a blast of `t` at `point`
    * reaches -- `blast()`'s (`self` its own round, never its own target) and, since P20, the bomb's (`bombBlast`): the
    * explosion's target walk (`FUN_003c7dd0` 0x3c7e74-0x3c7e8c) calls each one's interface once `FUN_003c80e0` finds
-   * it visible: the players' line from the same lift (`sightFrom`), skipped for IgnoreExplosionDI as theirs is (PF-35).
+   * it visible: one line from the players' lift (`sightFrom`; the players take two since NADE-BLAST, `blastLines`), skipped
+   * for IgnoreExplosionDI as theirs are (PF-35).
    * The damage at it is GetDamage's explosion base, `Explosion_Damage + Damage_Modifier` by the radius falloff
    * (`fragmentDamage` over its x14; D:L318708-318736), at its 1.0 minimum (VOLATILE_MIN_DAMAGE_READING): the claymore's
    * 32nd behind it follows that minimum (D:L318770-318781) and leaves it nonzero, so it does not bind here; the
@@ -8814,7 +9049,8 @@ export class Room {
       const to = f2.g.pos, distance = Math.hypot(to[0] - point[0], to[1] - point[1], to[2] - point[2]);
       if (!(distance < t.record.explosionRadius)) continue;
       if (facing && t.record.id === ITEM.BACKBLAST && !backblastReaches(point, facing, to, t.record.explosionRadius)) continue;
-      if (t.record.ignoreExplosionDI !== true && !blastSeen(this.map.grid, sightFrom(point, to), to, this.blastSource)) continue;   // LATER 416
+      const lifted = blastPoint(point);                          // LATER 992: the walk's line from +0x48; the list and GetDamage from the node
+      if (t.record.ignoreExplosionDI !== true && !blastSeen(this.map.grid, sightFrom(lifted, to), to, this.blastSource)) continue;   // LATER 416
       const base = fragmentDamage(t.record.explosionDamage + (t.record.damageModifier ?? 0), t.record.explosionRadius, distance) / DAMAGE_SCALE;
       this.chargeHit(f2, base, ownerOf(f2)?.id ?? null);
     }
@@ -8851,8 +9087,9 @@ export class Room {
   private sceneBlast(point: V3, r: ThrowableRecord, piercing: number, cone: (to: V3) => number = () => 1): number[] {
     const rating = r.explosionDamage + (r.damageModifier ?? 0);
     const penetration = (p: WorldPoly): number => surfaceMaterial(p.material, this.map.defaultMaterial ?? '').penetration;
+    const lifted = blastPoint(point);                            // LATER 992: line 1 from +0x48; GetDamage's falloff from the node (`point`)
     return this.world.health.blastAt(point, rating, r.explosionRadius, (to, target) =>
-      r.ignoreExplosionDI === true || blastLine(this.map.grid, sightFrom(point, to), to, target, r.explosionRadius, penetration, this.blastSource), { piercing, cone });
+      r.ignoreExplosionDI === true || blastLine(this.map.grid, sightFrom(lifted, to), to, target, r.explosionRadius, penetration, this.blastSource), { piercing, cone });
   }
 
   /**
@@ -8886,14 +9123,16 @@ export class Room {
         record = { ...record, explosionDamage: record.explosionDamage / 32 };
       }
       const kind = { record, piercing: t.piercing, fragments: t.fragments, flash: record.id === FLASHBANG_ID };
-      const head: V3 = [s.x, s.y + HEAD_OVER[posture], s.z];
-      // The line to the head (FUN_005ac070); PF-35: a blocking hit vetoes the queued ray only without the round's
-      // IgnoreExplosionDI (FUN_005a0e70 D:L459192-459193, IGNORE_EXPLOSION_DI_READING) -- the radius and the rest hold.
-      const seen = record.ignoreExplosionDI === true || blastExposed(this.map.grid, sightFrom(point, head), head, this.map.defaultMaterial ?? '', this.blastSource);   // LATER 416; R4B-10
+      // NADE-BLAST: line 1 and the line to the head (`blastLines`); PF-35: the round's IgnoreExplosionDI skips both --
+      // line 1's material loop (FUN_003c80e0 D:L319096) and line 2's veto (FUN_005a0e70 D:L459192-459193,
+      // IGNORE_EXPLOSION_DI_READING) -- the radius and the rest hold.
+      const lifted = blastPoint(point);                          // LATER 992: the walk's lines and the handler's +0x48 terms; GetDamage's node `point`
+      const seen = record.ignoreExplosionDI === true || this.blastLines(lifted, feet, posture, record.explosionRadius);
       const healthBefore = [...q.health.hp], armourBefore = [...q.health.armour];
       const was = overall(q.health);
       const wounded = this.woundable(q);   // CPS cell-alive: the deathless seat's blast spends a copy
-      let out = resolveBlast(wounded, { feet, posture, yaw: s.yaw }, point, kind, this.opts.random, seen);
+      // FRAG-COUNT-STANCE: the count reads the raw stance word (`FUN_0058a720(actor, 0)`, D:L459455), `walker.stance`.
+      let out = resolveBlast(wounded, { feet, posture, yaw: s.yaw, stance: q.sim.walker.stance }, lifted, kind, this.opts.random, seen, point);
       if (!out) {
         // Chris's `blast-occluded` and `no-blast-damage`, as misses: the blast reached the radius and harmed no one.
         // The thrower's own body only: another's would tell the thrower of a SEAL behind cover in the radius, which
@@ -8908,13 +9147,13 @@ export class Room {
         ...report, status: 'applied', part: out.hits.length === 1 ? out.part : null, hitLocations: out.hits.map((h) => ({ part: h.part, rawDamage: h.damage })),
         rawDamage: out.hits.reduce((n, h) => n + h.damage, 0), healthBefore, armourBefore, killed: out.died,
       });
-      // PF-19: the knock through the room's one path (`layKnock`); a lethal blast on a SEAL in a move lays none --
-      // `kill` releases it below (KNOCK_LETHAL_IN_MOVE_READING).
-      const lethalInMove = out.died && KNOCK_LETHAL_IN_MOVE_READING === 'kill-releases' && (q.sim.moves?.busy() ?? false);
-      const k = out.knock && !lethalInMove ? this.layKnock(q, out.knock) : null;
+      // PF-19: the knock through the room's one path (`layKnock`), lethal or not, in a move or not: it releases the move
+      // first (D:L440993) and knocks the dead too (D:L441000-441001; KNOCK_LETHAL_IN_MOVE_READING 'knock'), before `kill`.
+      // Under the old 'kill-releases' a lethal blast in a move laid none (`lethalKnockLaid`); the living's knock never.
+      const k = out.knock && lethalKnockLaid(out.died, q.sim.moves?.busy() ?? false) ? this.layKnock(q, out.knock) : null;
       // P2 (TB-1; research 85 s9.5): a flashbang's white-out only here, past the gate and the line (`FUN_005a5250`'s
       // slot 0 from `FUN_005a0e70` D:L459228 alone; FLASH_FRIENDLY_FIRE_READING): its level told the victim (`flash`).
-      const flash = kind.flash ? blastFlashLevel({ feet, yaw: s.yaw }, point) : null;
+      const flash = kind.flash ? blastFlashLevel({ feet, yaw: s.yaw }, lifted) : null;   // FUN_005a5250 from +0x48 (D:L459228)
       this.send(q.id, {
         type: 'blast', ring: out.ring ? { seconds: BLAST_RING_SECONDS, volume: BLAST_RING_VOLUME } : null,
         knock: k ? { velocity: [k.velocity[0], k.velocity[1], k.velocity[2]], fall: k.fall } : null, after: q.sim.seq, flash,
@@ -8934,13 +9173,14 @@ export class Room {
    * (research 171 s4, 332 s2: "the same command on the same path" as the bomb's) -- the bomb's own blast (`bombBlast`), the
    * record's numbers: the players (each its own owner, `MPBOMB_BLAST_OWNER_READING`: no one is credited), the hostages, the
    * resting charges, the scene. Run after the world's step, never inside a program's run; a death they cause that blasts
-   * again is run in the same loop, to a cap. (The disc maps' own scene FIRE_WEAPONs, the bridges', still hurt no one here:
-   * `BRIDGE_FIRE_WEAPON_READING`, LATER 63.)
+   * again is run in the same loop, to a cap. (The disc maps' own scene FIRE_WEAPONs, the bridges', never reach this queue:
+   * the room fires them as rounds (`WorldHooks.fire` -> `sceneRound`, research 386 s3.2, LATER 63); only an op marked
+   * `forge` comes here.)
    */
   private readonly scriptBlastQueue: { op: Extract<EffectOp, { op: 'fireWeapon' }>; at: V3; path: string }[] = [];
   /**
    * The object the script explosion running now goes off at (its middle, `WorldState.placeOf`): its own faces passed by
-   * the blast's lines (`blastSeen`, `blastLine` `ignore`). SCRIPT_BLAST_SOURCE_LINE_READING: whether the console's line
+   * the blast's lines (`blastSeen`, `blastLine` `ignore`). FORGE_SCRIPT_BLAST_ADAPTATION: whether the console's line
    * test meets the faces of a solid the round goes off inside is not traced (the disc's own go off at bare nodes:
    * `damage_point`, the bomb's); the port's hull would, so a blast set at a solid object (a switch's panel) shielded all
    * round it (the owner, 2026-11-10: "the objects internal collision is blocking it"). Undefined for every other blast.
@@ -9022,18 +9262,19 @@ export class Room {
       this.sceneRounds.splice(i, 1);
       const t = this.thrown(r.kind);
       if (!t) continue;
-      this.broadcast({ type: 'sceneRound', kind: r.kind, at: [...r.point] });
-      this.blastPlayers(t, r.point, (q) => q, undefined, '');
-      this.blastHostages(t, r.point, undefined, null);
-      this.blastCharges(t, r.point, undefined, (f2) => this.thrower(f2));
-      this.actionDied(this.sceneBlast(r.point, t.record, t.piercing), null);
+      this.broadcast({ type: 'sceneRound', kind: r.kind, at: [...r.point] });   // the effects at the unlifted point (D:L319246)
+      const point = r.point;                                     // LATER 992: a FIRE_WEAPON round lifts too (D:L320105) -- in the consumers
+      this.blastPlayers(t, point, (q) => q, undefined, '');
+      this.blastHostages(t, point, undefined, null);
+      this.blastCharges(t, point, undefined, (f2) => this.thrower(f2));
+      this.actionDied(this.sceneBlast(point, t.record, t.piercing), null);
     }
   }
 
   private bombBlast(at: readonly number[]): void {
     const t = this.thrown(MPBOMB_NAME);
     if (!t) return;
-    const point: V3 = [at[0]!, at[1]!, at[2]!];
+    const point: V3 = [at[0]!, at[1]!, at[2]!];                  // LATER 992: the bomb's round lifts as every round's -- in the consumers
     this.blastPlayers(t, point, (q) => q, undefined, '');
     this.blastHostages(t, point, undefined, null);                     // MPBOMB_BLAST_HOSTAGE_OWNER_PLACEHOLDER: 'none'
     this.blastCharges(t, point, undefined, (f2) => this.thrower(f2));  // `by` the charge's owner (L318214)
@@ -10828,6 +11069,25 @@ export class Room {
     }
   }
 
+  /**
+   * PV-2: the fog of war's seam (`RoomFog`; the plan's Log 2026-11-11T16:24Z) -- null in this release and assigned by
+   * nothing in it; its lane's FOW-8 assigns it and steps its own state before `snapshots`' loop over connections. While
+   * null the pass never asks for bit 1 (`PLACELESS`) and builds no placeless body.
+   */
+  fog: RoomFog | null = null;
+
+  /**
+   * PV-2 (PV.R9): the mask of the ordered pair (a seat's connection `recipientId`, a body `bodyId`) for `recipientBodies`:
+   * `TAIL_ZEROED` when the body is a seat's whose tail the recipient is not told (`viewTold`: the other side, alive or
+   * dead); a body with no seat (a hostage) has no tail to zero. `PLACELESS` only when `fog` holds and withholds the pair.
+   * A spectator's connection never reaches it (the stored list, every tail). An arrow: handed to the pass unbound.
+   */
+  private readonly recipientView = (recipientId: number, bodyId: number): number => {
+    const me = this.players.get(recipientId), seat = this.players.get(bodyId);
+    const zeroed = seat !== undefined && !viewTold(seat.team, me ? me.team : null) ? TAIL_ZEROED : 0;
+    return this.fog !== null && me !== undefined && this.fog.withheld(recipientId, bodyId) ? zeroed | PLACELESS : zeroed;
+  };
+
   private snapshots(): void {
     const bodies = new Map<number, BodyState>();
     for (const p of this.players.values()) if (!p.away) bodies.set(p.id, this.body(p));   // NET-RES-2b: a held seat away has none
@@ -10845,6 +11105,9 @@ export class Room {
     const env = this.world.wireAll(this.roundSerial);
     if (this.extraction) this.opts.recorder?.hostages?.(this.tick, this.extraction.wire());   // RE-2 (W38.R2): the roster
     this.opts.recorder?.snapshot(this.tick, list, doors, env, cranes);
+    // PV-2 (PV.R9): the one per-recipient pass -- the recorder told the stored list whole above, then each seat's
+    // connection the bodies with each one's variant (`recipientBodies`, `recipientView`), a spectator's the stored list.
+    const variants = bodyVariants();
     for (const [id, conn] of this.conns) {
       const p = this.players.get(id);
       const own = p && p.alive ? (() => {
@@ -10855,7 +11118,7 @@ export class Room {
       const sent = this.envSent.get(id);
       const named: EnvWire | undefined = sent && sent.revision === env.revision && sent.epoch === env.epoch ? undefined : env;
       if (named) this.envSent.set(id, { revision: env.revision, epoch: env.epoch });
-      const frame = encodeSnapshot({ tick: this.tick, own, bodies: p ? list.filter((b) => b.id !== id) : list, doors, ...(cranes && this.cranePages.has(id) ? { cranes } : {}), ...(named ? { env: named } : {}) }, this.feetOrigin);
+      const frame = encodeSnapshot({ tick: this.tick, own, bodies: p ? recipientBodies(list, id, this.recipientView, variants, this.fog) : list, doors, ...(cranes && this.cranePages.has(id) ? { cranes } : {}), ...(named ? { env: named } : {}) }, this.feetOrigin);
       conn.send(frame);
       if (conn.cpu === true) botProfiler()?.cpuSnapshot(frame.byteLength);   // BOP-1: a CPU's received work, counted
     }
@@ -10871,6 +11134,11 @@ export class Room {
     return bodyOf(p.id, s, {
       alive: p.alive, weapon: slot, item: p.held ?? p.loadout[slot], aiming: p.aiming || (p.alive && p.raise), trigger: p.trigger, boost: p.boost,
       binoculars: p.binoculars, raised: p.alive && (p.raised || p.raise),
+      // PV-2 (protocol 16; research 402 section 3): the view's tail -- the seat's view and sway while alive, 0 for a dead
+      // body; the clock the low four bits of the seat's last run command number, alive or dead (a dead seat's commands
+      // still run its number, `run`). A CPU's view and sway are 0 (its controller sends none). Whole here, as the
+      // recorder keeps it; who gets it zeroed is `snapshots`' pass (`recipientBodies`, PV.R9).
+      view: p.alive ? p.view : 0, clock: p.sim.seq & 15, swayX: p.alive ? p.swayX : 0, swayY: p.alive ? p.swayY : 0,
     });
   }
 
@@ -10975,6 +11243,8 @@ export class Room {
     readonly heldNext: { readonly item: number | null; readonly seq: number } | null; readonly firearmReadyAt: number;
     /** OBF-14: the in-process CPU controller's raise (`BOT_RAISE_READING`), written by the bots only. */
     raise: boolean;
+    /** PV-2: the page's relayed view and sway (`Player.view`), zeroed by the bots at an adoption (`MatchBots.adopt`) as at `handBack`. */
+    view: number; swayX: number; swayY: number;
   } | undefined {
     return this.players.get(id);
   }

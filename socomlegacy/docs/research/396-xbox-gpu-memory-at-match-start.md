@@ -147,6 +147,8 @@ How to read three columns:
   `makeTexture` per name (`:165`), a new `DataTexture` each call (`world.ts:1965`); each sub-mesh gets a new
   `BufferGeometry` and attributes (`bodyView.ts:192-199`). Eight seats of a side share one `LoadedBody` when they share
   a type (`teamBody.ts:34-38`), hence the eights. v0.4.17 has the same lines, so the duplication is not mega's.
+  - 2026-11-12: the `bodyView.ts` lines cited here describe the code before the body resource sharing of PR #790's
+    piece 1 (on `agent/xbox-790-bodies`); LATER 827's census is to be re-run on that branch.
 
 **(c) Are the front end's GPU resources still alive when the map's uploads begin?**
 - *mega (at 7cd782a5f, before GM-XBOX1), under the Xbox preset:*
@@ -191,6 +193,14 @@ How to read three columns:
    skin indices are per body). The eights are a bot-filled game's, one type a side; a match of people spreads a side
    over its types (`teamBody.ts:36`), so ~12.8 MB is the most this saves at 16 seats. Sharing needs an owner outside
    the body (`bodyView.ts:294-298` frees them with it), and materials stay per body (`setOpacity`, `bodyView.ts:64-71`).
+   2026-11-12: these `bodyView.ts` lines describe the code before the body resource sharing of PR #790's piece 1 (on
+   `agent/xbox-790-bodies`); LATER 827's census is to be re-run on that branch.
+   2026-11-13: built and measured. PR #790's piece 1 (`agent/xbox-790-bodies` 6dd5ed35bd, in `agent/v0421` at
+   13bc5d835f) shares each body model's geometry and textures across seats through ref-counted leases on the decoded
+   map. This note's own census (the Shadow PC, 16 seats on MP2, the Xbox backend, one run each) measured the match's
+   total at 26.3 MB on main and 13.6 MB on the branch: 10.6 MB of textures and 2.7 MB of geometry gone, against this
+   section's 10.4 + 2.4 MB counted. A three-round churn census found nothing freed while drawn. LATER 827 holds the
+   gate's whole record.
 3. **Measure on the Xbox itself** (the owner's to arrange; the controller will ask him). The client error beacon
    already reports a lost WebGL context with the release, backend, adapter, map and match time
    (`clientErrorBeacon.ts:11-27`, `:38`, `:354`); central's store may already hold Xbox records. Otherwise: the same
@@ -352,3 +362,5 @@ All rendered desktop browser runs, one run each. They are not Xbox figures.
   - v0.4.19's `contextdiag` settles none of the four, but it is the first instrument that reports from the field, with
     no recorder, where in the load a loss falls: the backend, the renderer's counts and the load phase reached, every 2 s
     from the mount and at the loss.
+  - 2026-11-12: from `contextdiag` v2 (XBOX-790-LOADDIAG) the ring's times count from `load-start`, and `lt`, `s`, `sx`
+    carry the load's stages; the fields are in [the GPU menus plan](../plans/2026-11-01-gpu-menus.md)'s XBOX-DIAG entry.

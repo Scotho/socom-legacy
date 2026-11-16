@@ -442,7 +442,13 @@ export type LobbyGameView =
     facts: readonly LobbyLine[]; details: readonly LobbyLine[]; players: LobbyPlayers;
   };
 /** CX-LOBBIES (FG-46): one listed forge lobby -- its name, its map, players / seats, in match, its lock (FG-48a), JOIN's address. */
-export interface CustomRow { id: string; name: string; map: string; players: number; max: number; inMatch: boolean; locked: boolean; href: string; community?: true }
+export interface CustomRow {
+  id: string; name: string; map: string; players: number; max: number; inMatch: boolean; locked: boolean; href: string; community?: true;
+  /** CMV-6 (CMV.R11): a modded host's lobby, its provider (text) and the packs it needs (id and version). */
+  modded?: true; provider?: string; packs?: readonly CustomPack[];
+}
+/** CMV-6: a pack a custom match needs, as a player reads it (the hash is a machine's word, `../packs/readiness`). */
+export interface CustomPack { id: string; version: string }
 /** CX-LOBBIES: the Custom matches list: not read yet, the route's refusal (its line), or the rows (`empty` the line for none). */
 export type CustomView = { kind: 'waiting' } | { kind: 'unavailable'; line: string } | { kind: 'ok'; rows: readonly CustomRow[]; empty: string | null };
 /**
@@ -1335,7 +1341,11 @@ export const BROWSE_CUSTOM = 2;
 export const CUSTOM_UNAVAILABLE_LINE = 'Custom matches are not available from this server';
 
 /** LR-37 (9): one custom match in the merged list -- the forge lobby's row, its JOIN locked over a game page. */
-export interface BrowseCustomRow { kind: 'custom'; id: string; name: string; map: string; players: number; max: number; locked: boolean; inMatch: boolean; joinLocked: boolean; community?: true }
+export interface BrowseCustomRow {
+  kind: 'custom'; id: string; name: string; map: string; players: number; max: number; locked: boolean; inMatch: boolean; joinLocked: boolean; community?: true;
+  /** CMV-6: as `CustomRow`'s. */
+  modded?: true; provider?: string; packs?: readonly CustomPack[];
+}
 
 /** LR-37 (9): the custom matches the merged list shows under ALL and CUSTOM (none under CLASSIC, none unread). */
 export function browseCustom(s: ConsoleState, a: Adapters): BrowseCustomRow[] {
@@ -1343,7 +1353,11 @@ export function browseCustom(s: ConsoleState, a: Adapters): BrowseCustomRow[] {
   const v = a.custom?.view();
   if (v?.kind !== 'ok') return [];
   const joinLocked = overGame(s);
-  return v.rows.map((m) => ({ kind: 'custom', id: m.id, name: m.name, map: m.map, players: m.players, max: m.max, locked: m.locked, inMatch: m.inMatch, joinLocked, ...(m.community === true ? { community: true as const } : {}) }));
+  return v.rows.map((m) => ({
+    kind: 'custom', id: m.id, name: m.name, map: m.map, players: m.players, max: m.max, locked: m.locked, inMatch: m.inMatch, joinLocked, ...(m.community === true ? { community: true as const } : {}),
+    // CMV-6: a modded host's lobby carried whole (its flag, provider and packs)
+    ...(m.modded === true ? { modded: true as const, ...(m.provider !== undefined ? { provider: m.provider } : {}), ...(m.packs ? { packs: m.packs } : {}) } : {}),
+  }));
 }
 
 /** LR-37 (9): the merged list's rows -- the classic rooms the filter keeps, then the custom matches -- in focus order. */

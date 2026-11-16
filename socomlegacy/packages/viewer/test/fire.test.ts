@@ -743,6 +743,21 @@ describe('the reload gates and the fresh kit of a spawn (research 84 §18, resea
     expect(fire.magazineTotal()).toBe(106);
   });
 
+  it("a kit's pour goes in as the amount added (`added`, PICKUP_POUR_READING): a one-magazine M40A1's magazine in the hand topped up keeps the shots in flight, and a stale refund lands on top of it", () => {
+    const { fire, shots } = rifleFire();
+    const m40: WeaponRecord = { ...DEFAULT_RIFLE, name: 'M40A1', id: 102, magazine: 25, mags: 1 };
+    fire.setWeapon(m40);
+    const before = shots.length;
+    shoot(fire, 10);                                         // the page: 15; the room has run 8 of them (17), two in flight
+    expect(fire.state().magazine.rounds).toBe(15);
+    // The room pours 30 into its 17: +8 (full at 25), its kit `rounds` 25 -- the page adds the 8 to its own 15.
+    fire.setRing(m40, [25, 0, 0, 0, 0, 0, 0, 0, 0, 0], undefined, [0], [8]);
+    expect(fire.state().magazine.rounds).toBe(23);            // = the room's 25 less the two in flight
+    // The room refuses the last in flight stale: its round back, on top of the pour -- 24, as the room's 25 less one.
+    expect(fire.refundRound(shots[before + 9]!)).toBe(true);
+    expect(fire.state().magazine.rounds).toBe(24);
+  });
+
   it("a stale reload logged before the kit restores on top of the kit's slots", () => {
     const { fire, reloads } = rifleFire();
     shoot(fire, 3);

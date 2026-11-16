@@ -44,7 +44,8 @@ interface HideableMap {
 export function withoutHiddenData<T extends HideableMap>(map: T, keys: ReadonlySet<string> | readonly string[]): T {
   const k = keys instanceof Set ? keys : new Set(keys);
   if (k.size === 0) return map;
-  const out: Record<string, unknown> = { ...map };
+  // Read as a plain record to write over (ours, FC2: a `T` spread is a `T`, which names no index signature -- TS2322).
+  const out: Record<string, unknown> = { ...(map as unknown as Record<string, unknown>) };
   if (map.slots) out['slots'] = map.slots.filter((s) => !k.has(`slot:${slotName(s)}`));
   if (map.respawns) out['respawns'] = map.respawns.filter((s) => !k.has(`respawn:${slotName(s)}`));
   if (map.escortees) out['escortees'] = map.escortees.filter((e) => !k.has(`hostage:${e.name}`));

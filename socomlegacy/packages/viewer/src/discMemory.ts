@@ -52,8 +52,8 @@ export type DiscHandle = DiscFileHandle | DiscDirectoryHandle;
 
 /**
  * What is remembered beside the handle: the name the launcher says ("Continue with <name>"), the kind, and the identity
- * DA-2's `discIdentity` read from a folder's `SYSTEM.CNF` (boot name, `VER`, `VMODE`) -- null for an image, whose
- * `SYSTEM.CNF` the page does not read (`./discSource` `openDisc`).
+ * DA-2's `discIdentity` read from the disc's `SYSTEM.CNF` (boot name, `VER`, `VMODE`), an image's or a folder's alike
+ * (`./discSource` `openDisc`, DA.R8) -- null when none was read: a record kept while an image's `SYSTEM.CNF` was not.
  */
 export type DiscMeta = { readonly name: string; readonly kind: 'image' | 'folder'; readonly identity: DiscIdentity | null };
 
@@ -63,7 +63,7 @@ export type RememberedDisc = { readonly handle: DiscHandle; readonly meta: DiscM
 /** The record in `DISC_HANDLE_SLOT`. `v` is this record's own version, ours: a later shape bumps it. */
 type DiscRecord = { v: 1; handle: DiscHandle; meta: DiscMeta };
 
-/** The meta of a handle the page has just opened: its name and kind, and the identity `openDisc` read (or null). */
+/** The meta of a handle the page has just opened: its name and kind, and the identity `openDisc` read (null: none read). */
 export function discMeta(handle: DiscHandle, identity: DiscIdentity | null): DiscMeta {
   return { name: handle.name, kind: handle.kind === 'file' ? 'image' : 'folder', identity };
 }

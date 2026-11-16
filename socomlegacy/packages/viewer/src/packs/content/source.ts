@@ -1,5 +1,6 @@
 import { appliesOn, contentMapMemberPath, packRefKey, samePackRef, type ContentRef, type PackManifest, type PackRef } from '@s2u/creator-contracts';
 import type { ForgeContentSource } from '../../forge/page';
+import type { HeldPack } from '../../forge/lobby/packCheck';
 import { pageIndexedDb } from '../../pageStore';
 import { idbPackDatabase, type PackDatabase } from '../storage';
 import { browserChannel, MODS_CHANNEL, type ChannelFactory } from '../modsState';
@@ -34,6 +35,12 @@ import type { CustomMapData, CustomMapRecord } from '../customMaps';
  */
 export interface RegistryContentSource extends ForgeContentSource {
   availablePacks(): PackRef[];
+  /**
+   * CMV-7 (product track): every v2 pack the store holds, its reference WITH its manifest, as the last refresh read them
+   * -- the join's pack check (`../../forge/lobby/packCheck` `joinPackRefusal`) checks a lobby server's declared side and
+   * kind against the manifest at that hash. `availablePacks()` unchanged.
+   */
+  heldPacks(): HeldPack[];
   /** The content maps the boot read: each by reference, with its own name (FP-6's picker). */
   mapIndex(): { ref: ContentRef; name: string }[];
   /** FP-6 item 1: the custom maps MODS keeps (the store's `custom-maps` scope, `../customMaps`), as the last refresh read them. */
@@ -66,6 +73,8 @@ const isRef = (v: unknown): v is PackRef => !!v && typeof v === 'object' && ['id
 
 export async function registryContentSource(database: PackDatabase, options: RegistryContentOptions = {}): Promise<RegistryContentSource> {
   let packs: PackRef[] = [];
+  /** CMV-7: the held packs with their manifests (`heldPacks`), as the last refresh read them. */
+  let heldRecords: HeldPack[] = [];
   let contentPacks: PackRef[] = [];
   /** `packRefKey(ref) + '\n' + path` -> the member's bytes and its parsed JSON. */
   let json = new Map<string, { bytes: Uint8Array; value: unknown }>();
@@ -136,6 +145,7 @@ export async function registryContentSource(database: PackDatabase, options: Reg
       }, (seen) => { records = seen; }));
     } catch { records = []; whole.clear(); }
     packs = records.map((record) => ({ id: record.ref.id, version: record.ref.version, hash: record.ref.hash }));
+    heldRecords = records.map((record) => ({ ref: { id: record.ref.id, version: record.ref.version, hash: record.ref.hash }, manifest: record.manifest }));   // CMV-7
     contentPacks = records.filter((record) => offered(record.manifest)).map((record) => ({ ...record.ref }));
     json = nextJson;
     assets = new Map();
@@ -186,6 +196,7 @@ export async function registryContentSource(database: PackDatabase, options: Reg
   const mapOf = (ref: ContentRef): unknown => kept(ref.pack, contentMapMemberPath(ref.assetId))?.value ?? null;
   return {
     availablePacks: () => packs.map((p) => ({ ...p })),
+    heldPacks: () => heldRecords.map((h) => ({ ref: { ...h.ref }, manifest: h.manifest })),   // CMV-7
     mapIndex: () => index.map((m) => ({ ref: { ...m.ref, pack: { ...m.ref.pack } }, name: m.name })),
     customMaps: () => customs.map((r) => ({ ...r })),
     ready,

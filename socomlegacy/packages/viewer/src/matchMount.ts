@@ -2,6 +2,7 @@ import { playForgeAmbients } from './forge/forgeObjects';
 import { createForgeLighting, liftForgeFog, type ForgeLightingOptions } from './forge/lighting';
 import { FrameGuard } from './frameGuard';
 import { Scene, type Object3D } from 'three';
+import { serialMatchWorker } from './serialMatchWorker';
 import { freezeSceneMatrix } from './sceneMatrix';
 import { probeFloor, probeGround, selectFloor, type Side } from '@s2u/scene';
 import { BINOCULAR_CLIPS } from './binocularPose';
@@ -70,6 +71,7 @@ import { mountSound, silentOut, type MatchAudio } from './matchSound';
 import { mountEffects } from './matchEffects';
 import { mountThrowables } from './matchThrow';
 import { MatchAbort } from './matchAbort';
+import { errText, freshCanvasOver, loseWebgl2, noBackendExtra, rendererWithRetry, watchCreationError, watchMatchBackend, type RendererRetryChoice } from './matchNoBackend';   // NO-BACKEND-NOTICE, MATCH-RENDERER-RETRY (#790)
 import { mountTaunts, type MatchTaunts, type TauntsState } from './matchTaunts';
 import { mountChat, type ChatState } from './matchChat';
 import { mountVoice, type MatchVoice, type VoiceState } from './voice/voiceClient';
@@ -108,7 +110,7 @@ import { pageDeviceClass } from './deviceClass';
 import { pageFrameSampler } from './frameSampler';
 import { pageVideoReading } from './perfLine';   // VS-10 F3: the perf report's video reading, taken at the mount
 import { beaconMatchBegan, beaconMatchEnded } from './clientErrorBeacon';   // CLIENT_ERROR_BEACON_ADAPTATION: the match's own lifecycle for its reports
-import { pageMatchDiag } from './matchDiagPage';   // XBOX-DIAG: the loss's ring and the match's input, on the beacon
+import { noteLoadClosed, noteLoadReply, noteLoadStage, pageMatchDiag } from './matchDiagPage';   // XBOX-DIAG: the loss's ring and the match's input, on the beacon; XBOX-790-LOADDIAG: the load's stages
 import { hidePadHint, PadHint, showPadHint } from './padHint';   // XBOX-PAD-HINT: the Xbox browser's browsing controls named
 import { setInputPhase } from './inputSources';
 import { loadPhaseReached } from './loadMarks';
@@ -235,7 +237,7 @@ export interface MatchMountOptions {
   /** The mission's world; null (a failed load) is a match with no world drawn, its client still listened to. */
   assets: Promise<MatchAssets | null>;
   /** The renderer over the match's canvas; absent, `./renderer`'s (WebGPU, else WebGL2), loaded with the match. */
-  renderer?: (canvas: HTMLCanvasElement) => Promise<MatchRenderer>;
+  renderer?: (canvas: HTMLCanvasElement, choice?: RendererRetryChoice) => Promise<MatchRenderer>;
   /**
    * B206 ML-3 / ML-4 (plan 2026-11-06-mods-loader; product track, ML.R2): the texture pack chosen in MODS, applied to this
    * match's world behind the "Applying pack... n/N" overlay (`./packApplyOverlay`). Absent, the page's: its choice keeper
@@ -539,10 +541,11 @@ const nextMatchOf = (v: VideoSettingsV2): string => NEXT_MATCH_ROWS.map((k) => S
  */
 /** VS-6 review F2: the mount that last applied Texture filtering to the page's sampling; only its teardown clears it. */
 let anisotropyHolder: object | null = null;
-const pageRenderer = (c: HTMLCanvasElement): Promise<MatchRenderer> => {
+const pageRenderer = (c: HTMLCanvasElement, force?: RendererRetryChoice): Promise<MatchRenderer> => {
   const win: { location?: { readonly search: string } } = c.ownerDocument.defaultView ?? {};
   const search = win.location?.search ?? '';
-  const choice = matchRendererChoice(videoSettingsKeeperV2().get(), search);   // VS-6: read now, at the mount
+  // VS-6: read now, at the mount; MATCH-RENDERER-RETRY B: the retry's WebGL2 and no antialias over it
+  const choice = { ...matchRendererChoice(videoSettingsKeeperV2().get(), search), ...(force ?? {}) };
   return import('./renderer').then((r) => r.createRenderer(c, { ...choice, trackTimestamp: import.meta.env.DEV && gpuTimeAsked(search) }));
 };
 /** The match's own canvas's placement (the design system owns colour and type): over the whole window. */
@@ -718,7 +721,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const diagSource = {
     info: () => renderer?.renderer.info,
     scale: () => ratioTargetOf(renderer)?.pixelRatio() ?? null,
-    buffer: () => (canvas ? { w: canvas.width, h: canvas.height } : null),
+    buffer: () => { const c = freshDraw?.canvas ?? canvas; return c ? { w: c.width, h: c.height } : null; },   // MATCH-RENDERER-RETRY: the drawn canvas's
     phase: loadPhaseReached,
     links: () => (renderer as { links?: { total?: number } } | null)?.links?.total ?? null,
   };
@@ -906,7 +909,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     const r = renderer, m = map;
     if (!r?.warm || !m || effectsWarmedFor === m) return;
     effectsWarmedFor = m;
-    const settled = (): void => { sceneWarmedFor = m; if (map === m) markLoad('warm-settled'); };   // IP3 (`./loadMarks`): the current map's   // BLACK-GAP (`./loadingHold`): the scene's compile jobs settled; a stale one too
+    // LATER 987 review F1: a mount torn down meanwhile (a dropped lobby prepare: `gone`) marks nothing -- its phase would
+    // reopen the closed load's diagnostic lane (`./matchDiagPage` `followLoad`).
+    const settled = (): void => { sceneWarmedFor = m; if (map === m && !gone) markLoad('warm-settled'); };   // IP3 (`./loadMarks`): the current map's   // BLACK-GAP (`./loadingHold`): the scene's compile jobs settled; a stale one too
     void warmMapEffects(firearm.effects, () => { fly.camera.updateMatrixWorld(); return r.warm!(scene, fly.camera); }).then(settled, settled);
   };
   /** The map the throwables were warmed for (research 90 #23, `/testroom`'s `warmWalk`): once a map, the renderer and the map in. */
@@ -1202,8 +1207,20 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     worldIn = true;
     joinNow?.();
   }, () => { if (!gone) { worldIn = true; joinNow?.(); } });
-  (o.renderer ?? pageRenderer)(canvas).then((r) => {
-    if (gone) { r.renderer.dispose?.(); return; }
+  // NO-BACKEND-NOTICE (#790): the renderer's promise kept, watched from the attach (`./matchNoBackend`); its stop at the teardown.
+  let noBackend: (() => void) | null = null;
+  // MATCH-RENDERER-RETRY (#790): A, the browser's creation error heard from the first ask; B, one retry of a refused
+  // renderer on a fresh canvas over this one (the mount's own canvas only), the save reported on contextdiag.
+  const creationError = watchCreationError(canvas);
+  let freshDraw: { canvas: HTMLCanvasElement; stop(): void } | null = null;
+  let drawn: HTMLCanvasElement | null = null;          // the canvas the renderer was made on (the first, or a retry's): its context the one to lose
+  const made = rendererWithRetry(canvas, o.renderer ?? pageRenderer, {
+    retry: own, gone: () => gone, fresh: () => (freshDraw = freshCanvasOver(canvas)).canvas,
+    refused: (first) => { console.warn('the match would not draw (retrying once):', errText(first) ?? ''); },
+    retried: (first) => { matchDiag.lost('renderer-retry-ok', globalThis.performance?.now() ?? 0, noBackendExtra(first, creationError.last())); },
+  }).then((m) => { drawn = m.canvas; return m.r; });
+  made.then((r) => {
+    if (gone) { r.renderer.dispose?.(); if (r.backend === 'webgl2') loseWebgl2(drawn); return; }
     renderer = r;
     markLoad('renderer');                              // IP3 (`./loadMarks`)
     packFrames.setUploader(rendererUploader(r.renderer));   // after ML-9 (ML.R10): the pack's uploads timed in their frame
@@ -1383,7 +1400,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     sound.frame(fly.camera, walk.gameCamera());        // the game's listener is the camera (0x48dd40; #479: the game's); the reverb, the beds
     const glow = throws.frame(dt, frameTime.real());   // the throws, the launcher, the flashbang's wash (`./matchThrow`; PAR-34: the timed rules in real time)
     renderer?.setGlow?.(glow);                         // and its glow for this frame's render
-    view?.frame(fly.camera, dt, firearm.zoom.renderView());   // PF-29: ./main's twin (the zoom's render view)
+    view?.frame(fly.camera, dt, firearm.renderView());   // PF-29: ./main's twin (the zoom's render view; PV-7b: the watched player's while the view is drawn)
     fly.camera.updateMatrixWorld();
     // LATER 129 (PAR-48c, issue #138): the frame's game state runs each frame, as `./main`'s, and only the drawing waits
     // for the renderer (a WATCH GAME page's can come late: WebGPU's adapter request, LATER 128) -- in `./main`'s order:
@@ -1396,7 +1413,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       regionCull.frame(gateGrid, {
         viewed: walk.feet(), eye: walk.lookAim()?.eye ?? null, spectator: net.client.role === 'spectator',
         bodies: remote.ids().map((id) => ({ id, feet: remote.feet(id) })),
-      });
+      }, !!renderer && drawFrame);                                // TAG-GRACE: only a drawn frame moves the tags' verdicts
     }
     remote.applyZoneGate(net && gateGrid ? (id) => regionCull.drawn(id) : null);
     if (renderer && drawFrame) {
@@ -1448,7 +1465,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         hud.setCommandMenu(attached && taunts.isOpen());   // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623); IP3: none before attach
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
-        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
+        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(map?.ai, map?.forgeZoneMarks) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
       if (drawFrame) hud.render(renderer.renderer);   // VS-4: the frame cap's gate
@@ -1503,6 +1520,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     beaconMatchEnded({ seats: net?.rows.length ?? null, map: map?.archive ?? null, scaleAtEnd: ratioTargetOf(renderer)?.pixelRatio() ?? null, video: videoAtStart });   // CLIENT_ERROR_BEACON_ADAPTATION: no elapsed outside a match; VS-8: the match's perf report; VS-10 F3: the mount's video
     if (attached) { matchDiag.end(globalThis.performance?.now() ?? 0); setInputPhase('menu'); }   // XBOX-DIAG: the input report if it never went; the menus' counts again (review F5: never a prepared match's that never attached)
     if (attached) { padHint.end(); hidePadHint(doc); }   // XBOX-PAD-HINT: never past its match (the notice is the page's: never a prepared match's teardown)
+    noBackend?.(); noBackend = null;                   // NO-BACKEND-NOTICE: its timer and its notice end with the match
+    creationError.stop(); freshDraw?.stop();           // MATCH-RENDERER-RETRY: the listener, and a retry's canvas and its context
     tellReady(false);                                  // IP3: a prepare still waiting on this mount ends with it
     offHeard();
     offPicture();                                      // OT.R79: the picture no longer followed
@@ -1563,10 +1582,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       const r = renderer;
       r.renderer.dispose?.();
       // The context let go now, not when the collector finds the canvas (the review's F3): WebGL2's, the only one a
-      // page can drop by hand; a WebGPU device ends with the renderer's own dispose.
-      if (r.backend === 'webgl2') {
-        try { (canvas.getContext('webgl2') as WebGL2RenderingContext | null)?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* gone already */ }
-      }
+      // page can drop by hand; a WebGPU device ends with the renderer's own dispose. The canvas that drew -- after a
+      // retry the fresh one: the refused first canvas has no context to lose (the batch review's F1).
+      if (r.backend === 'webgl2') loseWebgl2(drawn);
     }
     renderer = null;
     packFrames.setUploader(null);
@@ -1591,7 +1609,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
    * is in. Nothing of stage 1 runs again: no second `place`, renderer or warm.
    */
   const attachTo = (into: HTMLElement, o: MatchMountOptions): MountedMatch => {
-    if (own && canvas.parentNode !== into) into.append(canvas);
+    if (own && canvas.parentNode !== into) { into.append(canvas); if (freshDraw) canvas.after(freshDraw.canvas); }   // MATCH-RENDERER-RETRY: a retry's canvas goes with it, over it
     if (first.hidden) canvas.style.visibility = '';    // shown, as the mount's own canvas is
     // Each in the order the mount always made it (the window's listeners among them): the input from here, not before.
     const normalInput = o.client.url === 'loopback:' ? o.normalInput : undefined;
@@ -1813,6 +1831,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     beaconMatchBegan();                                // CLIENT_ERROR_BEACON_ADAPTATION: a report's matchElapsedMs counts from here
     setInputPhase('match'); matchDiag.begin(globalThis.performance?.now() ?? 0, diagSource);   // XBOX-DIAG: from the same instant
     padHint.begin(globalThis.performance?.now() ?? 0, matchDiag.xboxConsole);   // XBOX-PAD-HINT: its 10 s from the same mount
+    // NO-BACKEND-NOTICE (#790): no renderer by the bound after the attach (or a rejected one): the notice, its Leave match by
+    // the START menu's ABORT path (the player's press, never automatic), one contextdiag row `no-backend`.
+    noBackend = watchMatchBackend(made, { doc, leave: () => { matchAbort.abort(); }, report: (why, reason) => { matchDiag.lost(why, globalThis.performance?.now() ?? 0, noBackendExtra(reason, creationError.last())); } });
     if (placed) { gameLines(placed.map); soundLines(placed); }   // `place`'s hand-off lines, when the world came first
     reseat();                                          // the hand-off's client's side, should the lobby's last read differ
 
@@ -1829,6 +1850,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         caps: FRONT_END_CAPABILITIES, walk, remote, hud, fly, loadouts, firearm,
         clips: () => clips, map: () => map, side, followTeam,
         menuOpen: () => (o.blocked?.() ?? false) || exchange.isOpen() || taunts.isOpen() || armory.isOpen() || startMenu.isOpen(),   // the hold, WEAPON EXCHANGE, TAUNTS, the ARMORY, the START menu
+        povNet: () => net?.client ?? null,               // PV-6b: the player's view's rig reads the page's client
         // A round's start (and an abandon) empties both decal pools and the air (CMPExitState L76084) and the wash: on
         // /testroom the ARMORY's glue does it; here the parts' own (the MATCH-THROW review's finding 1), ahead of the ARMORY's.
         // ACT-5: and nothing offered from the round before (`hostages.reset()`): a port-side cache clear with no source in the
@@ -1849,7 +1871,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         // PAR-4: the world drops' (`PART_DEPS.worldDrops`, `./main`'s PF-34 lines): the room's drops, a welcome's set too;
         // the live kit after a pickup, no fill (the one firearm's `takeKit`).
         drops,
-        kitChanged: (l, s, r, f, k) => { firearm.takeKit(l, s, r, f, k); },
+        kitChanged: (l, s, r, f, k, a) => { firearm.takeKit(l, s, r, f, k, a); },
         ...taunts.netDeps(),
         ...chat.netDeps(),
         ...voice.netDeps(),                              // SVC-20b-page: the floor entry and the room's voice frames
@@ -1922,7 +1944,7 @@ export interface MatchWorker {
 
 /** The front end's match loader: the mission's world decoded while the loading screen shows, then the match mounted on it. */
 export interface MatchLoader {
-  /** The mission's world and clips (the last mission's kept); null when the archive would not decode. */
+  /** The mission's world and clips (the last mission's kept); null on failure. A new public call retries a failed load. */
   load(mission: string): Promise<MatchAssets | null>;
   /**
    * IP3 (`LOAD_REPORT_AT_PREPARED_READING`): the mission's match made ready to draw before the load is reported -- the
@@ -1951,6 +1973,10 @@ export interface MatchLoader {
 }
 
 export interface MatchLoaderOptions {
+  /** Browser adaptation: a replacement mission cancels obsolete decode work; default on the Xbox class/preset. */
+  cancelSupersededLoads?: boolean;
+  /** Browser adaptation: release each decoder before starting the next request; default on the Xbox class/preset. */
+  serialWorkerRequests?: boolean;
   /**
    * Browser adaptation (no original; product track, PR #631's Xbox memory work), scoped to the Xbox preset by default
    * (`./graphicsBackend`): the worker is terminated once a load's assets are in and nothing is asked of it, so the
@@ -1959,7 +1985,7 @@ export interface MatchLoaderOptions {
    */
   releaseWorkerAfterLoad?: boolean;
   /** IP3: the renderer `prepare` makes over its canvas; absent, `./renderer`'s (the mount's default). The tests' fakes. */
-  renderer?: (canvas: HTMLCanvasElement) => Promise<MatchRenderer>;
+  renderer?: (canvas: HTMLCanvasElement, choice?: RendererRetryChoice) => Promise<MatchRenderer>;
   /** IP3: the document `prepare` makes its canvas in (on its body); absent, the page's. */
   doc?: Document;
   /**
@@ -1990,26 +2016,50 @@ export interface MatchLoaderOptions {
  */
 export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker = () => new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }) as unknown as MatchWorker, options: MatchLoaderOptions = {}): MatchLoader {
   const releaseWorkerAfterLoad = options.releaseWorkerAfterLoad ?? (readGraphicsBackend() === 'xbox' || pageDeviceClass() === 'xbox');   // VS-7 review F3: the Xbox class too
+  const serialWorkerRequests = options.serialWorkerRequests ?? (readGraphicsBackend() === 'xbox' || pageDeviceClass() === 'xbox');
+  const cancelSupersededLoads = options.cancelSupersededLoads ?? (readGraphicsBackend() === 'xbox' || pageDeviceClass() === 'xbox');
+  try { pageMatchDiag(); } catch { /* an instrument never stops the load (review L2) */ }   // XBOX-790-LOADDIAG: the page's diagnostic made with the loader -- a loss during its first load reports, its stages followed from load-start
+  let disposed = false;
+  let generation = 0;
   let worker: MatchWorker | null = null;
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
-  const ask = (request: ViewerRequest): Promise<ViewerResponse | null> => new Promise((res) => {
-    if (!worker) {
-      worker = makeWorker();
-      worker.addEventListener('message', (e: MessageEvent<ViewerResponse>) => {
-        const m = e.data;
-        if (m.kind === 'progress' || m.kind === 'loading') return;
-        // The map's sound comes in two answers, the data then its loops (`./worker`): the request is answered by the second.
-        if (m.kind === 'sound') { sounds.set(m.id, m.data); return; }
-        const done = waiting.get(m.id);
-        if (done) { waiting.delete(m.id); done(m.kind === 'error' ? null : m); }
-      });
-      worker.addEventListener('error', () => { for (const done of waiting.values()) done(null); waiting.clear(); });
-    }
-    waiting.set(request.id, res);
-    worker.postMessage(request);
-  });
   const sounds = new Map<number, SoundData>();
+  const stopWorker = (): void => {
+    const old = worker;
+    worker = null;                                      // reject late replies before terminating the isolate
+    old?.terminate();
+    const pending = [...waiting.values()];
+    waiting.clear(); sounds.clear();
+    for (const done of pending) done(null);
+  };
+  const ask = (request: ViewerRequest): Promise<ViewerResponse | null> => new Promise((res) => {
+    if (disposed) { res(null); return; }
+    waiting.set(request.id, res);
+    try {
+      if (!worker) {
+        const own = serialWorkerRequests ? serialMatchWorker(makeWorker) : makeWorker();
+        worker = own;
+        own.addEventListener('message', (e: MessageEvent<ViewerResponse>) => {
+          if (disposed || worker !== own || !waiting.has(e.data.id)) return;
+          const m = e.data;
+          if (m.kind === 'progress' || m.kind === 'loading') return;
+          noteLoadReply(m);                             // XBOX-790-LOADDIAG: the reply as a stage, its bytes
+          // Sound's first answer is retained only while its request is live; its loops settle the request.
+          if (m.kind === 'sound') { sounds.set(m.id, m.data); return; }
+          const done = waiting.get(m.id)!;
+          waiting.delete(m.id); done(m.kind === 'error' ? null : m);
+        });
+        own.addEventListener('error', () => {
+          if (disposed || worker !== own) return;
+          noteLoadStage('crash'); stopWorker();         // XBOX-790-LOADDIAG: the worker lost
+        });
+      }
+      worker.postMessage(request);
+    } catch {
+      noteLoadStage('crash'); stopWorker();           // XBOX-790-LOADDIAG: the worker lost
+    }
+  });
   /** `./main`'s `askSound`: the map's sound data and its loops, of the same source, its path and archive (MATCH-SOUND). */
   const askSound = (path: string, archive: string): Promise<MatchAssets['sound']> => {
     const id = ++ids;
@@ -2019,31 +2069,59 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
       return data && r?.kind === 'soundLoops' ? { data, loops: r.loops } : null;
     });
   };
-  let kept: { mission: string; assets: Promise<MatchAssets | null> } | null = null;
-  const load = (mission: string): Promise<MatchAssets | null> => {
-    if (kept?.mission === mission) return kept.assets;
+  let kept: { mission: string; assets: Promise<MatchAssets | null>; failed: boolean } | null = null;
+  const load = (mission: string, retryFailed = false): Promise<MatchAssets | null> => {
+    if (disposed) return Promise.resolve(null);
+    if (kept?.mission === mission && (!retryFailed || !kept.failed)) return kept.assets;
+    if (cancelSupersededLoads) {
+      generation++;
+      // XBOX-790-LOADDIAG (an instrument): a load superseded, as a stage of the diagnostic's load.
+      if (kept) noteLoadStage('cancelled');
+      kept = null;
+      stopWorker();
+    }
+    const mine = generation;
+    const stale = (): boolean => disposed || mine !== generation;
+    // XBOX-790-LOADDIAG (an instrument): a decode begun (not the kept mission's), as a stage of the diagnostic's load.
+    noteLoadStage('decode');
     const path = missionMapPath(mission);
-    const assets = path === null ? Promise.resolve(null) : Promise.all([
-      ask({ kind: 'load', id: ++ids, source, path }),
-      ask({ kind: 'play', id: ++ids, source, clips: MATCH_CLIPS }),
-    ]).then(async ([m, p]) => {
-      if (m?.kind !== 'map') return null;
-      // `./main`'s `askEffects` once the map is in: of the same source, its path and archive.
-      // and `askSound` beside it: the loading screen holds for both, as `/testroom`'s loading lanes do.
-      const [e, sound] = await Promise.all([
-        ask({ kind: 'effects', id: ++ids, source, path: m.map.path, archive: m.map.archive }),
-        askSound(m.map.path, m.map.archive),
-      ]);
+    const assets: Promise<MatchAssets | null> = path === null ? Promise.resolve(null) : (async () => {
+      const mapRequest = ask({ kind: 'load', id: ++ids, source, path });
+      // On Xbox no animation/effect/audio decode is queued until its predecessor settles. A failed map starts none.
+      // Other devices retain their concurrent loading path.
+      let m: ViewerResponse | null, p: ViewerResponse | null;
+      if (serialWorkerRequests) {
+        m = await mapRequest;
+        if (stale() || m?.kind !== 'map') return null;
+        p = await ask({ kind: 'play', id: ++ids, source, clips: MATCH_CLIPS });
+      } else {
+        [m, p] = await Promise.all([mapRequest, ask({ kind: 'play', id: ++ids, source, clips: MATCH_CLIPS })]);
+      }
+      if (stale() || m?.kind !== 'map') return null;
+      const effectRequest = ask({ kind: 'effects', id: ++ids, source, path: m.map.path, archive: m.map.archive });
+      let e: ViewerResponse | null, sound: MatchAssets['sound'];
+      if (serialWorkerRequests) {
+        e = await effectRequest;
+        if (stale()) return null;
+        sound = await askSound(m.map.path, m.map.archive);
+      } else {
+        [e, sound] = await Promise.all([effectRequest, askSound(m.map.path, m.map.archive)]);
+      }
+      if (stale()) return null;
       return { map: m.map, clips: p?.kind === 'play' ? p.data : null, effects: e?.kind === 'effects' ? e.data : null, sound };
-    });
+    })();
     // PR #631, the Xbox preset only (`releaseWorkerAfterLoad`): the worker let go once this load is in and no request
     // waits -- checked in the same turn as the terminate, so a request asked before it (another mission's load still
     // in flight) keeps the worker until its own settle, and one asked after it makes a fresh worker (`ask`).
     if (releaseWorkerAfterLoad) {
-      const idle = (): void => { if (worker && waiting.size === 0) { worker.terminate(); worker = null; } };
+      const idle = (): void => { if (!stale() && worker && waiting.size === 0) { stopWorker(); } };
       void assets.then(idle, idle);
     }
-    kept = { mission, assets };
+    kept = { mission, assets, failed: false };
+    // Internal prepare/mount handoffs reuse a failure. Only an explicit public load retries it: restarting here would
+    // decode again while the handoff creates its renderer, adding precisely the overlap the Xbox path must avoid.
+    // XBOX-790-LOADDIAG review M1 (an instrument): the kept load failed -- no mount comes of it: the diagnostic's lane closed.
+    void assets.then((result) => { if (result === null && kept?.assets === assets) { kept.failed = true; noteLoadClosed(); } });
     return assets;
   };
   // IP3 (`LOAD_REPORT_AT_PREPARED_READING`): one match prepared ahead of its mount (`prepare`) -- the mount's own stage 1
@@ -2151,10 +2229,12 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
     return job;
   };
   return {
-    load: (mission) => { if (kept?.mission !== mission) drop(); return load(mission); },
+    load: (mission) => { if (kept?.mission !== mission) drop(); return load(mission, true); },
     prepare,
     holds: (mission) => (prepared?.mission === mission ? 'prepared' : preparing?.mission === mission ? 'preparing' : null),
-    dropPrepared: drop,
+    // XBOX-790-LOADDIAG review M1 (an instrument): the front end's drop -- the lobby left, or a load ended with no match
+    // started -- closes the diagnostic's lane; the loader's own drops (a load or a prepare after them) do not.
+    dropPrepared: () => { drop(); noteLoadClosed(); },
     reseat: () => { (prepared ?? preparing)?.mount?.reseat(); },
     mount: (target, o) => {
       const job = takes(o);
@@ -2171,7 +2251,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
       if (job.audio) o.audio?.release();               // the hand-off's audio unused: the prepared match plays on its own
       return m.attach(target, o);
     },
-    dispose: () => { offPicture(); offNextMatch(); drop(); worker?.terminate(); worker = null; for (const done of waiting.values()) done(null); waiting.clear(); sounds.clear(); kept = null; },
+    dispose: () => { disposed = true; generation++; offPicture(); offNextMatch(); drop(); stopWorker(); kept = null; noteLoadClosed(); },   // M1: the lane closed
   };
 }
 

@@ -103,6 +103,84 @@ describe('FUI-22 D1: the asset list\'s one tooltip preview', () => {
     expect(r.tip.root.hidden).toBe(true);
   });
 
+  /**
+   * FC2 (ours): the contributor's dock gives the asset list a short height, so the list scrolls where the old left dock's
+   * rarely did. jsdom lays nothing out: the list's `scroll` event is dispatched by hand where the browser would dispatch
+   * the one a `scrollIntoView` queues (the next frame's scroll steps, before that frame's animation callbacks); the
+   * frames are a stubbed `requestAnimationFrame` queue run by hand.
+   */
+  describe('FC2: a short list that scrolls (the contributor\'s dock)', () => {
+    let frames: FrameRequestCallback[] = [];
+    const frame = (): void => { const now = frames; frames = []; for (const cb of now) cb(0); };
+    const stubFrames = (): void => {
+      frames = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.push(cb); return frames.length; });
+    };
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    it('the prop step\'s own scrollIntoView keeps the active tile\'s tooltip; a later scroll of the list hides it', () => {
+      stubFrames();
+      const r = rig();
+      // The page's step (`page.ts` `stepAsset`): scrollIntoView on the active tile, then activate; the scroll event lands after.
+      r.tip.activate('MP2:barrel');
+      expect(r.tip.root.hidden).toBe(false);
+      r.list.dispatchEvent(new Event('scroll'));
+      expect(r.tip.root.hidden, 'the step\'s own scroll').toBe(false);
+      expect(r.tip.shown()).toBe('MP2:barrel');
+      // CONTROL: once the step's scroll has landed (two frames on), a scroll of the list is the user's and hides it.
+      frame(); frame();
+      r.list.dispatchEvent(new Event('scroll'));
+      expect(r.tip.root.hidden, 'a user\'s scroll').toBe(true);
+    });
+
+    it('a keyboard or pad focus\'s own scroll keeps the focused tile\'s tooltip', () => {
+      stubFrames();
+      const r = rig();
+      r.tiles[2]!.querySelector('button')!.focus();
+      r.list.dispatchEvent(new Event('scroll'));
+      expect(r.tip.root.hidden, 'the focus\'s own scroll').toBe(false);
+      frame(); frame();
+      r.list.dispatchEvent(new Event('scroll'));
+      expect(r.tip.root.hidden, 'a user\'s scroll').toBe(true);
+    });
+
+    it('a hover whose tile is scrolled into view just after the pointer enters still shows after its delay', () => {
+      vi.useFakeTimers();
+      const r = rig();
+      r.pointer('pointerover', r.tiles[1]!.firstElementChild!);
+      r.list.dispatchEvent(new Event('scroll'));                     // the scroll that brought it in lands after the enter
+      vi.advanceTimersByTime(ASSET_TIP_HOVER_MS);
+      expect(r.tip.root.hidden, 'the hover survives the scroll').toBe(false);
+      expect(r.tip.shown()).toBe('MP2:container');
+    });
+
+    it('RED (review B-4): a user\'s scroll after the hover\'s first two frames cancels its pending show -- no tip later', () => {
+      // Expected RED before the fix: the scroll kept the pending hover's timer, so a wheel under a still pointer brought
+      // the tip up 400 ms later beside a tile no longer under it.
+      vi.useFakeTimers();
+      stubFrames();
+      const r = rig();
+      r.pointer('pointerover', r.tiles[1]!.firstElementChild!);
+      frame(); frame();                                              // past the hover's own scroll's window
+      r.list.dispatchEvent(new Event('scroll'));                     // the user's wheel, the pointer still
+      vi.advanceTimersByTime(ASSET_TIP_HOVER_MS * 2);
+      expect(r.tip.root.hidden, 'a user\'s scroll cancels the pending show').toBe(true);
+      expect(r.tip.shown()).toBe(null);
+    });
+
+    it('CONTROL: a hover whose tile is scrolled into view just before the pointer enters shows after its delay', () => {
+      vi.useFakeTimers();
+      const r = rig();
+      r.list.dispatchEvent(new Event('scroll'));
+      r.pointer('pointerover', r.tiles[1]!.firstElementChild!);
+      vi.advanceTimersByTime(ASSET_TIP_HOVER_MS);
+      expect(r.tip.root.hidden).toBe(false);
+      // And a hovered tooltip shown is still hidden by a scroll of the list (today's rule).
+      r.list.dispatchEvent(new Event('scroll'));
+      expect(r.tip.root.hidden, 'a user\'s scroll').toBe(true);
+    });
+  });
+
   it('one renderer instance across several tiles, each staged handle released when the next is shown', async () => {
     const r = rig();
     for (const tile of r.tiles) {

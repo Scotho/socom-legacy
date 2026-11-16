@@ -10,10 +10,18 @@ import { noticeSuppressed, pageSoftwareProbe, type SoftwareProbe } from './softw
 /** Dismissed for this page's session: a module variable, not storage. */
 let dismissed = false;
 
-/** The notice's sentence, naming the renderer the probe read (or that no context could be made). */
+/**
+ * The notice's sentence, naming the renderer the probe read. GPU-BLOCKED-NOTICE (#790, 2026-11-14; a browser adaptation):
+ * no context at all (`renderer` null) is not acceleration switched off -- a browser with it off still makes a software
+ * context -- but the browser refusing the site any WebGL, as Chromium does to a site after a graphics reset until the
+ * browser is closed (seen on an Xbox, after the UI's GPU restore timed out and a reload: central's `uigpufallback` L4
+ * `no-webgl2`); so it says to restart the browser.
+ */
 export function softwareRendererText(renderer: string | null): string {
-  const what = renderer ?? 'no WebGL context could be made';
-  return `Hardware acceleration looks off in this browser (${what}). The game will run slowly.`;
+  if (renderer === null) {
+    return 'This browser is giving the game no graphics right now (no WebGL context could be made). After a graphics reset a browser can block a site until it is closed: close the browser completely and open it again.';
+  }
+  return `Hardware acceleration looks off in this browser (${renderer}). The game will run slowly.`;
 }
 
 /** The help sheet's lines: each browser's path to the switch, its name in `<b>`. */
@@ -22,6 +30,11 @@ const HELP: readonly [string, string][] = [
   ['Edge', 'Settings > System and performance > "Use graphics acceleration when available": turn it on, then restart Edge.'],
   ['Firefox', 'Settings > General > Performance: uncheck "Use recommended performance settings", check "Use hardware acceleration when available", then restart Firefox.'],
   ['Remote desktop or a VM', 'a remote desktop or a virtual machine shows the same software renderer even with the setting on: play on the machine itself.'],
+];
+/** GPU-BLOCKED-NOTICE: with no context at all, restarting the browser comes first (`softwareRendererText`), then `HELP`. */
+const RESTART: readonly [string, string][] = [
+  ['Xbox', 'press the Xbox button, go to Home, highlight Microsoft Edge, press the Menu button and choose Quit, then open Edge again.'],
+  ['Any other device', 'close every window of the browser, then open it again.'],
 ];
 
 /** One notice on the page, over the launcher, replacing an earlier one; its link opens the help sheet in place. */
@@ -48,7 +61,7 @@ export function showSoftwareRendererNotice(doc: Document, renderer: string | nul
   open.className = 's2u-chip';
   open.setAttribute('data-no-gpu-open', '');
   open.setAttribute('aria-expanded', 'false');
-  open.textContent = 'How to turn it on';
+  open.textContent = renderer === null ? 'What to do' : 'How to turn it on';
   const close = doc.createElement('button');
   close.type = 'button';
   close.className = 's2u-chip';
@@ -59,7 +72,7 @@ export function showSoftwareRendererNotice(doc: Document, renderer: string | nul
   const help = doc.createElement('div');
   help.setAttribute('data-no-gpu-help', '');
   help.hidden = true;
-  for (const [who, how] of HELP) {
+  for (const [who, how] of renderer === null ? [...RESTART, ...HELP] : HELP) {
     const p = doc.createElement('p');
     const b = doc.createElement('b');
     b.textContent = `${who}: `;

@@ -1,5 +1,5 @@
 import { VALVE_TYPE, type OptionGlobals, type ValveStore } from '@s2u/ui';
-import { controllerConfigs, storedControllerConfig, type ControllerConfigs } from './controllerConfigs';
+import { browserStoredControllerConfig, controllerConfigs, type ControllerConfigs } from './controllerConfigs';
 import { ExchangeInput } from './exchangeInput';
 import type { Input, PadButton } from './gamepad';
 import { WHITE, type Hud, type HudQuad, type HudTri } from './hud';
@@ -265,7 +265,7 @@ export function localStartMenuOptions(base: (name: string) => number | undefined
       written.set(name, value);
       // Existing controller plumbing, as the START shortcut uses it: keep the selected layout while updating its flag.
       if (name === 'FIREMODESWAP_CONTROLLER' && configs.fireModeSwap !== (value !== 0)) configs.toggleFireModeSwap();
-      if (name === 'SelectedControllerConfig') configs.select(storedControllerConfig(value));
+      if (name === 'SelectedControllerConfig') configs.select(browserStoredControllerConfig(value));
     },
   };
 }

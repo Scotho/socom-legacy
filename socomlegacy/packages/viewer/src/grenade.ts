@@ -28,7 +28,7 @@ import type { ProjectilePhase } from './joinState';
 import type { EffectHandle } from './effects';
 import { aimPick, C4_PLANT_SECONDS, c4PlantAllowed, C4Settle, c4TargetOf, EquipmentSlots, slotSelectable, wadingDepth, type EquipmentSlotState } from './equipment';
 import { blastLine, type SceneHealth } from './sceneHealth';
-import { blastFlashLevel } from './net/blast';
+import { blastFlashLevel, blastPoint } from './net/blast';
 import { placeGround, worldColumn } from './net/placing';
 import { isHoldClip, TICK, type ActionEndReason } from './mover';
 import { climbHoldsBody } from './traversal';
@@ -2571,6 +2571,7 @@ export class GrenadeThrower {
     // 50 u, the RPG and the LAW HEAT 20 in 150 u, the M67 10 in 150 u. A shield of 17 takes 20 and 18 and refuses 10
     // before falloff. Remote/replay and online blasts stay visual here; the room applies them.
     if (!l.remote && !this.source.online?.()) {
+      const bp = blastPoint(pos);                                // LATER 992: the lines from the lifted point; GetDamage's falloff and cone, and the effects, at `pos`
       const grid = this.source.hullGrid?.() ?? this.source.grid();
       const rating = record.explosionDamage + (record.damageModifier ?? 0);
       // `GetDamage`'s factor at the target's midpoint (`FUN_003c7600` D:L318769-318831): the claymore's 1/32 outside its
@@ -2581,9 +2582,9 @@ export class GrenadeThrower {
         if (record.ignoreExplosionDI === true) return true; // C4 Ammo's bare field, research 235 §1.
         if (!grid) return false;
         // The room's sightFrom (research 94 §C4.3): retain its existing BOUNCE_LIFT toward the midpoint.
-        const length = Math.hypot(to[0] - pos[0], to[1] - pos[1], to[2] - pos[2]);
+        const length = Math.hypot(to[0] - bp[0], to[1] - bp[1], to[2] - bp[2]);
         const from: V3 = length > BOUNCE_LIFT
-          ? [0, 1, 2].map(i => pos[i]! + (to[i]! - pos[i]!) * BOUNCE_LIFT / length) as V3 : pos;
+          ? [0, 1, 2].map(i => bp[i]! + (to[i]! - bp[i]!) * BOUNCE_LIFT / length) as V3 : bp;
         return blastLine(grid, from, to, target, record.explosionRadius,
           p => surfaceMaterial(p.material, this.defaultMaterial).penetration);
       }, {
@@ -2604,7 +2605,7 @@ export class GrenadeThrower {
     // blast's (`blast.flash`, `NetPage`'s `whiteOut`): `FUN_005a5250`'s slot 0 is reached only inside `FUN_005a0e70`
     // (D:L459228), past the line and the friendly-fire gate (FLASH_FRIENDLY_FIRE_READING).
     let flash: 1 | 2 | 3 | null = null;
-    if (detonation === 'flash' && snap && !this.source.online?.()) flash = blastFlashLevel(snap, pos);   // the room's own reckoning
+    if (detonation === 'flash' && snap && !this.source.online?.()) flash = blastFlashLevel(snap, blastPoint(pos));   // the room's own reckoning, from its lifted point (LATER 992)
     const anim = material && record.materialAnim ? materialAnim(record.materialAnim, material) : record.explosionAnim;
     const at: EffectAt = { position: [...pos], normal: material ? [0, 1, 0] : null };
     const ran = !!this.playEffect && (this.playEffect(anim, at) || (anim !== record.explosionAnim && this.playEffect(record.explosionAnim, at)));

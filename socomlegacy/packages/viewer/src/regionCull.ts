@@ -28,8 +28,22 @@ import { cameraFloor } from './floorPick';
  * The scene walk's other node tests: `+0x5c` bit 0, and `+0x5f` bit 7 as the zone test's enable (D:L236069-236072: a
  * clear bit draws the node untested; set for a new node by `FUN_00317060` D:L215962-215966, inherited from its parent)
  * -- a body's node holds both in every case read, so the port takes them as set; the opacity and the frustum are the page's own (`./hudTags`). The original tests a tag's body
- * drawn this frame or the last (`FUN_00315580(node, 2)`); the port gates on this frame (LATER 415's review, F5).
+ * drawn this frame or the last (`FUN_00315580(node, 2)`): built by TAG-GRACE (`MP_TEAM_TAG_DRAWN_FRAMES_READING`,
+ * `RegionCull.tagDrawn`); was: "the port gates on this frame (LATER 415's review, F5)".
  */
+
+/**
+ * TAG-GRACE (research 329 s6, `MP_TEAM_TAG_CULL_READING`'s "or the last"; reading, pending review): a tag needs its body's
+ * node drawn THIS frame or THE LAST. `FUN_00315580(node, 2)` (D:L77376) passes when the node's stamp `+0x98` equals the
+ * frame counter `DAT_004a4490` or the counter less 1 (D:L214885-214889); the scene walk stamps each node it draws
+ * (`FUN_003374c0` D:L235478-235481). Within a frame (`FUN_001ebed0`) the counter is bumped (`FUN_003aff30`,
+ * D:L50809/50813), the scene walked (`FUN_00339de0` -> `FUN_003389c0`, D:L50840), then the HUD's frame runs the tags
+ * (`FUN_001f7ff0`, D:L50856) -- so "this frame" is this frame's render, and the port's order (the gate, the render, the
+ * tags) is the same. The grace is the tag's alone: the body's own draw is the renderer's verdict of the frame.
+ * The port applies it to the region gate, the part of the renderer's verdict it models (`./hudTags`' head-in-view test
+ * is its own, research 329 s6, and takes no grace).
+ */
+export const MP_TEAM_TAG_DRAWN_FRAMES_READING = 'this frame or the last' as const;
 
 /** No floor: `FUN_002dc1b0`'s 0xffffffff. */
 export const NO_REGION = 0xffffffff;
@@ -115,6 +129,9 @@ export class RegionCull {
   /** `+0x2a8`: 1 until written (`FUN_00293a80` D:L138757). */
   mask = 1;
   private readonly zones = new Map<number, number>();
+  /** TAG-GRACE: each framed body's drawn verdict at this frame and the last (`MP_TEAM_TAG_DRAWN_FRAMES_READING`). */
+  private drawnNow = new Map<number, boolean>();
+  private drawnLast = new Map<number, boolean>();
 
   /** `FUN_00290bd0`: the shown body's floor's region; 0 writes nothing. */
   viewFloor(region: number): void {
@@ -150,6 +167,14 @@ export class RegionCull {
   }
 
   /**
+   * TAG-GRACE (`MP_TEAM_TAG_DRAWN_FRAMES_READING`; `FUN_00315580(node, 2)`, D:L77376): the body drawn this frame or the
+   * last, the tags' test. The body's own draw stays `drawn` -- this frame's verdict.
+   */
+  tagDrawn(id: number): boolean {
+    return this.drawn(id) || this.drawnLast.get(id) === true;
+  }
+
+  /**
    * LATER 415's review, F2: a new map or round -- new nodes, every zone forgotten -- and the camera's constructor words
    * (LATER 568: `FUN_00293a80` D:L138755-138757, `+0x2a0` 0, `+0x2a4` 0, `+0x2a8` 1; was: the masks 0, which held no
    * zone's bit and left every body undrawn while the viewer's floors were region 0). At a new map the original builds a
@@ -161,19 +186,24 @@ export class RegionCull {
     this.eyeRegion = 0;
     this.mask = 1;
     this.zones.clear();
+    this.drawnNow.clear();
+    this.drawnLast.clear();
   }
 
   /** Forgets a body (it left the room); its next zone starts at 0. */
   forget(id: number): void {
     this.zones.delete(id);
+    this.drawnNow.delete(id);
+    this.drawnLast.delete(id);
   }
 
   /**
+   * `rendered`: whether this step's frame is drawn (TAG-GRACE: only a drawn frame moves the tags' verdicts down).
    * One frame in `REGION_ORDER_READING`'s order: the shown body's floor (`probeFloor` under its feet, the body's ground
    * probe), each body's floor (the same probe; `NO_REGION` with none), then the eye (`regionUnder`). The floor under the
    * eye is never a body's here: the port's grid holds no body (`FUN_0059acd0`'s `CSealEx` skip has nothing to skip).
    */
-  frame(grid: Grid, f: RegionFrame): void {
+  frame(grid: Grid, f: RegionFrame, rendered = true): void {
     if (f.viewed) {
       const h = probeFloor(grid, f.viewed[0]!, f.viewed[1]!, f.viewed[2]!);
       if (h) this.viewFloor(h.poly.region >>> 0);
@@ -186,5 +216,11 @@ export class RegionCull {
     // The eye's write is the hit's (D:L140039-140040): no floor at or below the eye, nothing -- a spectator's too.
     const under = f.eye ? regionUnder(grid, f.eye) : null;
     if (under !== null) this.eye(under, f.spectator);
+    // TAG-GRACE: this frame's verdicts kept, the last frame's moved down (`tagDrawn`) -- on a RENDERED frame only: the
+    // original's stamp is the scene walk's, so a step the frame cap does not draw (`matchMount`'s `drawFrame`) moves
+    // nothing (the review's finding A).
+    if (!rendered) return;
+    this.drawnLast = this.drawnNow;
+    this.drawnNow = new Map(f.bodies.map((b) => [b.id, this.drawn(b.id)]));
   }
 }

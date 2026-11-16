@@ -30,8 +30,24 @@ describe('the no-GPU notice (browser adaptation, CPS-4c)', () => {
   it('says what the brief says, naming the renderer', () => {
     expect(m.softwareRendererText(SOFT.renderer)).toBe(
       `Hardware acceleration looks off in this browser (${SOFT.renderer}). The game will run slowly.`);
+    // GPU-BLOCKED-NOTICE (#790, 2026-11-14): no context at all is not acceleration switched off -- after a graphics reset
+    // the browser can refuse the site any WebGL until it is closed (seen on an Xbox after the UI's restore timed out).
     expect(m.softwareRendererText(null)).toBe(
-      'Hardware acceleration looks off in this browser (no WebGL context could be made). The game will run slowly.');
+      'This browser is giving the game no graphics right now (no WebGL context could be made). After a graphics reset a browser can block a site until it is closed: close the browser completely and open it again.');
+  });
+
+  it('GPU-BLOCKED-NOTICE: with no context at all, the help says to restart the browser first -- the Xbox way included -- then the switches', () => {
+    const el = m.showSoftwareRendererNotice(document, null);
+    const open = el.querySelector<HTMLButtonElement>('[data-no-gpu-open]')!;
+    expect(open.textContent).toBe('What to do');
+    const lines = [...el.querySelectorAll('[data-no-gpu-help] p')].map((p) => p.textContent);
+    expect(lines[0]).toBe('Xbox: press the Xbox button, go to Home, highlight Microsoft Edge, press the Menu button and choose Quit, then open Edge again.');
+    expect(lines[1]).toBe('Any other device: close every window of the browser, then open it again.');
+    expect(lines.slice(2).map((l) => l!.split(':')[0])).toEqual(['Chrome', 'Edge', 'Firefox', 'Remote desktop or a VM']);
+    // A software renderer keeps today's notice: the switches only, "How to turn it on".
+    const soft = m.showSoftwareRendererNotice(document, SOFT.renderer);
+    expect(soft.querySelector('[data-no-gpu-open]')!.textContent).toBe('How to turn it on');
+    expect([...soft.querySelectorAll('[data-no-gpu-help] p')].map((p) => p.textContent!.split(':')[0])).toEqual(['Chrome', 'Edge', 'Firefox', 'Remote desktop or a VM']);
   });
 
   it('probes once, after the first frame, and shows the notice for a software renderer', () => {

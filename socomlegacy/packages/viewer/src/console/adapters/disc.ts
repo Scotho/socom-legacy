@@ -14,8 +14,8 @@ import type { Adapters, DiscSource, DiscState, KeptDisc } from '../state';
 /**
  * The console launcher's disc (slice 2, part a): the visitor's own SOCOM II image, chosen by the Disc item or the
  * legend's chip (a file picker) or dropped on the window, opened in this page by the reader the setup page uses
- * (`../../discPrompt` `openFrontEndImage`: a 2048-byte-sector ISO9660 image holding `RUN/UI/READERC.ZAR`, read by range
- * and never uploaded; it also keeps the opened `File` for the replay viewer, `openedDiscImage`). Its state goes into the
+ * (`../../discPrompt` `openFrontEndImage`: a 2048-byte-sector ISO9660 image whose `SYSTEM.CNF` boots a release of SOCOM
+ * II (DA.R8) and that holds `RUN/UI/READERC.ZAR`, read by range and never uploaded; it also keeps the opened `File` for the replay viewer, `openedDiscImage`). Its state goes into the
  * page's disc store (`../../modern/discStore`, per Document: `reading`, `ready`, `error`) and the opened source into
  * `../../modern/discImage` -- the two writes `../../pageEntry` `offerDisc` makes -- and is read back from them, so the
  * modern readers (`launcherState`, `discAssets`) see this page's disc. The picker and the drop are `watchDiscPrompt`'s

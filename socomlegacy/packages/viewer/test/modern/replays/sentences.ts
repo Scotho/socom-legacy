@@ -16,8 +16,8 @@ export async function sentenceOf(bytes: Uint8Array): Promise<string> {
   return (e as Error).message;
 }
 
-/** A header-only file of another protocol (one below every protocol this build decodes) or of another format. */
+/** A header-only file of another protocol (one below every protocol this build decodes) or of another format (FL-2: 0, below every one read). */
 export const OLDER_PROTOCOL = (): Uint8Array => encodeRecord({ kind: 'header', header: header({ protocol: 1 }) });
-export const OTHER_FORMAT = (): Uint8Array => encodeRecord({ kind: 'header', header: header({ format: 4 }) });
+export const OTHER_FORMAT = (): Uint8Array => encodeRecord({ kind: 'header', header: header({ format: 0 }) });
 /** A file whose first record is not a header: it does not parse as a replay. */
 export const NO_HEADER = (): Uint8Array => encodeRecord({ kind: 'end', tick: 1, reason: 'x' });

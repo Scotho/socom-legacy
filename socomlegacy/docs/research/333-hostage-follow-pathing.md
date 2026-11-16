@@ -182,6 +182,10 @@ on a traversable cell; the heading update stays unconditional.
 
 **Observed, not built.**
 - The forced add of body+0x1061 bit 6 (D:L471309, with width flag 8, D:L471320-471322): its meaning is unread.
+  **Read 2026-11-12 (research 417 s25.10; reading, pending review):** the jump's launch sets that bit for one tick
+  (`FUN_0057e1b0`, D:L440838, from its action-8 request's result; cleared by `FUN_00551ec0` at D:L418491), so the tick
+  after a jump begins appends the body's UNCHANGED cell. Online, r0004 then empties the trail there (26 inserted
+  words; measured in kind, n = 1).
 - Code 6 then 5: when the open list fills (code 6, D:L382749-382750) and the frame's time ends at the next loop top,
   code 5 overwrites it (D:L382780-382786); the search resumes next frame with a full list (cVar18 cleared,
   D:L382637). The port fails at once.

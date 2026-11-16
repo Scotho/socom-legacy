@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { FRONT_END_CAPABILITIES, TESTROOM_CAPABILITIES, type MatchCapabilities } from '../src/matchCore';
 import { matchNetDeps, PART_DEPS, PART_HOOKS, type MatchNetHooks, type MatchNetParts } from '../src/matchNet';
 import { buildGrid, type Grid, type WorldPoly } from '@s2u/scene';
-import { type SpectatorPose } from '../src/spectatorView';
+import { FOLLOW_BEHIND, FOLLOW_OVER, FOLLOW_PITCH, followPose, type SpectatorPose } from '../src/spectatorView';
+import { CAM_BACK, CAM_MARGIN, lookHeight } from '../src/cameraRig';
 import { PlayerCamera } from '../src/playerCamera';
 import { STANCE } from '../src/mover';
 import type { NetPageDeps } from '../src/netPage';
@@ -352,7 +353,8 @@ describe('one deps builder: both pages build NetPage\'s deps with it', () => {
     expect(src('matchThrow.ts')).toMatch(/detonateProjectile: \(pid\) => grenade\.detonateRemote\(pid\),/);
     for (const f of ['main.ts', 'matchMount.ts']) {
       expect(src(f), f).toMatch(/^\s+drops,\s/m);
-      expect(src(f), f).toMatch(/kitChanged: \(l, s, r, f, k\) => \{ firearm\.takeKit\(l, s, r, f, k\); \},/);   // OT.R59: a resume's pouch (`k`) too
+      // OT.R59: a resume's pouch (`k`) too; the pour's amounts (`a`, PICKUP_POUR_READING) since 2026-11-13, both mounts alike
+      expect(src(f), f).toMatch(/kitChanged: \(l, s, r, f, k, a\) => \{ firearm\.takeKit\(l, s, r, f, k, a\); \},/);
     }
     expect(src('matchMount.ts')).not.toMatch(/tagOwnProjectile|detonateProjectile/);
   });
@@ -370,7 +372,7 @@ describe('WALL-CAM: both pages share the spectator obstruction rig', () => {
   const wall: WorldPoly = { modelName: 'worldmodel', path: 'wall', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
     points: Float32Array.from([-200, 0, 0, 200, 0, 0, 200, 80, 0, -200, 80, 0]) };
   const grid = (): Grid => buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 8, cellsZ: 8, originX: -400, originZ: -400 }, [], [], [wall], [{ modelName: 'worldmodel', path: 'wall', first: 0, count: 1 }]);
-  it.each([TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES])('uses live hull, stance, pitch and peek, resetting on target and map changes', (caps) => {
+  it.each([TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES])('uses live hull, stance and peek with the set-up look pitch 0, not the aim, resetting on target and map changes', (caps) => {
     const { p } = parts(caps); let hull = grid(); let pose: SpectatorPose | null = null;
     const map = p.map(); p.map = () => map;
     p.walk = { gridOfGround: () => hull } as never;
@@ -382,25 +384,84 @@ describe('WALL-CAM: both pages share the spectator obstruction rig', () => {
     expect(follow).toBeTypeOf('function'); follow(b, 1 / 60);
     expect(pose!.z).toBeLessThan(0);
     const expected = new PlayerCamera(hull); expected.nearAspect = 16 / 9;
-    expected.tick(b.feet, b.yaw, b.pitch, STANCE.crouch.rootY, 1 / 60);
+    expected.tick(b.feet, b.yaw, 0, STANCE.crouch.rootY, 1 / 60);
     expect(pose!.y).toBeCloseTo(expected.view(1).eye[1], 8);
     const moved = { ...b, feet: [0, 0, 100] };
-    follow(moved, 1 / 60); expected.tick(moved.feet, moved.yaw, moved.pitch, STANCE.crouch.rootY, 1 / 60);
+    follow(moved, 1 / 60); expected.tick(moved.feet, moved.yaw, 0, STANCE.crouch.rootY, 1 / 60);
     expect(pose!.z).toBeCloseTo(expected.view(1).eye[2], 8); // Same id keeps the obstruction hold.
     const open = { ...b, id: 2, feet: [0, 0, 100], pitch: -45, stance: 2, peek: 1 };
     follow(open, 1 / 60);
     const fresh = new PlayerCamera(hull); fresh.nearAspect = 16 / 9; fresh.peek = 1;
-    fresh.tick(open.feet, open.yaw, open.pitch, STANCE.prone.rootY, 1 / 60);
+    fresh.tick(open.feet, open.yaw, 0, STANCE.prone.rootY, 1 / 60);
     expect(pose!.z).toBeCloseTo(fresh.view(1).eye[2], 8);
     hull = grid(); follow(open, 1 / 60);
     expect(pose!.z).toBeCloseTo(fresh.view(1).eye[2], 8); // Same id on a new grid starts a new rig.
     p.remote = { cameraRoot: () => 15 } as never;
-    follow(open, 1 / 60); fresh.tick(open.feet, open.yaw, open.pitch, 15, 1 / 60, true);
+    follow(open, 1 / 60); fresh.tick(open.feet, open.yaw, 0, 15, 1 / 60, true);
     expect(pose!.y).toBeCloseTo(fresh.view(1).eye[1], 8);
     d.spectate(null); follow(open, 1 / 60);
     const reset = new PlayerCamera(hull); reset.peek = 1; reset.nearAspect = 16 / 9;
-    reset.tick(open.feet, open.yaw, open.pitch, 15, 1 / 60, true);
+    reset.tick(open.feet, open.yaw, 0, 15, 1 / 60, true);
     expect(pose!.z).toBeCloseTo(reset.view(1).eye[2], 8);
+  });
+
+  // SPECTATE-PITCH (8a's finding 13): the original's follow camera aims along the bound actor's look (+0x1070,
+  // FUN_00297410 D:L140992-140999), and a remote actor's look is not its aim: its one writer FUN_005af470 runs for it
+  // from the set-up (FUN_00553ea0 D:L419805, pitch 0) and the dead watcher's own stick (FUN_00295f20 D:L140144), and no
+  // network writer was found. A watched body pitched up or down gives the level view (eye and target at one height).
+  it.each([TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES])('SPECTATE-PITCH: a watched body pitched up or down gives the level follow view', async (caps) => {
+    expect((await import('../src/matchNet') as unknown as Record<string, unknown>).WATCHED_LOOK_PITCH_READING).toBe(0);
+    for (const ease of [false, true]) for (const aim of [60, -60, 30, -30]) {
+      const { p } = parts(caps); const hull = grid(); let pose: SpectatorPose | null = null;
+      const map = p.map(); p.map = () => map;
+      p.walk = { gridOfGround: () => hull } as never;
+      p.fly = { setPose: (v: SpectatorPose) => { pose = v; }, aspect: () => 16 / 9 } as never;
+      const rest = { ...everyPart } as Partial<NetPageDeps>; if (!caps.replay) delete rest.client;
+      const d = matchNetDeps(p, { ...everyHook }, rest as never);
+      const follow = (d as unknown as { spectateFollow: (body: object, dt: number, ease?: boolean) => void }).spectateFollow;
+      const b = { id: 7, feet: [0, 0, 150], yaw: 30, flags: 64, pitch: aim, stance: 0, peek: 0 };
+      follow(b, 1 / 60, ease);
+      const level = new PlayerCamera(hull); level.nearAspect = 16 / 9; level.ease = ease;
+      level.tick(b.feet, b.yaw, 0, STANCE.stand.rootY, 1 / 60);
+      const v = level.view(1);
+      expect(v.eye[1]).toBeCloseTo(v.target[1], 8);                     // the rig at pitch 0 is level
+      expect(pose!.pitch, `aim ${aim}`).toBeCloseTo(0, 8);              // so is the follow view, whatever the aim
+      expect(pose!.y, `aim ${aim}`).toBeCloseTo(v.eye[1], 8);
+      expect(pose!.z, `aim ${aim}`).toBeCloseTo(v.eye[2], 8);
+      follow({ ...b, pitch: -aim }, 1 / 60, ease); level.tick(b.feet, b.yaw, 0, STANCE.stand.rootY, 1 / 60);
+      expect(pose!.pitch, `aim ${-aim}`).toBeCloseTo(0, 8);             // the aim flipping moves nothing
+      expect(pose!.y, `aim ${-aim}`).toBeCloseTo(level.view(1).eye[1], 8);
+    }
+  });
+
+  // LATER 1017: the non-rendering hosts' fallback (`followPose`, `SpectatorView.follow` / `followWatched` with no
+  // `follow` callback) is the same original camera (research 248 F4, research 382 s2), so it takes the same level pitch
+  // (WATCHED_LOOK_PITCH_READING) -- standing, on open ground, where the rendering follow stands with no hull: 28.75
+  // behind (`FUN_0029a950`'s 28 plus the pass's 0.75) and 21.484 over (the standing root 11.484 plus the ramp's 10).
+  // It stays standing-only: the stance's root is the rendering follow's alone. (Was: 24.906 behind, 25.709 over,
+  // -9.167 -- the player's own spawn rest, 9 degrees off the rendering follow since SPECTATE-PITCH.)
+  it.each([TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES])('LATER 1017: the followPose fallback stands where the rendering follow stands for a standing body on open ground', async (caps) => {
+    const pitch = (await import('../src/matchNet') as unknown as Record<string, unknown>).WATCHED_LOOK_PITCH_READING;
+    expect(FOLLOW_PITCH).toBe(pitch);
+    expect(FOLLOW_BEHIND).toBeCloseTo(CAM_BACK + CAM_MARGIN, 9);
+    expect(FOLLOW_OVER).toBeCloseTo(lookHeight(STANCE.stand.rootY), 9);
+    for (const yaw of [0, 30, 135, 270]) {
+      const { p } = parts(caps); let pose: SpectatorPose | null = null;
+      const map = p.map(); p.map = () => map;
+      p.walk = {} as never;                                             // no hull: open ground
+      p.fly = { setPose: (v: SpectatorPose) => { pose = v; }, aspect: () => 16 / 9 } as never;
+      const rest = { ...everyPart } as Partial<NetPageDeps>; if (!caps.replay) delete rest.client;
+      const d = matchNetDeps(p, { ...everyHook }, rest as never);
+      const follow = (d as unknown as { spectateFollow: (body: object, dt: number) => void }).spectateFollow;
+      const b = { id: 9, feet: [100, 4, 50], yaw, flags: 64, pitch: -40, stance: 0, peek: 0 };
+      follow(b, 1 / 60);
+      const fallback = followPose(b as never);
+      expect(fallback.x, `yaw ${yaw}`).toBeCloseTo(pose!.x, 6);
+      expect(fallback.y, `yaw ${yaw}`).toBeCloseTo(pose!.y, 6);
+      expect(fallback.z, `yaw ${yaw}`).toBeCloseTo(pose!.z, 6);
+      expect(fallback.pitch, `yaw ${yaw}`).toBeCloseTo(pose!.pitch, 6);
+      expect(((fallback.yaw - pose!.yaw) % 360 + 540) % 360 - 180, `yaw ${yaw}`).toBeCloseTo(0, 6);
+    }
   });
 
   it("INV-SPECTATE C: eases the rig only when the view asks (the dead player's teammate view), snapping on a new bind", () => {

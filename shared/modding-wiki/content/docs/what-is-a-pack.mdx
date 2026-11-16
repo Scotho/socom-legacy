@@ -23,7 +23,9 @@ These hold for every format, old and new (the pack-framework spec's opening sect
 - **On your device.** You pick the files in your browser. The browser keeps them (in its own storage) and the game
   never uploads them, to its servers or anywhere else.
 - **Checked before use.** Sizes, paths and hashes are checked first. Only a pack that passes is used.
-- **Data, never code.** A pack holds data: images, models, sounds, JSON. Nothing in a pack is run as a program. A pack
+- **Data, never code, except kind `plugin`.** A pack holds data: images, models, sounds, JSON. Nothing in a pack is
+  run as a program, except a pack of kind `plugin`: one module, `plugin/main.js`, stored with the pack and run only
+  on a modded community server, and only by returning the rules' existing actions. The page does not run it. A pack
   that wants a behaviour the engine has (a picture effect, a non-player character's patrol) names that engine
   feature in its manifest; the engine runs its own code ([Pack anatomy](/anatomy/), "Handler claims").
 - **Not in online lobbies, bar what only you see.** A Forge layout that needs a pack, uses a rules mode or is built on

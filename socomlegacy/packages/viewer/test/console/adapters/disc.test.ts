@@ -21,7 +21,7 @@ beforeEach(() => { mountShell(document); });
 afterEach(() => { page?.dispose(); page = null; vi.restoreAllMocks(); });
 
 const NOT_AN_ISO = (): File => new File([new Uint8Array(40 * 2048)], 'holiday.iso');
-const GOOD = (): File => new File([buildIso([{ path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
+const GOOD = (): File => new File([buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode('BOOT2 = cdrom0:\\SCUS_972.75;1\r\nVER = 1.02\r\nVMODE = NTSC\r\n') }, { path: 'RUN/UI/READERC.ZAR', bytes: new Uint8Array(64) }])], 'socom2.iso');
 
 function boot() {
   const notify = vi.fn();

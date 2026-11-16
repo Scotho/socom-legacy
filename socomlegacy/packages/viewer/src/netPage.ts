@@ -106,7 +106,9 @@ export interface NetPageDeps {
   /** PF-34: the page's own live kit after a pickup (`kit`; `./takeKit`): the loadout, the slot replaced, the rings, the slots filled. */
   kitChanged?(loadout: readonly number[], slot: 0 | 1 | null, rounds: [number[], number[]], filled?: [number[], number[]],
     /** OT.R59 (RECONNECT-GHOST): a resume's pouch by name and launcher held, as the room holds them (no refill). */
-    resumed?: { pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1 }): void;
+    resumed?: { pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1 },
+    /** The pour's amounts, slot for slot with `filled` (the `kit` event's `added`). */
+    added?: [number[], number[]]): void;
   /** PF-36 (research 235 s4): the room's pid for this page's own throw or charge (`placed`; `GrenadeThrower.tagOwn`). */
   tagOwnProjectile?(kind: string, from: [number, number, number], pid: number): void;
   /** PF-36 (research 235 s4): the resting charge with this pid was damaged in the room and goes off (`detonateRemote`). */
@@ -118,6 +120,22 @@ export interface NetPageDeps {
   /** WALL-CAM: actor follow uses the live map's shared player rig/pass (research 382 §2). */
   spectateFollow?(body: SpectatorBody, dt: number, ease?: boolean): void;
   spectateFollowReset?(): void;
+  /**
+   * PV-5b (the player's view, `./spectatorView` POV_VIEW_ADAPTATION; a browser adaptation, no original): draw the watched
+   * body's own picture this frame (`./matchNet`); false when it cannot (PV.R6: the caller runs today's follow).
+   * `spectatePovWarm`: the rig run with the pose discarded while the follow shows (nothing placed, nothing hidden);
+   * `spectatePovReset`: the rig dropped, the command clock let go, the camera's near plane, offset and hide restored.
+   */
+  spectatePov?(body: SpectatorBody, dt: number, watched: boolean): boolean;
+  spectatePovWarm?(body: SpectatorBody, dt: number, watched: boolean): void;
+  spectatePovReset?(): void;
+  /** PV-10a: the view drawn last frame was switched off since -- called before the frame's `bodies()` (`./matchNet`). */
+  spectatePovIdle?(): void;
+  /**
+   * PV-6b (PV.R6): whether the page's client carries the player's view -- false on a replay recorded before protocol 16
+   * (`ReplayClient.viewCarried`, `./matchNet`); absent, carried (a live `NetClient` at protocol 16 always carries it).
+   */
+  spectatePovCarried?(): boolean;
   /** SPECTATOR-VIEW W6 (`./spectatorView` SCENIC_ZOOM): the scenic view's magnification for the page's projection; 1 outside it. */
   spectateMagnify?(magnification: number): void;
   /** SPECTATOR-VIEW review B1: INVERT PITCH's sign for the scenic look (`DAT_003df198`: 1 off, -1 on); absent, 1. */
@@ -210,6 +228,11 @@ export interface NetPageDeps {
    * screen (`FUN_002a9b30` D:L150617-150670). Absent: none (the `roundStart` clear stays the backstop).
    */
   roundEndEffects?(): void;
+  /**
+   * ROOM-HAND (LATER 652; the task-2 review's F1): the item in the hand now, as `handEvent` names it (`./matchThrow`
+   * `handItemId`; the throwables' `netDeps`), re-told at a welcome and a resume, where the room's hand starts at null.
+   */
+  handItem?(): number | null;
   /** Protocol 7: the side's confirmed weapon-select picks (`./loadout` `PlayerLoadout.picks`), sent again at each seat. */
   picks?(team: Team): readonly Pick[];
   /** The server's CREATE GAME restriction, before any seat's picks are replayed (research 362 §3). */
@@ -741,6 +764,12 @@ export class NetPage {
    * benched dead player's teammate cycle, on the pad's release and the keys' keyup; Space kept (the owner).
    */
   readonly spectator: SpectatorView;
+  /**
+   * PV-10a (finding 6, the exit side): `spectator.povShown` at the last frame's end -- the view drawn there. With it and
+   * `povShown` now false the view was switched off since (the pad's hold, the strip's `setPov`, a reset); a page that
+   * never draws the view pays one false test a frame, no call. Not `spectator.pov`: off, that getter reads the bodies.
+   */
+  private povShownLast = false;
   /** The room's rules and the game's round count (the welcome's; the page's choice until then). */
   private rules: Rules;
   private rounds = MAX_ROUNDS;
@@ -897,6 +926,12 @@ export class NetPage {
       bodies: () => this.client.bodies(), spectate: (pose) => this.deps.spectate(pose), views: () => this.deps.scenicViews?.() ?? [],
       follow: deps.spectateFollow ? (body, dt, ease) => this.deps.spectateFollow!(body, dt, ease) : undefined,
       resetFollow: () => this.deps.spectateFollowReset?.(),
+      // PV-6b (`./spectatorView` POV_VIEW_ADAPTATION): the rig's draw and its warm call (PV-5b's deps), each only when its
+      // dep exists; the view offered only where a dep draws it and the client carries it (`spectatePovCarried`, PV.R6).
+      pov: deps.spectatePov ? (body, dt, watched) => this.deps.spectatePov!(body, dt, watched) : undefined,
+      povWarm: deps.spectatePovWarm ? (body, dt, watched) => this.deps.spectatePovWarm!(body, dt, watched) : undefined,
+      povRelease: () => { this.deps.spectatePovReset?.(); },   // PV-7b F4: the followed or watched body gone, the view given back
+      povCarried: () => this.deps.spectatePov !== undefined && (this.deps.spectatePovCarried?.() ?? true),
       magnify: (m) => this.deps.spectateMagnify?.(m), pitchSign: () => this.deps.spectatePitchSign?.() ?? 1,
       seat: () => ({ role: this.client.role, self: this.client.id, team: this.client.team, teams: this.rosterTeams(), rules: this.rules, ghost: this.ghostSince !== null }),
       leaveSelf: () => { this.deps.walk.setMode('fly'); },
@@ -1633,6 +1668,37 @@ export class NetPage {
     return seq;
   }
 
+  /**
+   * ROOM-HAND (LATER 652; ROOM_HAND_TRUST_ADAPTATION, `packages/match/src/room.ts`; reading, pending review): the
+   * selected non-firearm, non-launcher item in the hand (`./matchThrow` `handItemId`), or null for the firearm, told to
+   * the room on the last command sent (the room takes it from `seq + 1`) -- a player's only, and only when it changes
+   * from the last told on THIS client: a new client (a reconnect, a resume, a hand-off) starts from null, as the room's
+   * hand does at a join and a spawn (`Player.hand`), and a welcome and a resume tell the item up again (`retellHand`). The original carries the item every frame (`FUN_002bd640`,
+   * D:L162059-162066); the port tells only its changes (the protocol's `hand` doc).
+   */
+  handEvent(item: number | null): void {
+    // the review's F1: between a resumed welcome and its resume `NetClient.send` drops it -- not told, so not recorded
+    if (this.client.state !== 'open' || this.client.role !== 'player' || this.client.awaitingResume?.() === true) return;
+    const last = this.handTold?.client === this.client ? this.handTold.item : null;
+    if (item === last) return;
+    // the review's F2: never before this client's held press rounds (LATER 347, named at `max(after + 1, seq)` by
+    // `flushPressRounds`), so the room reads no item at their commands ('fire: hand')
+    let seq = this.client.lastSeq();
+    for (const h of this.pressRounds) if (h.client === this.client) seq = Math.max(seq, h.after + 1, h.e.seq ?? 0);
+    this.client.send({ type: 'hand', seq, item });
+    this.handTold = { client: this.client, item };
+  }
+  /**
+   * ROOM-HAND (the task-2 review's F1): the room's hand starts at null at a welcome (a new seat) and at a resume
+   * (`room.ts`, "the new page tells its own hand"): the item up now told again (a resumed welcome's waits for its resume).
+   */
+  private retellHand(): void {
+    this.handTold = null;
+    this.handEvent(this.deps.handItem?.() ?? null);
+  }
+  /** ROOM-HAND: the item last told, and the client it was told on (another client's start is null). */
+  private handTold: { client: NetClient; item: number | null } | null = null;
+
   /** PF-34 (research 234 s3): the action button's claim of a weapon drop, at the last command sent; a player's only. */
   pickup(did: number): boolean {
     if (this.client.state !== 'open' || this.client.role !== 'player') return false;
@@ -1834,16 +1900,28 @@ export class NetPage {
     this.flushPressRounds();                       // LATER 347: a press's round, once the walk has sent its frame's commands
     this.setTrigger(trigger);
     const scale = (this.client as { dtScale?(): number }).dtScale?.() ?? 1;   // PT-19 (F2): the replay's speed, both clocks
+    // PV-10a (finding 6): the view drawn last frame and switched off since (the pad runs after the frame in both pages'
+    // loops): the body let go of the command clock before this read (`./matchNet` `spectatePovIdle`; only ever `false`).
+    if (this.povShownLast && !this.spectator.povShown) this.deps.spectatePovIdle?.();
     this.deps.remote.frame(dt * scale, this.client.bodies(), camera, real * scale);
     this.deps.roundAudio?.frame();                 // INT.R7: the round's cues that are due
     this.spectator.frame(cameraEye(camera), real); // PF-31: the follow, the scenic view (W6: its look and zoom in real seconds), the watched teammate
+    this.povShownLast = this.spectator.povShown;
     if (this.launchAt !== null) this.deps.hud.setTimer(Math.max(0, (this.launchAt - this.now()) / 1000));
     else if (this.endsAt !== null) this.deps.hud.setTimer(Math.max(0, (this.endsAt - this.now()) / 1000));
   }
 
-  /** PF-31: the pad, once a frame (`./main`'s and `./matchMount`'s pad frames): the spectator's and the benched player's controls on release. */
+  /**
+   * PF-31: the pad, once a frame (`./main`'s and `./matchMount`'s pad frames): the spectator's and the benched player's
+   * controls on release. PV-6b (POV_VIEW_ADAPTATION): while the scoreboard is up -- the pad's SELECT held, the state both
+   * pages show it from (`./main`, `./matchMount`: `padMerged.scoreboard`; the keyboard's Tab counts there only while the
+   * walk walks, where no body is followed) -- Cross's running hold is voided before the sample (so a hold reaching its
+   * threshold on that very sample switches nothing) and after it (so one begun on it never does): its release is today's.
+   */
   spectatorPad(input: Input): void {
+    if (input.scoreboard) this.spectator.voidHold();
     this.spectator.pad(input, DEAD_CYCLE_WHILE_MENU_READING === 'blocked' && (this.deps.menuOpen?.() ?? false));
+    if (input.scoreboard) this.spectator.voidHold();
   }
 
   /**
@@ -2083,6 +2161,7 @@ export class NetPage {
             remote.hydrateCorpse(h.id, h.deathClip ?? null, ageS);
           }
         }
+        this.retellHand();                              // ROOM-HAND (the review's F1): a new seat's hand starts at null
         break;
       case 'joined': this.seatBot(ev.id, ev.bot); this.names.set(ev.id, ev.name); this.teams.set(ev.id, ev.team); remote.setTeam(ev.id, ev.team); remote.setCharacter?.(ev.id, ev.character ?? null); break;
       case 'botCharacter': remote.setCharacter?.(ev.id, ev.character); break;
@@ -2182,6 +2261,7 @@ export class NetPage {
           ...(ev.equipmentSlots !== undefined ? { equipmentSlots: ev.equipmentSlots } : {}),
         });
         this.notice(null);
+        this.retellHand();                              // ROOM-HAND (the review's F1): the room cleared the hand; after the kit
         break;
       case 'hurt': {
         // j5t3o2iU: a drop the body lives through rumbles the pad (`FUN_005477a0` -> `FUN_00597b00`), every one: the voice's
@@ -2329,7 +2409,10 @@ export class NetPage {
       }
       case 'drop': this.deps.drops?.place(ev, ev.from === this.client.id); break;           // PF-34 (research 234 s6); OBF-15: own
       case 'taken': this.deps.drops?.remove(ev.did); if (ev.kit) remote.setKit(ev.by, ev.kit); break;
-      case 'kit': this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled); break;
+      case 'kit':
+        if (ev.added) this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled, undefined, ev.added);
+        else this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled);
+        break;
       case 'placed': this.deps.tagOwnProjectile?.(ev.kind, ev.from, ev.pid); break;
       case 'detonate': this.deps.detonateProjectile?.(ev.pid); break;
       case 'sceneRound': this.deps.sceneRound?.(ev.kind, ev.at); break;          // research 386 §3.2: an outhouse's C4

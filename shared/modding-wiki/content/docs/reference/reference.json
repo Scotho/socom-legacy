@@ -32,15 +32,15 @@
     },
     {
       "key": "contract",
-      "description": "Required. A version range, such as `^0.1.1`, that at least one of the engine contract versions the build reads (`ENGINE_CONTRACT_VERSIONS`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `||`. A pack of kind `rules` must not admit any engine before `0.1.1`."
+      "description": "Required. A version range, such as `^0.1.1`, that at least one of the engine contract versions the build reads (`ENGINE_CONTRACT_VERSIONS`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `||`. A pack of kind `rules` must not admit any engine before `0.1.1`. A pack of kind `plugin` must not admit any engine before `0.2.0`."
     },
     {
       "key": "kinds",
-      "description": "Required. A list naming each of `content`, `rules`, `system` and `plugin` at most once, and at least one of them: what the pack contains. `plugin` is reserved: `sides` `server` and a contract that admits no engine before `0.2.0`."
+      "description": "Required. A list naming each of `content`, `rules`, `system` and `plugin` at most once, and at least one of them: what the pack contains. `plugin` is a community server's module: `sides` `server`, one `plugin/main.js`, and a contract that admits no engine before `0.2.0`."
     },
     {
       "key": "sides",
-      "description": "Required. One of `client`, `server` or `both`: which side applies the pack's members. A page never applies a `server` pack's members, nor a `plugin` pack's (the contract's `appliesOn`). The earlier formats are read as `client`."
+      "description": "Required. One of `client`, `server` or `both`: which side applies the pack's members. A page never applies a `server` pack's members, nor a `plugin` pack's (the contract's `appliesOn`). A plugin pack must say `server`. The earlier formats are read as `client`."
     },
     {
       "key": "dependencies",
@@ -140,7 +140,7 @@
     },
     {
       "key": "plugin",
-      "description": "Reserved for a community server's plugin: the pack states `sides` `server` and a contract that admits no engine before `0.2.0`. It passes the check with the warning `pack.KIND_NOT_APPLIED`: no page applies it, and nothing in this build runs it."
+      "description": "A community server's module: exactly one `plugin/main.js`, other members data JSON, `sides` `server`, and a contract that admits no engine before `0.2.0`. The check warns `pack.KIND_NOT_APPLIED` because no page applies it. A community match child runs it only when the opt-in is on."
     }
   ],
   "legacyKinds": [
@@ -164,7 +164,7 @@
     },
     {
       "key": "server",
-      "description": "The value `server`: a match's server applies the pack's members, a page never does."
+      "description": "The value `server`: a match's server applies the pack's members, a page never does. A plugin pack must use it."
     },
     {
       "key": "both",
@@ -246,12 +246,20 @@
       ],
       "changesPlay": false,
       "description": "An earlier format's own manifest, kept as a member when the contract reads an earlier pack."
+    },
+    {
+      "key": "plugin",
+      "payloadTypes": [
+        ".js"
+      ],
+      "changesPlay": true,
+      "description": "The one script, path `plugin/main.js`. A `.js` file. A plugin pack has exactly one, under a `new-behaviour` intent. No second script."
     }
   ],
   "intents": [
     {
       "key": "cosmetic",
-      "description": "The members change only how the game looks or sounds. A `collision`, `gameplay` or `rules` member cannot be covered by `cosmetic` alone."
+      "description": "The members change only how the game looks or sounds. A `collision`, `gameplay`, `rules` or `plugin` member cannot be covered by `cosmetic` alone."
     },
     {
       "key": "gameplay-value",
@@ -259,7 +267,7 @@
     },
     {
       "key": "new-behaviour",
-      "description": "The members add behaviour the game does not have."
+      "description": "The members add behaviour the game does not have. A plugin pack's `plugin/main.js` is this intent."
     }
   ],
   "values": [
@@ -301,7 +309,7 @@
     {
       "key": "PACK_CONTRACT_0_2_FLOOR",
       "value": "0.2.0",
-      "description": "The first engine contract with the 0.2 additions: the manifest's `license`, `authors` and `extensions`, a `files` row's `provenance`, and a map pack's `layouts/` member. A pack that uses one states a range that admits no engine before it, such as `^0.2.0` (otherwise `pack.CONTRACT_FIELD`); a pack that uses none keeps its lower range. It stays the same when the build's contract moves on."
+      "description": "The first engine contract with the 0.2 additions: the manifest's `license`, `authors` and `extensions`, a `files` row's `provenance`, a map pack's `layouts/` member, and a `plugin` pack. A pack that uses one states a range that admits no engine before it, such as `^0.2.0` (otherwise `pack.CONTRACT_FIELD`); a pack that uses none keeps its lower range. It stays the same when the build's contract moves on."
     },
     {
       "key": "THUNDERSTORE_TEAM",

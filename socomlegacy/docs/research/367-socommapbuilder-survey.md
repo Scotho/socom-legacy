@@ -88,7 +88,9 @@ By source inspection (a browser check on MP2 is owed before any of this is relie
 `palette()` offers every prototype with geometry bar the world facade model, so bushes and clutter trees are already
 placeable pieces; `hidden` keys a placement by model and place, so a disc bush can already be hidden; facade turning is
 the view's (`world.ts` `turnFacade` on `facadeOf`), so a placed facade tree turns; clutter has no `di`, so a placed bush
-is not solid, as the walk never reaches clutter.
+is not solid, as the walk never reaches clutter. *(2026-11-13: wrong of the original and of the disc -- five maps' clutter
+holds polygons and the original's walk reaches every cell's clutter list, research 422; the port's walk reached none
+until LATER 997.)*
 
 What they have that the forge lacks, filed as LATER 462-464 under the scope ruling of 2026-10-25 (S1-S3 nailed, S4
 cut): a uniform scale per piece (the v2 row is yaw-only, FG.R10, while the disc scales clutter per placement through

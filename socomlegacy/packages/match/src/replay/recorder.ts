@@ -1,5 +1,5 @@
 import type { BodyState, Command, CraneWire, DoorWire, EnvWire, HostageWire, ServerEvent } from '../../../viewer/src/sim';
-import { ReplayWriter, type ReplayHeader, type ReplayPlayer, type ReplayRefusal } from './format';
+import { ReplayWriter, type ReplayHeader, type ReplayPlayer, type ReplayRefusal, type ReplayRewind } from './format';
 
 /**
  * The Room recorder (web sprint 33, PT-02 and PT-02b; spec 4.1; research 240 §4).
@@ -9,7 +9,8 @@ import { ReplayWriter, type ReplayHeader, type ReplayPlayer, type ReplayRefusal 
  * recipient's own left out), `broadcast()` (each broadcast `ServerEvent`), `broadcastChanges()` (the lobby's members
  * after a change), `aim()` at `p.cone.tick(cmd, ...)`'s line (each command the room runs, W33.R1), and RE-2's
  * `hostages?` in `snapshots()` just before the snapshot (an EXTRACTION room's roster); SIMDROP-INSTR adds `refusal?` at
- * `fireAt`'s `fire: cone: *` refusal (format 3, never broadcast) -- and the room's
+ * `fireAt`'s `fire: cone: *` refusal (format 3, never broadcast); FIRE-LAYER FL-2 adds `rewind?` at `fireAt`'s judged round,
+ * just before its `shot` is broadcast (format 4, never broadcast) -- and the room's
  * bytes to its connections are the same with it on (PT.R2). A per-recipient `send` (welcome, queue, promoted, hurt,
  * combat...) is not recorded: the replay is the room's broadcast view plus the omniscient snapshot.
  *
@@ -39,6 +40,12 @@ export interface RoomRecorder {
    * room's eye locus (`ReplayRefusal`) -- a sixth site, `Room.fireAt`'s cone refusal; replay-only, never broadcast. Absent: none.
    */
   refusal?(tick: number, refusal: ReplayRefusal): void;
+  /**
+   * FIRE-LAYER FL-2 (format 4; REPLAY_ADAPTATION, an instrument, no original): a round the room judged -- its
+   * rewind's ticks and each body record its walk struck, with the body's raise at the rewound tick (`ReplayRewind`) -- a
+   * seventh site, `Room.fireAt` just before the round's `shot` is broadcast; replay-only, never broadcast. Absent: none.
+   */
+  rewind?(tick: number, rewind: ReplayRewind): void;
   /**
    * PR #753's third pass P2-a (an adaptation, the match record's): the id of the server's replay file now -- told at the
    * file's open (`ReplayFiles.open`'s `onId`) and null at its close -- to an observer beside the file (`MatchRecorder`),
@@ -129,6 +136,14 @@ export class FileRecorder implements RoomRecorder {
     this.guard(() => {
       this.last = tick;
       this.writer.write({ kind: 'refusal', tick, ...refusal });
+    });
+  }
+
+  /** FIRE-LAYER FL-2: a `rewind` record (format 4). */
+  rewind(tick: number, rewind: ReplayRewind): void {
+    this.guard(() => {
+      this.last = tick;
+      this.writer.write({ kind: 'rewind', tick, ...rewind });
     });
   }
 

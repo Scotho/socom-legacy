@@ -89,11 +89,11 @@ them, never what they mean.
    (example: *enter zone `vault` -> require item `key` -> open door `vault-door`, else show message*). The graph's
    semantics are frozen with the vocabulary (FCW-30) so a node editor can come later without changing any pack; the
    first editor may be a structured list.
-3. **Programmatic scripting (future, not enabled).** Constrained creator logic over **exactly** the same versioned
-   events, actions and permissions, for experiences the rules cannot express. Its boundary is designed now (a
-   script sees what a rule sees and can do only what an action does); running uploaded code -- JavaScript,
-   WebAssembly or anything else -- waits for its own reviewed design and the owner's word (H343; H272's default:
-   declarative, engine-run, no pack code).
+3. **Programmatic scripting, opened for the modded community class.** The same events and actions. On a community
+   match child, with the host's opt-in on, a pack of kind `plugin` is one ES module, `plugin/main.js`, whose reply
+   is a list of `RULE_ACTIONS` except `hit.scale`. The page does not run it. A trusted host does not run it. The
+   opt-in is off by default, and with it off the match is the retail room. Uploaded code on the page, or in a
+   trusted match, stays closed (H343; H272's default: declarative, engine-run, no pack code).
 
 ## 4. The vocabulary, version 0 (names frozen by FCW-30; bodies the builder's)
 
