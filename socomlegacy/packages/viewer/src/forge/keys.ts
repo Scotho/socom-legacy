@@ -22,6 +22,11 @@ export interface ForgeKeyEvent {
 export interface ForgeKeyState {
   /** A field has the keyboard (FG.R23: the lobby chat's typing, the docks' fields). */
   typing: boolean;
+  /**
+   * Geometry mode is on (`./geometry/editor`): its own keys (the number keys its modes, Delete and Backspace, Escape) are
+   * its, and the page keeps only the keys every mode shares (`GEOMETRY_SHARED`). Absent: off.
+   */
+  geometry?: boolean;
   /** A match runs (the Play match or a lobby's): keyless (OT.R68). */
   match: boolean;
   /** The forge menu (`./padMenu`) is open. */
@@ -137,8 +142,25 @@ const EDITOR_KEYS: Readonly<Record<string, ForgeKeyAction>> = {
   BracketLeft: 'prevAsset', BracketRight: 'nextAsset', Comma: 'turnLeft', Period: 'turnRight', KeyM: 'menu',
 };
 
+/**
+ * The page's actions that Geometry mode leaves to the page (the owner, 2026-11-15: no shortcut may do two things): the
+ * undo and redo (the geometry's steps there), the files, Walk and Play, the docks, the frame, the menu, the cards, and
+ * the gizmo's mode and space (one set of transform controls, handed to the geometry's gizmo). Every other action --
+ * the placing tools' number keys, delete, duplicate, copy and paste, group, the assets' keys, Escape -- is the mode's.
+ */
+const GEOMETRY_SHARED: ReadonlySet<ForgeKeyAction> = new Set<ForgeKeyAction>([
+  'undo', 'redo', 'openLayout', 'saves', 'walk', 'play', 'stopWalk', 'door', 'closeCard', 'docks', 'frame', 'menu',
+  'translate', 'rotate', 'scale', 'space',
+]);
+
 /** The editor's action for a key, or null (the key is someone else's, or nothing's). */
 export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyAction | null {
+  const a = pageKeyAction(e, s);
+  if (!s.geometry || a === null || typeof a === 'object' && 'menu' in a) return a;
+  return typeof a === 'string' && GEOMETRY_SHARED.has(a) ? a : null;
+}
+
+function pageKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyAction | null {
   if (s.typing || s.match) return null;
   if (s.menu) return e.ctrlKey || e.metaKey || e.altKey ? null : (MENU_KEYS[e.code] ? { menu: MENU_KEYS[e.code]! } : null);
   if (s.card) return e.code === 'Escape' ? 'closeCard' : null;    // FUI-2: the top card's way back (`./shell/cards`)

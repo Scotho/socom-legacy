@@ -118,6 +118,12 @@ export interface ForgeShellPage extends ForgeShell {
   windowItems?(): { id: string; key: string; title: string; docked: boolean }[];
   /** A panel's whole tab out of the docks (the Window menu's close), every section it holds with it. */
   closeTabOf?(id: string): void;
+  /**
+   * The docks' whole layout now (the tree, the closed tabs' ways back, the sections' open states), as text; and one put
+   * back (the editor's modes each keep their own, the owner 2026-11-15). A text that will not read leaves it as it is.
+   */
+  layoutSnapshot?(): string;
+  restoreLayout?(snapshot: string): boolean;
 }
 
 export class ForgePanelError extends Error {

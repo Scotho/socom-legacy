@@ -13,8 +13,31 @@ import { floorGround, layoutGround, type ContentPiece, type ContentResolver, typ
 /** The steps the forge shipped with, before they were settings. */
 export const DEFAULT_GRID_STEP = 25;
 export const DEFAULT_TURN_STEP = 15;
-export const GRID_STEP_MIN = 1;
+/**
+ * The grid step's quantum and least step: 1/16 of a unit, the disc's position step (its vertices int16 over 16, the probe
+ * of 2026-11-15), so the finest snap lands on positions the original can hold.
+ */
+export const GRID_STEP_QUANTUM = 1 / 16;
+export const GRID_STEP_MIN = GRID_STEP_QUANTUM;
 export const GRID_STEP_MAX = 500;
+/**
+ * The grid step's ladder, shared by the snap pill and the START menu (a browser adaptation, FG.R2): the disc's 1/16
+ * doubling to a unit, then the metric steps its maps were laid out on (5 and 10 units the most common).
+ */
+export const GRID_STEP_LADDER = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 5, 10, 25, 50, 100, 250, 500] as const;
+/** The turn step's ladder (degrees), as the grid's. */
+export const TURN_STEP_LADDER = [1, 5, 15, 30, 45, 90, 180] as const;
+
+/**
+ * A step held to its ladder (the owner, 2026-11-15: "I don't want a user to snap to like 7"): the ladder's nearest step
+ * to `v`; anything that is not a number stays the fallback.
+ */
+export function onLadder(v: number, ladder: readonly number[], fallback: number): number {
+  if (!Number.isFinite(v) || !ladder.length) return fallback;
+  let best = ladder[0]!;
+  for (const s of ladder) if (Math.abs(s - v) < Math.abs(best - v)) best = s;
+  return best;
+}
 export const TURN_STEP_MIN = 1;
 export const TURN_STEP_MAX = 180;
 
@@ -30,10 +53,19 @@ export const PLACE_DRAG_PX = 4;
  */
 export const FLOOR_PLANE_SINK = 0.5;
 
-/** A typed step held to whole units inside the bounds; anything that is not a number stays the fallback. */
-export function boundStep(v: number, min: number, max: number, fallback: number): number {
+/**
+ * A typed step held to multiples of `quantum` (whole units unless given) inside the bounds; anything that is not a number
+ * stays the fallback.
+ */
+export function boundStep(v: number, min: number, max: number, fallback: number, quantum = 1): number {
   if (!Number.isFinite(v)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(v)));
+  return Math.min(max, Math.max(min, Math.round(v / quantum) * quantum));
+}
+
+/** A grid step as the pill shows it: a fraction under a unit (1/16), else the number. */
+export function stepLabel(v: number): string {
+  if (v > 0 && v < 1 && Number.isInteger(1 / v)) return `1/${1 / v}`;
+  return String(Math.round(v * 1e4) / 1e4);
 }
 
 /** `v` to the nearest multiple of `step`. A step that is not positive leaves `v` alone. */

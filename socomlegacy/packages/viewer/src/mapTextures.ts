@@ -16,21 +16,66 @@ const say=(e:unknown):string=>e instanceof Error?e.message:String(e);
  * Falls back to the map's own stem so a root that will not parse still draws the map the way it did.
  */
 export function assetLibStems(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: {add(line:string):void}): string[] {
+  return assetLibs(bytes, toc, stem, notes).map((l) => l.stem);
+}
+
+/** The asset libraries as `assetLibStems` reads them, each with its path as the world root names it (`//common/assetlib/weapons`). */
+export function assetLibs(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: {add(line:string):void}): { stem: string; path: string }[] {
   try {
     const root = Zar.parse(zdbMember(bytes, toc, `${stem}.ZED`));
     const libs = root.find('assetlibs')?.children ?? [];
-    const stems: string[] = [];
+    const out: { stem: string; path: string }[] = [];
     for (const lib of libs) {
       const last = lib.name.split('/').filter(Boolean).pop() ?? '';
       const member = last.slice(0, 4).toUpperCase();
-      if (member && !stems.includes(member)) stems.push(member);
+      if (member && !out.some((l) => l.stem === member)) out.push({ stem: member, path: lib.name });
     }
-    if (stems.length) return stems;
+    if (out.length) return out;
     notes.add(`${stem}.ZED: no assetlibs key, so only ${stem}_TXR.ZED is read`);
   } catch (e) {
     notes.add(`assetlibs: ${say(e)} -- only ${stem}_TXR.ZED is read`);
   }
-  return [stem];
+  return [{ stem, path: '' }];
+}
+
+/**
+ * Where a texture's library sits on the disc, by its `assetlibs` path: `weapons` the guns' (`//common/assetlib/weapons`),
+ * `shared` any other common library every map can list (`//common/assetlib/effects`, `turrets`, `pavehawk`, ...), `own`
+ * the map's (`//mp/mp61/...`, `//sp/m51/...`: its own, its flib, clib, junkyard and sub-libraries). The asset browser's
+ * Textures tab (Weapons, Common, a map's own; a browser adaptation, FG.R2) -- the paths are the disc's.
+ */
+export type TextureScope = 'own' | 'shared' | 'weapons';
+export function textureScopeOf(libPath: string): TextureScope {
+  const parts = libPath.toLowerCase().split('/').filter(Boolean);
+  if (parts[0] !== 'common') return 'own';
+  return parts[parts.length - 1] === 'weapons' ? 'weapons' : 'shared';
+}
+
+/** One texture a map can name (`textureLibrary`, first library wins), with its library and that library's scope. */
+export interface TextureCatalogEntry { name: string; library: string; scope: TextureScope }
+
+/** Every texture the map's asset libraries hold (`textureLibrary`), sorted by name, each with its library's scope. */
+export function textureCatalog(lib: NonNullable<ReturnType<typeof textureLibrary>>, libs: readonly { stem: string; path: string }[]): TextureCatalogEntry[] {
+  const pathOf = new Map(libs.map((l) => [l.stem, l.path]));
+  return [...lib.keys].map(([name, { library }]) => ({ name, library, scope: textureScopeOf(pathOf.get(library) ?? '') }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Texture `name` of a map's library decoded as `loadMap` decodes it -- its levels (the mips where the record has them)
+ * and its flags -- or null where the library has no such texture or it will not decode.
+ */
+export function libraryTexture(lib: NonNullable<ReturnType<typeof textureLibrary>>, name: string):
+{ rgba: Rgba; mips: Rgba[] | null; flags: { bilinear: boolean; transparent: boolean; graded: boolean; opaque: boolean; gs: TextureRecord['gs'] }; library: string } | null {
+  const hit = lib.keys.get(name.toLowerCase());
+  const texdat = hit ? hit.zar.child(hit.key, 'texdat') : undefined;
+  if (!hit || !texdat) return null;
+  try {
+    const record = parseTextureRecord(hit.key.name, hit.zar.data(texdat));
+    const rgba = decodeTexture(record, lib.palettes).rgba;
+    const mips = mipLevels(hit.zar, record, lib.palettes, () => undefined);
+    return { rgba, mips, flags: { bilinear: record.bilinear, transparent: record.transparent, graded: isGraded(rgba), opaque: isOpaque(rgba), gs: record.gs }, library: hit.library };
+  } catch { return null; }
 }
 
 /**
@@ -49,9 +94,9 @@ export function assetLibStems(bytes: Uint8Array, toc: ZdbEntry[], stem: string, 
  * maps, because `null_xmas.bmp` is direct 16bpp and needs no palette -- so a missing member of one
  * library is a skip. Only a total failure costs the diagnostic and the textures.
  */
-export function textureLibrary(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: {add(line:string):void}):
+export function textureLibrary(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: {add(line:string):void}, stemsGiven?: readonly string[]):
 { palettes: PaletteTable; keys: Map<string, { zar: Zar; key: ZarKey; library:string }>; libs: number } | null {
-  const stems = assetLibStems(bytes, toc, stem, notes);
+  const stems = stemsGiven ?? assetLibStems(bytes, toc, stem, notes);
   const keys = new Map<string, { zar: Zar; key: ZarKey; library:string }>();
   const pals: Zar[] = [];
   let found = 0;

@@ -26,7 +26,7 @@ export const AI_SOIL_NAMES: Readonly<Record<number, string>> = {
 
 /**
  * The overlay's kinds, in the legend's order, with their colours (a browser adaptation's own, no original): walkable
- * ground green, the special soils by kind (stairs blue, climb amber, steep orange, water cyan), the blocked ones red,
+ * ground green, the special soils by kind (stairs blue, climb amber, steep violet -- not orange, the selection's colour: the owner, 2026-11-16 -- water cyan), the blocked ones red,
  * collision dark red. `note` is what the planner does on it (research 200 §1.2-§1.3).
  */
 export type AiSoilKind = 'walkable' | 'stairs' | 'climb' | 'steep' | 'water' | 'blocked' | 'collision';
@@ -34,7 +34,7 @@ export const AI_SOIL_KINDS: readonly { kind: AiSoilKind; colour: number; label: 
   { kind: 'walkable', colour: 0x46c46a, label: 'Walkable', note: 'default, road, brush, forest, grass' },
   { kind: 'stairs', colour: 0x4f7fe8, label: 'Stairs', note: 'walked' },
   { kind: 'climb', colour: 0xe0b43c, label: 'Climb', note: 'walked at a higher cost' },
-  { kind: 'steep', colour: 0xe07a2c, label: 'Steep', note: 'walked when the height step allows' },
+  { kind: 'steep', colour: 0xb066e8, label: 'Steep', note: 'walked when the height step allows' },
   { kind: 'water', colour: 0x3cc8e0, label: 'Water', note: 'walked at a higher cost' },
   { kind: 'blocked', colour: 0xe0463c, label: 'Blocked', note: 'never entered: nogo, clutter, trans, noalt' },
   { kind: 'collision', colour: 0x8a1f1f, label: 'Collision', note: 'a heavy penalty' },
@@ -64,31 +64,8 @@ export interface AiLegendExtra {
   hint?: string;
 }
 
-/** The colour of a cell a placed piece blocks (`./aiPieceBlock`), and of a link's line: the adaptation's own. */
-export const AI_PIECE_BLOCK_COLOUR = 0xc04fe8;
+/** The colour of a link's line: the adaptation's own. */
 export const AI_LINK_COLOUR = 0xffffff;
-
-/**
- * The cells the layout's pieces block (`./aiPieceBlock` `aiMapsWithPieces`), drawn as tiles of their own colour a little
- * over the soil's, so what the pieces took is told from what the disc blocks.
- */
-export function buildAiPieceMarks(cells: readonly { at: readonly [number, number, number] }[], cellSize = 10): { group: Group; dispose(): void } {
-  const group = new Group();
-  group.name = 'forge ai piece cells';
-  const geometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-  const material = new MeshBasicMaterial({ color: AI_PIECE_BLOCK_COLOUR, transparent: true, opacity: 0.7, depthWrite: false, side: DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-  if (cells.length) {
-    const mesh = new InstancedMesh(geometry, material, cells.length);
-    const m = new Matrix4(), at = new Vector3(), size = new Vector3(cellSize * TILE_FILL, 1, cellSize * TILE_FILL), turn = new Quaternion();
-    cells.forEach((c, i) => mesh.setMatrixAt(i, m.compose(at.set(c.at[0], c.at[1] + TILE_LIFT + 0.2, c.at[2]), turn, size)));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 2;
-    group.add(mesh);
-  }
-  return { group, dispose() { group.removeFromParent(); geometry.dispose(); material.dispose(); for (const c of group.children) (c as InstancedMesh).dispose(); } };
-}
 
 /**
  * The links between sub-maps (research 75 §5.3: `{from, to, word}`, each stored at both ends): a line a link, from its
@@ -284,9 +261,17 @@ const TILE_FILL = 0.86;
 const TILE_LIFT = 0.6;
 const TILE_OPACITY = 0.42;
 
-/** The overlay for `ai`: a group of one instanced mesh a sub-map. `dispose` lets its geometry and materials go. */
-export function buildAiMapOverlay(ai: AiMaps): { group: Group; cells: number; counts: ReadonlyMap<AiSoilKind, number>; dispose(): void } {
+/**
+ * The overlay for `ai`: a group of one instanced mesh a sub-map. `setCell` draws a cell at another soil (a paint stroke,
+ * `./aiSoil`; its counts kept), `dispose` lets its geometry and materials go.
+ */
+export function buildAiMapOverlay(ai: AiMaps): {
+  group: Group; cells: number; counts: ReadonlyMap<AiSoilKind, number>; setCell(loc: AiLoc, soil: number): void; dispose(): void;
+} {
   const counts = new Map<AiSoilKind, number>();
+  const meshes = new Map<number, InstancedMesh>();
+  /** Each cell's kind as drawn, by sub-map, so a repaint moves its count. */
+  const drawnKind = new Map<number, AiSoilKind[]>();
   const group = new Group();
   group.name = 'forge ai map';
   const geometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -300,6 +285,9 @@ export function buildAiMapOverlay(ai: AiMaps): { group: Group; cells: number; co
     if (sub.cells.length === 0) continue;
     const mesh = new InstancedMesh(geometry, material, sub.cells.length);
     mesh.name = `ai map ${sub.name}`;
+    const kinds: AiSoilKind[] = new Array(sub.cells.length);
+    drawnKind.set(sub.index, kinds);
+    meshes.set(sub.index, mesh);
     size.set(sub.cellSize[0] * TILE_FILL, 1, sub.cellSize[1] * TILE_FILL);
     sub.rows.forEach((row, z) => {
       for (let x = row.x0; x < row.x1; x++) {
@@ -310,6 +298,7 @@ export function buildAiMapOverlay(ai: AiMaps): { group: Group; cells: number; co
         at.set(cx, aiCellY(sub, word) + TILE_LIFT, cz);
         mesh.setMatrixAt(i, m.compose(at, turn, size));
         const kind = aiSoilKind(aiCellSoil(word));
+        kinds[i] = kind;
         counts.set(kind, (counts.get(kind) ?? 0) + 1);
         mesh.setColorAt(i, colour.setHex(KIND_COLOUR.get(kind)!));
       }
@@ -324,6 +313,18 @@ export function buildAiMapOverlay(ai: AiMaps): { group: Group; cells: number; co
   }
   return {
     group, cells, counts,
+    setCell(loc, soil) {
+      const sub = ai.maps[loc.map], mesh = meshes.get(loc.map), kinds = drawnKind.get(loc.map);
+      const i = sub ? aiCellIndex(sub, loc.x, loc.z) : -1;
+      if (!mesh || !kinds || i < 0) return;
+      const was = kinds[i], kind = aiSoilKind(soil);
+      if (was === kind) return;
+      if (was) counts.set(was, Math.max(0, (counts.get(was) ?? 0) - 1));
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      kinds[i] = kind;
+      mesh.setColorAt(i, colour.setHex(KIND_COLOUR.get(kind)!));
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    },
     dispose() { group.removeFromParent(); geometry.dispose(); material.dispose(); for (const c of group.children) (c as InstancedMesh).dispose(); },
   };
 }

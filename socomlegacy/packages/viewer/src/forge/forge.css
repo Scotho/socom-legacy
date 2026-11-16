@@ -686,6 +686,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   padding: var(--s2u-space-2) var(--s2u-space-3) var(--s2u-space-3);
   border: 0;
 }
+/* A panel's section put away (the placements' Inspector while Geometry mode's shows): the flex above is no showing. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section[hidden] { display: none; }
 .fx-section h3 { margin: var(--s2u-space-1) 0 0; font: var(--fx-type-caption); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fx-dim); }
 /* The selection's head stays at the top of the dock's scroll, under the tab strip: its name and its kind. */
 .fx-inspect-head {
@@ -1411,6 +1413,22 @@ body.is-playing .fx-axis-widget { display: none; }
   pointer-events: none;
 }
 .fx-ai-legend[hidden] { display: none; }
+/* The legends stacked in the viewport's lower left (the AI map's above the collision's), none over another. */
+.fx-legend-stack {
+  position: absolute;
+  left: 10px;
+  bottom: 40px;
+  z-index: var(--fx-z-raised);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-height: calc(100% - 80px);
+  overflow: hidden;
+  pointer-events: none;
+}
+.fx-legend-stack > .fx-ai-legend { position: static; }
+.fx-ai-legend__row.is-empty, .fx-ai-legend__hint.is-empty { opacity: 0.45; }
 .fx-ai-legend__head { margin-bottom: 2px; font: var(--fx-type-caption); color: var(--fx-dim); }
 .fx-ai-legend__row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px; }
 .fx-ai-legend__swatch { width: 12px; height: 12px; border-radius: 2px; opacity: 0.85; }
@@ -1895,6 +1913,9 @@ body.is-matching .fx-legend { display: none; }
   height: 40px;
   display: flex;
   align-items: center;
+  /* Centred, every mode and layer alike (the owner, 2026-11-16); `safe`: wider than the window, it starts at the left
+     and scrolls, never cut off at either end. */
+  justify-content: safe center;
   gap: 6px;
   padding: 0 var(--s2u-space-2);
   box-sizing: border-box;
@@ -1915,6 +1936,7 @@ body.is-matching .fx-legend { display: none; }
 .fx-tools-row .fx-tool { gap: 6px; padding: 0 8px; }
 /* A section a game mode (the owner, 2026-11-06): its caption, then its groups; greyed whole when its type is not played. */
 .fx-tools-row .fx-mode-section { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; height: 34px; border: 1px solid var(--fx-edge); border-radius: 4px; }
+.fx-tools-row .fx-mode-section[hidden] { display: none; }
 .fx-tools-row .fx-mode-section > .fx-group:last-child { border-right: 0; }
 .fx-mode-section__label { font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); white-space: nowrap; padding-right: 4px; }
 .fx-tools-row .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; }
@@ -2543,3 +2565,74 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-tile-drag-chip { position: fixed; z-index: 10000; pointer-events: none; padding: 3px 8px; border-radius: 4px;
   background: var(--fx-panel, #0e1a1f); border: 1px solid var(--fx-gold, #d9b24c); color: var(--fx-text, #e6edf0);
   font: var(--fx-type-body, 12px sans-serif); white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+/* A drag over something it cannot go on (a texture over a prop): the chip says so, in the warning colour. */
+.fx-tile-drag-chip.is-refused { border-color: var(--fx-danger, #e5534b); color: var(--fx-danger, #e5534b); }
+.fx-tile-drag-chip.is-refused::before { content: '\2298  '; }
+
+/* Geometry mode's tools (`./geometry/editor`; a browser adaptation, FG.R2): in the object bar's place in Geometry mode,
+   its placing sections hidden and the geometry's labelled sections laid out as theirs are. */
+.fx-geo-tools { display: contents; }
+.fx-geo-tools[hidden] { display: none; }
+.fx-tools-row.is-geometry > .fx-mode-section { display: none; }
+.fx-tools-row.is-navigation > .fx-mode-section { display: none; }
+/* The editor mode picker (Object, Modelling) and the toolbar groups each mode shows: the other mode's hidden. */
+.fx-top .fx-group[hidden] { display: none; }
+.fx-top .fx-edit-mode { height: 28px; flex: none; min-width: 9.5em; }
+.fx-geo-texture { max-width: 200px; height: 28px; flex: none; display: inline-flex; align-items: center; gap: 6px; }
+/* The Texture button's swatch and name (the texture chosen in the asset browser's Textures). */
+.fx-geo-texture-swatch { width: 18px; height: 18px; border-radius: 2px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+.fx-geo-texture-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A texture tile's picture: the texture over a checker, so its transparent texels read as such. */
+.fx-asset-texture { background: repeating-conic-gradient(#3a3d42 0 25%, #2c2f33 0 50%) 0 0 / 12px 12px; }
+/* The Layer tabs: the asset browser's little tabs (`.fx-asset-tab`), in a row on the object bar. */
+.fx-geo-layer-tabs { flex-wrap: nowrap; margin: 0; }
+/* The paint tools' modes and Apply (`./paintTools`): Select | Paint | Sample, then Apply, one group. */
+.fx-paint-tools { display: flex; align-items: center; gap: 6px; }
+/* The Layer tabs on the top toolbar, after Object / Point / Edge / Face: a gap and a rule between them. */
+.fx-geo-layer-top { align-self: center; }
+/* The top bar's labels (Mode, Select, Layer): the second toolbar's section label look, centred on the row. */
+.fx-bar-label { align-self: center; padding-left: 2px; }
+/* Layer after the selection modes: a gap and a rule between them. */
+.fx-geo-layer-label { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--fx-line, rgba(255,255,255,0.12)); }
+/* A collision type tab's colour: the collision view's own for that type. */
+.fx-type-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+.fx-geo-layer-tabs[hidden] { display: none; }
+/* The Climbable tab's flag and caret, and its menu (fixed under the tab). */
+.fx-climb-flag { opacity: 0.8; }
+.fx-climb-flag::before { content: '\00b7'; margin-right: 4px; }
+.fx-climb-caret { font-size: 10px; opacity: 0.8; }
+.fx-climb-menu {
+  position: fixed;
+  z-index: var(--fx-z-popup, 50);
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--fx-veil-strong);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+}
+.fx-climb-item { font: inherit; font-size: 12px; text-align: left; padding: 4px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--fx-text); cursor: pointer; }
+.fx-climb-item:hover { background: var(--fx-hover); }
+.fx-climb-item.is-on { color: var(--fx-gold); }
+/* The paint cursor's words: the face's collision type under the pointer, and what a click makes it. */
+.fx-paint-tip {
+  position: fixed;
+  z-index: var(--fx-z-popup, 50);
+  padding: 2px 6px;
+  background: var(--fx-veil-strong);
+  border: 1px solid var(--fx-edge);
+  border-radius: 3px;
+  font: var(--fx-type-caption);
+  color: var(--fx-text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.fx-paint-tip[hidden] { display: none; }
+/* Its status line: a pill at the viewport's foot. */
+.fx-geo-status {
+  position: absolute; left: var(--s2u-space-2); bottom: var(--s2u-space-2); max-width: calc(100% - 2 * var(--s2u-space-2));
+  padding: 2px var(--s2u-space-2); background: var(--fx-veil-strong); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius);
+  color: var(--fx-edge-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: var(--fx-z-raised);
+}
+.fx-geo-status[hidden] { display: none; }

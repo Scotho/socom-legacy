@@ -14,7 +14,9 @@ import {
   MeshBasicMaterial, Euler, MathUtils, Object3D, PlaneGeometry, Quaternion, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { findLadders, HOSTAGE_START_LIFT_READING, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly, type EffectProgram } from '@s2u/scene';
+import { GeometryEditor, type GeometrySelectionState, type GeometrySnapshot } from './geometry/editor';
+import { floorLookOf } from './geometry/blank';
+import { findLadders, HOSTAGE_START_LIFT_READING, probeGround, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly, type EffectProgram } from '@s2u/scene';
 import { ACTION_TYPE_CODES } from '../mapActions';
 import { placeRefs } from '../sceneHealth';
 import { PLAY_CLIPS } from '../animator';
@@ -29,7 +31,7 @@ import { DEFAULT_LIGHTING, type Lighting } from '../lighting';
 import { createForgeLighting, forgeLightingOptions, liftForgeFog } from './lighting';
 import type { LoadedMap } from '../loadMap';
 import { mapFog, standOf } from '../matchCore';
-import { groundPolygons, type GroundData } from '../mover';
+import { groundPolygons, packGround, type GroundData } from '../mover';
 import { Overlays, slotBoxSegments } from '../overlays';
 import { DoorPage } from '../doorPage';
 import { Play, type PlayClips } from '../play';
@@ -45,6 +47,7 @@ import { gxApplyProgress, pageGxPacks, type TexturePackTarget } from '../texture
 import { visualTintHandler } from '../packs/systems/visualTint';
 import { bodyForTeam } from '../teamBody';
 import { groundGrid, WalkMode } from '../walk';
+import { MapGrid } from './mapGrid';
 import { WEAPON_CLIPS } from '../weaponPose';
 import { keyboardSite } from '../keyboardTesting';
 import { mouseSite } from '../mouseTesting';
@@ -69,7 +72,7 @@ import type { AssetDefinition } from '../packs/content/assets';
 import { CONTENT_METRES_PER_UNIT_ADAPTATION, contentPieceHull, type ContentResolver } from '../packs/content/collision';
 import type { ContentLoadStage } from '../packs/content/map';
 import { FORGE_DOCK_LAYOUT_KEY, FORGE_PANELS_KEY, FORGE_VIEW_KEY, pageIndexedDb, pageSettings } from '../pageStore';
-import { agentChangedRefs, agentStepCount, decodeHistoryStep, encodeHistoryStep, History, historyCaption, recordEdit, redoMeta, undoAgentRun, undoMeta, undoWhile,
+import { agentChangedRefs, agentStepCount, decodeHistoryStep, encodeHistoryStep, History, historyCaption, recordEdit, recordGeometryEdit, recordSelection, redoMeta, stampSelection, undoAgentRun, undoMeta, undoWhile,
   type AgentRunUndo, type HistoryMeta } from './history';
 import { doorsAfter, groundWithout, linesWithout, placementOf, placementOwners, placementsOf, propsWithout, type Placement } from './hide';
 import { FORGE_MATCHING_CLASS } from './matchState';
@@ -103,7 +106,7 @@ import {
   createMenuSections, PAD_MENU_INPUT, PadMenu, pagedSections, sectioned, splitAtHeadings, type MenuItem, type MenuSections, type MenuSectionSpec,
 } from './padMenu';
 import { matchBackWords, menuCard, placeMenuCard } from './menuView';
-import { hullLineMaterial, hullSegments } from './hull';
+import { buildHullView, drawHullLegend, HULL_FAINT_OPACITY, hullFaceMaterial, hullLineMaterial, type HullViewPoly } from './hull';
 import {
   archiveStem, assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
   serializeLayout, settingsOf, withIds, placementKey, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
@@ -129,11 +132,14 @@ import { hostageCharactersOf, hostagesLeftNotes, hostagesPlayIn, hostageDefault,
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
 import { floorAiMaps } from './floorAi';
 import {
-  AI_LINK_COLOUR, AI_PIECE_BLOCK_COLOUR, aiGoalAt, aiMapZoneGoals, buildAiLinks, buildAiMapOverlay, buildAiPieceMarks, buildAiRoutes,
+  AI_LINK_COLOUR, aiGoalAt, aiMapZoneGoals, buildAiLinks, buildAiMapOverlay, buildAiRoutes,
   describeAiCellAt, drawAiMapLegend, drawAiRouteLegend, type AiRouteGoal, type AiRouteStart,
 } from './aiMapOverlay';
-import { aiMapsWithPieces } from './aiPieceBlock';
-import type { AiMaps, EffectCondition, EffectOp } from '@s2u/scene';
+import type { TextureCatalogEntry } from '../mapTextures';
+import { aiBrushCells, aiCellKey, aiSoilAt, withAiSoil } from './aiSoil';
+import { AiPaintTool } from './aiPaint';
+import { locateAiCell } from '../../../match/src/hostagePath';
+import { aiCellCentre, aiCellIndex, aiCellY, type AiLoc, type AiMaps, type EffectCondition, type EffectOp } from '@s2u/scene';
 import { nextNavName, nextViewName, withPlacedPoints, withPlacedViews } from './placedPoints';
 import { turretModelMap, turretMove, turretTemplates, withPlacedTurrets, type TurretTemplate } from './turrets';
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from './agent/commands';
@@ -164,7 +170,7 @@ import { agentModeOf, FORGE_REFUSALS, forgeBusyRefusal, forgeEditRefusal, forgeS
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
 import { buildScriptGraph, type FlagUse, type GraphStep, type LegendFlag, type LegendSequence, type ScriptView } from './panels/scriptGraph';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
-import { scrubAllNumbers, wheelAllNumbers, type ScrubDetail } from './scrub';
+import { scrubAllNumbers, scrubbing, wheelAllNumbers, type ScrubDetail } from './scrub';
 import { buildOutliner, OUTLINER_KINDS, outlinerPanel, spawnSlotRows } from './panels/outlinerPanel';
 import { mapDataGroups, type MapDataSource } from './mapData';
 import { aimPointOf, linkSegments, linkTargets, programEffects } from './actionSummary';
@@ -219,8 +225,8 @@ import {
   blockPiece, bombMarker, disposeGhost, extractionZoneMarker, ghostIcon, ghostRing, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
 } from './pieces';
 import {
-  boundStep, clipOf, DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, GRID_STEP_MAX, GRID_STEP_MIN, pastedPlaces, placementGridOf,
-  mountOnWall, objectBox, placeClickKind, restingPoint, seatOn, snapYawRadians, WALL_NORMAL_Y_MAX, surfaceYs, TURN_STEP_MAX, TURN_STEP_MIN, type PlacePoint,
+  clipOf, DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, GRID_STEP_LADDER, onLadder, pastedPlaces, placementGridOf, stepLabel, TURN_STEP_LADDER,
+  mountOnWall, objectBox, placeClickKind, restingPoint, seatOn, snapYawRadians, WALL_NORMAL_Y_MAX, surfaceYs, type PlacePoint,
 } from './placement';
 
 /**
@@ -242,6 +248,8 @@ export const SAVED_ELSEWHERE = 'Saved elsewhere, reloaded';
 const VIEW_KEY = FORGE_VIEW_KEY;
 /** The blank floor's extent and step, in game units (the forge's own). */
 const FLOOR_SIZE = 8000;
+/** A blank base's floor plane, quads a side (bug 17; a browser adaptation): 8 x 8 quads of 1000 units, each displaceable. */
+const BLANK_FLOOR_QUADS = 8;
 const FLOOR_STEP = 100;
 /** A spectator view's arrow, world units: long enough to read from across a room (an editor guide's size, no reading). */
 const VIEW_ARROW_LENGTH = 60;
@@ -346,7 +354,16 @@ const PALETTE_ALL = '*all';
  * with them), the called effects every map has. A scene object (a door, a gate...) is a copy of one map's own: none.
  */
 const PALETTE_COMMON = '*common';
-type ObjectTab = 'props' | 'characters' | 'sound' | 'effect' | 'ambient' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare';
+/** A texture tile's asset id (a browser adaptation, FG.R2): `texture.<map>:<name>`, the map it is read from. */
+const textureAssetId = (source: string, name: string): string => `texture.${source}:${name}`;
+const TEXTURE_ASSET = /^texture\.([A-Za-z0-9_]+):(.+)$/;
+/** The drag chip's words, and the refusal, for a texture over a prop or a placed object (no texture of its own to change). */
+const TEXTURE_ON_PROP_REFUSAL = 'Textures go on level geometry, not on props';
+const parseTextureAsset = (asset: string): { source: string; name: string } | null => {
+  const m = TEXTURE_ASSET.exec(asset);
+  return m ? { source: m[1]!, name: m[2]! } : null;
+};
+type ObjectTab = 'props' | 'texture' | 'characters' | 'sound' | 'effect' | 'ambient' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare';
 /**
  * The asset browser's tabs (the owner, 2026-11-13: "the cleanest separations of asset/object types ... the true asset
  * engine types"): the disc's own kinds of asset -- its props (models), its characters (`chartype`), its sounds (the
@@ -363,6 +380,10 @@ const OBJECT_TABS: readonly (readonly [ObjectTab, string])[] = [
   // "split out the effects from the programs asset").
   // The self-starting programs called Emitters (the owner, 2026-11-14: "use emitters").
   ['sound', 'Sounds'], ['effect', 'Effects'], ['ambient', 'Emitters'],
+  // The textures a disc asset of their own (the owner, 2026-11-16: "a whole new category in the asset browser for
+  // textures"): each map's asset libraries' (`../mapTextures` `textureCatalog`), laid in Geometry mode -- last, as no
+  // texture is dropped on the world in Object mode ("move the textures button ... to the last item").
+  ['texture', 'Textures'],
 ];
 /** A tab's things, plural, as the list's words say them ("doors", "sounds", "programs"). */
 const tabWords = (word: string): string => { const w = word.toLowerCase(); return w.endsWith('s') ? w : /(ch|sh|x)$/.test(w) ? `${w}es` : `${w}s`; };
@@ -457,13 +478,11 @@ const VIEW_DRAW_OWN = ['geometry', 'wireframe', 'collision', 'grid', 'aimap', 's
 /**
  * FUI-3 (PAD-6, PAD-11; browser adaptations, FG.R2 -- the game has no editor): the START menu's Props grid (its columns,
  * a page of cells L1 / R1 jump, the recent props it keeps) and the ladders its Grid step and Turn step rows step through
- * (inside the dock's own bounds, `./placement` GRID_STEP_MIN..MAX and TURN_STEP_MIN..MAX; the defaults 25 and 15 on them).
+ * (`./placement` GRID_STEP_LADDER and TURN_STEP_LADDER, the only steps; the defaults 25 and 15 on them).
  */
 const PROPS_COLUMNS = 3;
 const PROPS_PAGE = 12;
 const PROPS_RECENT_MAX = 12;
-const GRID_STEP_LADDER = [1, 5, 10, 25, 50, 100, 250, 500] as const;
-const TURN_STEP_LADDER = [1, 5, 15, 30, 45, 90, 180] as const;
 /**
  * FUI-22 (D4; a browser adaptation's own values): the wheel's travel that counts as one notch (CSS pixels; a mouse
  * wheel's notch is about 100, a trackpad's deltas add up to it), and a line's worth where the browser counts in lines.
@@ -493,6 +512,7 @@ const ICON: Record<string, string> = {
   maximize: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   select: '<path d="M5 3l14 8-6 2-2 6z"/>',
   place: '<path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="4"/>',
+  geometry: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
   spawn: '<path d="M6 21V4h10l-2 4 2 4H6"/>',
   npc: '<circle cx="12" cy="5" r="2.5"/><path d="M12 8v7M8 11h8M12 15l-3 6M12 15l3 6"/>',
   move: '<path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/>',
@@ -566,6 +586,7 @@ const ICON: Record<string, string> = {
   check: '<path d="M4 12l5 5L20 6"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   view: '<rect x="3" y="4" width="8" height="7" rx="1"/><rect x="13" y="4" width="8" height="7" rx="1"/><rect x="3" y="13" width="8" height="7" rx="1"/><path d="m15 15 3 3 3-3"/>',
+  texture: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 12h16M12 4v16"/><path d="M4 4h8v8H4zM12 12h8v8h-8z" fill="currentColor" stroke="none" opacity=".35"/>',
   listView: '<path d="M4 6h.01M4 12h.01M4 18h.01M9 6h11M9 12h11M9 18h11"/>',
   gridView: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
 };
@@ -1063,6 +1084,76 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // No base list on the toolbar (the owner, 2026-11-06): New asks for the base (`chooseNewBase`). `baseSel` stays, off
   // the page, the list of bases New offers and the row the current base answers to (`baseValue`).
   const baseGroup = group(newBtn, openBtn, saveBtn, layoutNameIn, file);   // Saves beside Open (the owner, 2026-11-06)
+  // The editor's modes (the owner, 2026-11-15), picked on the toolbar, each setting both bars up: Object mode, Select and
+  // Place on the toolbar and the objects to place on the object bar; Modelling mode (`./geometry/editor`), the selection
+  // modes (Object, Vertex, Edge, Face) on the toolbar and the modelling tools (Create, Edit, Texture, ...) on the object bar.
+  const editModeSel = el(doc, 'select', 'fx-select fx-edit-mode');
+  editModeSel.setAttribute('aria-label', 'Editor mode');
+  editModeSel.title = 'The editor mode: Object places and moves objects; Geometry builds and edits the level geometry -- its objects, faces, edges and vertices -- and, on its Collision layer, the collision';
+  // "Geometry mode" (the owner, 2026-11-15: named as the Outliner's Geometry folder it fills); `modelling` its value still.
+  // The collision is a layer of Geometry mode (the owner, 2026-11-15: "we only have a geometry mode, but in the second
+  // toolbar, we have a dropdown that has geometry layer and a collision layer"): `./geometry/editor`'s Layer picker.
+  // AI Navigation mode (the owner, 2026-11-16: "move ai navigation to it's own mode in the top toolbar"): the AI grid shown,
+  // its switches and its brush (`./aiPaint`) on the second toolbar.
+  // "Mode:" before the list, the list the modes' names alone (the owner, 2026-11-16: "add a Mode label ... remove the
+  // mode word").
+  editModeSel.id = 'fx-edit-mode';
+  const editModeLabel = el(doc, 'label', 'fx-mode-section__label fx-bar-label', 'Mode');
+  editModeLabel.htmlFor = editModeSel.id;
+  for (const [value, label] of [['object', 'Object'], ['modelling', 'Geometry'], ['navigation', 'AI Navigation']] as const) {
+    const o = el(doc, 'option', '', label);
+    o.value = value;
+    editModeSel.append(o);
+  }
+  /** The mode picker's value for the editor as it stands: Object, Geometry, or Collision mode (Geometry's on the collision). */
+  /** The editor as it stands: Object mode, or Geometry mode on its Geometry or its Collision layer (`isCollision`). */
+  const editModeNow = (): 'object' | 'modelling' | 'collision' | 'texture' | 'navigation' => (navOn ? 'navigation' : !geometry?.isActive() ? 'object'
+    : geometry.isCollision() ? 'collision' : geometry.isTexturing() ? 'texture' : 'modelling');
+  /** The mode picker's value: Geometry mode on either layer, AI Navigation mode, or Object mode. */
+  const editModePicked = (): 'object' | 'modelling' | 'navigation' => (navOn ? 'navigation' : geometry?.isActive() ? 'modelling' : 'object');
+  /** AI Navigation mode on (`setNavigation`). */
+  let navOn = false;
+  // "Tools" before Select and Place (the owner, 2026-11-16), as Geometry mode's "Select" and "Layer" label theirs.
+  const placeGroup = group(el(doc, 'span', 'fx-mode-section__label fx-bar-label', 'Tools'), modeBtns.select, modeBtns.place);
+  placeGroup.classList.add('fx-group--modes');
+  const geometryModeTools = el(doc, 'div', 'fx-group--modes fx-geo-mode-tools');
+  const geometryTools = el(doc, 'div', 'fx-geo-tools');
+  /** AI Navigation mode's sections of the second toolbar (its brush, its switches): shown while the mode is on. */
+  const navTools = el(doc, 'div', 'fx-geo-tools fx-nav-tools');
+  navTools.hidden = true;
+  /** Made with the page's gizmo, below; null until then (the toolbar and `setMode` run first). */
+  let geometry: GeometryEditor | null = null;
+  /**
+   * Each editor mode's own dock layout (the owner, 2026-11-15: "everytime we switch modes, save the current layout for
+   * that mode, so that when we come back it restores the layout the user had"): the one left kept, the one entered put
+   * back. Kept across visits (`FORGE_MODE_LAYOUTS_KEY`), with the mode the docks show now. Modelling's asset browser is
+   * shown on its Textures (the owner, 2026-11-16: "show the asset browser in geometry mode"; `geometryAssets`).
+   */
+  const FORGE_MODE_LAYOUTS_KEY = 's2u-forge-mode-docks';
+  // AI Navigation mode keeps a layout of its own too (the owner, 2026-11-16: "hide the asset browser, similar to what we
+  // did for the geometry mode"): its first time, the asset browser closed.
+  type EditorMode = 'object' | 'modelling' | 'navigation';
+  const modeLayouts = ((): { now: EditorMode; object?: string; modelling?: string; navigation?: string } => {
+    try {
+      const raw = JSON.parse(readKey(FORGE_MODE_LAYOUTS_KEY) ?? 'null') as { now?: unknown; object?: unknown; modelling?: unknown; navigation?: unknown } | null;
+      return {
+        now: raw?.now === 'modelling' || raw?.now === 'navigation' ? raw.now : 'object',
+        ...(typeof raw?.object === 'string' ? { object: raw.object } : {}),
+        ...(typeof raw?.modelling === 'string' ? { modelling: raw.modelling } : {}),
+        ...(typeof raw?.navigation === 'string' ? { navigation: raw.navigation } : {}),
+      };
+    } catch { return { now: 'object' }; }
+  })();
+  const swapModeLayout = (to: EditorMode): void => {
+    if (!shell.layoutSnapshot || !shell.restoreLayout || modeLayouts.now === to) return;
+    modeLayouts[modeLayouts.now] = shell.layoutSnapshot();
+    const kept = modeLayouts[to];
+    modeLayouts.now = to;
+    if (!kept || !shell.restoreLayout(kept)) {
+      if (to === 'navigation') for (const w of shell.windowItems?.() ?? []) if (w.key === 'assets' && w.docked) { if (shell.closeTabOf) shell.closeTabOf(w.id); else shell.collapse(w.id); }
+    }
+    try { writeKey(FORGE_MODE_LAYOUTS_KEY, JSON.stringify(modeLayouts)); } catch { /* the layouts are this visit's alone */ }
+  };
   baseGroup.classList.add('fx-group--base');
   top.append(
     home, brand,
@@ -1071,7 +1162,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     (() => { const g = group(helpBtn, docksBtn); g.classList.add('fx-group--help'); return g; })(),
     baseGroup,
     group(undoBtn, redoBtn),                                    // left of Select (the owner, 2026-11-11)
-    (() => { const g = group(modeBtns.select, modeBtns.place); g.classList.add('fx-group--modes'); return g; })(),
+    (() => { const g = group(editModeLabel, editModeSel); g.classList.add('fx-group--edit-mode'); return g; })(),
+    placeGroup, geometryModeTools,
     // No Duplicate or Delete buttons on the toolbar (the owner, 2026-11-11): `dupBtn` and `delBtn` stay off the page,
     // their keys (Ctrl+D, Del), the pad's and the menus' rows doing the same.
     // The gizmo's modes and the snaps are the viewport's again (the owner, 2026-11-11): one spacer before the right's.
@@ -1210,17 +1302,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     b.type = 'button';
     // Its icon beside its word (the owner, 2026-11-10: "add the icons next to the text"): its toolbar button's own
     // (`markBadge`, the placement's billboard), the props' their mark.
-    const own = key === 'props' ? markBadge('userProps') : key === 'characters' ? icon('npc') : key === 'sound' ? icon('sound') : key === 'effect' ? icon('particles')
+    const own = key === 'props' ? markBadge('userProps') : key === 'texture' ? icon('texture') : key === 'characters' ? icon('npc') : key === 'sound' ? icon('sound') : key === 'effect' ? icon('particles')
       : key === 'ambient' ? markBadge('userEmitters') : modeBtns[key].querySelector('.fx-billboard-icon, svg.fx-ico')?.outerHTML ?? '';
     b.innerHTML = `${own}<span>${word}</span>`;
     b.setAttribute('role', 'tab');
-    b.title = key === 'props' ? "The map's props" : key === 'characters' ? "The base map's own player models, placed as NPCs"
+    b.title = key === 'props' ? "The map's props" : key === 'texture' ? "The map's textures, from its asset libraries: chosen for Geometry mode's Texture (Apply, a new shape)" : key === 'characters' ? "The base map's own player models, placed as NPCs"
       : key === 'sound' ? "The map's sounds: each placed as an emitter that plays it (its program yours to change)"
       : key === 'effect' ? "The map's called effects (explosions, dust, sparks): each placed as an emitter that plays it (its program yours to change)"
       : key === 'ambient' ? "The map's emitters: its self-starting programs (fire, smoke, water, torches, weather) with their particles, sounds and lights, each placed as an emitter"
       : `The map's ${tabWords(word)}: click one to place it, or drag it onto the world`;
     // Characters: the list the chip showed (`showChars`); any other tab its own list.
-    b.addEventListener('click', () => { if (key === 'characters') showChars = true; else { objectTab = key; showChars = false; } search.value = ''; drawAssets(); });
+    b.addEventListener('click', () => {
+      if (key === 'characters') showChars = true; else { objectTab = key; showChars = false; }
+      search.value = '';
+      drawAssets();
+    });
     objectTabButtons.set(key, b);
     objectTabsRow.append(b);
   }
@@ -1401,6 +1497,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     showDocks: () => setDocks(true),
     context: pageContext,
   });
+  // The page opens in Object mode: left last in Modelling or AI Navigation, the docks are that mode's -- Object mode's put back.
+  if (modeLayouts.now !== 'object') {
+    if (modeLayouts.object && shell.restoreLayout?.(modeLayouts.object)) modeLayouts[modeLayouts.now] = undefined;
+    modeLayouts.now = 'object';
+    try { writeKey(FORGE_MODE_LAYOUTS_KEY, JSON.stringify(modeLayouts)); } catch { /* this visit's alone */ }
+  }
   shell.register({
     id: 'asset-browser', title: 'Assets', dock: 'left', order: 0, defaultOpen: true, tab: 'Assets', padLegend: [],
     mount(host) {
@@ -1488,6 +1590,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
 
   // The viewport and the status bar.
   const viewport = el(doc, 'main', 'fx-viewport');
+  /**
+   * The viewport's legends stacked in its lower left (the owner, 2026-11-15: "when we have both collision hull and ai
+   * mode on, the legends overlap, please make them stack"): the AI map's and the collision's, each shown as its own is.
+   */
+  const legendStack = el(doc, 'div', 'fx-legend-stack');
   const canvas = el(doc, 'canvas', 'fx-canvas');
   const input = el(doc, 'div', 'fx-input');
   let gizmo!: TransformControls;
@@ -1557,9 +1664,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * The snaps in the viewport as Unreal's viewport toolbar draws them (the owner, 2026-11-11: "make it like unreal ... they
    * also split grid snap and rotation snap into different menus"; a browser adaptation, FG.R2): a pill a snap -- its
-   * switch, an icon lit while it is on, then its step's dropdown (the ladder's steps, and any step typed).
+   * switch, an icon lit while it is on, then its step's dropdown: the ladder's steps only (the owner, 2026-11-15: "remove
+   * the input box for custom snap. I don't want a user to snap to like 7"). `field` holds the step, never shown.
    */
-  const snapPill = (iconName: string, label: string, unit: string, ladder: readonly number[], min: number, max: number, keyHint: string) => {
+  const snapPill = (iconName: string, label: string, unit: string, ladder: readonly number[], keyHint: string) => {
     const pill = el(doc, 'div', 'fx-snap-pill');
     pill.setAttribute('role', 'group');
     pill.setAttribute('aria-label', label);
@@ -1575,37 +1683,28 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const panel = el(doc, 'div', 'fx-viewport-snap-panel');
     panel.append(el(doc, 'div', 'fx-snap-panel-title', `${label} step`));
     const presets = ladder.map((v) => {
-      const b = el(doc, 'button', 'fx-snap-preset', `${v}${unit}`);
+      const b = el(doc, 'button', 'fx-snap-preset', `${unit ? v : stepLabel(v)}${unit}`);
       b.type = 'button';
       b.dataset['step'] = String(v);
       panel.append(b);
       return b;
     });
-    const row = el(doc, 'label', 'fx-viewport-snap-field');
-    row.append(el(doc, 'span', '', 'Custom'));
-    const field = el(doc, 'input', 'fx-num fx-setting-num fx-stepper');
-    field.type = 'number';
-    field.min = String(min);
-    field.max = String(max);
-    field.step = '1';
-    field.title = `${label} step${unit === '°' ? ', in degrees' : ', in game units'}`;
-    field.setAttribute('aria-label', `${label} step`);
-    row.append(field);
-    panel.append(row);
+    const field = el(doc, 'input');
+    field.type = 'hidden';
     menu.append(summary, panel);
     pill.append(toggle, menu);
     const draw = (on: boolean, step: number): void => {
       toggle.classList.toggle('is-on', on);
       toggle.setAttribute('aria-pressed', String(on));
       toggle.title = `${label} ${on ? 'on' : 'off'}: press to turn it ${on ? 'off' : 'on'} (${keyHint})`;
-      summary.textContent = `${step}${unit}`;
+      summary.textContent = `${unit ? step : stepLabel(step)}${unit}`;
       summary.classList.toggle('is-off', !on);
       for (const b of presets) b.setAttribute('aria-pressed', String(Number(b.dataset['step']) === step));
     };
     return { pill, toggle, menu, summary, field, presets, draw };
   };
-  const gridSnapUi = snapPill('gridSnap', 'Grid snap', '', GRID_STEP_LADDER, GRID_STEP_MIN, GRID_STEP_MAX, 'G turns both snaps');
-  const turnSnapUi = snapPill('angleSnap', 'Rotation snap', '°', TURN_STEP_LADDER, TURN_STEP_MIN, TURN_STEP_MAX, 'G turns both snaps');
+  const gridSnapUi = snapPill('gridSnap', 'Grid snap', '', GRID_STEP_LADDER, 'G turns both snaps');
+  const turnSnapUi = snapPill('angleSnap', 'Rotation snap', '°', TURN_STEP_LADDER, 'G turns both snaps');
   const viewportGridIn = gridSnapUi.field;
   const viewportTurnIn = turnSnapUi.field;
   /*
@@ -1654,7 +1753,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     applyView();
   });
   for (const [id, checkbox] of viewportToggleInputs) {
-    checkbox.addEventListener('change', () => { view[id] = checkbox.checked; applyView(); });
+    checkbox.addEventListener('change', () => {
+      view[id] = checkbox.checked;
+      applyView();
+    });
   }
   viewportModes.append(viewportModesSummary, viewportModesList);
   /*
@@ -2241,6 +2343,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     modeSection(`${FORGE_GAME_TYPE_NAME[3]} · ${FORGE_GAME_TYPE_NAME[4]}`, 'escort', group(modeBtns.hostage, modeBtns.zone)),
     modeSection('Info', 'info', group(modeBtns.point, modeBtns.view)),
     modeSection('Other', 'other', group(modeBtns.npc)),
+    geometryTools,
+    navTools,
   );
   doc.body.append(top, toolsRow, workbench, statusBar, checkSheet, modal, help, workspaceDock, selectSettings, playSettings);
   /*
@@ -2441,8 +2545,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         up.clone().multiplyScalar(radius * 0.75),
         up.clone().multiplyScalar(-radius * 0.75),
       ];
-      const targets: Object3D[] = [...roots];
-      if (baseView) targets.push(baseView.group);
+      const targets: Object3D[] = [...roots, ...worldTargets(false)];   // the edited geometry's view too
       const position = from.clone();
       let remaining = to.clone().sub(from);
       const normals: Vector3[] = [];
@@ -2627,6 +2730,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** Keys of an opened bomb block this slice does not edit (`bases`, ...), kept while a bomb marker is placed. */
   let bombRest: Record<string, unknown> = {};
   const overlays = new Overlays(scene);
+  // View > Map grid: the Forge's own (`./mapGrid`), over every kind of base at its floor -- not the viewer's, which
+  // only a disc map placed.
+  const mapGrid = new MapGrid();
+  scene.add(mapGrid.group);
   /** The base map's own data as billboards (`./mapDataBillboards`), redrawn with each base (`drawMapBillboards`). */
   const mapBillboards = new MapDataBillboards(scene);
   /** The base map's light rig as arrows (`./lightArrows`), set with each base; under Billboards › Light directions. */
@@ -2797,6 +2904,246 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   gizmo = new TransformControls(fly.viewportCamera(), input);
   gizmo.setTranslationSnap(null);
   scene.add(gizmo.getHelper());
+  // The geometry mode (`./geometry/editor`; a browser adaptation, FG.R2): the base map's world edited as Hammer edits a
+  // map. Its pointer and keys are its own while it is on; the page lets go of its selection and gizmo.
+  /**
+   * Geometry mode's Inspector (the owner, 2026-11-15: "show the transform for geometry objects, and allow the user to edit
+   * these values, but only when in object mode ... basically equivalent to moving the gizmo"): the Inspector's own look
+   * (`buildInspector`), its Transform the object selection's (`GeometryEditor.objectTransform`), in the placements'
+   * Inspector's place while the mode is on. A row typed or scrubbed moves the selection as the gizmo would (one undo step).
+   */
+  const geoInspector = buildInspector(doc, icon('reset'));
+  geoInspector.body.classList.add('fx-geo-inspector');
+  geoInspector.body.hidden = true;
+  geoInspector.lock.hidden = true;
+  geoInspector.kind.textContent = 'Geometry';
+  const geoProps = geoInspector.body.querySelector<HTMLElement>('[data-inspect-section="properties"]');
+  if (geoProps) geoProps.hidden = true;
+  const geoRows = [
+    ['position', [geoInspector.x, geoInspector.y, geoInspector.z]],
+    ['rotation', [geoInspector.pitch, geoInspector.yaw, geoInspector.roll]],
+    ['scale', [geoInspector.sx, geoInspector.sy, geoInspector.sz]],
+  ] as const;
+  const drawGeoInspector = (): void => {
+    const on = !!geometry?.isActive();
+    if (on && !geoInspector.body.isConnected && inspectorDom.body.parentElement) inspectorDom.body.after(geoInspector.body);
+    inspectorDom.body.hidden = on;
+    geoInspector.body.hidden = !on;
+    if (!on) return;
+    const t = geometry!.objectTransform();
+    geoInspector.name.textContent = t ? (t.count > 1 ? `${t.count} objects` : t.name)
+      : geometry!.isTexturing() ? 'Texture layer: the geometry is painted here, not moved' : 'Select an object (Object selection) to edit its transform';
+    for (const [part, ins] of geoRows) ins.forEach((i, k) => {
+      i.disabled = !t;
+      if (doc.activeElement === i || geoScrubbed === i) return; // not under the typing, nor under a drag
+      i.value = t ? String(Math.round((t[part][k] ?? 0) * 1000) / 1000) : '';
+    });
+    // Each row's reset shown while the row is away from its default, as the placements' Inspector shows its own.
+    for (const [part, b] of geoResets) b.hidden = !t || t[part].every((v, k) => Math.abs(v - GEO_DEFAULTS[part][k]!) < 1e-4);
+  };
+  /**
+   * A row dragged (or wheeled) shown live (the owner, 2026-11-15: "dragging in the transform fields live updated the
+   * object in real time ... all cases where we can live drag a gizmo"): the selection carried as a gizmo drag carries it,
+   * on either layer (`GeometryEditor.previewObjectTransform`), no edit; Escape puts it back, the release's `change` is the
+   * one edit (`setObjectTransform`, which lets the preview go first).
+   */
+  let geoScrubbed: HTMLInputElement | null = null;
+  for (const [part, ins] of geoRows) for (const i of ins) {
+    i.addEventListener('fx-scrub', (e) => {
+      const { cancelled } = (e as CustomEvent<ScrubDetail>).detail;
+      if (cancelled) { geoScrubbed = null; geometry?.previewObjectTransform(part, null); drawGeoInspector(); return; }
+      geoScrubbed = i;
+      geometry?.previewObjectTransform(part, ins.map((x) => Number(x.value)) as [number, number, number]);
+    });
+    i.addEventListener('change', () => {
+      geoScrubbed = null;
+      const v = ins.map((x) => Number(x.value)) as [number, number, number];
+      geometry?.setObjectTransform(part, v);
+      drawGeoInspector();
+    });
+  }
+  /**
+   * The rows' resets (the owner, 2026-11-15: "add these reset buttons to the geometry objects as well"): each row back to
+   * the placements' Inspector's defaults -- position 0, rotation 0, scale 1 -- moving the selection as the gizmo would
+   * (one undo step).
+   */
+  const GEO_DEFAULTS = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } as const;
+  const geoResets = [['position', geoInspector.resetPosition], ['rotation', geoInspector.resetRotation], ['scale', geoInspector.resetScale]] as const;
+  for (const [part, b] of geoResets) b.addEventListener('click', () => {
+    geometry?.setObjectTransform(part, [...GEO_DEFAULTS[part]]);
+    drawGeoInspector();
+  });
+  geometry = new GeometryEditor({
+    doc, scene, input, modeTools: geometryModeTools, tools: geometryTools, statusHost: viewport, camera: () => fly.viewportCamera(), say,
+    navigating: () => fly.navigating(),
+    onHistory: () => refreshUndo(),
+    onEdit: (label) => recordGeometryStep(label),
+    onSelect: () => noteSelectionSoon(),
+    onObjects: () => { drawOutlinerSoon(); drawGeoInspector(); },
+    // A disc map's base edits its world; a blank base (bug 17) an empty world over its library's textures, which opens with
+    // a floor plane of its own (`defaultFloor`).
+    map: () => (base?.kind === 'map' ? baseMap : base?.kind === 'blank' ? blankGeometryMap() : null),
+    defaultFloor: () => (base?.kind === 'blank' && charMap ? { size: FLOOR_SIZE, divisions: BLANK_FLOOR_QUADS, look: floorLookOf(charMap) } : null),
+    prepareView: (v) => { applyWorld(v); v.setLighting(lighting); },
+    baseWorldShown: (on) => { for (const o of baseView?.worldObjects ?? []) o.visible = on; if (base?.kind === 'blank') floor.visible = on; },
+    onActive: (on) => {
+      if (on && navOn) setNavigation(false);                   // Geometry mode taken up (an Outliner row): navigation left
+      setMode('select');
+      if (on) select(null);
+      toolsRow.classList.toggle('is-geometry', on);
+      placeGroup.hidden = on;
+      drawGeoInspector();
+      if (on) enterModellingView(); else leaveModellingView();
+      seedSplitViews(true);
+      swapModeLayout(on ? 'modelling' : 'object');
+      geometryAssets(on);
+      editModeSel.value = editModePicked();
+      syncViewLocks();                                         // Wireframe held on in the mode (applied below)
+      fitToolbar();
+      // The viewport's Scale shows for the geometry, which scales; leaving it, the placements' stub hides again.
+      scaleBtn.hidden = !on && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION;
+      scaleBtn.title = `Scale with the gizmo${on ? '' : ' (not wired yet)'}${key('R')}`;
+      if (!on && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION && gizmo.mode === 'scale') setGizmo('translate');
+      pushGizmo();
+      applyView();                                             // the Wireframe: the faces' edges in the mode, the triangles out of it
+    },
+    // A Build: the hull the placements rest on too (Place, the gizmo's snap), not only the collision view.
+    onBuilt: () => { refreshPlacementGround(); scheduleHull(); },
+    // A drag's collision drawn as it goes (the owner, 2026-11-15: "see the colors move as i edit the geometry"): at once,
+    // the placed pieces' composed over it as the view has them; the drag over, the edit's own rebuild draws it.
+    onCollisionPreview: (ground) => {
+      if (!ground) { hullPreviewSeq++; if (hullWanted()) scheduleHull(); return; }
+      if (!view.collision) return;
+      const seq = ++hullPreviewSeq;
+      void composeGround(ground).then((c) => {
+        if (!c || seq !== hullPreviewSeq || geometry?.collisionPolys()) return;
+        drawHullView(groundPolygons(c.ground));
+      });
+    },
+    // Collision editing draws in the one collision view (`./hull`), turning Draw's Collision hull on while it lasts.
+    // Only on the mode's turn (`inCollisionMode`): the Collision hull switch held on (`syncViewLocks`), the world's wireframe.
+    onCollisionView: (on) => {
+      editModeSel.value = editModePicked();
+      if (on !== inCollisionMode) {
+        inCollisionMode = on;
+        syncViewLocks();
+        applyView();
+      }
+      if (hullWanted()) scheduleHull(); else showHullView();
+    },
+    propsShown: (on) => setPropsShown(on),
+    // A Layer turned (Geometry, Collision, Texture): the view's locks as the layer wants them (Wireframe free on Texture).
+    onLayer: () => { editModeSel.value = editModePicked(); syncViewLocks(); applyView(); },
+    // The Texture button (the owner, 2026-11-16): the mini asset browser on Textures, the base's own map its Source.
+    browseTextures: (anchor) => openAssetPicker(null, 'texture', textureHome(), anchor,
+      (asset) => (parseTextureAsset(asset) ? () => { void chooseTexture(asset); } : null)),
+    // The edited world takes the base world's place for what the page keeps on a world: its texture pack (ML-3), the
+    // pack's originals put back on the old view first, as a base change does.
+    onViewSwap: (v) => { forgePacks.setWorld(null, null); forgePacks.setWorld(v ?? baseView, baseMap?.textures ?? null); },
+  });
+  // The mode picker: Modelling turns the editor on (it says why when the base has no world to model, and the picker
+  // goes back to Object mode).
+  editModeSel.addEventListener('change', () => {
+    const to = editModeSel.value;
+    if (to !== 'navigation') setNavigation(false);
+    geometry?.setActive(to === 'modelling');
+    if (to === 'navigation') setNavigation(true);
+    editModeSel.value = editModePicked();
+    editModeSel.blur();                                        // the keys go back to the viewport
+  });
+  /**
+   * AI Navigation mode (the owner, 2026-11-16: "move ai navigation to it's own mode in the top toolbar. add the ai
+   * navigation menu settings into the mode's toolbar settings. then introduce a similar workflow to the collision paint
+   * but for ai navigation tiles"; a browser adaptation, FG.R2): the AI map held on (`syncViewLocks`), the selection let
+   * go, a left press the brush's (`./aiPaint`) -- the camera keeps its own buttons -- and the second toolbar its Soil,
+   * Size and View sections. A disc map's grid, or a custom map's own floor grid (`./floorAi`); a base with none refuses.
+   */
+  const aiPaint = new AiPaintTool({
+    doc, input, scene, say,
+    active: () => navOn,
+    cellAt: (ndc) => {
+      const ai = paintedAiNow();
+      const hit = ai ? pickSurface(ndc, []) : null;
+      const loc = ai && hit ? locateAiCell(ai, [hit.point.x, hit.point.y + 1, hit.point.z]) : null;
+      const soil = ai && loc ? aiSoilAt(ai, loc) : null;
+      return loc && soil !== null ? { loc, soil } : null;
+    },
+    brushCells: (loc, size) => {
+      const ai = paintedAiNow();
+      if (!ai) return [];
+      return aiBrushCells(ai, loc, size).map((c) => {
+        const sub = ai.maps[c.map]!;
+        const [x, z] = aiCellCentre(sub, c.x, c.z);
+        return { loc: c, at: [x, aiCellY(sub, sub.cells[aiCellIndex(sub, c.x, c.z)]!), z] as [number, number, number], size: [sub.cellSize[0], sub.cellSize[1]] as [number, number] };
+      });
+    },
+    paint: (loc, soil) => paintAiCell(loc, soil),
+    // A stroke: one edit, the layout's text holding its cells (`Layout.aiSoil`); the routes planned again on them.
+    commit: (_cells, label) => {
+      personEdit('placement.set', { field: 'aiSoil' }, (step) => {
+        edit(selectionIds(), step);
+        drawAiLegendKinds();
+        void refreshAiRoutes();
+        say(label);
+      }, true);
+    },
+  });
+  const navSection = (label: string, ...kids: HTMLElement[]): HTMLDivElement => {
+    const sec = el(doc, 'div', 'fx-mode-section fx-geo-section');
+    sec.setAttribute('role', 'group');
+    sec.setAttribute('aria-label', label);
+    const g = el(doc, 'div', 'fx-group');
+    g.append(...kids);
+    sec.append(el(doc, 'span', 'fx-mode-section__label', label), g);
+    return sec;
+  };
+  /** The AI map's layer switches (`aiNav`, the AI Navigation menu's before), as the Geometry View's Props switch looks. */
+  const navToggles = new Map<keyof typeof aiNav, HTMLInputElement>();
+  const navToggle = (label: string, key: keyof typeof aiNav, title: string): HTMLLabelElement => {
+    const row = el(doc, 'label', 'fx-toggle fx-geo-check');
+    row.title = title;
+    const box = el(doc, 'input', '');
+    box.type = 'checkbox';
+    box.addEventListener('change', () => setAiNav(key, box.checked));
+    row.append(box, el(doc, 'span', '', label));
+    navToggles.set(key, box);
+    return row;
+  };
+  const drawNavToggles = (): void => { for (const [k, box] of navToggles) box.checked = aiNav[k]; };
+  navTools.append(
+    // Select, Paint, Sample and Apply first, as Geometry mode's Tool section (the owner, 2026-11-16: "follow this same
+    // pattern for the ai nav mode"; `./paintTools`).
+    navSection('Tool', aiPaint.toolRow),
+    navSection('Soil', aiPaint.soilRow),
+    navSection('Size', aiPaint.sizeRow),
+    navSection('View',
+      navToggle('Cells', 'cells', 'The AI cells, coloured by their soil'),
+      navToggle('Links', 'links', 'The links between sub-maps'),
+      navToggle('Routes', 'routes', 'The hostage routes to the extraction zones'),
+      navToggle('Legend', 'legend', 'The AI map legend in the viewport'),
+    ),
+  );
+  /** AI Navigation mode on or off (the mode picker; Geometry mode taken up leaves it). */
+  function setNavigation(on: boolean): void {
+    if (on === navOn) return;
+    if (on && !discAiNow()) { say('No AI map to edit on this base', true); editModeSel.value = editModePicked(); return; }
+    if (on) geometry?.setActive(false);
+    navOn = on;
+    if (!on) aiPaint.leave();
+    setMode('select');
+    select(null);
+    toolsRow.classList.toggle('is-navigation', on);
+    navTools.hidden = !on;
+    placeGroup.hidden = on;
+    aiLegendHover.hidden = on;                                 // the brush's tip names the cell in the mode
+    swapModeLayout(on ? 'navigation' : 'object');              // the mode's own docks: the asset browser closed at first
+    editModeSel.value = editModePicked();
+    syncViewLocks();                                           // the AI map held on in the mode, put back after
+    applyView();
+    drawNavToggles();
+    fitToolbar();
+    if (on) say('AI Navigation: select cells and Apply a soil, or Paint them; hover a cell for its soil');
+  }
   /**
    * FG-47: a group's gizmo sits on a pivot at the group's centre (`./group` `centreOf`); its drag is applied to every
    * member live, from the members' places at the drag's start (`moved`, `turnedAbout`).
@@ -3097,7 +3444,74 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   floor.add(floorPlane);
   /** The layout's hull drawn over the world (`./hull`); a new object each time, as the renderer keys its draws by one. */
   const hullMaterial = hullLineMaterial();
-  let hullLines: LineSegments | null = null;
+  const hullFaces = hullFaceMaterial();
+  const hullFaintFaces = hullFaceMaterial(HULL_FAINT_OPACITY);
+  /**
+   * The one collision view (`./hull`; the owner, 2026-11-15: "there should not be two different ways to see collision"):
+   * the layout's hull, or collision editing's hull objects while it is on, drawn with its legend in the viewport.
+   */
+  let hullView: ReturnType<typeof buildHullView> | null = null;
+  let hullLegend: HTMLDivElement | null = null;
+  /**
+   * The Draw switches the editor's modes set (the owner, 2026-11-15): the Collision hull on and greyed in Collision mode
+   * ("disable toggling off collision hull in collision mode ... always on"); the Wireframe on and greyed in Geometry mode,
+   * and off on entering Collision mode, free there ("not lock the wireframe to on in collision mode ... toggled off by
+   * default"). Each put back as it was before the editor's modes when they end (Object mode).
+   */
+  const collisionLock = { before: null as boolean | null };
+  const wireframeLock = { mode: 'object' as ReturnType<typeof editModeNow> };
+  /** The AI map switch as it was before AI Navigation mode held it on (null outside the mode). */
+  const aimapLock = { before: null as boolean | null };
+  const lockInput = (id: ViewToggle, held: boolean, why: string): void => {
+    const input = viewportToggleInputs.get(id);
+    if (!input) return;
+    input.checked = view[id];
+    input.disabled = held;
+    const row = input.closest('label');
+    row?.classList.toggle('is-disabled', held);
+    if (row) row.title = held ? why : '';
+  };
+  const syncViewLocks = (): void => {
+    const mode = editModeNow();
+    // Collision hull: held on through Collision mode, put back after it.
+    const coll = mode === 'collision';
+    if (coll && collisionLock.before === null) { collisionLock.before = view.collision; view.collision = true; }
+    else if (!coll && collisionLock.before !== null) { view.collision = collisionLock.before; collisionLock.before = null; }
+    lockInput('collision', coll, 'Always on in Collision mode');
+    // Wireframe: on (held) on the Geometry layer, off on entering the Collision layer; on the Texture layer free, as it
+    // came (the owner, 2026-11-16: "allow the wireframe mode to be turned off, but ... when we go back to geometry layer,
+    // it is turned on and cannot be turned off" -- the Geometry layer's turn on again, `mode` changed). Object mode's own is put back by
+    // the mode's own keeping (`enterModellingView` / `leaveModellingView`, which keep the whole Object-mode view): kept
+    // here too, it was kept after `enterModellingView` had turned it on, and put that back (a browser run, 2026-11-15).
+    if (mode !== wireframeLock.mode) {
+      if (mode === 'modelling') view.wireframe = true;
+      else if (mode === 'collision') view.wireframe = false;
+      wireframeLock.mode = mode;
+    }
+    lockInput('wireframe', mode === 'modelling', 'Always on in Geometry mode');
+    // The AI map: held on through AI Navigation mode, put back after it.
+    const nav = mode === 'navigation';
+    if (nav && aimapLock.before === null) { aimapLock.before = view.aimap; view.aimap = true; }
+    else if (!nav && aimapLock.before !== null) { view.aimap = aimapLock.before; aimapLock.before = null; }
+    lockInput('aimap', nav, 'Always on in AI Navigation mode');
+  };
+  /** Collision mode on, as `onCollisionView` last saw it: its switch acts on the mode's turn only. */
+  let inCollisionMode = false;
+  const showHullView = (): void => {
+    const on = view.collision && !!hullView;
+    if (hullView) hullView.group.visible = view.collision;
+    if (hullLegend) hullLegend.hidden = !on;
+  };
+  const drawHullView = (polys: Iterable<HullViewPoly>): void => {
+    if (hullView) { scene.remove(hullView.group); hullView.dispose(); }
+    hullView = buildHullView(polys, hullFaces, hullMaterial, hullFaintFaces);
+    scene.add(hullView.group);
+    if (!hullLegend) hullLegend = el(doc, 'div', 'fx-ai-legend');
+    if (!hullLegend.isConnected) legendStack.append(hullLegend);
+    if (!legendStack.isConnected) viewport.append(legendStack);
+    drawHullLegend(hullLegend, hullView.counts, geometry?.collisionPolys() ? 'Collision (editing)' : 'Collision');
+    showHullView();
+  };
 
   /* ================= the state ================= */
   /** The served tree in a development build (`?disc` asks for the release's path instead); the player's disc otherwise. */
@@ -3158,6 +3572,24 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   });
   /** R7-3: an authored map's own props as drawn (`newContentBaseProps`), beside its world; null on any other base. */
   let baseContentProps: Group | null = null;
+  /**
+   * Geometry mode's View > Props (`./geometry/editor`): the props it hid, each put back as it was -- a prop the layout
+   * hides itself (an outliner hide) stays hidden when they come back.
+   */
+  let propsHidden: Object3D[] = [];
+  /**
+   * The layout's own placed props hidden by View > Props too (the owner, 2026-11-15): kept as a switch the placements'
+   * visibility answers to (`applyEditorHidden`), so a redraw of it does not bring them back.
+   */
+  let userPropsOff = false;
+  const setPropsShown = (on: boolean): void => {
+    userPropsOff = !on;
+    applyEditorHidden();
+    if (on) { for (const o of propsHidden) o.visible = true; propsHidden = []; return; }
+    // The map's: again after anything that redraws visibility (a Display switch), what shows now is hidden too, once.
+    const props = [...(baseView?.propObjects ?? []), ...(baseContentProps ? [baseContentProps] : [])];
+    for (const o of props) if (o.visible) { o.visible = false; if (!propsHidden.includes(o)) propsHidden.push(o); }
+  };
   let baseMap: LoadedMap | null = null;
   const roots: Object3D[] = [];
   /**
@@ -3270,7 +3702,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** Each placement drawn or not by the editor's hiding (`editorHidden`), its billboard with it. */
   let editorHiddenKey = '';
   const applyEditorHidden = (): void => {
-    for (const r of roots) r.visible = !editorHiddenNow(r);
+    for (const r of roots) r.visible = !editorHiddenNow(r) && !(userPropsOff && r.userData['forgePiece']);
     const key = roots.map((r) => (r.visible ? '1' : '0')).join('');
     // The user billboards rebuilt without them: flagged, not by emptying `userMarksOf` -- with every placement deleted
     // that matched the empty `roots`, so the last ones' marks stayed drawn.
@@ -3332,8 +3764,43 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let recentProps: string[] = [];
   const noteRecentProp = (asset: string): void => { recentProps = [asset, ...recentProps.filter((a) => a !== asset)].slice(0, PROPS_RECENT_MAX); };
   let filter: AssetFilter = 'all';
+  /** Each map's texture catalog once read (`Archives.textureCatalog`): the Textures tab's tiles and the Source's counts. */
+  const textureCatalogs = new Map<string, TextureCatalogEntry[]>();
+  const textureCatalogAsked = new Set<string>();
+  const askTextureCatalog = (stem: string): void => {
+    if (!stem || textureCatalogAsked.has(stem) || absent.has(stem)) return;
+    textureCatalogAsked.add(stem);
+    void archives.textureCatalog(stem).then((c) => {
+      textureCatalogs.set(stem, c ?? []);
+      if (objectTab === 'texture' && !showChars) drawAssets();
+    });
+  };
+  /** Every map's catalog asked (All, Common, Weapons, the counts): the base's first. */
+  const askTextureCatalogs = (): void => { for (const m of [textureHome(), ...copyMaps().map(([x]) => x)]) askTextureCatalog(m); };
+  /**
+   * The map whose textures the geometry draws with: the base's own; a blank base's its library map's (`charMap`, the
+   * archive loaded for it: the base's `library` may be no archive -- `BLANK_LIBRARY`, 'floor').
+   */
+  const textureHome = (): string => (base?.kind === 'map' ? baseMap?.archive : charMap?.archive) ?? '';
   /** The asset browser's tab (`OBJECT_TABS`): the props, or one object kind's copies on the chosen map. */
   let objectTab: ObjectTab = 'props';
+  /** The tab left on entering Geometry mode (`geometryAssets`), put back on leaving it. */
+  let tabBeforeGeometry: ObjectTab | null = null;
+  /**
+   * Geometry mode's asset browser (the owner, 2026-11-16: "show the asset browser in geometry mode ... only texture is
+   * accessible"): shown, on its Textures tab, the base's own map its Source, the other tabs not pressable (`drawAssetList`);
+   * leaving the mode, the tab it was on again.
+   */
+  const geometryAssets = (on: boolean): void => {
+    if (on) {
+      if (objectTab !== 'texture') tabBeforeGeometry = objectTab;
+      objectTab = 'texture'; showChars = false; search.value = '';
+      if (!shell.isShown('asset-browser')) shell.reveal('asset-browser');
+      const home = textureHome();
+      if (paletteStem() !== home && Array.from(paletteSel.options).some((o) => o.value === home)) { paletteSel.value = home; paletteSel.dispatchEvent(new Event('change')); return; }
+    } else if (tabBeforeGeometry && objectTab === 'texture') { objectTab = tabBeforeGeometry; tabBeforeGeometry = null; }
+    drawAssets();
+  };
   /**
    * The object the Place tool places of each kind, as its tile chose it (`chooseObject`): a door's, turret's, gate's,
    * damage trigger's or flare's disc source and name, a ladder prop's asset, a switch's look. Absent, the kind's own
@@ -3347,6 +3814,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let npcChoice: { side: 'seal' | 'terrorist'; type: number } | null = null;
   /** FG-21: the map whose characters the NPCs are (the base's; the blank floor's library's). */
   let charMap: LoadedMap | null = null;
+  /**
+   * A blank base's geometry's map (bug 17): its library's textures and grid, an empty world, and a hull layer with no
+   * polygon (the floor plane's own hull comes from Build) -- one object a library, so the editor keeps its edits.
+   */
+  let blankGeo: { lib: LoadedMap; map: LoadedMap } | null = null;
+  const blankGeometryMap = (): LoadedMap | null => {
+    if (!charMap) return null;
+    if (blankGeo?.lib !== charMap) {
+      const grid = floorGround(FLOOR_SIZE).grid;
+      blankGeo = { lib: charMap, map: { ...charMap, world: [], props: [], lines: null, ground: packGround(grid, [], []) } };
+    }
+    return blankGeo.map;
+  };
   /** The grid snap (moves and placements on the grid step), and the turn snap apart (the owner, 2026-11-11). */
   let snap = false;
   let turnSnap = false;
@@ -3451,14 +3931,58 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * (`./floorAi`), every cell the same. Its layers each have their own switch in the AI Navigation menu (`aiNav`).
    */
   let aiMapOverlay: ReturnType<typeof buildAiMapOverlay> | null = null;
+  /** The base's own grid the overlay is of (the disc's, or the blank floor's `floorAiMaps`): drawn as the layout paints it. */
   let aiMapOf: AiMaps | null = null;
   /**
-   * The AI Navigation menu's layer switches (the owner, 2026-11-12: "all the navigation specific toggles"): the soil
-   * tiles, the cells placed pieces block, the links, the hostage routes and the legend -- under the AI map switch, which
-   * shows or hides them all. Kept in this browser (a convenience: absent or unreadable, all on).
+   * The layout's painted AI cells (`Layout.aiSoil`, `./aiSoil`; the owner, 2026-11-16): each by its key to its soil. The
+   * grid as the layout has it (`paintedAiNow`) is the base's with them, made once a change and kept, a stroke writing its
+   * cells into it as it goes (`paintAiCell`); the overlay, its routes, Check and Play read it.
+   */
+  let aiSoil = new Map<string, number>();
+  let blankAi: AiMaps | null = null;
+  let aiPainted: { of: AiMaps; ai: AiMaps } | null = null;
+  /** The base's own AI grid: a disc map's, or the blank floor's own (`./floorAi`). */
+  const discAiNow = (): AiMaps | null => (base?.kind === 'map' ? baseMap?.ai ?? null : base?.kind === 'blank' ? (blankAi ??= floorAiMaps(FLOOR_SIZE)) : null);
+  function paintedAiNow(): AiMaps | null {
+    const disc = discAiNow();
+    if (!disc) return null;
+    if (aiPainted?.of !== disc) aiPainted = { of: disc, ai: withAiSoil(disc, aiSoil) };
+    return aiPainted.ai;
+  }
+  /** The painted cells replaced (a layout opened, an undo): the grid and its overlay made again. */
+  const aiSoilReplaced = (): void => {
+    aiPainted = null;
+    aiMapOf = null;                                            // the overlay drawn again from the grid as it now is
+    syncAiMap(true);
+  };
+  /**
+   * A stroke's cell: painted `soil` in the layout (taken out again where that is the disc's own), in the kept grid (its
+   * sub-map's cells copied first if still the disc's) and on the overlay. False when it already was that soil.
+   */
+  const paintAiCell = (loc: AiLoc, soil: number): boolean => {
+    const disc = discAiNow(), ai = paintedAiNow();
+    if (!disc || !ai || editsLocked()) return false;
+    const now = aiSoilAt(ai, loc);
+    if (now === null || now === soil) return false;
+    const key = aiCellKey(loc);
+    if (aiSoilAt(disc, loc) === soil) aiSoil.delete(key); else aiSoil.set(key, soil);
+    let sub = ai.maps[loc.map]!;
+    if (sub.cells === disc.maps[loc.map]?.cells) {
+      sub = { ...sub, cells: sub.cells.slice() };
+      aiPainted = { of: disc, ai: { ...ai, maps: ai.maps.map((m, i) => (i === loc.map ? sub : m)) } };
+    }
+    const i = aiCellIndex(sub, loc.x, loc.z);
+    sub.cells[i] = ((sub.cells[i]! & ~0x1f) | (soil & 0x1f)) >>> 0;
+    aiMapOverlay?.setCell(loc, soil);
+    return true;
+  };
+  /**
+   * The AI map's layer switches (the owner, 2026-11-12: "all the navigation specific toggles"; AI Navigation mode's View
+   * now): the soil tiles, the links, the hostage routes and the legend -- under the AI map switch, which shows or hides
+   * them all. Kept in this browser (a convenience: absent or unreadable, all on).
    */
   const AI_NAV_KEY = 'forge.aiNav';
-  const aiNav = { cells: true, blocked: true, links: true, routes: true, legend: true };
+  const aiNav = { cells: true, links: true, routes: true, legend: true };
   try {
     const kept = JSON.parse(globalThis.localStorage?.getItem(AI_NAV_KEY) ?? 'null') as Partial<typeof aiNav> | null;
     if (kept) for (const k of Object.keys(aiNav) as (keyof typeof aiNav)[]) { const v = kept[k]; if (typeof v === 'boolean') aiNav[k] = v; }
@@ -3472,23 +3996,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The links between sub-maps (`buildAiLinks`), built with the tiles. */
   let aiLinks: ReturnType<typeof buildAiLinks> | null = null;
   /**
-   * The grid as the layout leaves it (`./aiPieceBlock` `aiMapsWithPieces`): the placed pieces' cells nogo, as Play hands
-   * it to the room (`./playObjectives`); its blocked cells drawn (`buildAiPieceMarks`), the routes planned on it.
-   */
-  let aiStamped: AiMaps | null = null;
-  let aiPieceMarks: ReturnType<typeof buildAiPieceMarks> | null = null;
-  let aiPieceCount = 0;
-  /**
    * The route preview (`buildAiRoutes`; the owner, 2026-11-12): every hostage start -- the map's own (`LoadedMap.escortees`)
    * and the placed ones -- to the cheapest extraction zone, the map's own (kind 1) and the placed ones. Drawn again with
-   * each edit while the overlay shows (`changed`), on the grid the placed pieces leave.
+   * each edit while the overlay shows (`changed`), on the grid as the layout paints it. The placed props add nothing to
+   * the grid, as the original's add nothing (research 335 section 5; the owner, 2026-11-16: "whatever the engine puts"):
+   * a route may cross one, which in a match the hostage meets and marks (`FUN_00556ee0`, soil 13).
    */
   let aiRoutes: ReturnType<typeof buildAiRoutes> | null = null;
   let aiRoutesRun = 0;
   const drawAiLegendKinds = (): void => {
     if (!aiMapOverlay) return;
     drawAiMapLegend(aiLegendKinds, aiMapOverlay.counts, [
-      { colour: AI_PIECE_BLOCK_COLOUR, label: 'Blocked by placed props', note: 'nogo in this layout: hostages and bots path round it', count: aiPieceCount, line: false },
       { colour: AI_LINK_COLOUR, label: 'Link (Submap)', note: 'where a route passes from one sub-map to another', count: aiLinks?.count ?? 0, line: true },
     ]);
   };
@@ -3496,7 +4014,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const showAiLayers = (legend = false): void => {
     const on = view.aimap;
     if (aiMapOverlay) aiMapOverlay.group.visible = on && aiNav.cells;
-    if (aiPieceMarks) aiPieceMarks.group.visible = on && aiNav.blocked;
     if (aiLinks) aiLinks.group.visible = on && aiNav.links;
     if (aiRoutes) aiRoutes.group.visible = on && aiNav.routes;
     aiLegendRoutes.hidden = !aiNav.routes || !aiRoutes?.routes.length;
@@ -3504,16 +4021,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const refreshAiRoutes = async (): Promise<void> => {
     const run = ++aiRoutesRun;
-    const ai = aiMapOf;
+    const ai = paintedAiNow();
     if (!ai || !aiMapOverlay) return;
-    const composed = await composeGround().catch(() => null);
-    if (run !== aiRoutesRun || ai !== aiMapOf || !aiMapOverlay) return;
-    const stamped = composed ? aiMapsWithPieces(ai, composed.ground) : { ai, blocked: [] };
-    aiStamped = stamped.ai;
-    aiPieceMarks?.dispose();
-    aiPieceMarks = buildAiPieceMarks(stamped.blocked);
-    aiPieceCount = stamped.blocked.length;
-    scene.add(aiPieceMarks.group);
+    await Promise.resolve();                                    // after the edit that asked it: the last one plans
+    if (run !== aiRoutesRun || ai !== paintedAiNow() || !aiMapOverlay) return;
     aiRoutes?.dispose();
     const feet = (r: Object3D): [number, number, number] => [r.position.x, r.position.y, r.position.z];
     const starts: AiRouteStart[] = [
@@ -3522,10 +4033,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ...roots.filter((r) => r.userData['forgeHostage']).map((r) => ({ name: placedLabel(r), at: feet(r) })),
     ];
     const goals: AiRouteGoal[] = [
-      ...aiMapZoneGoals((baseMap ? mapDataShown(baseMap).ai : undefined) ?? stamped.ai),
-      ...roots.filter((r) => r.userData['forgeZone']).flatMap((r) => { const g = aiGoalAt(stamped.ai, placedLabel(r), feet(r)); return g ? [g] : []; }),
+      ...aiMapZoneGoals((base?.kind === 'map' && baseMap ? mapDataShown(baseMap).ai : undefined) ?? ai),
+      ...roots.filter((r) => r.userData['forgeZone']).flatMap((r) => { const g = aiGoalAt(ai, placedLabel(r), feet(r)); return g ? [g] : []; }),
     ];
-    aiRoutes = buildAiRoutes(stamped.ai, starts, goals);
+    aiRoutes = buildAiRoutes(ai, starts, goals);
     scene.add(aiRoutes.group);
     drawAiRouteLegend(aiLegendRoutes, aiRoutes.routes);
     drawAiLegendKinds();
@@ -3536,22 +4047,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * split view's own draw (`applyViewDraw` runs with each view's switches in turn).
    */
   const syncAiMap = (legend = false): void => {
-    const ai = base?.kind === 'map' ? baseMap?.ai ?? null : null;
+    // A disc map's grid, or a custom map's own floor grid (the owner's custom-map parity), as the layout paints it.
+    const ai = discAiNow();
     if (aiMapOf !== ai) {
-      for (const layer of [aiMapOverlay, aiLinks, aiPieceMarks, aiRoutes]) layer?.dispose();
-      aiMapOverlay = null; aiLinks = null; aiPieceMarks = null; aiRoutes = null; aiStamped = null; aiPieceCount = 0;
+      for (const layer of [aiMapOverlay, aiLinks, aiRoutes]) layer?.dispose();
+      aiMapOverlay = null; aiLinks = null; aiRoutes = null;
       aiMapOf = ai;
     }
     if (view.aimap && ai && !aiMapOverlay) {
-      aiMapOverlay = buildAiMapOverlay(ai);
+      const painted = paintedAiNow() ?? ai;
+      aiMapOverlay = buildAiMapOverlay(painted);
       scene.add(aiMapOverlay.group);
-      aiLinks = buildAiLinks(ai);
+      aiLinks = buildAiLinks(painted);
       scene.add(aiLinks.group);
       if (!aiMapLegend) {
         aiMapLegend = el(doc, 'div', 'fx-ai-legend');
         aiMapLegend.append(aiLegendKinds, aiLegendHover, aiLegendRoutes);
       }
-      if (!aiMapLegend.isConnected) viewport.append(aiMapLegend);
+      if (!aiMapLegend.isConnected) legendStack.prepend(aiMapLegend);
+      if (!legendStack.isConnected) viewport.append(legendStack);
       drawAiLegendKinds();
       void refreshAiRoutes();
     }
@@ -3567,32 +4081,34 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The hover line: the cell under the pointer on the map's surface, once a frame at most. */
   let aiHoverFrame = 0;
   input.addEventListener('pointermove', (e) => {
-    if (!view.aimap || !aiMapOverlay || !aiMapOf || aiHoverFrame) return;
+    if (!view.aimap || !aiMapOverlay || !aiMapOf || aiHoverFrame || navOn) return;   // the brush's tip says it in the mode
     const x = e.clientX, y = e.clientY;
     aiHoverFrame = requestAnimationFrame(() => {
       aiHoverFrame = 0;
-      const ai = aiMapOf;
+      const ai = paintedAiNow();
       if (!ai) return;
       const r = input.getBoundingClientRect();
       if (!(r.width > 0 && r.height > 0)) return;
       const hit = pick(new Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), 'map');
-      aiLegendHover.textContent = hit ? describeAiCellAt(aiStamped ?? ai, [hit.point.x, hit.point.y + 1, hit.point.z]) ?? 'Off the grid' : 'Off the map';
+      aiLegendHover.textContent = hit ? describeAiCellAt(ai, [hit.point.x, hit.point.y + 1, hit.point.z]) ?? 'Off the grid' : 'Off the map';
     });
   });
   /** The Draw switches a view keeps its own (`VIEW_DRAW_OWN`), on the worlds and the overlays, as `view` has them now. */
   const applyViewDraw = (): void => {
     syncAiMap();
-    for (const v of [baseView, ...pieces.views()]) {
+    for (const v of [baseView, ...pieces.views(), geometry?.view() ?? null]) {
       if (!v) continue;
       v.setGeometry(view.geometry);
-      v.setWireframe(view.wireframe);
+      // Geometry mode draws the faces' own edges in place of the GPU's triangles (`./geometry/editor` `setWireframe`).
+      v.setWireframe(view.wireframe && !(geometry?.isActive() && !geometry.isCollision()));
       v.setShadows(view.shadows);
       v.setDetail(view.detail);
       v.setAlternate(view.alternate);
     }
-    overlays.setGrid(view.grid && !!baseMap);
-    if (hullLines) hullLines.visible = view.collision;
-    else if (view.collision && !hullTimer) scheduleHull();
+    geometry?.setWireframe(view.wireframe);
+    mapGrid.setVisible(view.grid);
+    showHullView();
+    if (!hullView && view.collision && !hullTimer) scheduleHull();
   };
   /**
    * View `look`'s marks and own Draw switches set on the scene for its draw (`null`: the menus' own, the active view's),
@@ -3675,8 +4191,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (typeof raw['textured'] === 'boolean') texturedOn = raw['textured'];
       if (typeof raw['lit'] === 'boolean') litOn = raw['lit'];
       if (raw['camera'] !== undefined) { try { viewCamera = parseCamera(raw['camera']); } catch { viewCamera = null; } }
-      if (typeof raw['gridStep'] === 'number') gridStep = boundStep(raw['gridStep'], GRID_STEP_MIN, GRID_STEP_MAX, DEFAULT_GRID_STEP);
-      if (typeof raw['turnStep'] === 'number') turnStep = boundStep(raw['turnStep'], TURN_STEP_MIN, TURN_STEP_MAX, DEFAULT_TURN_STEP);
+      // A step kept before the ladders were the only steps: the nearest of them.
+      if (typeof raw['gridStep'] === 'number') gridStep = onLadder(raw['gridStep'], GRID_STEP_LADDER, DEFAULT_GRID_STEP);
+      if (typeof raw['turnStep'] === 'number') turnStep = onLadder(raw['turnStep'], TURN_STEP_LADDER, DEFAULT_TURN_STEP);
       if (typeof raw['snap'] === 'boolean') snap = raw['snap'];
       // The turn snap kept apart; a view kept before it had one: the one snap's.
       turnSnap = typeof raw['turnSnap'] === 'boolean' ? raw['turnSnap'] : snap;
@@ -3728,6 +4245,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     viewportTurnIn.value = String(turnStep);
     // Each snap's pill: its switch lit while on, its step on its dropdown (dimmed while off).
     gridSnapUi.draw(snap, gridStep);
+    mapGrid.setStep(gridStep);                                 // the drawn grid the snap's (`./mapGrid`)
     turnSnapUi.draw(turnSnap, turnStep);
     // Surface snapping's button lit while on; its offset.
     surfaceIn.checked = surfaceSnap;
@@ -3743,7 +4261,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The world switches on one view (the base's, or a piece template's), as the test room puts them (`applyToggle`). */
   const applyWorld = (v: WorldView): void => {
     v.setDetailDistance(detailDistanceFor(view.ps2 ? 'ps2' : 'modern', detailDistance.get()));   // PF.R60: PS2 keeps the original
-    v.setWireframe(view.wireframe);
+    // Geometry mode draws the faces' own edges in place of the GPU's triangles (`./geometry/editor` `setWireframe`).
+    v.setWireframe(view.wireframe && !(geometry?.isActive() && !geometry.isCollision()));
     v.setGeometry(view.geometry);
     v.setTextured(texturedOn);
     v.setUnlit(!litOn);
@@ -3815,8 +4334,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   };
   const applyView = (): void => {
-    for (const v of [baseView, ...pieces.views()]) if (v) applyWorld(v);
-    overlays.setGrid(view.grid && !!baseMap);
+    for (const v of [baseView, ...pieces.views(), geometry?.view() ?? null]) if (v) applyWorld(v);
+    geometry?.setWireframe(view.wireframe);
+    geometry?.applyProps();                                    // Geometry mode's View > Props over what the switches drew
+    mapGrid.setVisible(view.grid);
     applyGuides();
     applyGizmoDepth();                                        // drawn over everything or behind, as the billboards
     applyBillboards();
@@ -3828,7 +4349,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (base?.kind === 'blank' && settings.timeOfDay === null) created.setClearColor([12, 20, 24]);
     created.setPresentation(view.ps2 ? 'ps2' : 'native');
     fit();
-    if (hullLines) hullLines.visible = view.collision;
+    showHullView();
     if (view.collision) scheduleHull();
     syncAiMap(true);
     for (const [id, i] of viewportToggleInputs) i.checked = view[id];
@@ -3847,10 +4368,74 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   syncGeometryDependents();
   drawBillboardSwitches();                                    // the Billboards dropdown as the view was kept
   /**
+   * Modelling mode's view (the owner, 2026-11-15): on entering it, the Wireframe on and every overlay off -- the Gizmos,
+   * the AI map, the billboards, the flare glows, the light rig's arrows; on leaving it, the Display and Overlays settings
+   * as they were before, every one. The ones kept are written down meanwhile (`FORGE_OBJECT_VIEW_KEY`), so a page left in
+   * Modelling opens with them again (it opens in Object mode).
+   */
+  const FORGE_OBJECT_VIEW_KEY = 's2u-forge-object-view';
+  type KeptView = { view: Record<string, boolean>; textured: boolean; lit: boolean; on: boolean; top: boolean; glows: boolean; arrows: boolean; onlyUser: boolean; off: string[]; selectHidden: boolean };
+  const keepObjectView = (): KeptView => ({
+    view: { ...view }, textured: texturedOn, lit: litOn, on: billboardsOn, top: billboardsOnTop, glows: flareGlows,
+    arrows: lightDirections, onlyUser: onlyUserData, off: [...billboardsOff], selectHidden,
+  });
+  const putObjectView = (k: KeptView): void => {
+    for (const t of VIEW_TOGGLES) if (typeof k.view[t.id] === 'boolean') view[t.id] = k.view[t.id]!;
+    texturedOn = k.textured; litOn = k.lit;
+    billboardsOn = k.on; billboardsOnTop = k.top; flareGlows = k.glows; lightDirections = k.arrows; onlyUserData = k.onlyUser;
+    billboardsOff.clear();
+    for (const id of k.off) billboardsOff.add(id);
+    selectHidden = k.selectHidden;
+    drawBillboardSwitches();
+  };
+  let objectViewKept: KeptView | null = null;
+  const enterModellingView = (): void => {
+    objectViewKept = keepObjectView();
+    try { writeKey(FORGE_OBJECT_VIEW_KEY, JSON.stringify(objectViewKept)); } catch { /* this visit's alone */ }
+    view.wireframe = true;
+    view.spawns = false;
+    view.aimap = false;
+    billboardsOn = false;
+    flareGlows = false;
+    lightDirections = false;
+    drawBillboardSwitches();
+  };
+  const leaveModellingView = (): void => {
+    if (objectViewKept) putObjectView(objectViewKept);
+    objectViewKept = null;
+    try { pageSettings.remove(FORGE_OBJECT_VIEW_KEY); } catch { /* none kept */ }
+  };
+  // Left in Modelling last time: Object mode's settings back (`applyView` draws them once the page is wired).
+  try {
+    const kept = JSON.parse(readKey(FORGE_OBJECT_VIEW_KEY) ?? 'null') as KeptView | null;
+    if (kept && typeof kept === 'object' && kept.view && Array.isArray(kept.off)) putObjectView(kept);
+    pageSettings.remove(FORGE_OBJECT_VIEW_KEY);
+  } catch { /* a kept view that will not read is dropped */ }
+  /**
    * The split viewport (the owner, 2026-11-11; `./splitViews`, a browser adaptation): its button beside the gizmo's World
    * / Local, its Maximize among the active view's menus. The view under the pointer has the camera; it does not move to
    * another view mid-gesture, with a menu open, or while a layout loads.
    */
+  /**
+   * A split's other views (the owner, 2026-11-15): every view but the first with its Wireframe and Map grid on -- in
+   * Modelling mode the edges alone, its Geometry off (as Hammer's 2D views are); in Object mode over its Geometry, kept on
+   * (Textured is every view's, untouched). The first (the perspective) is left as the user set it. Set when the layout
+   * changes (not when a kept split is first laid: it opens as it was) and when the mode changes (`force`); a view's own
+   * menu turns them after.
+   */
+  let splitLayoutSeen: string | null = null;
+  const seedSplitViews = (force = false): void => {
+    if (!split) return;
+    const now = split.layout();
+    if (!force && (splitLayoutSeen === null || now === splitLayoutSeen)) { splitLayoutSeen = now; return; }
+    splitLayoutSeen = now;
+    for (let i = 1; i < split.count(); i++) {
+      const was = split.viewDraw(i);
+      if (was === null) continue;                              // the active view's are the menus': left as they are
+      split.setViewDraw(i, { ...(was ?? {}), geometry: !geometry?.isActive(), wireframe: true, grid: true });
+    }
+    writeView();
+  };
   split = createSplitViews({
     doc, viewport, fly, input, viewControls: viewportLeftControls, axisWidget, globalControls: cameraHud, crosshair,
     baseAspect: (w, h) => (created.presentation() === 'ps2' ? 640 / 448 : w / h),
@@ -3861,7 +4446,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     canSwitch: () => !busy && !gizmo.dragging && !fly.navigating() && !fly.isLocked()
       && !viewportLeftControls.querySelector('details[open]') && !cameraHud.querySelector('details[open]'),
     onChange: () => writeView(),
-    onLayout: () => fitHudLater(),
+    onLayout: () => {
+      fitHudLater();
+      seedSplitViews();
+    },
     icon: (l) => icon(`split-${l}`),
     maximizeIcon: icon('maximize'),
   });
@@ -4071,6 +4659,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // An official map's own world under the layout's rig where it has one (a custom version), else the map's again.
     if (base?.kind === 'map') lighting.rig = customRig() ?? baseMap?.lightRig ?? null;
     baseView?.setLighting(lighting);
+    geometry?.view()?.setLighting(lighting);                   // the edited world lit as the base's
     pieces.setRig(customRig());                                // a new empty map's own rig over the pieces' own (a blank base only)
     pieces.setBrighten(lighting.brighten);
     if (base?.kind === 'blank') {
@@ -4346,7 +4935,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * The base map's data as this layout has it -- its taken-out objectives gone (`withoutHiddenData`), its moved objects at
    * their new places (`withMovedData`): what the Outliner, the billboards, the guides, the check and Play all read.
    */
-  function mapDataShown<T extends LoadedMap>(m: T): T { return withMovedData(withoutHiddenData(m, hiddenData), movedData); }
+  function mapDataShown<T extends LoadedMap>(m: T): T {
+    const shown = withMovedData(withoutHiddenData(m, hiddenData), movedData);
+    // Its AI grid as the layout paints it (`Layout.aiSoil`): the kept one where it is the base's own grid.
+    if (!shown.ai || !aiSoil.size) return shown;
+    return { ...shown, ai: shown.ai === baseMap?.ai ? paintedAiNow() ?? shown.ai : withAiSoil(shown.ai, aiSoil) };
+  }
   /** FG-17: one of the base map's own props (hide-only: a placement of the disc's, not a piece); FG-47: its box, read at the pick. */
   type BaseProp = Placement & { model: string; object: Object3D; instance: number | null; matrix: Matrix4; box: Box3 };
   /** FG-47: the map's own props picked, by their placement key. */
@@ -4543,6 +5137,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ...(hiddenKeys.size ? { hidden: [...hiddenKeys].sort() } : {}),
       ...(hiddenData.size ? { hiddenData: [...hiddenData].sort() } : {}),
       ...(movedData.size ? { movedData: Object.fromEntries([...movedData].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) } : {}),
+      ...(aiSoil.size ? { aiSoil: Object.fromEntries([...aiSoil].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) } : {}),
       ...(Object.keys(delta).length ? { settings: delta } : {}),
     };
     // R3-B (FCW-07a part 2): each row's authored id rides its object (`forgeId`, set by `prepareLayout`), so a reorder, a
@@ -4661,7 +5256,98 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** FUI-4: the issues the last check found (the issues chip), until an edit makes it stale (`changed`). */
   let lastIssues: number | null = null;
   /** Undo and redo over the layout's text (`./history`): a step at the end of each edit. */
-  const history = new History<string>('');
+  // Selections are steps too (the owner, 2026-11-15), so the history holds more of them than the layout's 100 alone.
+  const history = new History<string>('', 300);
+  /**
+   * Bug 20 (one history across the modes, as Hammer's, Unreal's and Blender's undo): the geometry beside the history --
+   * each step names a revision (`HistoryStep.geo`), each revision the geometry as it stood (`GeometryEditor.snapshot`;
+   * revision 0, as the layout opened). A geometry edit is a step of its own (`recordGeometryStep`); an undo or a redo
+   * puts the geometry of the step it lands on back (`restoreGeometry`), in any mode.
+   */
+  let geoRev = 0;
+  let geoNext = 1;
+  let geoSnaps = new Map<number, GeometrySnapshot | null>([[0, null]]);
+  const resetGeoHistory = (): void => {
+    geoRev = 0;
+    geoNext = 1;
+    geoSnaps = new Map([[0, geometry?.snapshot() ?? null]]);
+  };
+  const recordGeometryStep = (label: string): void => {
+    const rev = geoNext++;
+    geoSnaps.set(rev, geometry?.snapshot() ?? null);
+    geoRev = rev;
+    recordGeometryEdit(history, rev, label);
+    stampSel();
+    // A revision no step names now (fallen off the history's end, or a redo branch gone) is let go.
+    const named = new Set(history.allStates().map((raw) => decodeHistoryStep(raw).geo ?? 0));
+    for (const k of [...geoSnaps.keys()]) if (!named.has(k)) geoSnaps.delete(k);
+    refreshUndo();
+  };
+  const restoreGeometry = (to: number): void => {
+    if (to === geoRev) return;
+    geoRev = to;
+    geometry?.restoreSnapshot(geoSnaps.get(to) ?? null);
+  };
+  /**
+   * Selection in the history (the owner, 2026-11-15: "make selection part of the undo history, from face, point, edge,
+   * object, outliner, etc. in general any selection pattern should be part of the undo"; as Unreal's selection is a
+   * transaction): every step keeps the whole selection (`selRecord`) -- the placements, the map's props, its data items,
+   * a rules entity, the geometry's mode and its points, edges, faces or objects. A selection made, however it was made
+   * (a click, a box, a paint, the Outliner, a mode, a key), is a step of its own ("Select"), noted once the gesture is
+   * over (no pointer held) and only when it differs from the step's; an edit's step keeps the selection after it
+   * (`stampSel`). An undo or a redo puts the step's selection back (`applySel`).
+   */
+  type SelRecord = { p: string[]; b: string[]; d: string[]; m: string | null; e: string | null; g: GeometrySelectionState | null };
+  /** The map's props a step names, by key: the same props while the base stands (a new base, a new set). */
+  let baseKept = new Map<string, BaseProp>();
+  let selApplying = false;
+  /** The pointers held down: a gesture under way (a box, a paint, a drag), its selection noted at its end. */
+  const heldPointers = new Set<number>();
+  const selRecord = (): string => {
+    for (const b of basePicks.items) baseKept.set(b.key, b);
+    const r: SelRecord = { p: selectionIds(), b: basePicks.items.map((b) => b.key), d: [...dataPicks.keys()], m: mapDataSelected?.key ?? null,
+      e: entityPicked, g: null };
+    // The geometry's: nothing selected is no selection, whatever the mode (a mode alone is not a step).
+    const g = geometry?.selectionState() ?? null;
+    if (g && g.objects.length) r.g = g;
+    return JSON.stringify(r);
+  };
+  const stampSel = (): void => { if (decodeHistoryStep(history.current()).text) stampSelection(history, selectionIds(), selRecord()); };
+  const applySel = (raw: string | undefined, picked: readonly string[]): void => {
+    let r: SelRecord | null = null;
+    try { r = raw ? JSON.parse(raw) as SelRecord : null; } catch { r = null; }
+    if (!r) { applyPicked(picked); return; }
+    selApplying = true;
+    try {
+      const byId = placementIds();
+      picks.clear();
+      basePicks.clear();
+      dataPicks.clear();
+      folderPicks.clear();
+      picks.addAll(r.p.flatMap((id) => { const o = byId.get(id); return o ? [o] : []; }));
+      basePicks.addAll(r.b.flatMap((k) => { const b = baseKept.get(k); return b ? [b] : []; }));
+      for (const k of r.d) { const item = mapDataIndex.get(k); if (item) dataPicks.set(k, item); }
+      mapDataSelected = r.m ? mapDataIndex.get(r.m) ?? null : null;
+      mapBillboards.highlight(mapDataSelected?.key ?? null);
+      if (entityPicked !== r.e) { entityPicked = r.e; drawRulesScene(); }
+      geometry?.setSelectionState(r.g);
+      showSelection();
+    } finally { selApplying = false; }
+  };
+  let selSoon = 0;
+  const noteSelectionSoon = (): void => {
+    if (selSoon || selApplying) return;
+    selSoon = requestAnimationFrame(() => {
+      selSoon = 0;
+      if (busy || selApplying || heldPointers.size) return;   // a restore or an open under way, or a gesture (its end notes it)
+      if (!decodeHistoryStep(history.current()).text) return; // no layout open yet
+      if (recordSelection(history, selectionIds(), selRecord())) refreshUndo();
+    });
+  };
+  globalThis.addEventListener('pointerdown', (e) => { heldPointers.add(e.pointerId); }, true);
+  for (const type of ['pointerup', 'pointercancel'] as const) {
+    globalThis.addEventListener(type, (e) => { if (heldPointers.delete(e.pointerId)) noteSelectionSoon(); }, true);
+  }
   /** FUI-6 (AI-1): Undo and Redo name the step they take back or make again: `Undo: Place spawn A (agent) · pad SELECT`. */
   const undoWords = (): string => { const m = undoMeta(history); return m ? `Undo: ${historyCaption(m)}` : 'Undo'; };
   const redoWords = (): string => { const m = redoMeta(history); return m ? `Redo: ${historyCaption(m)}` : 'Redo'; };
@@ -4759,6 +5445,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // FUI-6: an operation's edit is its one step (actor, domain, words); an edit outside one is a step as before.
     if (step) recordOperationStep(history, step, layoutText(), prior, selectionIds());
     else recordEdit(history, layoutText(), prior, selectionIds());
+    stampSel();
     refreshUndo();
     refreshPlacementGround();
     agentChanged();
@@ -5705,6 +6392,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const f of [fpitch, froll]) (f.closest<HTMLElement>('.fx-field') ?? f).hidden = true;
     (fsx.closest<HTMLElement>('.fx-scale-fields') ?? fsx).hidden = true;
   }
+  /** The placements' Transform field being dragged (`./scrub`), left as the drag has it by a refresh, as a typed one is. */
+  let placeScrubbed: HTMLInputElement | null = null;
   const refreshInspectorFields = (): void => {
     const s = selected;
     fillStubFields();
@@ -5716,7 +6405,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       inspectKind.textContent = RULES_ENTITY_WORD[entity.kind];
       inspectName.textContent = entity.label;
       fields.classList.remove('is-off');
-      const active = doc.activeElement;
+      const active = placeScrubbed ?? doc.activeElement;   // nor the one being dragged
       if (active !== fx) fx.value = String(Math.round(entity.at[0]));
       if (active !== fy) fy.value = String(Math.round(entity.at[1]));
       if (active !== fz) fz.value = String(Math.round(entity.at[2]));
@@ -5730,7 +6419,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const n = picks.size + basePicks.size;
       inspectName.textContent = `${n} selected${basePicks.size ? ` \u00b7 ${basePicks.size} map prop${basePicks.size === 1 ? '' : 's'}, which stay` : ''}`;
       fields.classList.toggle('is-off', !c);
-      const active = doc.activeElement;
+      const active = placeScrubbed ?? doc.activeElement;   // nor the one being dragged
       if (active !== fx) fx.value = c ? String(Math.round(c[0])) : '';
       if (active !== fy) fy.value = c ? String(Math.round(c[1])) : '';
       if (active !== fz) fz.value = c ? String(Math.round(c[2])) : '';
@@ -5755,7 +6444,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       inspectName.textContent = key && movedData.has(key) ? `${item.label} · moved` : item.label;
       // While its gizmo drags, the stand-in's place; else its own.
       const at = gizmo.object === mapDataProxy && gizmo.dragging ? mapDataProxy.position.toArray() : item.at;
-      const active = doc.activeElement;
+      const active = placeScrubbed ?? doc.activeElement;   // nor the one being dragged
       if (active !== fx) fx.value = String(Math.round(at[0]!));
       if (active !== fy) fy.value = String(Math.round(at[1]!));
       if (active !== fz) fz.value = String(Math.round(at[2]!));
@@ -5777,7 +6466,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     inspectName.textContent = parent ? `${nameOf(s)} \u00b7 in ${placedLabel(parent)}` : nameOf(s);
     fields.title = parent ? `Local to its parent, ${placedLabel(parent)}` : 'World (no parent)';
     const local = localPose(s);
-    const active = doc.activeElement;
+    const active = placeScrubbed ?? doc.activeElement;   // nor the one being dragged
     if (active !== fx) fx.value = String(Math.round(local.position.x));
     if (active !== fy) fy.value = String(Math.round(local.position.y));
     if (active !== fz) fz.value = String(Math.round(local.position.z));
@@ -6749,7 +7438,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The mini browser's size as last left (its corner dragged), for the next one opened this session. */
   let assetPickSize: { w: number; h: number } | null = null;
   let assetPick: {
-    s: Object3D; popup: HTMLDivElement; home: HTMLElement | null; ghost: HTMLElement | null; scroll: number;
+    /** The object a pick goes on, or null for an opener with no object (Geometry mode's Texture button). */
+    s: Object3D | null; popup: HTMLDivElement; home: HTMLElement | null; ghost: HTMLElement | null; scroll: number;
     /** What a pick does: the object's drop (`assetDropPlan`) unless the opener gave its own (a script step's). */
     take: (asset: string) => (() => void) | null;
     tab: ObjectTab; source: string; query: string; filter: AssetFilter; chars: boolean;
@@ -6798,7 +7488,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     });
     return ghost;
   };
-  const openAssetPicker = (s: Object3D, tab: ObjectTab, source: string, anchor: HTMLElement, take?: (asset: string) => (() => void) | null): void => {
+  const openAssetPicker = (s: Object3D | null, tab: ObjectTab, source: string, anchor: HTMLElement, take?: (asset: string) => (() => void) | null): void => {
     closeAssetPicker();
     const popup = el(doc, 'div', 'fx-asset-picker');
     popup.setAttribute('role', 'dialog');
@@ -6827,9 +7517,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const win = doc.defaultView;
     const vw = win?.innerWidth ?? 1280, vh = win?.innerHeight ?? 800;
     const w = popup.offsetWidth, h = popup.offsetHeight;
-    const left = panel.left - w - 8 >= 8 ? panel.left - w - 8 : Math.min(vw - w - 8, panel.right + 8);
-    popup.style.left = `${Math.max(8, left)}px`;
-    popup.style.top = `${Math.max(8, Math.min(vh - h - 8, r.top - 40))}px`;
+    if (anchor.closest('.fx-inspector')) {
+      const left = panel.left - w - 8 >= 8 ? panel.left - w - 8 : Math.min(vw - w - 8, panel.right + 8);
+      popup.style.left = `${Math.max(8, left)}px`;
+      popup.style.top = `${Math.max(8, Math.min(vh - h - 8, r.top - 40))}px`;
+    } else {
+      // A toolbar's button (Geometry mode's Texture): under it.
+      popup.style.left = `${Math.max(8, Math.min(vw - w - 8, r.left))}px`;
+      popup.style.top = `${Math.max(8, Math.min(vh - h - 8, r.bottom + 6))}px`;
+    }
     // Moved by its head (its close button aside), kept inside the window.
     head.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
@@ -6857,7 +7553,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     doc.addEventListener('pointerdown', onDown, true);
     close.addEventListener('click', () => closeAssetPicker());
     assetPick = {
-      s, popup, home, ghost, scroll, take: take ?? ((asset) => assetDropPlan(s, asset)), tab: objectTab, source: paletteSel.value, query: search.value, filter, chars: showChars,
+      s, popup, home, ghost, scroll, take: take ?? ((asset) => (s ? assetDropPlan(s, asset) : null)), tab: objectTab, source: paletteSel.value, query: search.value, filter, chars: showChars,
       off: () => { doc.removeEventListener('keydown', onKey, true); doc.removeEventListener('pointerdown', onDown, true); },
     };
     objectTab = tab; showChars = false; search.value = ''; filter = 'all';
@@ -6874,7 +7570,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!p) return;
     // Read while the picker's tab is the browser's; its object gone meanwhile (deleted, undone), nothing taken.
     // The map program's owner is no placed object (`mapScriptOwner`): its rows take a tile as any program's do.
-    const plan = roots.includes(p.s) || p.s === mapScriptOwner ? p.take(asset) : null;
+    const plan = p.s === null || roots.includes(p.s) || p.s === mapScriptOwner ? p.take(asset) : null;
     closeAssetPicker();
     if (plan) plan(); else notifier.refused('That asset cannot go on this object');
   };
@@ -7838,11 +8534,52 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * the stub fields take the value at the release only.
    */
   let scrubOrigin: { r: Object3D; position: Vector3; quaternion: Quaternion } | null = null;
+  /**
+   * The rest of the gizmo's kinds followed live too (the owner, 2026-11-15: "this should work for all cases where we can
+   * live drag a gizmo"): a group's members carried by the centre's change, as its gizmo drag carries them (put back before
+   * the release's edit, which moves them from where they stood); a map data object's and a rules entity's stand-in (the
+   * gizmo) at the value, as their gizmo drag moves it, the object itself moved by the release's edit as there.
+   */
+  let groupScrub: { items: Object3D[]; poses: Pose[]; centre: Vec3 } | null = null;
+  let proxyScrub: { o: Object3D; position: Vector3; quaternion: Quaternion } | null = null;
+  const endOtherScrub = (): void => {
+    const g = groupScrub, p = proxyScrub;
+    groupScrub = null;
+    proxyScrub = null;
+    if (g) { carrying(g.items, () => g.items.forEach((r, i) => applyPose(r, g.poses[i]!))); placePivot(); refreshBox(); }
+    if (p) { p.o.position.copy(p.position); p.o.quaternion.copy(p.quaternion); p.o.updateMatrixWorld(true); }
+  };
+  const otherScrub = (f: HTMLInputElement, value: number, cancelled: boolean): boolean => {
+    const axis: number = f === fx ? 0 : f === fy ? 1 : f === fz ? 2 : -1;
+    if (isGroup()) {
+      if (cancelled || axis < 0) { endOtherScrub(); changed(); return true; }
+      if (!groupScrub) { const c = groupCentre(); if (!c) return true; groupScrub = { items: [...picks.items], poses: picks.items.map(poseOf), centre: c }; }
+      const g = groupScrub;
+      const d: [number, number, number] = [0, 0, 0];
+      d[axis] = value - g.centre[axis]!;
+      carrying(g.items, () => { const moved = movedBy(g.poses, d); g.items.forEach((r, i) => applyPose(r, moved[i]!)); });
+      placePivot();
+      refreshBox();
+      changed();
+      return true;
+    }
+    const entity = !selected && !baseSelected ? inspectedEntity() : undefined;
+    const proxy = entity ? entityProxy : !selected && !baseSelected && mapDataSelected && mapDataMovable() ? mapDataProxy : null;
+    if (!proxy) return false;
+    if (cancelled) { endOtherScrub(); return true; }
+    if (!proxyScrub) proxyScrub = { o: proxy, position: proxy.position.clone(), quaternion: proxy.quaternion.clone() };
+    if (axis >= 0) proxy.position.setComponent(axis, value);
+    else if (proxy === entityProxy && entity?.yaw !== null && entity?.yaw !== undefined) proxy.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), (value * Math.PI) / 180 - entity.yaw);
+    proxy.updateMatrixWorld(true);
+    return true;
+  };
   for (const f of [fx, fy, fz, fyaw]) {
     f.addEventListener('fx-scrub', (e) => {
+      const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
+      placeScrubbed = cancelled ? null : f;
+      if (otherScrub(f, value, cancelled === true)) return;
       const s = isGroup() || baseSelected ? null : selected;
       if (!s) return;
-      const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
       if (scrubOrigin?.r !== s) scrubOrigin = { r: s, position: s.position.clone(), quaternion: s.quaternion.clone() };
       const origin = scrubOrigin;
       carrying([s], () => {
@@ -7852,8 +8589,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (cancelled) scrubOrigin = null;
       refreshBox();
       showResets();
+      changed();                                               // what follows a gizmo drag follows it: the collision view, the rules
     });
-    f.addEventListener('change', () => { scrubOrigin = null; });
+    f.addEventListener('change', () => { scrubOrigin = null; placeScrubbed = null; endOtherScrub(); });
   }
   for (const f of [fx, fy, fz, fyaw]) {
     f.addEventListener('change', () => {
@@ -8931,13 +9669,86 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       row.hidden = folded;                                    // under a folded row: drawn, unseen (a drag may open it)
       return [row, ...inner(depth + 1, folded || foldedRows.has(r))];
     };
+    // Geometry (the owner, 2026-11-15; bug 18: "we need to see all the world geometry in the outliner. so all the map
+    // sections"; then "add the geometry folder to either map objects or user objects, depending if we created it"): every
+    // geometry object, as Hammer's Outliner lists them -- the map's own world sections in a Geometry folder under Map
+    // Objects, each box, plane, sphere, cylinder and piece made in one under User Objects. A click selects it in Geometry
+    // mode (the mode turned on), Shift or Ctrl adds it or takes it out; a double-click frames it.
+    // The geometry's two layers, each a folder of its own in both sections at all times (the owner, 2026-11-15: "create
+    // another folder called collision and put the collision geometry in there. always show both these folders in all
+    // modes at all time"); a row of the layer not open switches to it when clicked (`GeometryEditor.selectObject`).
+    const matches = (o: { name: string }): boolean => !q || o.name.toLowerCase().includes(q);
+    const geoAll = (geometry?.outlineObjects('geometry') ?? []).filter(matches);
+    const colAll = (geometry?.outlineObjects('collision') ?? []).filter(matches);
+    const geoRow = (o: (typeof geoAll)[number], list: readonly (typeof geoAll)[number][]): HTMLLIElement => {
+      const li = el(doc, 'li', 'fx-geometry-row');
+      li.dataset['geometryObject'] = o.id;
+      li.insertAdjacentHTML('beforeend', icon('geometry'));
+      li.append(el(doc, 'span', 'fx-row-label', o.name), el(doc, 'span', 'fx-dim', o.kind === 'world' ? 'section' : o.kind));
+      li.classList.toggle('is-on', o.selected);
+      li.title = `${o.name}: click to select it in Geometry mode${list === madeCol || list === mapCol ? ', on the Collision layer' : ''} (Shift selects the rows from the last one clicked, Ctrl adds or takes it out); double-click to frame it`;
+      // As every other row of the Outliner: Shift every row of its folder from the last one clicked to this; Ctrl (Cmd)
+      // this one in or out; else this one alone.
+      li.addEventListener('click', (e) => {
+        if (e.shiftKey) {
+          const ids = list.map((x) => x.id);
+          const to = ids.indexOf(o.id), from = geoAnchor === null ? -1 : ids.indexOf(geoAnchor);
+          const [a, b] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
+          geometry?.selectObjects(ids.slice(a, b + 1));
+          return;
+        }
+        geoAnchor = o.id;
+        geometry?.selectObject(o.id, e.ctrlKey || e.metaKey);
+      });
+      li.addEventListener('dblclick', () => { geoAnchor = o.id; geometry?.selectObject(o.id, false); frameSelection(); });
+      return li;
+    };
+    const madeGeo = geoAll.filter((o) => o.kind !== 'world');
+    const mapGeo = geoAll.filter((o) => o.kind === 'world');
+    const madeCol = colAll.filter((o) => o.kind !== 'world');
+    const mapCol = colAll.filter((o) => o.kind === 'world');
+    // User Objects' Geometry and Collision folders (open unless folded; a search shows its matches), shown empty too:
+    // the made objects, and the collision of them (and what was made on the Collision layer), a level under each.
+    const madeFolder = (label: string, made: typeof geoAll, folded: () => boolean, fold: () => void, what: string): HTMLLIElement[] => {
+      const open = !!q || !folded();
+      const li = el(doc, 'li', 'fx-folder-row fx-map-kind');
+      treeDepth(li, 1);
+      const caret = el(doc, 'button', 'fx-tree-caret fx-row-caret', open ? '▾' : '▸');
+      caret.type = 'button';
+      caret.tabIndex = -1;
+      caret.setAttribute('aria-hidden', 'true');
+      li.append(caret);
+      li.insertAdjacentHTML('beforeend', icon('folder'));
+      li.append(el(doc, 'span', 'fx-row-label', label), el(doc, 'span', 'fx-dim', String(made.length)));
+      li.dataset['geometryFolder'] = label.toLowerCase();
+      li.setAttribute('aria-expanded', String(open));
+      li.title = `${what}: click to ${open ? 'fold' : 'show'} it`;
+      li.classList.toggle('is-implicit', !open && made.some((o) => o.selected));
+      li.addEventListener('click', () => { fold(); drawOutliner(); });
+      if (!open) return [li];
+      return [li, ...made.map((o) => {
+        const r = geoRow(o, made);
+        treeDepth(r, 2);
+        const room = el(doc, 'i', 'fx-row-caret fx-row-caret-room');
+        room.setAttribute('aria-hidden', 'true');
+        r.prepend(room);
+        return r;
+      })];
+    };
+    const geoShown = !!geometry && (base?.kind === 'map' || base?.kind === 'blank');
+    const madeGeoRows = geoShown ? [
+      ...madeFolder('Geometry', madeGeo, () => geoMadeFolded, () => { geoMadeFolded = !geoMadeFolded; }, 'The level geometry you made (Geometry layer)'),
+      ...madeFolder('Collision', madeCol, () => colMadeFolded, () => { colMadeFolded = !colMadeFolded; }, 'The collision of what you made, and what you made on the Collision layer'),
+    ] : [];
     // User Objects: the layout's placements (in the one tree, a level under the section), then the rules entities.
     const userRows = [
       ...(nestedView ? outlineChildren(null).flatMap((r) => filtered(r, 1)) : roots.filter((r) => shown(r) && userMatches(r)).map((r) => userRow(r, 1))),
       ...(outlinerOff.has('rules') ? [] : entityRows.map(indented)),
+      ...madeGeoRows,
     ];
-    const userCount = userRows.filter((li) => !li.classList.contains('fx-folder-row')).length;
-    treeRoots.push(sectionRow('user', 'User Objects', userCount, picks.size > 0 || entityPicked !== null));
+    const userCount = userRows.filter((li) => !li.classList.contains('fx-folder-row')).length
+      + (geoShown && (!!q ? false : geoMadeFolded) ? madeGeo.length : 0) + (geoShown && (!!q ? false : colMadeFolded) ? madeCol.length : 0);
+    treeRoots.push(sectionRow('user', 'User Objects', userCount, picks.size > 0 || entityPicked !== null || madeGeo.some((o) => o.selected) || madeCol.some((o) => o.selected)));
     if (!foldedSections.has('user')) {
       const empty = indented(el(doc, 'li', 'fx-empty',
         q ? 'No matches' : roots.length ? 'Nothing the Filter shows' : 'Nothing placed yet: choose a prop, then click the world'));
@@ -8952,9 +9763,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const rows = mapRowsOf(row.toggle.id);
         return rows.length ? [{ id: row.toggle.id, label: row.toggle.label, rows }] : [];
       }) : [];
+      // The map's own world geometry, its sections (bug 18), and their collision: two kinds of their own, first, shown
+      // empty too (a custom map's).
+      if (outlinerShowMap && geoShown) kinds.unshift(
+        { id: 'geometry', label: 'Geometry', rows: mapGeo.map((o) => geoRow(o, mapGeo)) },
+        { id: 'collision', label: 'Collision', rows: mapCol.map((o) => geoRow(o, mapCol)) },
+      );
       mapKindsHoldingSelection = [];
       const mapCount = kinds.reduce((n, k) => n + k.rows.length, 0);
-      treeRoots.push(sectionRow('map', 'Map Objects', mapCount, basePicks.size > 0 || dataPicks.size > 0 || mapDataSelected !== null));
+      treeRoots.push(sectionRow('map', 'Map Objects', mapCount, basePicks.size > 0 || dataPicks.size > 0 || mapDataSelected !== null || mapGeo.some((o) => o.selected) || mapCol.some((o) => o.selected)));
       if (!foldedSections.has('map')) {
         if (!kinds.length) treeRoots.push(indented(el(doc, 'li', 'fx-empty', q ? 'No matches' : 'Nothing the Filter shows')));
         for (const k of kinds) {
@@ -8993,6 +9810,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const b of outliner.querySelectorAll<HTMLLIElement>('li.fx-tree-branch')) {
       b.classList.toggle('has-selected', b.querySelector('li.is-on:not(.fx-tree-branch)') !== null);
     }
+  };
+  /** The Outliner drawn again at the next frame, once however often asked (the geometry's edits and picks). */
+  let outlinerSoon = 0;
+  /** User Objects' Geometry folder folded (bug 18): open until folded. The map's is a kind (`openMapKinds`), folded until opened. */
+  let geoMadeFolded = false;
+  /** User Objects' Collision folder folded (the Outliner's own, never the layout's). */
+  let colMadeFolded = false;
+  /** The geometry row last clicked: where a Shift range in its folder starts (the user rows' and map rows' way). */
+  let geoAnchor: string | null = null;
+  const drawOutlinerSoon = (): void => {
+    if (!outlinerSoon) outlinerSoon = requestAnimationFrame(() => { outlinerSoon = 0; drawOutliner(); });
   };
   const refreshCounts = (): void => {
     const placed = roots.filter((r) => r.userData['forgePiece']);
@@ -9125,6 +9953,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     refreshInspector();
     drawOutliner();
     highlightSelectionMark();                                  // a selected map data item's mark, or a map prop's
+    noteSelectionSoon();                                       // a selection step, when it changed (the owner, 2026-11-15)
   };
   /** That one alone (a plain click), or nothing selected (Circle's tap, Esc): the group cleared. */
   const lockedOf = (r: Object3D): boolean => r.userData['forgeLock'] === true;
@@ -9226,6 +10055,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     outliner.querySelector<HTMLElement>('li.is-on:not(.fx-tree-branch)')?.scrollIntoView?.({ block: 'nearest' });
   };
   const frameSelection = (): void => {
+    // Geometry mode: its own selection framed -- the objects, faces, edges or points (`./geometry/editor`).
+    if (geometry?.isActive()) {
+      const b = geometry.selectionBounds();
+      if (b) focusOnBounds(b); else say('Frame: select geometry first');
+      return;
+    }
     revealSelectionInOutliner();                               // F shows the selection in the tree too
     // F (and the menu's row) frames a selected map data item as its double-click does.
     if (mapDataSelected && picks.size + basePicks.size === 0) { frameMapData(mapDataSelected); return; }
@@ -9250,7 +10085,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     mode = m;
     if (m !== 'select') { lastPlacee = m; showPlacee(m); }
     // Select or Place lit; the object Place places marked in its row (a prop's: the assets' chosen tile).
-    for (const [k, b] of Object.entries(modeBtns)) b.classList.toggle('is-on', k === 'place' ? m !== 'select' : k === m);
+    // In Geometry mode its button is the one lit (`geometry`'s own toggle).
+    const geo = geometry?.isActive() ?? false;
+    for (const [k, b] of Object.entries(modeBtns)) b.classList.toggle('is-on', !geo && (k === 'place' ? m !== 'select' : k === m));
     input.classList.toggle('is-placing', m !== 'select');
     refreshHint();
     syncGhost();
@@ -9318,9 +10155,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       say(again ? `placed ${nameOf(was.r)} · click to place another · Esc stops` : `placed ${nameOf(was.r)}`);
     }, true);
   };
+  /** The viewport's transform controls handed to the geometry mode's gizmo too: one set for both (`./geometry/editor`). */
+  const pushGizmo = (): void => {
+    geometry?.syncGizmo({ mode: gizmo.mode as 'translate' | 'rotate' | 'scale', space: gizmoSpace, translationSnap: snap ? gridStep : null, rotationSnap: turnSnap ? (turnStep * Math.PI) / 180 : null, surface: { on: surfaceSnap, offset: surfaceOffset } });
+  };
   const setGizmoSpace = (space: 'world' | 'local'): void => {
     gizmoSpace = space;
     gizmo.setSpace(space);
+    pushGizmo();
     spaceBtn.innerHTML = `${icon(space)}<span>${space === 'world' ? 'World' : 'Local'}</span>`;
     spaceBtn.setAttribute('aria-pressed', String(space === 'local'));
     spaceBtn.title = space === 'world' ? "The gizmo on the world's axes; press for the selection's own (Local)" : "The gizmo on the selection's own axes; press for the world's (World)";
@@ -9329,6 +10171,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const setGizmo = (m: 'translate' | 'rotate' | 'scale'): void => {
     gizmo.setMode(m);
+    pushGizmo();
     moveBtn.classList.toggle('is-on', m === 'translate');
     turnBtn.classList.toggle('is-on', m === 'rotate');
     scaleBtn.classList.toggle('is-on', m === 'scale');
@@ -9346,6 +10189,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (turn && queuedTurn !== 0 && turnStep > 0) { queuedTurn = (((Math.round(queuedTurn / turnStep) * turnStep) % 360) + 360) % 360; moveGhost(lastNdc); }
     gizmo.setTranslationSnap(grid ? gridStep : null);
     gizmo.setRotationSnap(turn ? (turnStep * Math.PI) / 180 : null);
+    pushGizmo();
     drawPlacement();
     writeView();
   };
@@ -9356,21 +10200,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // A view setting, no edit: applied live as it is scrubbed (`input` from `./scrub`, the field not focused), and at the
   // release or a typed value's Enter (`change`) -- a half-typed value is never clamped under the typing.
   const applyGridStep = (): void => {
-    gridStep = boundStep(Number(viewportGridIn.value), GRID_STEP_MIN, GRID_STEP_MAX, DEFAULT_GRID_STEP);
+    gridStep = onLadder(Number(viewportGridIn.value), GRID_STEP_LADDER, DEFAULT_GRID_STEP);
     setSnaps(snap);
   };
   const applyTurnStep = (): void => {
-    turnStep = boundStep(Number(viewportTurnIn.value), TURN_STEP_MIN, TURN_STEP_MAX, DEFAULT_TURN_STEP);
+    turnStep = onLadder(Number(viewportTurnIn.value), TURN_STEP_LADDER, DEFAULT_TURN_STEP);
     setSnaps(snap);
   };
   for (const [input, apply] of [[viewportGridIn, applyGridStep], [viewportTurnIn, applyTurnStep]] as const) {
     input.addEventListener('change', apply);
     input.addEventListener('input', () => { if (doc.activeElement !== input) apply(); });
   }
-  surfaceIn.addEventListener('change', () => { surfaceSnap = surfaceIn.checked; drawPlacement(); writeView(); });
+  surfaceIn.addEventListener('change', () => { surfaceSnap = surfaceIn.checked; pushGizmo(); drawPlacement(); writeView(); });
   const applySurfaceOffset = (): void => {
     const v = Number(surfaceOffsetIn.value);
     surfaceOffset = Number.isFinite(v) ? v : 0;
+    pushGizmo();
     writeView();
   };
   surfaceOffsetIn.addEventListener('change', applySurfaceOffset);
@@ -9471,6 +10316,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const d = tileDrag;
     tileDrag = null;
     tileDragChip.hidden = true;
+    tileDragChip.classList.remove('is-refused');
     doc.body.classList.remove('fx-tile-dragging');
     for (const x of outliner.querySelectorAll('.is-drop, .is-drop-before, .is-drop-after')) x.classList.remove('is-drop', 'is-drop-before', 'is-drop-after');
     for (const x of doc.querySelectorAll('.is-asset-drop')) x.classList.remove('is-asset-drop');
@@ -9485,6 +10331,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const overViewport = (t: EventTarget | null): boolean => t instanceof Node && (t === input || input.contains(t));
   // No browser drag from a tile (the Characters' aside): the pointer's own instead.
   list.addEventListener('dragstart', (e) => { if (!showChars) { e.preventDefault(); e.stopPropagation(); } }, true);
+  // An asset taken (a click to place it, or a drag) in Modelling mode goes back to Object mode first (the owner,
+  // 2026-11-15): placing is Object mode's. Capture, so the tile's own pick and drag run in Object mode.
+  list.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !geometry?.isActive()) return;
+    const tile = (e.target as Element | null)?.closest<HTMLElement>('[data-asset]');
+    if (!tile || !list.contains(tile) || (e.target as Element).closest('.fx-star, .fx-asset-play')) return;
+    if (parseTextureAsset(tile.dataset['asset'] ?? '')) return;   // a texture is Geometry mode's own (chosen, or dropped on faces)
+    geometry.setActive(false);
+  }, true);
   list.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || showChars || assetPick || playing) return;
     const t = e.target as Element | null;
@@ -9505,6 +10360,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       tileDragChip.textContent = d.asset.slice(d.asset.indexOf(':') + 1).replace(/^=(sound|effect):/, '');
     }
     const over = overViewport(e.target);
+    // A texture: no Place tool, the chip by the pointer the whole way (the face it lands on lit by the editor's hover).
+    if (parseTextureAsset(d.asset)) {
+      // Over a prop or a placed object, the chip says the drop is refused (the owner, 2026-11-16: "let the user know
+      // this cannot be done"); over the geometry, or off the viewport, the texture's name.
+      const refused = over && textureTargetAt(ndcAtClient(e.clientX, e.clientY)) === 'prop';
+      tileDragChip.textContent = refused ? TEXTURE_ON_PROP_REFUSAL : d.asset.slice(d.asset.indexOf(':') + 1);
+      tileDragChip.classList.toggle('is-refused', refused);
+      tileDragChip.hidden = false;
+      tileDragChip.style.left = `${e.clientX + 14}px`; tileDragChip.style.top = `${e.clientY + 10}px`;
+      return;
+    }
     if (over !== d.overView) {
       if (over) d.overView = dragPlaceEnter(d.asset);
       else { d.overView = false; dragPlaceLeave(); }
@@ -9516,7 +10382,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   doc.addEventListener('pointerup', (e) => {
     const d = tileDrag;
     if (!d || e.pointerId !== d.pointerId) return;
-    if (d.started && d.overView && overViewport(e.target)) {
+    if (d.started && parseTextureAsset(d.asset) && overViewport(e.target)) {
+      const n = ndcAtClient(e.clientX, e.clientY);
+      void dropTexture(d.asset, n);
+    } else if (d.started && d.overView && overViewport(e.target)) {
       // Placed as a click in the world places (its own refusals said); the tool put back by `endTileDrag`.
       const n = ndcAtClient(e.clientX, e.clientY);
       lastNdc = n;
@@ -9921,6 +10790,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const objectTiles = (kind: Exclude<ObjectTab, 'props' | 'characters'>): { id: string; name: string; meta: string }[] | null => {
     if (kind === 'sound') return soundTiles();
+    if (kind === 'texture') return textureTiles();
     const own = objectTilesOwn(kind === 'effect' ? 'ambient' : kind);
     if (kind !== 'ambient' && kind !== 'effect') return own;
     const stem = paletteStem();
@@ -9975,8 +10845,44 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const n = scriptNamesOf(stem);
     return n ? own(stem, n) : null;
   };
+  /**
+   * The Textures tab's tiles, by the Source (the owner, 2026-11-16: "all, shared ... and per map"; no Weapons of its own:
+   * "move it to the all or shared"), each texture sorted by its library's place on the disc (`../mapTextures`
+   * `textureScopeOf`): a map its own libraries' (`//mp/<map>/...`); Common every common library's -- the guns'
+   * (`//common/assetlib/weapons`) among them -- each once; All both.
+   * The shared and the guns' read from the base's own map where it holds them (the texture it already draws). Null
+   * until the maps they need are read.
+   */
+  const textureTiles = (): { id: string; name: string; meta: string }[] | null => {
+    const stem = paletteStem();
+    const home = textureHome();
+    const tile = (m: string, e: TextureCatalogEntry, meta: string) => ({ id: textureAssetId(m, e.name), name: e.name, meta });
+    const own = (m: string): { id: string; name: string; meta: string }[] =>
+      (textureCatalogs.get(m) ?? []).filter((e) => e.scope === 'own').map((e) => tile(m, e, `${m} \u00b7 ${e.library}`));
+    // The maps read so far, the base's first.
+    const read = (): string[] => [...new Set([home, ...copyMaps().map(([m]) => m)])].filter((m) => !!m && textureCatalogs.has(m));
+    const common = (): { id: string; name: string; meta: string }[] => {
+      const seen = new Set<string>();
+      const out: { id: string; name: string; meta: string }[] = [];
+      for (const m of read()) for (const e of textureCatalogs.get(m)!) {
+        if (e.scope === 'own' || seen.has(`${e.library}:${e.name}`)) continue;
+        seen.add(`${e.library}:${e.name}`);
+        out.push(tile(m, e, `${e.library} \u00b7 ${e.scope === 'weapons' ? 'weapons, shared' : 'shared'}`));
+      }
+      return out.sort((a, b) => a.name.localeCompare(b.name));
+    };
+    if (paletteSel.value === PALETTE_COMMON || paletteSel.value === PALETTE_ALL) {
+      askTextureCatalogs();
+      if (read().length === 0) return null;
+      if (paletteSel.value === PALETTE_COMMON) return common();
+      return [...common(), ...read().flatMap(own)];
+    }
+    if (!stem) return [];
+    askTextureCatalog(stem);
+    return textureCatalogs.has(stem) ? own(stem) : null;
+  };
   /** A tab's own tiles: the chosen map's copies of the kind (`copyList`), a ladder's as its prop, the switch's looks. */
-  const objectTilesOwn = (kind: Exclude<ObjectTab, 'props' | 'characters' | 'sound' | 'effect'>): { id: string; name: string; meta: string }[] | null => {
+  const objectTilesOwn = (kind: Exclude<ObjectTab, 'props' | 'texture' | 'characters' | 'sound' | 'effect'>): { id: string; name: string; meta: string }[] | null => {
     const stem = paletteStem();
     if (kind === 'switch') {
       // Each look under the map whose object it copies (the owner, 2026-11-13: "these assets don't belong to every map"):
@@ -10004,6 +10910,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** An object tile's click: that object the Place tool's (`objectChoice`), the tool on its kind. */
   const chooseObject = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): void => {
+    if (kind === 'texture') { void chooseTexture(id); return; }
     if (kind === 'ladder') objectChoice.ladder = id;
     else {
       const o = parseObjectAsset(id);
@@ -10020,11 +10927,57 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** Whether an object tile is the one the Place tool places now. */
   const objectChosen = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): boolean => {
+    if (kind === 'texture') { const t = parseTextureAsset(id); return !!t && !!geometry?.isActive() && geometry.currentTexture() === t.name.toLowerCase(); }
     if (mode !== (kind === 'sound' || kind === 'effect' ? 'ambient' : kind)) return false;
     if (kind === 'ladder') return objectChoice.ladder === id;
     const o = parseObjectAsset(id);
     const c = o ? (o.kind === 'switch' ? objectChoice.switch ?? 'lever' : objectChoice[o.kind]) : undefined;
     return !!o && (typeof c === 'string' ? c === o.name : !!c && c.source === o.source && c.name === o.name);
+  };
+  /**
+   * The texture a Textures tile names, for Geometry mode's Texture (Apply, a new shape): the base map's own where it holds
+   * one of that name (the engine loads one texture a name, `LoadTextures_PS2`, first library wins), else read off the
+   * tile's map and lent into the geometry's texture tables, so the edited world, the walk and Play draw it
+   * (FORGE_LENT_TEXTURE_ADAPTATION: a browser adaptation -- the game's map draws its own libraries' textures alone).
+   */
+  const lendTexture = async (id: string, quiet = false, open = false): Promise<string | null> => {
+    const t = parseTextureAsset(id);
+    if (!t) return null;
+    const name = t.name.toLowerCase();
+    // In Geometry mode its geometry's map; an Object-mode drop opens the base's geometry for it (`openBase`).
+    const map = geometry?.isActive() ? geometry.textureMap() : open ? geometry?.openBase() ?? null : null;
+    if (!geometry || !map) { say(open ? 'Textures are laid on a map\'s geometry' : 'A texture is chosen in Geometry mode, or dropped on an object\'s geometry', true); return null; }
+    if (!map.textures[name]) {
+      const got = await archives.texture(t.source, name);
+      if (!got) { say(`${t.name}: it would not read from ${t.source}`, true); return null; }
+      if (geometry.textureMap() !== map) return null;           // the base changed meanwhile
+      map.textures[name] = got.rgba;
+      map.textureFlags[name] = got.flags;
+      if (got.mips) (map.textureMips ??= {})[name] = got.mips;
+      if (!quiet) say(`Texture: ${t.name}, ${t.source}'s ${got.library} (lent to this map)`);
+    } else if (!quiet) say(`Texture: ${t.name}${t.source !== textureHome() ? ' (this map\'s own of that name)' : ''}`);
+    return name;
+  };
+  const chooseTexture = async (id: string): Promise<void> => {
+    const name = await lendTexture(id);
+    if (!name || !geometry) return;
+    geometry.pickTexture(name);                                // on the Texture layer, the brush taken up with it
+    drawAssets();
+  };
+  /**
+   * A Textures tile dropped on the viewport at `n`: laid on the faces it lands on (`GeometryEditor.dropTexture`) -- in
+   * Object mode on the whole geometry object under it (the owner, 2026-11-16: "only apply to the whole object geometry
+   * and not per face/edge/point"). The level geometry's alone: a prop is a disc prototype drawn again where it is placed
+   * (`./library`), its textures its model's, none of them a placement's own.
+   */
+  const dropTexture = async (id: string, n: Vector2): Promise<void> => {
+    if (!geometry || playing || editsLocked() || navOn) { say('A texture is dropped in Object or Geometry mode, on the map\'s geometry', true); return; }
+    if (textureTargetAt(n) === 'prop') { notifier.refused(TEXTURE_ON_PROP_REFUSAL); return; }
+    const inGeometry = geometry.isActive();
+    const name = await lendTexture(id, true, !inGeometry);
+    if (!name || geometry.isActive() !== inGeometry) return;
+    geometry.dropTexture(n, name, !inGeometry);
+    drawAssets();
   };
   const drawObjects = (kind: Exclude<ObjectTab, 'props' | 'characters'>): void => {
     const q = search.value.trim().toLowerCase();
@@ -10040,12 +10993,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // A tile as a prop's: its preview, its name, dragged onto the world as one (`assetTiles`: the editor seam's object).
       const li = el(doc, 'li');
       li.dataset['asset'] = t.id;
-      li.draggable = true;
+      // A texture is laid on faces (chosen, then Apply), never dropped on the world as an object.
+      li.draggable = kind !== 'texture';
       const pick = el(doc, 'button', 'fx-asset-pick');
       pick.type = 'button';
       // A drag starts on the pick itself (a button inside a draggable row does not start one in every browser).
-      pick.draggable = true;
+      pick.draggable = kind !== 'texture';
       const preview = el(doc, 'span', 'fx-asset-thumbnail');
+      if (kind === 'texture') preview.classList.add('fx-asset-texture');
       const image = doc.createElement('img');
       image.dataset['assetThumbnail'] = '';
       image.dataset['assetId'] = t.id;
@@ -10165,7 +11120,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * a switch look's map. All and Common as they are.
    */
   const PALETTE_WORDS: Readonly<Record<Exclude<ObjectTab, 'characters'>, readonly [string, string]>> = {
-    props: ['prop', 'props'], sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'], door: ['door', 'doors'], ladder: ['ladder', 'ladders'],
+    props: ['prop', 'props'], texture: ['texture', 'textures'], sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'], door: ['door', 'doors'], ladder: ['ladder', 'ladders'],
     turret: ['turret', 'turrets'], barrier: ['damage trigger', 'damage triggers'], switch: ['switch', 'switches'], gate: ['gate', 'gates'], flare: ['flare', 'flares'],
   };
   const paletteCountOf = (stem: string, tab: Exclude<ObjectTab, 'characters'>): number | null => {
@@ -10173,6 +11128,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const census = censusKnown.get(stem);
     switch (tab) {
       case 'props': return ownPropCounts.get(stem) ?? null;
+      case 'texture': { const c = textureCatalogs.get(stem); return c ? c.filter((e) => e.scope === 'own').length : null; }
       case 'switch': {
         const radio = RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0];
         return Number(stem === DEFAULT_GATE.source) + Number(stem === radio);
@@ -10197,7 +11153,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const tab: Exclude<ObjectTab, 'characters'> = showChars || objectTab === 'characters' ? 'props' : objectTab;
     // What the tab's counts read: every map's census, and its sounds and effects (with the guns') for those tabs.
     if (tab === 'sound' || tab === 'effect') { askScriptNames(); if (tab === 'sound') weaponSoundsNow(); }
-    askCensus();
+    if (tab === 'texture') askTextureCatalogs(); else askCensus();
     const [one, many] = PALETTE_WORDS[tab];
     for (const o of Array.from(paletteSel.querySelectorAll('option'))) {
       if (o.value.startsWith('*')) continue;                    // All, Common
@@ -10215,7 +11171,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     chipFav.classList.toggle('is-on', !showChars && filter === 'favs');
     chipFav.setAttribute('aria-pressed', String(!showChars && filter === 'favs'));
     chipChars.classList.toggle('is-on', showChars);
-    for (const [k, b] of objectTabButtons) { const on = k === 'characters' ? showChars : !showChars && objectTab === k; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+    for (const [k, b] of objectTabButtons) {
+      const on = k === 'characters' ? showChars : !showChars && objectTab === k;
+      b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on));
+      // Geometry mode: Textures alone (nothing else is placed in it).
+      b.disabled = !!geometry?.isActive() && k !== 'texture';
+    }
     // Favourites (on or off) every tab's (the owner, 2026-11-13); the program filter Programs'.
     chipFav.hidden = showChars;
     search.placeholder = showChars ? 'Search characters…' : objectTab === 'props' ? 'Search props…' : `Search ${tabWords(OBJECT_TABS.find(([k]) => k === objectTab)?.[1] ?? '')}…`;
@@ -10607,9 +11568,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const drawMapBillboards = (): void => {
     // The ladders off the base's hull, a hidden prop's own polygons out (its ladder with it), sided on the floors.
     try {
-      mapLadders = baseMap?.ground
-        ? findLadders(groundPolygons(groundWithout(baseMap, baseMap.ground, placementsOf(baseMap, hiddenKeys))), placementGrid ?? undefined)
-        : [];
+      const ladderGround = baseMap ? editedBaseGround() : null;   // the edited geometry's hull, as the placements'
+      mapLadders = ladderGround ? findLadders(groundPolygons(ladderGround), placementGrid ?? undefined) : [];
     } catch { mapLadders = []; }
     // The map's props, each at its placement's place (its matrix's translation, column-major), but a hidden one.
     const props = baseMap ? mapPropPlacements().flatMap(({ placement, model }): PropMark[] => {
@@ -10742,12 +11702,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     mapBillboards.sync();
   }
+  /**
+   * The base's hull the placements rest on: an edited geometry's last Build in place of the disc's or the blank floor's
+   * (`./geometry/editor` `editedMap`, `editedBlank`; as Play's ground, `composeGround`), so a cube made in Geometry mode is
+   * a surface Place and the gizmo's snap seat on (the owner, 2026-11-15).
+   */
+  function editedBaseGround(): GroundData | null {
+    if (base?.kind === 'blank') return geometry?.editedBlank()?.ground ?? floorGround(FLOOR_SIZE);
+    if (!baseMap) return null;
+    const m = geometry?.editedMap(baseMap) ?? baseMap;
+    return m.ground ? groundWithout(m, m.ground, placementsOf(m, hiddenKeys)) : null;
+  }
   const refreshPlacementGround = (): void => {
-    const baseGround = base?.kind === 'blank'
-      ? floorGround(FLOOR_SIZE)
-      : baseMap?.ground
-        ? groundWithout(baseMap, baseMap.ground, placementsOf(baseMap, hiddenKeys))
-        : null;
+    const baseGround = editedBaseGround();
     if (!baseGround) { placementGrid = null; return; }
     const placed: (PieceHull | ContentPiece)[] = [];
     for (const [i, r] of roots.entries()) {
@@ -10775,14 +11742,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     return hulls.get(asset) ?? null;
   };
-  const composeGround = async (): Promise<{ ground: GroundData; solid: number; groundMap: LoadedMap; misses: ContentMiss[] } | null> => {
+  /** `preview`: a drag's collision in place of the edited geometry's built one (`onCollisionPreview`), for the view only. */
+  const composeGround = async (preview: GroundData | null = null): Promise<{ ground: GroundData; solid: number; groundMap: LoadedMap; misses: ContentMiss[] } | null> => {
     if (!base) return null;
-    const groundMap = baseMap ?? (base.kind === 'blank' ? charMap : null);
+    // An edited geometry's draws and its last Build's hull in place of the disc's (`./geometry/editor` `editedMap`).
+    const groundMap = baseMap ? geometry?.editedMap(baseMap) ?? baseMap : base.kind === 'blank' ? charMap : null;
     if (!groundMap) return null;
+    const mapGround = preview ?? groundMap.ground;
     // R6 (7): an authored map's ground is its own (`loadContentMap`'s), as a map base's is.
     const baseGround = base.kind !== 'blank'
-      ? (groundMap.ground ? groundWithout(groundMap, groundMap.ground, placementsOf(groundMap, hiddenKeys)) : undefined)
-      : floorGround(FLOOR_SIZE);
+      ? (mapGround ? groundWithout(groundMap, mapGround, placementsOf(groundMap, hiddenKeys)) : undefined)
+      // A blank base's edited geometry's last Build (`./geometry/editor` `editedBlank`), else the floor's own hull.
+      : preview ?? geometry?.editedBlank()?.ground ?? floorGround(FLOOR_SIZE);
     if (!baseGround) return null;
     const entries: (PieceHull | ContentPiece)[] = [];
     let solid = 0;
@@ -10807,21 +11778,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return { ground: layoutGround(baseGround, entries, resolveContent, misses), solid, groundMap, misses };
   };
   let hullTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The latest drag preview asked (`onCollisionPreview`): an older one finishing after it is not drawn. */
+  let hullPreviewSeq = 0;
   const scheduleHull = (): void => {
     if (hullTimer) clearTimeout(hullTimer);
+    // Collision editing on: its hull objects, as they stand this moment (`GeometryEditor.collisionPolys`).
+    const editing = geometry?.collisionPolys();
+    if (editing) { hullTimer = null; drawHullView(editing); return; }
     hullTimer = setTimeout(() => {
+      hullTimer = null;
       void composeGround().then((c) => {
-        if (!c) return;
-        const { positions, colors } = hullSegments(c.ground);
-        const g = new BufferGeometry();
-        g.setAttribute('position', new BufferAttribute(positions, 3));
-        g.setAttribute('color', new BufferAttribute(colors, 3));
-        if (hullLines) { scene.remove(hullLines); hullLines.geometry.dispose(); }
-        hullLines = new LineSegments(g, hullMaterial);
-        hullLines.frustumCulled = false;
-        hullLines.renderOrder = 10;                         // after the world: its translucent lines blend over what is drawn
-        hullLines.visible = view.collision;
-        scene.add(hullLines);
+        if (!c || geometry?.collisionPolys()) return;
+        drawHullView(groundPolygons(c.ground));
       });
     }, 250);
   };
@@ -11008,6 +11976,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     extensions?.onMapSwitch();
     pageShot?.driver.stop('map');                             // R5-B: a new base ends the agent's camera shot
     clearAll();
+    geometry?.reset();                                        // the old base's geometry edits go with it (not saved yet)
     heldContentMap = null;                                    // R7-6: a base change ends the boot's kept answer
     base = b;
     if (ownProps) { baseContentProps = ownProps; scene.add(ownProps); }
@@ -11045,6 +12014,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         else fly.lookFrom(stand.from, stand.to);
       }
       overlays.place(world.box);
+      // The map grid on y = 0 over the map's extent, its Y axis the map's height (`./mapGrid`).
+      if (world.box.isEmpty()) mapGrid.place({ minX: -FLOOR_SIZE / 2, maxX: FLOOR_SIZE / 2, minZ: -FLOOR_SIZE / 2, maxZ: FLOOR_SIZE / 2 });
+      else mapGrid.place({ minX: world.box.min.x, maxX: world.box.max.x, minZ: world.box.min.z, maxZ: world.box.max.z, minY: world.box.min.y, maxY: world.box.max.y });
       overlays.placeSpawns(b.kind === 'map' ? spawnsFor(opened.name) ?? null : null, opened.slots);
       if (b.kind === 'map') {
         showContentOption(null);
@@ -11061,6 +12033,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (!lib || !mapFog(fog, lib)) Object.assign(fog, { enabled: true, ...fogForExtent(4000), color: [...ELF_DEFAULT_FOGCOL], altitude: null });
       discFog = { ...fog, color: [...fog.color], altitude: fog.altitude ? { ...fog.altitude } : null };
       scene.add(floor);
+      mapGrid.place({ minX: -FLOOR_SIZE / 2, maxX: FLOOR_SIZE / 2, minZ: -FLOOR_SIZE / 2, maxZ: FLOOR_SIZE / 2 });
       fly.setScale(lib?.metersPerUnit && lib.metersPerUnit > 0 ? lib.metersPerUnit : 0.1);
       fly.setClipPlanes(4, FLOOR_SIZE * 2);
       fly.lookFrom([0, 250, 600], [0, 0, 0]);
@@ -11245,6 +12218,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     hiddenKeys = new Set(l.hidden ?? []);
     hiddenData = new Set(l.hiddenData ?? []);
     movedData = new Map(Object.entries(l.movedData ?? {}));
+    const soilNext = new Map(Object.entries(l.aiSoil ?? {}));
+    if (soilNext.size !== aiSoil.size || [...soilNext].some(([k, v]) => aiSoil.get(k) !== v)) { aiSoil = soilNext; aiSoilReplaced(); }
     drawHidden();
     settings = settingsOf(l);                                // FG-24: the layout's settings, the panel with them
     applySettings();
@@ -11287,11 +12262,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** An undo or a redo: the state's pieces put back (a state's base is the layout's: a new base resets the history). */
   const restore = (raw: string | null, word: string): void => {
     if (raw === null || busy) return;
+    const step = decodeHistoryStep(raw);
+    // Bug 20: a step that changed only the geometry leaves the placements as they stand (no rebuild of the layout).
+    if (step.text === layoutText()) {
+      restoreGeometry(step.geo ?? 0);
+      applySel(step.sel, step.picked);
+      stampSel();                                              // the selection as it stands now (an object gone since: left out)
+      refreshUndo();
+      agentChanged();
+      pop(word);
+      return;
+    }
     busy = true;
     busyCause = 'undo';
-    const step = decodeHistoryStep(raw);
+    const baseWas = JSON.stringify(base);
     void placeAll(parseForgeLayout(step.text)).then(() => {
-      applyPicked(step.picked);
+      if (JSON.stringify(base) !== baseWas) geoRev = -1;       // a new base reset the geometry: put the step's back whatever
+      restoreGeometry(step.geo ?? 0);
+      applySel(step.sel, step.picked);
+      stampSel();
       changed();
       refreshUndo();
       agentChanged();
@@ -11299,8 +12288,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }).finally(() => { busy = false; });
   };
   // Busy (a restore, an open, a Play start) or playing: no step taken, so the history's pointer stays with the scene.
-  const undo = (): void => { if (!refuseEdit()) restore(history.undo(busy || playing), 'Undone'); };
-  const redo = (): void => { if (!refuseEdit()) restore(history.redo(busy || playing), 'Redone'); };
+  // Bug 20: one history in every mode -- the toolbar's Undo and Redo, the keys and the menus take its steps, the
+  // geometry's among them (`recordGeometryStep`).
+  // The words name the step taken back or made again, read before the history moves.
+  const undo = (): void => { if (refuseEdit()) return; const m = undoMeta(history); restore(history.undo(busy || playing), m ? `Undone: ${historyCaption(m)}` : 'Undone'); };
+  const redo = (): void => { if (refuseEdit()) return; const m = redoMeta(history); restore(history.redo(busy || playing), m ? `Redone: ${historyCaption(m)}` : 'Redone'); };
   /**
    * AX-15 (a browser adaptation, FG.R2): the agent's run undone -- the history's pointer moved past each of the agent's
    * top steps (one redo each), then the scene restored once, as a normal undo restores it; the words say how many and
@@ -11362,6 +12354,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       noteMissingPacks();
       changed();
       history.reset(encodeHistoryStep(layoutText(), []));
+      resetGeoHistory();
+      baseKept = new Map();
+      stampSel();
       refreshUndo();
       agentChanged();
     } finally { busy = false; showLoading(null); }
@@ -11374,6 +12369,76 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       let n = 0;
       baseContentProps?.traverse((o) => { if (typeof o.userData['forgeContentKey'] === 'string') n++; });
       return n;
+    };
+  }
+  // A test instrument (a development build's only; no game behaviour): collision editing read back for a browser run --
+  // the editor's state (`GeometryEditor.debugState`), the collision view's counts, and the ground Play would get.
+  if (import.meta.env.DEV) {
+    (globalThis as { __forgeCollision?: unknown }).__forgeCollision = {
+      editor: () => geometry?.debugState() ?? null,
+      view: () => ({
+        drawn: !!hullView, visible: !!hullView?.group.visible, legend: !!hullLegend && !hullLegend.hidden,
+        counts: Object.fromEntries(hullView?.counts ?? []), collisionSwitch: view.collision, wireframe: view.wireframe,
+      }),
+      ground: async (x?: number, z?: number) => {
+        const c = await composeGround();
+        if (!c) return null;
+        const polys = groundPolygons(c.ground);
+        const tops = x === undefined || z === undefined ? null : probeGround(groundGrid(c.ground), x, z).map((h) => h.y);
+        return { polys: polys.length, skipped: polys.filter((p) => (p.cameratype & 1) === 1).length, climb: polys.filter((p) => (p.appflags ?? 0) !== 0).length, tops };
+      },
+      base: () => base?.kind ?? null,
+      /** AI Navigation mode: on, its brush, the cells the layout paints, the overlay's counts by kind. */
+      nav: () => ({ on: navOn, painting: aiPaint.painting(), painted: aiSoil.size, counts: Object.fromEntries(aiMapOverlay?.counts ?? []), aimap: view.aimap }),
+      /** The AI cell under page point (x, y) on the viewport, as the brush finds it, with its soil as the layout has it. */
+      aiCellAt: (x: number, y: number) => {
+        const r = viewport.getBoundingClientRect();
+        const ai = paintedAiNow();
+        const hit = ai ? pickSurface(new Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), []) : null;
+        const loc = ai && hit ? locateAiCell(ai, [hit.point.x, hit.point.y + 1, hit.point.z]) : null;
+        return ai && loc ? { loc, soil: aiSoilAt(ai, loc), disc: aiSoilAt(discAiNow()!, loc) } : null;
+      },
+      /** Every placement: its kind's word and its place (a test reads where Place and the gizmo's snap left it). */
+      placed: () => roots.map((r) => ({ kind: kindOf(r), at: [r.position.x, r.position.y, r.position.z] })),
+      /** The ground's polygons within `r` of point `p` (x, z): their corner count, height span and words. */
+      near: async (p: number[], r: number) => {
+        const c = await composeGround();
+        if (!c) return null;
+        return groundPolygons(c.ground).flatMap((q) => {
+          let x = 0, z = 0, lo = Infinity, hi = -Infinity;
+          for (let i = 0; i < q.ptcount; i++) { x += q.points[i * 3]!; z += q.points[i * 3 + 2]!; lo = Math.min(lo, q.points[i * 3 + 1]!); hi = Math.max(hi, q.points[i * 3 + 1]!); }
+          x /= q.ptcount; z /= q.ptcount;
+          return Math.hypot(x - p[0]!, z - p[2]!) < r && hi > (p[1] ?? 0) - 30 ? [{ n: q.ptcount, lo: +lo.toFixed(2), hi: +hi.toFixed(2), di: q.ditype, cam: q.cameratype, path: q.path }] : [];
+        });
+      },
+      /** A world point on the viewport, in page pixels (the gizmo's place for a drag). */
+      toScreen: (p: number[]): [number, number] | null => {
+        const cam = fly.viewportCamera();
+        const v = new Vector3(p[0], p[1], p[2]).project(cam);
+        const r = viewport.getBoundingClientRect();
+        return v.z > 1 ? null : [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
+      },
+      /** What a click at page point (x, y) on the viewport would pick (`GeometryEditor.debugPick`). */
+      pickAt: (x: number, y: number) => {
+        const r = viewport.getBoundingClientRect();
+        return geometry?.debugPick(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1) ?? null;
+      },
+      /** The editor camera's pose, read and set (a test aims the view at open ground before it makes a shape). */
+      pose: () => fly.pose(),
+      setPose: (p: { x: number; y: number; z: number; yaw: number; pitch: number }): void => fly.setPose(p),
+      /** The walk: started as the Walk button starts it, the mover set down at a point, its feet read, stopped. */
+      walkStart: (): void => toggleWalk(),
+      walkStop: (): void => stopPlay(),
+      walkAt: (x: number, y: number, z: number): boolean => walk.respawn([x, y, z], 0),
+      walkFeet: (): number[] | null => walk.feet(),
+      walking: (): boolean => playing,
+      /** An object of the layer the editor is on selected whole, as a click on it in Object selection selects it. */
+      select: (id: string): void => geometry?.selectObject(id, false),
+      /** A custom map opened as New's blank preset opens one (its library the page's own). */
+      openBlank: async (library: string = BLANK_LIBRARY): Promise<void> => {
+        for (let i = 0; busy && i < 100; i++) await new Promise((r) => setTimeout(r, 100));
+        await openLayout(newLayout({ kind: 'blank', library }));
+      },
     };
   }
   // LATER 141 (a test instrument, a development build's only; no game behaviour): `e2e/forgeHide.spec.ts` opens a map,
@@ -11420,6 +12485,32 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * `only` (the Select tool's settings): `placed`, the user's placements alone -- the base map and the floor looked
    * through; `map`, the base map's own props alone -- the placements looked through.
    */
+  /**
+   * The world's drawn surfaces a pick strikes (the owner, 2026-11-15: "the snap to surface seemed to completely break when
+   * we introduced the geometry mode"): the base view (its world, hidden under an edit, and its props), the edited
+   * geometry's own view once there is one (`GeometryEditor.drawnWorld`, a blank map's floor among it), and the blank
+   * floor's plane while it shows.
+   */
+  const worldTargets = (withFloor = true): Object3D[] => {
+    const out: Object3D[] = [];
+    if (baseView) out.push(baseView.group);
+    const edited = geometry?.drawnWorld();
+    if (edited) out.push(edited);
+    if (withFloor && floor.parent) out.push(floorPlane);
+    return out;
+  };
+  /**
+   * What a texture dropped at `ndc` would land on: the level geometry (the drawn world, the edited geometry, the blank
+   * floor), a prop or placed object -- the map's own props and every placement, whose textures are their models', none a
+   * placement's own (`./library`) -- or nothing.
+   */
+  const textureTargetAt = (ndc: Vector2): 'geometry' | 'prop' | null => {
+    const h = pick(ndc);
+    if (!h) return null;
+    if (forgeRootOf(h.object)) return 'prop';
+    if (baseView && isUnder(h.object, baseView.group) && !(baseView.worldObjects ?? []).some((w) => isUnder(h.object, w))) return 'prop';
+    return 'geometry';
+  };
   const pick = (ndc: Vector2, only?: 'placed' | 'map'): Intersection | null => {
     ray.setFromCamera(ndc, fly.viewportCamera());
     if (only === 'placed') {
@@ -11429,9 +12520,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }) ?? null;
     }
     if (only === 'map') return baseView ? ray.intersectObjects([baseView.group], true).find((h) => shown(h.object)) ?? null : null;
-    const targets: Object3D[] = [...roots];
-    if (baseView) targets.push(baseView.group);
-    if (floor.parent) targets.push(floorPlane);
+    const targets: Object3D[] = [...roots, ...worldTargets()];
     // A locked placement is struck as any is (the owner, 2026-11-11: locked ones selectable); its edits are refused.
     return ray.intersectObjects(targets, true).find((h) => {
       if (!shown(h.object)) return false;
@@ -11445,9 +12534,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const pickSurface = (ndc: Vector2, skip: readonly Object3D[]): Intersection | null => {
     ray.setFromCamera(ndc, fly.viewportCamera());
-    const targets: Object3D[] = [...roots];
-    if (baseView) targets.push(baseView.group);
-    if (floor.parent) targets.push(floorPlane);
+    const targets: Object3D[] = [...roots, ...worldTargets()];
     return ray.intersectObjects(targets, true).find((h) => {
       if (!shown(h.object)) return false;
       for (const s of skip) if (isUnder(h.object, s)) return false;
@@ -12189,8 +13276,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
      * inside the box: shown when the first drawn thing a ray meets is the prop itself (any mesh drawing its placement), or
      * nothing before the point. The world, the other props and the layout's own pieces all block.
      */
-    const occluders: Object3D[] = [...roots];
-    if (baseView) occluders.push(baseView.group);
+    const occluders: Object3D[] = [...roots, ...worldTargets(false)];
     const sightRay = new Raycaster();
     const seenFromCamera = (own: Set<Object3D>, instance: number | null, box: Box3): boolean => {
       const c = box.getCenter(new Vector3());
@@ -12316,6 +13402,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The page's state as the key map reads it (`./keys`). */
   const keyState = (): ForgeKeyState => ({
     typing: false /* the listeners return on a field first */, match: match !== null, menu: padMenu.isOpen(), card: !modal.hidden || !help.hidden, playing,
+    geometry: geometry?.isActive() ?? false,                   // Geometry mode's own keys are its (`./keys` `GEOMETRY_SHARED`)
     pointerLocked: !!doc.pointerLockElement,                      // the review's F2: no pointer lock API is no lock
     leased: leases.holder() !== null,                             // FUI-2: a panel holding the focus reads its own keys
     // FUI-22 (D4): Escape cancels the queue first (FCW-32: an entity's too; a re-placed prop's too)
@@ -12326,6 +13413,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let keysGone = false;
   globalThis.addEventListener('keydown', (e) => {
     if (keysGone) return;
+    if (scrubbing(doc)) return;                               // a number field's drag: its Escape is its own (`./scrub`)
     if (typingTarget(e.target)) return;                       // FG.R23: the lobby chat's typing, the docks' fields: no shortcut
     // Capture, so P and Esc reach the forge before the match's own window listener. A lobby match keeps the pad chord.
     if (import.meta.env.DEV && match && !matchOfLobby && (e.code === 'KeyP' || e.code === 'Escape')) {
@@ -12368,7 +13456,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // Not mid-drag: a gizmo drag keeps the mode it began in (the camera keeps W / E / R itself while it navigates).
       case 'translate': case 'rotate': case 'scale':
         // FC-1 (main): R picks no scale gizmo while the stubs are hidden (`./transformStubs`).
-        if (!gizmo.dragging && !(a === 'scale' && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION)) setGizmo(a);
+        // Scale is a stub for the placements (`./transformStubs`), but the geometry mode's gizmo scales.
+        if (!gizmo.dragging && !(a === 'scale' && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION && !geometry?.isActive())) setGizmo(a);
         break;
       case 'snap': setSnap(!snapAny()); break;
       // Q (the owner, 2026-11-12): the gizmo's World / Local, as its button.
@@ -12773,7 +13862,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     feet: () => walk.feet(),
     aim: () => walk.fireAim(),
     sound: () => undefined,
-    move: (path, delta) => { swung.add(path); baseView?.moveNode(path, delta); },
+    move: (path, delta) => { swung.add(path); baseView?.moveNode(path, delta); geometry?.view()?.moveNode(path, delta); },
     net: () => null,
   });
   /** The leaves a door moved in Play: put back at the build (a delta is the whole move from the disc's place). */
@@ -12895,7 +13984,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!playing) return;
     walk.unbindKey();
     walk.setMode('fly');
-    for (const path of swung) baseView?.moveNode(path, IDENTITY);   // the doors shut again, as the next Play opens them
+    for (const path of swung) { baseView?.moveNode(path, IDENTITY); geometry?.view()?.moveNode(path, IDENTITY); }   // the doors shut again, as the next Play opens them
     swung.clear();
     if (doc.pointerLockElement) doc.exitPointerLock();
     setPlaying(false);                                         // the camera stays where the walk left it (FG-50)
@@ -13001,7 +14090,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const baseMap: LoadedMap = base.kind === 'blank'
       // None of the library's map data or game type (`./objectives` `blankFloorOf`): its places are that map's, off the floor.
       // The floor's own open AI map (`./floorAi`), so placed hostages and extraction zones have cells there.
-      ? { ...blankFloorOf({ ...c.groundMap, world: [floorMesh(FLOOR_SIZE)], lines: null, props: [] } as LoadedMap), ai: floorAiMaps(FLOOR_SIZE) } as LoadedMap
+      // Its edited geometry in place of the floor's mesh (bug 17: the floor plane and what is made on it).
+      ? { ...blankFloorOf({ ...c.groundMap, world: geometry?.editedBlank()?.world ?? [floorMesh(FLOOR_SIZE)], lines: null, props: [] } as LoadedMap), ai: paintedAiNow() ?? floorAiMaps(FLOOR_SIZE) } as LoadedMap
       : (() => {
         const hiddenNow = placementsOf(c.groundMap, hiddenKeys);
         // FG-36: the hidden placements' line strips out of the match's map too (`./hide` `linesWithout`).
@@ -13187,7 +14277,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ? { ai: kept.ai, hostages: kept.escortees?.length ?? 0, zones: kept.ai ? zonesOfKind(kept.ai, 1).length : 0,
         safety: !!kept.ai?.maps.some((s) => s.zones.some((z) => z.name.toLowerCase() === 'safety')),
         bomb: { start: !!kept.bombStart, seal: !!plantSite('seal', kept.meta?.actions ?? []), terrorist: !!plantSite('terrorist', kept.meta?.actions ?? []) } }
-      : { ai: floorAiMaps(FLOOR_SIZE), hostages: 0, zones: 0 };
+      : { ai: paintedAiNow() ?? floorAiMaps(FLOOR_SIZE), hostages: 0, zones: 0 };
     return checkMap(l, ground, pieces, polyCount, disc, own);
   };
   const collectCheck = async (): Promise<MapCheck | null> => {
@@ -13895,7 +14985,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     shell.refresh();
   };
   docksBtn.addEventListener('click', () => setDocks(doc.body.classList.contains('fx-docks-off')));
-  for (const [k, b] of Object.entries(modeBtns)) b.addEventListener('click', () => (k === 'place' ? enterPlace() : setMode(k as Mode)));
+  for (const [k, b] of Object.entries(modeBtns)) b.addEventListener('click', () => { geometry?.setActive(false); if (k === 'place') enterPlace(); else setMode(k as Mode); });
   /* The Select tool's settings: the gear (a click on it also takes the Select tool, as the button would) or the
      button's context menu opens them under the button; a press elsewhere or Escape closes them. */
   const placeSelectSettings = (): void => {
@@ -14371,19 +15461,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       { label: 'Duplicate', icon: icon('duplicate'), keys: 'Ctrl+D', act: duplicate, enabled: () => !dupBtn.disabled },
       { label: 'Delete', icon: icon('trash'), keys: 'Del', act: remove, enabled: () => !delBtn.disabled },
     ]);
-    // AI Navigation (the owner, 2026-11-12: "next to Window ... all the navigation specific toggles"): the AI map switch
-    // (the Display menu's Draw row) and each of its layers (`aiNav`); a layer turned on turns the map on with it.
-    const aiNavRow = (label: string, key: keyof typeof aiNav): MenuRow => ({ label, checked: () => view.aimap && aiNav[key], act: () => setAiNav(key, !(view.aimap && aiNav[key])) });
-    const navMenu = (): MenuRow[] => [
-      { label: 'AI Navigation', checked: () => view.aimap, act: () => { view.aimap = !view.aimap; applyView(); } },
-      'rule',
-      aiNavRow('Cells by soil', 'cells'),
-      aiNavRow('Blocked by placed props', 'blocked'),
-      aiNavRow('Links between sub-maps', 'links'),
-      aiNavRow('Hostage routes', 'routes'),
-      'rule',
-      aiNavRow('Legend', 'legend'),
-    ];
+    // The AI Navigation menu is gone (the owner, 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
+    // settings"): its layer switches are AI Navigation mode's View (`navToggle`); the map's switch the Overlays menu's.
     topMenu('Window', () => [
       ...(shell.windowItems?.() ?? []).map((p): MenuRow => ({
         label: p.title, icon: panelIcon(p.key), checked: () => p.docked,
@@ -14393,7 +15472,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       'rule',
       { label: 'Reset layout', icon: icon('reset'), act: () => resetLayoutBtn.click() },
     ]);
-    topMenu('AI Navigation', navMenu);
     top.querySelector('.fx-brand')?.after(menubar);
     // New, Open and Saves now in File: their toolbar buttons off the page (the rows press them; their hooks kept).
     for (const b of [newBtn, openBtn, saveBtn]) b.remove();
@@ -15478,6 +16556,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     get forge() { return personForge; }, get editor() { return tilesCtx.editor; }, get palette() { return tilesCtx.palette; },
     ui: tilesCtx.ui, state: () => tilesCtx.state(), store: tilesCtx.store, doc: tilesCtx.doc, signal: tilesCtx.signal,
   } satisfies ForgePanelContext, { tips: () => assetTips });
+  /**
+   * A Textures tile's picture: the texture read small (`Archives.texture`'s `thumb`), drawn to an image -- its rows
+   * turned over, as the world's draw shows it: the decoder's row 0 is what GL calls V = 0 (`@s2u/gs` `decode`,
+   * `../world` `FLIP_Y`), the image's foot, and a canvas puts row 0 at its top.
+   */
+  const textureThumbnail = async (asset: string): Promise<string | null> => {
+    const t = parseTextureAsset(asset);
+    const got = t ? await archives.texture(t.source, t.name.toLowerCase(), 128) : null;
+    if (!got) return null;
+    const c = doc.createElement('canvas');
+    c.width = got.rgba.width; c.height = got.rgba.height;
+    const raw = doc.createElement('canvas');
+    raw.width = got.rgba.width; raw.height = got.rgba.height;
+    raw.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(got.rgba.data), got.rgba.width, got.rgba.height), 0, 0);
+    const g = c.getContext('2d');
+    g?.setTransform(1, 0, 0, -1, 0, c.height);
+    g?.drawImage(raw, 0, 0);
+    return c.toDataURL();
+  };
   const assetThumbnailQueue: string[] = [];
   const assetThumbnailQueued = new Set<string>();
   let assetThumbnailBusy = false;
@@ -15496,7 +16593,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   };
   const pumpAssetThumbnails = async (): Promise<void> => {
-    if (assetThumbnailBusy || !shell.isShown('asset-browser')) return;
+    if (assetThumbnailBusy || (!shell.isShown('asset-browser') && !assetPick)) return;   // the mini browser's list too
     const asset = assetThumbnailQueue.shift();
     if (!asset) return;
     assetThumbnailBusy = true;
@@ -15505,7 +16602,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     try {
       let url = assetThumbnailCache.get(asset) ?? null;
       if (!url && (assetThumbnailFailures.get(asset) ?? 0) <= 2) {
-        url = await assetTiles!.thumbnail(asset, 160, 120);
+        url = parseTextureAsset(asset) ? await textureThumbnail(asset) : await assetTiles!.thumbnail(asset, 160, 120);
         if (generation !== assetThumbnailGeneration) return;
         if (url) {
           assetThumbnailCache.set(asset, url);
@@ -15658,6 +16755,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const splitDraws = split?.drawList() ?? [];
     if (!splitDraws.length) {
       baseView?.frame(fly.viewportCamera(), dt);
+      geometry?.view()?.frame(fly.viewportCamera(), dt);    // the edited world's sky, LOD fades and scrolls, as the base's
       skyView?.frame(fly.viewportCamera(), dt);             // a new empty map's copied sky: its clouds' scroll
       turnPlacedFlares(fly.viewportCamera().position);
     }
@@ -15675,15 +16773,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const v = splitDraws[i]!;
         const tick = i === 0 ? dt : 0;
         baseView?.frame(v.camera, tick);
+        geometry?.view()?.frame(v.camera, tick);
         skyView?.frame(v.camera, tick);
         turnPlacedFlares(v.camera.position);
         applyViewMarks(v.look);
+        mapGrid.orient(v.camera);                              // the grid on the plane this view looks at (`./mapGrid`)
         mapBillboards.fit(v.camera);                           // its marks sized for this view's camera
         gizmo.camera = v.camera;
       });
       gizmo.camera = fly.viewportCamera();
     } else {
       mapBillboards.fit(fly.viewportCamera());                 // the marks sized for this camera (`MapDataBillboards.fit`)
+      mapGrid.orient(fly.viewportCamera());
       created.render(scene, fly.viewportCamera());
     }
     adaptiveRatio.frame(realDt, now, ratioTarget, view.ps2 || busy);   // FP-2: `../matchMount`'s tail; held under the PS2 frame and while the page loads
@@ -15796,6 +16897,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     applyView();
     setMode('place');
     history.reset(layoutText());
+    resetGeoHistory();
+    baseKept = new Map();
+    stampSel();
     refreshUndo();
     refreshCounts();
     say('blank floor');

@@ -72,6 +72,8 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u-forge-favourites',            // forge/favourites.ts FAVOURITES_KEY: the starred props
   's2u-forge-object-favourites',     // forge/favourites.ts OBJECT_FAVOURITES_KEY: the starred tiles of the other tabs
   's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
+  's2u-forge-mode-docks',            // forge/page.ts FORGE_MODE_LAYOUTS_KEY: Object and Modelling mode's own dock layouts (a browser adaptation)
+  's2u-forge-object-view',           // forge/page.ts FORGE_OBJECT_VIEW_KEY: Object mode's Display and Overlays settings while in Modelling (a browser adaptation)
   'forge.agent.pairedClients',       // agent/setup.ts AGENT_PAIRED_CLIENTS_KEY: the agents this browser paired once; their setup folds (AX-U)
   'forge.agent.resume',              // agent/connection.ts AGENT_RESUME_KEY: the gateway's one-time resume ticket, this tab only (sessionStorage, AX-9)
   'forge.agent.gateway',             // agent/setup.ts AGENT_GATEWAY_KEY: the connection service's address, the Connect moment's field (LATER 423, FP-14)
