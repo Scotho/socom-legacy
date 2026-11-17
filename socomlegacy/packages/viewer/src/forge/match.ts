@@ -1,5 +1,6 @@
 import type { ForgeLightingOptions } from './lighting';
 import { BLAST_EFFECT } from '../bombPage';
+import { kbmAllowed } from '../kbmScope';
 import { Group, type Object3D } from 'three';
 import type { AssetSource } from '@s2u/archive';
 import type { UiSoundCues } from '@s2u/ui';
@@ -295,6 +296,9 @@ export async function startForgeMatch(target: HTMLElement, o: {
     kits: o.map.arsenal ?? null,
     ...(o.room ?? {}),
     ...(playSeats ? { soloSide: playSeats.sideOf } : soloSideOption(markers, o.side)),
+    // RB-47 (RB.R4, RB.R6; OT.R114, a browser adaptation): the test room's -- the mouse's turn cap off for the page's player
+    // (`../net/lookGate` 'free'; an NPC seat keeps the law), where the page reads the mouse (`kbm: 'forge'` below).
+    ...(kbmAllowed('forge', 'loopback:') ? { lookRate: 'free' as const } : {}),
     beforeStep: () => { playSeats?.flush(); brain?.step(); },
     beforeRoundStart: (newMatch) => { playSeats?.beforeRound(); o.room?.beforeRoundStart?.(newMatch); },
     ...(ruleHost ? { ruleHost } : {}),
@@ -379,6 +383,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
   try {
     mounted = mountMatch(target, {
       ...(o.normalInput ? { normalInput: o.normalInput } : {}),
+      kbm: 'forge',                                   // OT.R114: the test room's keys and mouse, read while the client is the loopback
       client, events, handOff, holds: () => {}, audio,
       ...player.mountDeps(o.map.name, cueSource, () => cues.audio() ?? game),   // RB-10 (PS-2): the player's settings
       ...(o.forgeLighting ? { forgeLighting: o.forgeLighting } : {}),

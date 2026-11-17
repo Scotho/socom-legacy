@@ -15,6 +15,11 @@ import { ELF_DEFAULT_FOGCOL, fogForExtent, type FogSettings } from './fog';
 import { gameSeatOf, voiceReportSocket } from './connectHost';
 import type { GameLobbyHandOff } from './gameLobbyHost';
 import { mergeInput, noInput, PadWatch, padInput, type Input, type PadSource } from './gamepad';
+import { kbmAllowed, type KbmPage } from './kbmScope';
+import { TacMap } from './tacMap';
+import { hotkey } from './kit';
+import { INVENTORY_MENU_KEYS_READING } from './inventoryMenu';
+import { WheelNotches, wheelInventory } from './inventoryWheel';
 import { graphicsBackendOverride, readGraphicsBackend, type GraphicsBackendPreference } from './graphicsBackend';
 import { setWorldAnisotropy } from './experimentalWorldSampling';   // VS-6: the keeper's Texture filtering, live
 import { GpuTimer, gpuTimeAsked, type GpuStats, type TimestampRendererLike } from './gpuStats';   // CPS GPU time: the dev-only GPU timer (`?devmode&gputime`)
@@ -207,6 +212,13 @@ export interface MatchMountOptions {
   /** Browser adaptation: constructor-injected normal input, accepted only on an actual private loopback client. */
   normalInput?: ForgePlayPort;
   /**
+   * OT.R114 (RB.R4; a browser adaptation, the owner, 2026-11-16: "implement the same keys as the test room in forge"):
+   * the page whose keyboard and mouse this match reads -- the Forge's Play passes `'forge'`. Each key and click asks
+   * `./kbmScope` `kbmAllowed(page, the client's URL)`, so only an offline match (the private loopback) reads them; an
+   * online room's never does. Unset (the lobby's matches): controller only, as before (OT.R29).
+   */
+  kbm?: KbmPage;
+  /**
    * FG-24 (the forge's day/night slider, FG.R18; an adaptation, no original): the match's brighten (`./lighting`
    * `Lighting.brighten`, the uniform over every material). Unset -- every caller but the forge's Play -- the match lights
    * as it always has (`DEFAULT_LIGHTING`); the game's own lighting is untouched.
@@ -335,7 +347,7 @@ export interface MountedMatch extends MatchHandle {
  * `join()` -- its stage 1 (`prepareMount`): the world, the renderer, VIDEO MODE's picture, the window, the match's audio,
  * and the forge's own (its brighten, lighting, mode and props). Every other option is the hand-off's (`MatchAttachOptions`).
  */
-export const MATCH_STAGE_KEYS = ['assets', 'renderer', 'picture', 'win', 'brighten', 'forgeLighting', 'gameMode', 'extraWorld', 'audio'] as const;
+export const MATCH_STAGE_KEYS = ['assets', 'renderer', 'picture', 'win', 'brighten', 'forgeLighting', 'gameMode', 'extraWorld', 'audio', 'kbm'] as const;
 export type MatchStageKey = typeof MATCH_STAGE_KEYS[number];
 
 /** IP3: what the mount's stage 1 is given (`prepareMount`): the stage's options, and what only a prepare names. */
@@ -624,7 +636,15 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const scene = new Scene();
   freezeSceneMatrix(scene);   // CPS H13: composed once, auto-update off (`./sceneMatrix`; the walk's forced multiplies)
   const forgeLighting = o.forgeLighting ? createForgeLighting() : null;
-  const fly = new FlyCamera(canvas, { onFire: (down) => firearm.trigger(down) });   // `./main`'s `onFire: trigger`
+  /**
+   * OT.R114 (RB.R4): the keyboard and the mouse read now -- only once attached, for a page that asked (`kbm`: the
+   * Forge's Play), while its client is offline (`kbmAllowed`: the private loopback); asked at each event, never cached.
+   */
+  const kbmNow = (): boolean => attached && o.kbm !== undefined && kbmAllowed(o.kbm, (net?.client ?? o.client)?.url);
+  const fly = new FlyCamera(canvas, {
+    onFire: (down) => firearm.trigger(down),                // `./main`'s `onFire: trigger`
+    ...(first.kbm !== undefined ? { kbm: kbmNow } : {}),   // the test room's `kbm: testroomKbm`, for the page that asked
+  });
   fly.setInputSuspended(true);                          // IP3: no input before attach (each frame's `padFrame` from then)
   const walk = new WalkMode(fly);
   // ACT-1 (research 250 s1): `./main`'s traversal (research 86, `./traversalPage`) -- the ladder, the climb, the peek and the
@@ -885,7 +905,108 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     },
   };
   /** `./main`'s canvas `mousedown`: the right button steps the zoom round (a browser adaptation, the mouse). */
-  const onMouseDown = (e: MouseEvent): void => { if (e.button === 2 && !armory.isOpen() && !(o.blocked?.() ?? false)) firearm.stepZoom('cycle'); };
+  const onMouseDown = (e: MouseEvent): void => {
+    if (!import.meta.env.DEV && !kbmNow()) return;                // RB-8 (OT.R114): a `kbm` page's mouse while offline
+    if (e.button === 2 && !armory.isOpen() && !(o.blocked?.() ?? false)) firearm.stepZoom('cycle');
+  };
+  /** The tactical map (`./tacMap`): `./main`'s, made at attach for a `kbm` page only (M, - and =); null otherwise. */
+  let tacMap: TacMap | null = null;
+  /**
+   * OT.R114 (RB.R4): the window as a `kbm` page's keys hear it -- a key pressed only while `kbmNow` answers true and the
+   * hold does not stand (`./main`'s capture listener swallows them then); a key let go always, so nothing sticks. Each
+   * listener kept, so the teardown lets them all go (`kbmOff`).
+   */
+  const kbmOn: [string, EventListener][] = [];
+  const kbmWin = {
+    addEventListener: (type: string, fn: EventListenerOrEventListenerObject): void => {
+      const call: EventListener = (e) => {
+        if (type === 'keydown' && (!kbmNow() || (o.blocked?.() ?? false))) return;
+        if (typeof fn === 'function') fn(e); else fn.handleEvent(e);
+      };
+      kbmOn.push([type, call]);
+      win.addEventListener(type, call);
+    },
+    removeEventListener: (): void => { /* let go together, at the teardown (`kbmOff`) */ },
+  };
+  const kbmOff = (): void => {
+    for (const [type, fn] of kbmOn) win.removeEventListener(type, fn);
+    kbmOn.length = 0;
+    tacMap?.unbindKey();
+    canvas.removeEventListener('wheel', onInventoryWheel);
+  };
+  /** The wheel's notches (`./inventoryWheel`): on the kit while walking, offline, no hold and no other menu over the game. */
+  const wheelNotches = new WheelNotches();
+  const onInventoryWheel = (e: WheelEvent): void => {
+    if (!kbmNow() || (o.blocked?.() ?? false) || walk.mode() !== 'walk') return;
+    if (armory.isOpen() || startMenu.isOpen() || taunts.isOpen() || exchange.isOpen()) return;
+    const n = wheelNotches.take(e, performance.now());
+    if (n !== 0) wheelInventory(throws.inventory, throws, n > 0 ? 1 : -1);
+  };
+  /** A key typed into a field (a panel's input or select) is the field's, never the game's. */
+  const typing = (e: Event): boolean => {
+    const t = e.target;
+    return typeof HTMLElement !== 'undefined' && t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'SELECT');
+  };
+  /** A menu over the game holds the keys (the ARMORY, the START menu, TAUNTS, WEAPON EXCHANGE, the R2 inventory). */
+  const menuHolds = (): boolean => armory.isOpen() || startMenu.isOpen() || taunts.isOpen() || exchange.isOpen() || throws.inventory.isOpen();
+  /**
+   * OT.R114 (RB.R4; the owner, 2026-11-16: "implement the same keys as the test room in forge"; a browser adaptation, the
+   * original has no keyboard): `/testroom`'s keys on this match, each `./main`'s own, through `kbmWin` (offline only) --
+   * X (the action: Cross's edges to the lifecycle, then the traversal's), Q / E (the peek), I (WEAPON EXCHANGE dead, the
+   * R2 inventory alive, and their keys while open), 1-5 (the firearms and the equipment slots), B (the fire mode), and
+   * the tactical map's M, - and =. Made once, at attach; let go at the teardown (`kbmOff`).
+   */
+  const bindTestroomKeys = (): void => {
+    const target = kbmWin as unknown as EventTarget;
+    // X's edges to the lifecycle as Cross's (`./main` main.ts:1637-1648), before the traversal's: the release fires the
+    // page's context before `TraversalPage`'s keyup asks the walk's action.
+    const isX = (e: KeyboardEvent): boolean => e.code === 'KeyX' && !e.ctrlKey && !e.metaKey && !e.altKey;
+    target.addEventListener('keydown', ((e: KeyboardEvent) => {
+      if (!isX(e) || walk.mode() !== 'walk' || !traversal.keysOpen() || typing(e)) return;
+      if (traversal.respawnKeyInputActive()) return;   // RSP-8: the dead controller's
+      acts.wiring.press();
+    }) as EventListener);
+    target.addEventListener('keyup', ((e: KeyboardEvent) => {
+      if (e.code === 'KeyX' && !traversal.respawnKeyInputActive() && acts.wiring.lifecycle.down()) acts.wiring.release();
+    }) as EventListener);
+    // X, Q and E on the traversal (`./main`'s `traversal.bindKeys`), not while the ARMORY or the R2 menu holds the keys.
+    traversal.keysOpen = () => !armory.isOpen() && !(o.blocked?.() ?? false) && !throws.inventory.isOpen();
+    traversal.bindKeys(target, kbmNow);
+    // WEAPON EXCHANGE and the R2 inventory (`./main` main.ts:755-798): open, every key but Esc is the menu's.
+    target.addEventListener('keydown', ((e: KeyboardEvent) => {
+      if (exchange.input.key(e.code, true, false)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.code === 'Escape' || typing(e)) return;
+      if (armory.isOpen() || startMenu.isOpen() || taunts.isOpen()) return;
+      exchange.refresh();
+      const open = exchange.isOpen();
+      let taken = e.repeat ? open : exchange.menu.key(e.code, exchange.gate());
+      if (taken) exchange.input.key(e.code, true, true, e.repeat);
+      // Alive, `I` is the R2 inventory's (INVENTORY_MENU_KEYS_READING), and its keys while it is open.
+      if (!taken && !open && walk.mode() === 'walk') taken = e.repeat ? throws.inventory.isOpen() && Object.hasOwn(INVENTORY_MENU_KEYS_READING, e.code) : throws.inventory.key(e.code);
+      if (!taken) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }) as EventListener);
+    target.addEventListener('keyup', ((e: KeyboardEvent) => {
+      if (exchange.input.key(e.code, false, false)) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }) as EventListener);
+    // 1 the rifle, 2 the sidearm, 3-5 the equipment slots (`./kit` `hotkey`, main.ts:801-808); B the fire mode (main.ts:809-814).
+    target.addEventListener('keydown', ((e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || walk.mode() !== 'walk' || typing(e) || menuHolds()) return;
+      if (e.code === 'KeyB') { firearm.switchFireMode(); return; }
+      const key = hotkey(e.code);
+      if (!key) return;
+      if ('firearm' in key) firearm.selectFirearm(key.firearm);
+      else throws.takeSlot(key.equipment + 1);
+    }) as EventListener);
+    // The wheel on the kit (`./inventoryWheel`): the R2 inventory's highlight open, the next slot closed.
+    canvas.addEventListener('wheel', onInventoryWheel);
+    // The tactical map (`./main` main.ts:436-438): M while walking, - and = its zoom.
+    if (tacMap) {
+      tacMap.bindKey(target, () => fly.pose().yaw, kbmNow);
+      tacMap.onToggle = (open) => hud.setTacMapOpen(open);
+    }
+  };
   // PAR-6 (research 255 s1): the characters' shadow -- `/testroom`'s (`./charShadow` `mountCharShadow`): the map's vector at
   // `place`, the body's programs for the map warmed, its map drawn each frame before the world, freed at the teardown.
   const shadow = mountCharShadow();
@@ -1434,7 +1555,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (renderer) {
       const scoreboard = (walking || spectating !== null) && (padMerged.scoreboard || scoreboardKeys.held());   // research 87 §12: SELECT held; PAR-48: a spectator's too
       firearm.aimReticle(dt);
-      if (drawFrame) firearm.showReticle(renderer.renderer, walking, false, scoreboard, spawned);   // no tactical map mounted; PAR-94 B2: none before the seat's spawn; VS-4: drawn with the frame
+      // The tactical map: `./main`'s, mounted only for a keyboard page (`kbm`, the Forge's Play: M); shut off the walk.
+      if (tacMap && !walking) tacMap.setOpen(false);
+      tacMap?.frame(dt);
+      if (drawFrame) firearm.showReticle(renderer.renderer, walking, tacMap?.isOpen() ?? false, scoreboard, spawned);   // PAR-94 B2: none before the seat's spawn; VS-4: drawn with the frame
       hud.setScoreboard(scoreboard);
       // PAR-94 B2: no HUD before the room's spawn of the seat (was: `hud.setVisible(walking)`, the default kit drawn from the mount).
       hud.setVisible(walking && spawned);
@@ -1551,6 +1675,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     unwatchViewport();                                 // PAR-12: the resize, the visual viewport's and the rotation
     walk.unbindKey();
     scoreboardKeys.unbindKey();
+    kbmOff();                                          // OT.R114: the test room's keys on a `kbm` page, let go
     forgeLighting?.dispose();
     fly.dispose();
     remote.clear();
@@ -1625,7 +1750,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // (the lobby's), kept by the HUD across the map's own set.
     // PAR-2: and the seat ARMORY's data, `./main`'s `armoryData` (a seat waiting for it opens it then; no read, none).
     o.armory?.then((d) => { if (!gone) { handRoundScreenBitmaps(hud, d); armoryPart.setData(d && 'layout' in d ? d : null); } }, () => { if (!gone) armoryPart.setData(null); /* no read: the screens' shapes */ });
-    scoreboardKeys.bindKey(win as unknown as EventTarget);
+    scoreboardKeys.bindKey(win as unknown as EventTarget, o.kbm !== undefined ? kbmNow : null);   // RB-8: Tab, a `kbm` page's while offline
     hear = o.client.on((ev) => { if (pending.length < LOBBY_MATCH_EVENTS_ADAPTATION) pending.push(ev); });
     // TAUNTS (research 301): the Chat menu's taunts -- `/testroom`'s (`./matchTaunts`), the five the session's (`taunts`).
     const taunts = mountTaunts({
@@ -1670,15 +1795,21 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       talkCue: (name, volume) => { sound.audio.play(name, null, 'play', volume); },
     });
     // `./main`'s overlay: WEAPON EXCHANGE, the R2 inventory and TAUNTS on the HUD's layer (no tactical map here).
+    // The tactical map, under the rest (`./main`'s order), for a `kbm` page only.
+    if (o.kbm !== undefined) tacMap = new TacMap(() => walk.mode() === 'walk' && !armory.isOpen() && !(o.blocked?.() ?? false));
     hud.setOverlay((frame, sizes) => {
+      const feet = walk.feet();
+      const tac = tacMap?.layout(frame, map?.tac ?? null, feet ? [feet[0], feet[2]] : [0, 0], fly.pose().yaw, sizes) ?? null;
       const ws = exchange.overlay(frame, sizes), inv = throws.inventory.draw(frame, sizes), chat = taunts.draw(frame, sizes), menu = startMenu.draw(frame, sizes);   // MATCH-01: the START menu last, over them
-      return ws.quads.length || inv.quads.length || chat.quads.length || menu.quads.length ? { quads: [...ws.quads, ...inv.quads, ...chat.quads, ...menu.quads], tris: [...ws.tris] } : null;
+      if (!ws.quads.length && !inv.quads.length && !chat.quads.length && !menu.quads.length) return tac;
+      return { quads: [...(tac?.quads ?? []), ...ws.quads, ...inv.quads, ...chat.quads, ...menu.quads], tris: [...(tac?.tris ?? []), ...ws.tris] };
     });
-    firearm.fire.bindKey(gated as unknown as EventTarget);
-    if (import.meta.env.DEV) {                                       // OT.R38: the mouse a development build's only
-      mouseSite('s2u-mouse-zoom');
+    firearm.fire.bindKey(gated as unknown as EventTarget, o.kbm !== undefined ? kbmNow : null);   // R; RB-8: a `kbm` page's while offline
+    if (import.meta.env.DEV || o.kbm !== undefined) {                 // OT.R38: the mouse a development build's only; RB-8: or a `kbm` page's
+      if (import.meta.env.DEV) mouseSite('s2u-mouse-zoom');
       canvas.addEventListener('mousedown', onMouseDown);
     }
+    if (o.kbm !== undefined) bindTestroomKeys();                       // the test room's keys (OT.R114), offline only
     pads.attach({ addEventListener: (type: string, fn: EventListener) => { padsOn.push([type, fn]); win.addEventListener(type, fn); } } as unknown as EventTarget);
     /**
      * PAR-5 (`./matchTouch`, research 222 §11): `/testroom`'s touch layer, built on the match's root over its canvas -- a real

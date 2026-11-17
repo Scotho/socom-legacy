@@ -202,6 +202,16 @@ export function recordGeometryEdit(history: History<string>, geo: number, label:
   history.record(encodeHistoryStep(cur.text, cur.picked, { label, actor: HUMAN_ACTOR, domain: 'geometry' }, geo, cur.sel));
 }
 
+/**
+ * A geometry edit made by the same gesture as the layout edit just recorded (Object mode's gizmo moving placements and
+ * geometry objects together, the owner, 2026-11-16: "ok to have mixed selection"): no step of its own -- the current step
+ * names the geometry's new revision `geo`, so one undo takes back both, and one redo makes both again.
+ */
+export function foldGeometryEdit(history: History<string>, geo: number): void {
+  const cur = decodeHistoryStep(history.current());
+  history.retarget(encodeHistoryStep(cur.text, cur.picked, metaFields(cur), geo, cur.sel));
+}
+
 /** The words of a selection's step (what Undo and Redo name). */
 export const SELECT_LABEL = 'Select';
 

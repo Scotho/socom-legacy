@@ -121,21 +121,30 @@ export function pickEdge(world: WorldGeometry, ray: Ray, tolerance: number): { o
   return best && { object: hit.object, edge: best.edge };
 }
 
-/** Picks in the selection's mode and adds (or with `toggle`, flips) what was hit; a miss without `toggle` clears. */
-export function pick(world: WorldGeometry, sel: Selection, ray: Ray, tolerance: number, toggle = false, index?: PickIndex | null): boolean {
-  const flip = (set: Set<number | string>, k: number | string): void => { if (toggle && set.has(k)) set.delete(k); else set.add(k); };
+/**
+ * How a click takes what it hits (the owner, 2026-11-16: "holding shift + click should be additive not toggle selection.
+ * ctrl + click should be toggleable"): `only` it alone (a plain click; a miss clears), `add` it added (Shift: never taken
+ * out), `toggle` it in or out (Ctrl). `true` / `false` are the older `toggle` / `only`.
+ */
+export type PickOp = 'only' | 'add' | 'toggle';
+export const pickOpOf = (how: PickOp | boolean): PickOp => (how === true ? 'toggle' : how === false ? 'only' : how);
+
+/** Picks in the selection's mode and takes what was hit as `how` says (`PickOp`); a plain click's miss clears. */
+export function pick(world: WorldGeometry, sel: Selection, ray: Ray, tolerance: number, how: PickOp | boolean = 'only', index?: PickIndex | null): boolean {
+  const op = pickOpOf(how);
+  const flip = (set: Set<number | string>, k: number | string): void => { if (op === 'toggle' && set.has(k)) set.delete(k); else set.add(k); };
   const itemsOf = (id: string): Set<number | string> => {
     let s = sel.items.get(id);
     if (!s) { s = new Set(); sel.items.set(id, s); }
     sel.objects.add(id);
     return s;
   };
-  if (!toggle) { sel.objects.clear(); sel.items.clear(); }
+  if (op === 'only') { sel.objects.clear(); sel.items.clear(); }
   if (sel.mode === 'object' || sel.mode === 'face') {
     const hit = pickFace(world, ray, index);
     if (!hit) return false;
     if (sel.mode === 'object') {
-      if (toggle && sel.objects.has(hit.object.id)) sel.objects.delete(hit.object.id); else sel.objects.add(hit.object.id);
+      if (op === 'toggle' && sel.objects.has(hit.object.id)) sel.objects.delete(hit.object.id); else sel.objects.add(hit.object.id);
     } else flip(itemsOf(hit.object.id), hit.face);
     return true;
   }

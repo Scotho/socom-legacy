@@ -10,11 +10,13 @@ import { createLocalPackApi, type LocalPackApi } from '../agent/localPacks';
 import { forgeMapPackDrivers } from '../agent/forgePacks';
 import { checkStarterLayout } from '../creator/examples/validation';
 import {
-  Box3, Box3Helper, BoxGeometry, BufferAttribute, BufferGeometry, Color, GridHelper, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix3, Matrix4, Mesh,
+  Box3, Box3Helper, BoxGeometry, BufferAttribute, BufferGeometry, Color, DoubleSide, GridHelper, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix3, Matrix4, Mesh,
   MeshBasicMaterial, Euler, MathUtils, Object3D, PlaneGeometry, Quaternion, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { GeometryEditor, type GeometrySelectionState, type GeometrySnapshot } from './geometry/editor';
+import { decodeGeometry, encodeGeometry, gunzip, gzip } from './geometry/geometryFile';
+import { getGeometry, putGeometry, sweepGeometry } from './geometryStore';
 import { floorLookOf } from './geometry/blank';
 import { findLadders, HOSTAGE_START_LIFT_READING, probeGround, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly, type EffectProgram } from '@s2u/scene';
 import { ACTION_TYPE_CODES } from '../mapActions';
@@ -47,7 +49,7 @@ import { gxApplyProgress, pageGxPacks, type TexturePackTarget } from '../texture
 import { visualTintHandler } from '../packs/systems/visualTint';
 import { bodyForTeam } from '../teamBody';
 import { groundGrid, WalkMode } from '../walk';
-import { MapGrid } from './mapGrid';
+import { flatWorkplane, isDefaultWorkplane, isFlatWorkplane, MapGrid, onWorkplane, pickedWorkplane, rayOnWorkplane, workplaneOffset, type Workplane } from './mapGrid';
 import { WEAPON_CLIPS } from '../weaponPose';
 import { keyboardSite } from '../keyboardTesting';
 import { mouseSite } from '../mouseTesting';
@@ -72,7 +74,7 @@ import type { AssetDefinition } from '../packs/content/assets';
 import { CONTENT_METRES_PER_UNIT_ADAPTATION, contentPieceHull, type ContentResolver } from '../packs/content/collision';
 import type { ContentLoadStage } from '../packs/content/map';
 import { FORGE_DOCK_LAYOUT_KEY, FORGE_PANELS_KEY, FORGE_VIEW_KEY, pageIndexedDb, pageSettings } from '../pageStore';
-import { agentChangedRefs, agentStepCount, decodeHistoryStep, encodeHistoryStep, History, historyCaption, recordEdit, recordGeometryEdit, recordSelection, redoMeta, stampSelection, undoAgentRun, undoMeta, undoWhile,
+import { agentChangedRefs, agentStepCount, decodeHistoryStep, encodeHistoryStep, History, historyCaption, foldGeometryEdit, recordEdit, recordGeometryEdit, recordSelection, redoMeta, stampSelection, undoAgentRun, undoMeta, undoWhile,
   type AgentRunUndo, type HistoryMeta } from './history';
 import { doorsAfter, groundWithout, linesWithout, placementOf, placementOwners, placementsOf, propsWithout, type Placement } from './hide';
 import { FORGE_MATCHING_CLASS } from './matchState';
@@ -103,7 +105,7 @@ import { DOOR_CLIPS } from '../doors';
 import { BINOCULAR_CLIPS } from '../binocularPose';
 import { TURRET_CLIPS } from '../net/emplacement';
 import { crossHoldsIn, FORGE_MATCH_EXIT_CHORD, ForgePad, type PadAction, type PadSnapshot } from './pad';
-import { centreOf, clampedFactor, inRect, moved as movedBy, scaledAbout, Selection, turnedAbout, uniformFactor, yawOf, yawQuat, yOnly, type Pose, type Quat, type Vec3 } from './group';
+import { centreOf, clampedFactor, moved as movedBy, scaledAbout, Selection, turnedAbout, uniformFactor, yawOf, yawQuat, yOnly, type Pose, type Quat, type Vec3 } from './group';
 import {
   createMenuSections, PAD_MENU_INPUT, PadMenu, pagedSections, sectioned, splitAtHeadings, type MenuItem, type MenuSections, type MenuSectionSpec,
 } from './padMenu';
@@ -140,6 +142,7 @@ import {
 import type { TextureCatalogEntry } from '../mapTextures';
 import { aiBrushCells, aiCellKey, aiSoilAt, withAiSoil } from './aiSoil';
 import { AiPaintTool } from './aiPaint';
+import { sampleCursor } from './paintCursor';
 import { locateAiCell } from '../../../match/src/hostagePath';
 import { aiCellCentre, aiCellIndex, aiCellY, type AiLoc, type AiMaps, type EffectCondition, type EffectOp } from '@s2u/scene';
 import { nextNavName, nextViewName } from './placedPoints';
@@ -280,13 +283,26 @@ const FORGE_BLOCK_SOURCE: object = Object.freeze({ source: 'forge-block' });
  * R3-B: a ghost's materials -- translucent as the pad's ghost, and tinted while the placement is refused. Each material's
  * own colour is kept on it (`userData.forgeGhostBase`), so a ghost that turns admitted again shows its own colour.
  */
+/** A ghost's draw order seated on the workplane (Snap to Workplane): after the workplane's grid (`./mapGrid`'s 1, its upright axis 2). */
+const GHOST_RENDER_ORDER = 3;
+/**
+ * A ghost drawn over the workplane's grid while it is seated on it (`on`: Snap to Workplane in effect; the owner,
+ * 2026-11-16: "props get drawn under the workplane"), else in the scene's order, its depth deciding (`paintGhost`).
+ */
+function ghostOverWorkplane(root: Object3D, on: boolean): void {
+  root.traverse((o) => { if (o instanceof Mesh) o.renderOrder = on ? GHOST_RENDER_ORDER : 0; });
+}
 function paintGhost(root: Object3D, admitted: boolean): void {
   root.traverse((o) => {
     if (!(o instanceof Mesh)) return;
     for (const m of (Array.isArray(o.material) ? o.material : [o.material]) as Material[]) {
       m.transparent = true;
       m.opacity = GHOST_OPACITY_ADAPTATION;
-      m.depthWrite = false;
+      // Its depth written, so the workplane's grid (drawn after it, `./mapGrid`) is hidden where the ghost is in front of
+      // it and drawn over it where it stands behind (the owner, 2026-11-17: "the pot is behind the workplane, so it should
+      // be drawn behind because we have snap to workplane off"); seated on the workplane, it is drawn after the grid
+      // (`ghostOverWorkplane`).
+      m.depthWrite = true;
       const color = (m as Material & { color?: unknown }).color;
       if (!(color instanceof Color)) continue;
       const own = (m.userData['forgeGhostBase'] as number | undefined) ?? color.getHex();
@@ -360,6 +376,12 @@ const PALETTE_ALL = '*all';
 const PALETTE_COMMON = '*common';
 /** A texture tile's asset id (a browser adaptation, FG.R2): `texture.<map>:<name>`, the map it is read from. */
 const textureAssetId = (source: string, name: string): string => `texture.${source}:${name}`;
+/** How far along the cursor's ray a placement on nothing still lands on the workplane (game units; a browser adaptation). */
+const WORKPLANE_REACH = 20000;
+/** How much nearer a surface must be than the workplane along the pointer's ray to hide it there (game units; Snap to Workplane's `nearerOfWorkplane`). */
+const WORKPLANE_SEE_TOLERANCE = 0.5;
+/** A stand-in geometry name a check reads (an edit not yet kept), never written (`withGeometryNow`'s `check`). */
+const UNSAVED_GEOMETRY_REF = `geometry:${'0'.repeat(64)}`;
 const TEXTURE_ASSET = /^texture\.([A-Za-z0-9_]+):(.+)$/;
 /** The drag chip's words, and the refusal, for a texture over a prop or a placed object (no texture of its own to change). */
 const TEXTURE_ON_PROP_REFUSAL = 'Textures go on level geometry, not on props';
@@ -456,7 +478,7 @@ const VIEW_TOGGLES = [
   { id: 'wireframe', label: 'Wireframe', group: 'Draw', on: false },
   { id: 'untextured', label: 'Untextured highlight', group: 'Draw', on: false },
   { id: 'collision', label: 'Collision hull', group: 'Draw', on: false },
-  { id: 'grid', label: 'Map grid', group: 'Draw', on: false },
+  { id: 'grid', label: 'Workplane', group: 'Draw', on: false },   // the owner, 2026-11-16: "don't call it Map grid, instead call it workplane"
   { id: 'spawns', label: 'Gizmos', group: 'Overlays', on: true },
   // The map's AI grid (`./aiMapOverlay`; the owner, 2026-11-12): every walkable cell, coloured by its soil.
   { id: 'aimap', label: 'AI Navigation', group: 'Overlays', on: false },
@@ -481,7 +503,7 @@ const VIEW_DRAW_OWN = ['geometry', 'wireframe', 'collision', 'grid', 'aimap', 's
 
 /**
  * FUI-3 (PAD-6, PAD-11; browser adaptations, FG.R2 -- the game has no editor): the START menu's Props grid (its columns,
- * a page of cells L1 / R1 jump, the recent props it keeps) and the ladders its Grid step and Turn step rows step through
+ * a page of cells L1 / R1 jump, the recent props it keeps) and the ladders its Workplane step and Turn step rows step through
  * (`./placement` GRID_STEP_LADDER and TURN_STEP_LADDER, the only steps; the defaults 25 and 15 on them).
  */
 const PROPS_COLUMNS = 3;
@@ -542,6 +564,9 @@ const ICON: Record<string, string> = {
   snap: '<path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4zM8 6h8M8 18h8M6 8v8M18 8v8"/>',
   gridSnap: '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',
   // Surface snapping: a box set down on a surface, an arrow bringing it down.
+  // The Workplane and Surface Snapping menu's (the owner, 2026-11-17: "we may need a better icon for it"): a plane in
+  // perspective, its up arrow standing on it.
+  workplaneSnap: '<path d="M2 18l5-4h15l-5 4z"/><path d="M12 16V5"/><path d="M9 8l3-3 3 3"/>',
   surfaceSnap: '<path d="M3 20h18"/><path d="M7 16l5-2.5 5 2.5-5 2.5z"/><path d="M7 16v-3.5l5-2.5 5 2.5V16"/><path d="M12 3v4.5M9.8 5.6L12 7.8l2.2-2.2"/>',
   // The Edit menu's own (the owner, 2026-11-11: icons on the File and Edit rows): cut (scissors), paste (a clipboard),
   // duplicate (a copy beside its plus).
@@ -854,11 +879,13 @@ export function registerMenuSection(shell: ForgeShell, spec: MenuSectionSpec<For
  * pieces are (91's box run of forgeRules.spec found a layout holding only rules dropped without a word); only pieces, the
  * words as they were.
  */
-export function newLayoutDropWords(pieces: number, rules: boolean, entities: number): string | null {
-  if (pieces === 0 && !rules && entities === 0) return null;
+export function newLayoutDropWords(pieces: number, rules: boolean, entities: number, geometry = false): string | null {
+  if (pieces === 0 && !rules && entities === 0 && !geometry) return null;
+  // Bug 1 (2026-11-16): the geometry's edits are the layout's work too.
+  if (pieces === 0 && !rules && entities === 0) return 'The edits to the map\'s geometry are dropped. Save first to keep them.';
   const dropped = !rules && entities === 0 ? 'The pieces placed now are dropped.'
     : 'The pieces, rules, zones, markers and spawners now in the layout are dropped.';
-  return `${dropped} Save first to keep them.`;
+  return `${dropped}${geometry ? ' So are the edits to the map\'s geometry.' : ''} Save first to keep them.`;
 }
 
 /** Each tool's name as the page says it (the status line, the pad's pop, the help card's key rows: `forgeToolKeyHelp`). */
@@ -1003,6 +1030,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     'A click or a selection box picks the base map’s own props and data (spawns, hostages, sites, zones, doors...); off, they are passed over (the Outliner still selects them)');
   const selectUserPropsIn = selectToggle('selectUserProps', 'Select user data',
     'A click or a selection box picks your placements (props, spawns, objectives, objects...); off, they are passed over (the Outliner still selects them)');
+  const selectGeometryIn = selectToggle('selectGeometry', 'Select geometry',
+    'A click picks a whole geometry object (a map section, or a shape made in Geometry mode) to move with the gizmo, its collision with it; Ctrl-click adds it to the selection. Double-click opens it in Geometry mode. Off, geometry is passed over');
   const selectHiddenIn = selectToggle('selectHidden', 'Select hidden overlays',
     'A kind whose billboards are switched off in the Overlays dropdown can still be clicked or boxed: a door, turret or prop by its model, a spawn or zone where its mark would be. Off, a hidden kind is passed over');
   selectSettings.append(el(doc, 'div', 'fx-tool-popup-note',
@@ -1653,7 +1682,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   // The collision hull and the map grid under Draw (the owner, 2026-11-11: no Overlays section here).
   addViewportToggle('collision', 'Collision hull');
-  addViewportToggle('grid', 'Map grid');
+  addViewportToggle('grid', 'Workplane');
   addViewportToggle('aimap', 'AI Navigation');                       // the map's AI grid (`./aiMapOverlay`; the owner, 2026-11-12)
   modeGroup('World');
   addViewportToggle('fog', 'Fog');
@@ -1676,7 +1705,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * switch, an icon lit while it is on, then its step's dropdown: the ladder's steps only (the owner, 2026-11-15: "remove
    * the input box for custom snap. I don't want a user to snap to like 7"). `field` holds the step, never shown.
    */
-  const snapPill = (iconName: string, label: string, unit: string, ladder: readonly number[], keyHint: string) => {
+  const snapPill = (iconName: string, label: string, unit: string, ladder: readonly number[], extraHint = '') => {
     const pill = el(doc, 'div', 'fx-snap-pill');
     pill.setAttribute('role', 'group');
     pill.setAttribute('aria-label', label);
@@ -1705,28 +1734,63 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const draw = (on: boolean, step: number): void => {
       toggle.classList.toggle('is-on', on);
       toggle.setAttribute('aria-pressed', String(on));
-      toggle.title = `${label} ${on ? 'on' : 'off'}: press to turn it ${on ? 'off' : 'on'} (${keyHint})`;
+      toggle.title = `${label} ${on ? 'on' : 'off'}: press to turn it ${on ? 'off' : 'on'}${extraHint}`;
       summary.textContent = `${unit ? step : stepLabel(step)}${unit}`;
       summary.classList.toggle('is-off', !on);
       for (const b of presets) b.setAttribute('aria-pressed', String(Number(b.dataset['step']) === step));
     };
-    return { pill, toggle, menu, summary, field, presets, draw };
+    return { pill, toggle, menu, summary, field, presets, draw, panel };
   };
-  const gridSnapUi = snapPill('gridSnap', 'Grid snap', '', GRID_STEP_LADDER, 'G turns both snaps');
-  const turnSnapUi = snapPill('angleSnap', 'Rotation snap', '°', TURN_STEP_LADDER, 'G turns both snaps');
+  // The grid's snap is the workplane's (the owner, 2026-11-17: "rename grid snap to workplane snap, everywhere in the forge
+  // app where we say grid, use workplane instead"); no key named (the owner: "Remove the g shortcut to turn off the snaps
+  // (it conflicts with grouping)": G groups, `./keys`).
+  const gridSnapUi = snapPill('gridSnap', 'Workplane snap', '', GRID_STEP_LADDER);
+  const turnSnapUi = snapPill('angleSnap', 'Rotation snap', '°', TURN_STEP_LADDER);
   const viewportGridIn = gridSnapUi.field;
+  // Its dropdown's title (the owner, 2026-11-17: "rename it to just snap step").
+  const gridStepTitle = gridSnapUi.panel.querySelector('.fx-snap-panel-title');
+  if (gridStepTitle) gridStepTitle.textContent = 'Snap step';
+  /*
+   * The workplane (the owner, 2026-11-16: "a feature to change the workplane ... a button to set the current workplane
+   * from a click/sample button and a reset button"; height only; a browser adaptation, FG.R2): the grid's own dropdown
+   * says where it is, and sets it -- picked off a surface, in any view (Pick), or reset flat at 0 -- kept with the view's
+   * settings. No typed height (the owner, 2026-11-16: "Remove the workplane height setting"). Its section is the first of
+   * the Workplane and Surface Snapping menu (the owner, 2026-11-17: "move the workplane settings and shortcuts to the
+   * surface snapping settings button. This menu is now for Workplane and Surface Snapping settings"), over surface
+   * snapping's, set apart.
+   */
+  const workplaneSection = el(doc, 'div', 'fx-snap-section fx-workplane-section');
+  workplaneSection.append(el(doc, 'div', 'fx-snap-panel-title', 'Workplane'));
+  const workplaneButtons = el(doc, 'div', 'fx-workplane-buttons');
+  const workplanePickBtn = el(doc, 'button', 'fx-tool', 'Pick');
+  workplanePickBtn.type = 'button';
+  workplanePickBtn.title = 'Click a surface. Top, bottom and side views: the workplane faces the view, at the depth of the clicked point. Perspective: it goes onto the surface, tilted as it is (a floor flat, a wall upright, a slope as steep) -- exactly there, whatever the snap step, drawn over it. Esc cancels';
+  const workplaneResetBtn = el(doc, 'button', 'fx-tool', 'Reset');
+  workplaneResetBtn.type = 'button';
+  workplaneResetBtn.title = 'The workplane back flat at height 0 (a top, bottom or side view: facing it, through the origin)';
+  workplaneButtons.append(workplanePickBtn, workplaneResetBtn);
+  const workplaneNormal = el(doc, 'div', 'fx-workplane-normal', 'Flat at height 0');
+  // Shown or not (the owner, 2026-11-16: "add a setting to toggle the workplane from that dropdown as well"): the Display
+  // menu's Workplane switch, the same setting (`view.grid`).
+  const workplaneShowRow = el(doc, 'label', 'fx-toggle fx-workplane-show');
+  const workplaneShowIn = doc.createElement('input');
+  workplaneShowIn.type = 'checkbox';
+  workplaneShowIn.setAttribute('aria-label', 'Show workplane');
+  workplaneShowRow.title = 'Draw the workplane (the same setting as the Display menu Workplane switch)';
+  workplaneShowRow.append(workplaneShowIn, el(doc, 'span', '', 'Show workplane'));
+  workplaneSection.append(workplaneShowRow, workplaneNormal, workplaneButtons);
   const viewportTurnIn = turnSnapUi.field;
   /*
    * Surface snapping's button (the owner, 2026-11-11, as Unreal's viewport toolbar has it): its icon lit while on, its
-   * dropdown the switch, then its settings -- Rotate to Surface Normal (drawn, never on: a saved layout keeps a piece's
-   * yaw only) and the Surface Offset (`surfaceSnapDrag`).
+   * dropdown the switch, then its settings -- Snap to Surface Normal (`surfaceTilt`) and the Surface Offset
+   * (`surfaceSnapDrag`).
    */
   const surfaceMenu = doc.createElement('details');
   surfaceMenu.className = 'fx-viewport-snap fx-surface-snap';
   const surfaceSummary = doc.createElement('summary');
   surfaceSummary.className = 'fx-surface-button';
-  surfaceSummary.innerHTML = icon('surfaceSnap');
-  surfaceSummary.setAttribute('aria-label', 'Surface snapping');
+  surfaceSummary.innerHTML = icon('workplaneSnap');
+  surfaceSummary.setAttribute('aria-label', 'Workplane and surface snapping');
   const surfacePanel = el(doc, 'div', 'fx-viewport-snap-panel fx-surface-panel');
   const surfaceRow = (label: string, title: string): HTMLInputElement => {
     const row = el(doc, 'label', 'fx-toggle fx-surface-row');
@@ -1738,11 +1802,39 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     surfacePanel.append(row);
     return i;
   };
-  const surfaceIn = surfaceRow('Surface Snapping', "Dragging the move gizmo's centre seats the selection on the surface under the pointer");
-  surfacePanel.append(el(doc, 'div', 'fx-snap-panel-title', 'Settings'));
-  const surfaceNormalIn = surfaceRow('Rotate to Surface Normal', "Not yet: a saved layout keeps a piece's yaw only, so a tilt to the surface would not survive a save");
-  surfaceNormalIn.disabled = true;
-  surfaceNormalIn.closest('label')?.classList.add('is-disabled');
+  surfacePanel.append(workplaneSection);
+  surfacePanel.append(el(doc, 'div', 'fx-snap-panel-title fx-snap-section-start', 'Surface snapping'));
+  // The owner, 2026-11-17: "the surface snapping text should say Enable Surface Snapping"; the rows below depend on it.
+  const surfaceIn = surfaceRow('Enable Surface Snapping', "Dragging the move gizmo's centre seats the selection on the surface under the pointer; the settings below apply only while it is on");
+  // FX-9 made it real (the owner, 2026-11-16: "now that we can adjust rotation x/y/z now, please fix the rotate to surface
+  // normal setting"): the record keeps a piece's pitch and roll, so a tilt to the surface survives a save.
+  const workplaneSnapIn = surfaceRow('Snap to Workplane', "The Place tool and the move gizmo's centre seat what they move on the workplane under the pointer (this menu's Workplane sets it), not on the surface there -- tilted to it with Snap to Surface Normal");
+  /**
+   * Surface snapping's dependent rows greyed (their switches off to the hand, kept as set) while they do not apply (the
+   * owner, 2026-11-17: "When surface snapping is disabled, all the other settings should be disabled also, they are
+   * dependent on it"): all of them while surface snapping is off; Snap to Workplane also while the workplane is hidden
+   * (`workplaneSnapOn`, `surfaceNormalOn`).
+   */
+  /** A pick under way ended (`endWorkplanePick`, set once it is): the workplane hidden. */
+  let onWorkplaneHidden: (() => void) | null = null;
+  const syncWorkplaneSnapRow = (): void => {
+    const grey = (i: HTMLInputElement, off: boolean): void => {
+      i.disabled = off;
+      const row = i.closest('label');
+      row?.classList.toggle('is-disabled', off);
+      row?.setAttribute('aria-disabled', String(off));
+    };
+    grey(workplaneSnapIn, !surfaceSnap || !view.grid);
+    // Pick greyed while the workplane is hidden (the owner, 2026-11-17: "pick and reset buttons should be disabled if
+    // show workplane is disabled"; then "reset should still work if disabled"): Reset stays live, and the middle click
+    // shows the workplane and picks (`surfaceSummary`'s auxclick). A pick under way ends.
+    workplanePickBtn.disabled = !view.grid;
+    if (!view.grid) onWorkplaneHidden?.();
+    grey(surfaceNormalIn, !surfaceSnap);
+    grey(surfaceOffsetIn, !surfaceSnap);
+  };
+  // Named Snap to Surface Normal (the owner, 2026-11-17: "rename Snap to Surface Normal"; it was Rotate to Surface Normal).
+  const surfaceNormalIn = surfaceRow('Snap to Surface Normal', "A prop placed by the Place tool, or dragged by the move gizmo's centre, tilts so its up follows the surface under the pointer, keeping its turn (props only: markers, ladders and pack pieces stay upright)");
   const surfaceOffsetRow = el(doc, 'label', 'fx-viewport-snap-field fx-surface-offset');
   surfaceOffsetRow.append(el(doc, 'span', '', 'Surface Offset'));
   const surfaceOffsetIn = el(doc, 'input', 'fx-num fx-setting-num fx-stepper');
@@ -1767,6 +1859,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       applyView();
     });
   }
+  workplaneShowIn.addEventListener('change', () => { view.grid = workplaneShowIn.checked; applyView(); });
   viewportModes.append(viewportModesSummary, viewportModesList);
   /*
    * The viewport's Billboards dropdown (a browser adaptation, FG.R2), beside View: the map data billboards shown at all,
@@ -1983,7 +2076,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const viewportFocus = (): Vector3 => baseView && !baseView.box.isEmpty()
     ? baseView.box.getCenter(new Vector3())
     : new Vector3();
+  /** Told of every view change (the workplane's, `workplaneForView`; set once the workplane is). */
+  let onViewportViewChanged: ((view: ForgeViewportView) => void) | null = null;
   const syncViewportViewMenu = (value: ForgeViewportView): void => {
+    onViewportViewChanged?.(value);
     const label = viewOptions.find(([view]) => view === value)?.[1] ?? 'Perspective';
     viewMenuSummary.dataset['view'] = value;
     viewMenuSummary.innerHTML = `${icon(viewIcons[value])}<span>${label}</span>`;
@@ -2209,9 +2305,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const legend = el(doc, 'ul', 's2u-prompts fx-legend');
   const toast = el(doc, 'div', 'fx-toast', '');
   /** FG-47: the box a left-drag on no placement draws (the Select tool). */
-  const marquee = el(doc, 'div', 'fx-marquee');
-  marquee.hidden = true;
-  viewport.append(canvas, input, crosshair, marquee, viewportLeftControls, cameraHud, axisWidget, cameraSpeedFeedback, legend, toast);
+  viewport.append(canvas, input, crosshair, viewportLeftControls, cameraHud, axisWidget, cameraSpeedFeedback, legend, toast);
   // The toast sits over the legend strip (`.fx-toast`'s `--fx-legend-h`): the strip's height, 0 while it is hidden. It
   // wraps at narrow widths, so it is measured, not assumed.
   const measureLegend = (): void => { viewport.style.setProperty('--fx-legend-h', `${legend.hidden ? 0 : legend.offsetHeight}px`); };
@@ -3000,6 +3094,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // a floor plane of its own (`defaultFloor`).
     map: () => (base?.kind === 'map' ? baseMap : base?.kind === 'blank' ? blankGeometryMap() : null),
     defaultFloor: () => (base?.kind === 'blank' && charMap ? { size: FLOOR_SIZE, divisions: BLANK_FLOOR_QUADS, look: floorLookOf(charMap) } : null),
+    workplane: () => workplane,                                  // a shape made over nothing stands on it (`addPrimitive`)
     prepareView: (v) => { applyWorld(v); v.setLighting(lighting); },
     baseWorldShown: (on) => { for (const o of baseView?.worldObjects ?? []) o.visible = on; if (base?.kind === 'blank') floor.visible = on; },
     onActive: (on) => {
@@ -3206,6 +3301,47 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let surfaceSnap = true;
   let surfaceOffset = 0;
+  /**
+   * The workplane (`./mapGrid` `Workplane`; the grid's dropdown): a plane -- flat at a height, or tilted to a surface it
+   * was picked off -- the drawn grid's, and where a placement on nothing lands (and every placement, Snap to Workplane on).
+   */
+  let workplane: Workplane = flatWorkplane(0);
+  /**
+   * Each view's own workplane (the owner, 2026-11-16: "when switching to the different views it should automatically
+   * switch the workplane to that view perspective. but when we go back to perspective it should restore the workplane
+   * from before we switched"): the perspective view's (kept with the view's settings), and each orthographic view's --
+   * facing it, as last picked there (this session) -- `workplane` the shown view's (`workplaneForView`).
+   */
+  let perspectiveWorkplane: Workplane = workplane;
+  const orthoWorkplanes = new Map<ForgeViewportView, Workplane>();
+  let workplaneView: ForgeViewportView = 'perspective';
+  /**
+   * Snap to Workplane (Surface snapping's setting; the owner, 2026-11-16: "add a snap to workplane settings in the surface
+   * snapping settings, but have it default to off"): the Place tool and the move gizmo's centre seat what they move on the
+   * workplane under the pointer, not on the surface there -- tilted to it with Snap to Surface Normal.
+   */
+  let workplaneSnap = false;
+  /**
+   * Snap to Surface Normal (Surface snapping's setting, as Unreal's; off unless turned on): a single piece the centre
+   * handle drags is tilted so its up is the struck face's normal, its yaw as the drag began (`surfaceTilt`).
+   */
+  let surfaceNormal = false;
+  /**
+   * The geometry objects the gizmo's drag carries in Object mode (`geoPicks`): their ids, the pivot as the drag began, and
+   * its change since (`delta`, drawn live by `GeometryEditor.moveBy`); null between drags. The release moves them once.
+   */
+  let geoDrag: { ids: string[]; start: Matrix4; delta: Matrix4 | null } | null = null;
+  /** The next geometry step is the same gesture's as the layout step just recorded: folded into it (`foldGeometryEdit`). */
+  let foldGeometryNext = false;
+  /**
+   * The map props a group's drag carries (the owner, 2026-11-16: "allow me to move the map props and geometry at the same
+   * time, it is just transform data being manipulated"), taken over at its first move (`takeBaseProps`), as one map
+   * prop's drag takes it over (`duplicateMapPropForDrag`): each the layout's own piece at its place, the original hidden.
+   */
+  let pendingBaseTake: BaseProp[] | null = null;
+  /** The dragged piece's yaw at the drag's start, and whether the drag tilted it (the release puts it on the lattice). */
+  let dragYaw = 0;
+  let dragTilted = false;
   /** The pointer over the viewport's surface, as the last move left it (a gizmo drag included). */
   const dragNdc = new Vector2();
   input.addEventListener('pointermove', (e) => {
@@ -3227,7 +3363,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (o === mapDataProxy || o === entityProxy) {
       const items = o === mapDataProxy ? mapDataMoving() : [];
       if (o === mapDataProxy && !items.length) return;
-      const hit = pickSurface(dragNdc, []);
+      const hit = dragSurface(dragNdc, []);
       if (!hit) return;
       const at = placeAt(hit);
       // Several map objects by their lowest foot (a hostage's start its lift over its foot), as a group by its lowest member.
@@ -3241,8 +3377,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // Several: the pivot carried so the lowest member's foot (at the drag's start, `groupDragLow`) is on the surface.
     if (o === pivot) {
       if (!dragFrom || groupDragLow === null || pendingGroupPropDrag) return;
-      const hit = pickSurface(dragNdc, [...picks.items, ...(dragFollow ?? []).map((f) => f.r)]);
+      const hit = dragSurface(dragNdc, [...picks.items, ...(dragFollow ?? []).map((f) => f.r)]);
       if (!hit) return;
+      // Snap to Surface Normal (the owner, 2026-11-16: "does not seem to work if we have multiple objects selected"): the
+      // group tilted as one about its centre so its up is the surface's normal, its lowest foot on the point -- pieces
+      // alone (a marker turns about the vertical only, a pack piece keeps a turn about it: `transformRefusal`).
+      const tiltable = surfaceNormalOn() && picks.items.every((r) => kindOf(r) === 'Piece' && !packPiece(r)) && !(dragFollow ?? []).some((f) => packPiece(f.r));
+      if (tiltable) {
+        const { n, at } = surfaceUnder(hit);
+        const align = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), n);
+        const foot = new Vector3(0, groupDragLow - dragFrom.centre[1], 0).applyQuaternion(align);
+        pivot.quaternion.copy(align);
+        pivot.position.copy(at).sub(foot).addScaledVector(n, surfaceOffset);
+        pivot.updateMatrixWorld(true);
+        dragTilted = true;
+        return;
+      }
       const at = placeAt(hit);
       pivot.position.set(at.x, dragFrom.centre[1] + (at.y + surfaceOffset - groupDragLow), at.z);
       pivot.updateMatrixWorld(true);
@@ -3250,11 +3400,116 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     const r = selected;
     if (!r || o !== r || lockedOf(r) || isGroup()) return;
-    const hit = pickSurface(dragNdc, [r, ...(dragFollow ?? []).map((f) => f.r)]);
+    const hit = dragSurface(dragNdc, [r, ...(dragFollow ?? []).map((f) => f.r)]);
     if (!hit) return;
     if (dragWallPose(r, hit)) return;
+    if (surfaceTilt(r, hit)) return;
     seatOn(r, placeAt(hit));
     if (surfaceOffset) { r.position.y += surfaceOffset; r.updateMatrixWorld(true); }
+  };
+  /**
+   * Snap to Surface Normal for a gizmo drag: `r` (a single piece; never a pack piece, nor one carrying a pack piece --
+   * those keep a turn about the vertical, `PACK_PIECE_POSE_REFUSAL`) tilted onto the surface (`tiltOnto`), its yaw the
+   * drag's start's, raised along the normal by the offset. False: not taken.
+   */
+  const surfaceTilt = (r: Object3D, hit: Intersection): boolean => {
+    if (!surfaceNormalOn() || kindOf(r) !== 'Piece' || packPiece(r) || (dragFollow ?? []).some((f) => packPiece(f.r))) return false;
+    tiltOnto(r, hit, dragYaw, surfaceOffset);
+    dragTilted = true;
+    return true;
+  };
+  /**
+   * `o` turned so its up is the struck face's normal (turned to the camera's side; straight up on the blank floor), its
+   * yaw `yaw` degrees before the tilt, on the record's lattice (`snappedTurn`: whole degrees, so what is shown is what a
+   * save keeps); then seated as `seatOn` seats it -- its box's bottom (in its own frame) on the point -- and raised along
+   * the normal by `offset`. The gizmo's drag (`surfaceTilt`) and the Place tool (`placeTilt`) alike.
+   */
+  const tiltOnto = (o: Object3D, hit: Intersection, yaw: number, offset: number): void => {
+    const { n, at } = surfaceUnder(hit);
+    // Its box's bottom in its own frame: upright (a turn about y keeps every height), at the origin.
+    const upright = turnQuaternion({ yaw, pitch: 0, roll: 0 });
+    o.position.set(0, 0, 0);
+    o.quaternion.copy(upright);
+    const box = objectBox(o);
+    const foot = new Vector3(0, box.isEmpty() || !Number.isFinite(box.min.y) ? 0 : box.min.y - o.getWorldPosition(new Vector3()).y, 0);
+    // That frame tilted onto the normal, on the lattice; the foot carried by the turn kept.
+    const tilted = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), n).multiply(upright);
+    turnQuaternion(snappedTurn(turnOf(tilted)), o.quaternion);
+    o.position.copy(at).sub(foot.applyQuaternion(o.quaternion)).addScaledVector(n, offset);
+    o.updateMatrixWorld(true);
+  };
+  /**
+   * The struck face's outward normal in the world (turned to the camera's side; straight up on the blank floor) and the
+   * point a tilted placement rests on: on a floor or a slope the resting point under the pointer (`placeAt`: grid snap,
+   * then the hull's height); on a wall or an overhang the struck point itself -- the hull's floor under it is no place on it.
+   */
+  const surfaceUnder = (hit: Intersection): { n: Vector3; at: Vector3 } => {
+    const n = hitNormal(hit);
+    return { n, at: n.y >= WALL_NORMAL_Y_MAX || hit.object === mapGrid.group ? placeAt(hit) : hit.point.clone() };
+  };
+  /**
+   * The struck face's outward normal in the world, turned to the camera's side (the blank floor's straight up, or down
+   * seen from below; a workplane hit's the workplane's, `workplaneHitAt`). The camera's side read from the camera, not the shared ray: a
+   * placed piece builds after the pointer moved on; an orthographic view's by its look, any perspective one's by its place.
+   */
+  const hitNormal = (hit: Intersection): Vector3 => {
+    const n = new Vector3(0, 1, 0);
+    if (hit.object === mapGrid.group) n.set(...workplane.n);
+    else if (hit.face && hit.object !== floorPlane) {
+      const m = hit.object.matrixWorld.clone();
+      if (hit.object instanceof InstancedMesh && hit.instanceId !== undefined) { const im = new Matrix4(); hit.object.getMatrixAt(hit.instanceId, im); m.multiply(im); }
+      n.copy(hit.face.normal).applyMatrix3(new Matrix3().getNormalMatrix(m)).normalize();
+    }
+    const cam = fly.viewportCamera();
+    const look = (cam as { isOrthographicCamera?: boolean }).isOrthographicCamera === true
+      ? cam.getWorldDirection(new Vector3())
+      : hit.point.clone().sub(cam.getWorldPosition(new Vector3()));
+    if (n.dot(look) > 0) n.negate();
+    return n;
+  };
+  /**
+   * Snap to Workplane's ground: where the pointer's ray at `ndc` meets the workplane (within reach), as a hit on the
+   * grid's group (`placeAt` and `hitNormal` know it); null when the ray misses it (it is edge-on, or behind).
+   */
+  const workplaneHitAt = (ndc: Vector2): Intersection | null => {
+    ray.setFromCamera(ndc, fly.viewportCamera());
+    const p = rayOnWorkplane(workplane, ray.ray.origin, ray.ray.direction, WORKPLANE_REACH);
+    return p ? ({ distance: p.distanceTo(ray.ray.origin), point: p, object: mapGrid.group } as Intersection) : null;
+  };
+  /** What a placement is seated on under `ndc`: the workplane while Snap to Workplane is on (the surface where it misses), else the surface (`pick`). */
+  /**
+   * Snap to Workplane in effect: on, and the workplane shown (the owner, 2026-11-16: "when the workplane is off, disable the
+   * snap to workplane setting and don't snap to the workplane but instead do what we did before"). Kept as set while hidden.
+   */
+  const workplaneSnapOn = (): boolean => surfaceSnap && workplaneSnap && view.grid;
+  /** Snap to Surface Normal in effect: on, and surface snapping on (its dependent; `syncWorkplaneSnapRow`). */
+  const surfaceNormalOn = (): boolean => surfaceSnap && surfaceNormal;
+  const placePick = (ndc: Vector2): Intersection | null => (workplaneSnapOn() ? nearerOfWorkplane(pick(ndc), ndc) : pick(ndc));
+  /** What a gizmo drag is seated on under `ndc`: as `placePick`, the surface past `skip` (`pickSurface`). */
+  const dragSurface = (ndc: Vector2, skip: readonly Object3D[]): Intersection | null => (workplaneSnapOn() ? nearerOfWorkplane(pickSurface(ndc, skip), ndc) : pickSurface(ndc, skip));
+  /**
+   * The workplane where the pointer sees it, else the surface (the owner, 2026-11-17: "if the grid goes under the current
+   * geometry, then don't place on the hidden workplane but on the geometry above it" -- a wall's workplane behind the
+   * ground the pointer is on): `surface` when it is nearer along the ray than the workplane is by more than
+   * `WORKPLANE_SEE_TOLERANCE` (a hair, so a workplane picked off that very surface still takes it), else the workplane's
+   * hit (`workplaneHitAt`); the surface where the ray misses the workplane.
+   */
+  const nearerOfWorkplane = (surface: Intersection | null, ndc: Vector2): Intersection | null => {
+    const onPlane = workplaneHitAt(ndc);
+    if (!onPlane) return surface;
+    if (surface && surface.distance < onPlane.distance - Math.max(WORKPLANE_SEE_TOLERANCE, onPlane.distance * 1e-3)) return surface;
+    return onPlane;
+  };
+  /**
+   * Snap to Surface Normal for the Place tool (the owner, 2026-11-16: "it should also work for the place tool"): the
+   * chosen prop -- its ghost and the piece a click places -- tilted onto the surface under the cursor (`tiltOnto`, its
+   * yaw the Place tool's turn), a wall's included (its up out of the wall, as Unreal's). Not a ladder (stood against a
+   * wall, `wallPose`), nor off the map (the sky: no surface). False: not taken, placed as before.
+   */
+  const placeTilt = (o: Object3D, hit: Intersection | null, asset: string | undefined): boolean => {
+    if (!surfaceNormalOn() || mode !== 'place' || !hit || !asset || ladderFronts.get(asset)) return false;
+    tiltOnto(o, hit, (placementYaw() * 180) / Math.PI, 0);
+    return true;
   };
   /** The lowest foot of the dragged members at the drag's start (`objectBox`), for the group's snap; null between drags. */
   let groupDragLow: number | null = null;
@@ -3346,7 +3601,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         showSelection();
         say(`Could not duplicate the selected user props: ${String(error)}`, true);
       });
-    } else if (gizmo.object === pivot && dragFrom && !pendingGroupPropDrag) applyPivot(dragFrom);
+    } else if (gizmo.object === pivot && dragFrom && !pendingGroupPropDrag) { takeBaseProps(dragFrom); applyPivot(dragFrom); }
+    // The geometry objects picked in Object mode, carried live by the pivot's change since the drag began.
+    if (geoDrag && gizmo.object === pivot) {
+      pivot.updateMatrixWorld(true);
+      geoDrag.delta = pivot.matrixWorld.clone().multiply(geoDrag.start.clone().invert());
+      geometry?.moveBy(geoDrag.delta);
+    }
     // FC2-7 (ours): a scale drag stops where a piece it carries would leave the record's bounds (0.1..4), as a group's
     // stops at its own pieces' (`clampedFactor`): the last scale that kept them all is put back. (No refusal said: the
     // gizmo's drag has no clean point to refuse at, so it stops, as FX-9's bounds do.)
@@ -3410,11 +3671,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         : followersOf(gizmo.object === pivot ? picks.items : selected && gizmo.object === selected ? [selected] : []);
       dragScaleKept = gizmo.object ? gizmo.object.scale.clone() : null;   // FC2-7 (ours): the drag's start, within bounds
       dragTurnKept = gizmo.object ? gizmo.object.quaternion.clone() : null;   // FC2 (ours): its turn, every pack piece level
+      dragTilted = false;
+      dragYaw = gizmo.object ? turnOf(gizmo.object.quaternion).yaw : 0;       // Snap to Surface Normal keeps it (`surfaceTilt`)
       if (gizmo.object === pivot) {
         const centre: Vec3 = [pivot.position.x, pivot.position.y, pivot.position.z];
         const poses = picks.items.map(poseOf);
         dragFrom = { centre, poses };
-        const feet = picks.items.map((r) => objectBox(r).min.y).filter((y) => Number.isFinite(y));
+        // The geometry objects picked in Object mode go with the pivot, drawn live (`GeometryEditor.beginMove`).
+        if (geoPicks.size && geometry) {
+          pivot.updateMatrixWorld(true);
+          geoDrag = { ids: [...geoPicks], start: pivot.matrixWorld.clone(), delta: null };
+          geometry.beginMove(geoDrag.ids);
+        }
+        const feet = [...picks.items.map((r) => objectBox(r).min.y), ...[...geoPicks].map((id) => geoBox(id)?.min.y ?? NaN)].filter((y) => Number.isFinite(y));
         groupDragLow = feet.length ? Math.min(...feet) : null;
         if (duplicateModifierOnPointerDown && isGroup()) {
           const sources = picks.items.filter((r) => !lockedOf(r));
@@ -3422,7 +3691,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             sources, poses: sources.map(poseOf), scales: sources.map((r) => r.scale.clone()), centre, before: selectionIds(), started: false, ended: false,
           };
           passOver('copied');
-        } else passOver('moved');
+        } else if (basePicks.size) pendingBaseTake = [...basePicks.items];   // taken over at the drag's first move (`takeBaseProps`)
       }
       // A map prop dragged: Ctrl copies it (the original stays); a plain drag takes it over (the owner, 2026-11-06: a custom
       // version of an official map) -- it becomes the layout's own piece at its place, the original hidden, one edit.
@@ -3458,6 +3727,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     dragFollow = null;
     pendingMapPropDrag = null;
     pendingUserPropDrag = null;
+    // The geometry objects the drag carried (`geoDrag`): moved by the pivot's whole change, once -- `fold`, into the step
+    // the placements' move just recorded (one undo for the gesture), else a step of their own ("Move geometry").
+    const geoDone = geoDrag;
+    geoDrag = null;
+    const finishGeometry = (fold: boolean): void => {
+      if (!geoDone || !geometry) return;
+      pivot.updateMatrixWorld(true);
+      const delta = pivot.matrixWorld.clone().multiply(geoDone.start.clone().invert());
+      foldGeometryNext = fold;
+      geometry.endMove(geoDone.ids, delta.elements);
+      foldGeometryNext = false;
+      refreshBox();
+    };
+    if (geoDone && (pendingGroupPropDrag || groupPropDragStep)) finishGeometry(false);   // a Ctrl copy's placements: the geometry moved, a step of its own
     if (mapPropDragStep) {
       const duplicate = mapPropDragStep;
       mapPropDragStep = null;
@@ -3491,7 +3774,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // piece a save keeps. FC2-6 (ours): a turn about Y alone too -- the record keeps a whole degree of yaw, a piece's and
     // a marker's (`creator-contracts` `wholeDeg`), and a typed Yaw is put there (FC2-7) -- and a marker turned is put on
     // its whole degree of yaw (`yawTo`); before, a Y-ring turn was kept as it was let go, a fraction a save then dropped.
-    const posed = gizmo.mode === 'scale' || gizmo.mode === 'rotate';
+    // A move that tilted its piece to the surface (Snap to Surface Normal, `surfaceTilt`) is put on the lattice too.
+    const posed = gizmo.mode === 'scale' || gizmo.mode === 'rotate' || dragTilted;
+    dragTilted = false;
     const onLattice = !posed ? [] : group ? picks.items.filter((r) => !isMarker(r))
       : selected && gizmo.object === selected && kindOf(selected) === 'Piece' ? [selected] : [];
     const markersTurned = gizmo.mode !== 'rotate' ? [] : group ? picks.items.filter(isMarker)
@@ -3511,8 +3796,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (onLattice.length > 0 || markersTurned.length > 0) { refreshBox(); refreshInspector(); }
     // A drag is one step (FUI-6: the move's, the turn's or the scale's entry; the drag already moved, so it is only
     // recorded). FX-9: a scale is `placement.set`'s `scale`, the Inspector's Scale fields' entry ("Set scale").
+    const layoutWas = decodeHistoryStep(history.current()).text;
     if (gizmo.mode === 'scale') personEdit('placement.set', { refs: selectionIds(), field: 'scale' }, () => edit(), true);
     else personEdit(gizmo.mode === 'rotate' ? 'piece.rotate' : 'piece.move', { refs: selectionIds() }, () => edit(), true);
+    // The geometry the drag carried: folded into the placements' step when the drag recorded one (their layout changed).
+    finishGeometry(decodeHistoryStep(history.current()).text !== layoutWas);
     if (group) placePivot();
   });
   /** The selection's boxes, one per member (FG-47); the first is the single selection's. */
@@ -4055,6 +4343,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let playLoading: 'direct' | 'loading' = 'direct';
   let selectUserProps = true;
   /**
+   * The Select tool's Geometry (the owner, 2026-11-16: "allow to select meshes when in normal object mode ... should be on
+   * by default"): a click or Ctrl-click picks a whole geometry object -- the map's world sections and the objects made in
+   * Geometry mode -- beside the placements, for the gizmo to move (`geoPicks`); off, geometry is passed over.
+   */
+  let selectGeometry = true;
+  /** The geometry objects picked in Object mode, by id (the drawn layer's: `GeometryEditor.objectAt`). */
+  const geoPicks = new Set<string>();
+  /**
    * Select hidden overlays (the owner, 2026-11-13: "allow objects to be selectable ... even when their billboards are
    * hidden"; on by default; a browser adaptation, FG.R2): a kind whose billboards are switched off (or every billboard
    * off) is still picked -- its object by a click on it, a mark-only one where its mark would be. Off, as before: a kind
@@ -4382,12 +4678,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       turnSnap = typeof raw['turnSnap'] === 'boolean' ? raw['turnSnap'] : snap;
       if (raw['surfaceSnap'] === false) surfaceSnap = false;     // on unless kept off
       if (typeof raw['surfaceOffset'] === 'number' && Number.isFinite(raw['surfaceOffset'])) surfaceOffset = raw['surfaceOffset'];
+      const wpRaw = raw['workplane'] as { at?: unknown; n?: unknown } | undefined;
+      const v3 = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
+      if (wpRaw && v3(wpRaw.at) && v3(wpRaw.n) && Math.hypot(...wpRaw.n) > 0.5) perspectiveWorkplane = { at: wpRaw.at, n: wpRaw.n };
+      else if (typeof raw['workplaneY'] === 'number' && Number.isFinite(raw['workplaneY'])) perspectiveWorkplane = flatWorkplane(raw['workplaneY']);   // kept before it could tilt
+      if (workplaneView === 'perspective') workplane = perspectiveWorkplane;
+      if (raw['workplaneSnap'] === true) workplaneSnap = true;   // off unless kept on
+      if (raw['surfaceNormal'] === true) surfaceNormal = true;   // off unless kept on
       if (raw['assetTips'] === false) assetTips = false;
       if (raw['assetHoverSound'] === false) assetHoverSound = false;
       if (raw['assetLoopSounds'] === false) assetLoopSounds = false;
       if (typeof raw['assetPreviewVolume'] === 'number' && Number.isFinite(raw['assetPreviewVolume'])) assetPreviewVolume = Math.max(0, Math.min(1, raw['assetPreviewVolume']));
       if (raw['selectMapProps'] === false) selectMapProps = false;
       if (raw['selectUserProps'] === false) selectUserProps = false;
+      if (raw['selectGeometry'] === false) selectGeometry = false;
       if (raw['selectHidden'] === false) selectHidden = false;
       if (raw['playSpawn'] === 'random') playSpawn = 'random';
       if (raw['playSide'] === 'seal' || raw['playSide'] === 'terrorist' || raw['playSide'] === 'spectator') playSide = raw['playSide'];
@@ -4421,7 +4725,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const main = lookNow();                                    // the overlays: one setting for every view
     // The Draw switches kept at the top are the first view's too (its own, `VIEW_DRAW_OWN`, while another has the menus).
     const mainDraw = splitNow && split!.active() !== 0 ? splitNow.views[0]?.look?.draw ?? {} : {};
-    writeKey(VIEW_KEY, JSON.stringify({ ...(splitNow ? { split: splitNow } : keptSplit ? { split: keptSplit } : {}), ...view, ...mainDraw, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, turnSnap, ...(surfaceSnap ? {} : { surfaceSnap: false }), ...(surfaceOffset ? { surfaceOffset } : {}), ...(assetTips ? {} : { assetTips: false }), ...(assetHoverSound ? {} : { assetHoverSound: false }), ...(assetLoopSounds ? {} : { assetLoopSounds: false }), ...(assetPreviewVolume === 1 ? {} : { assetPreviewVolume }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(selectHidden ? {} : { selectHidden: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), ...(playLoading === 'loading' ? { playLoading } : {}), ...(gizmoSpace === 'local' ? { space: 'local' } : {}), billboards: { on: main.on, top: billboardsOnTop, glows: main.glows, arrows: main.arrows, ...(main.onlyUser ? { onlyUser: true } : {}), off: [...main.off], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
+    writeKey(VIEW_KEY, JSON.stringify({ ...(splitNow ? { split: splitNow } : keptSplit ? { split: keptSplit } : {}), ...view, ...mainDraw, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, turnSnap, ...(surfaceSnap ? {} : { surfaceSnap: false }), ...(surfaceOffset ? { surfaceOffset } : {}), ...(isDefaultWorkplane(perspectiveWorkplane) ? {} : { workplane: perspectiveWorkplane }), ...(workplaneSnap ? { workplaneSnap: true } : {}), ...(surfaceNormal ? { surfaceNormal: true } : {}), ...(assetTips ? {} : { assetTips: false }), ...(assetHoverSound ? {} : { assetHoverSound: false }), ...(assetLoopSounds ? {} : { assetLoopSounds: false }), ...(assetPreviewVolume === 1 ? {} : { assetPreviewVolume }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(selectGeometry ? {} : { selectGeometry: false }),...(selectHidden ? {} : { selectHidden: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), ...(playLoading === 'loading' ? { playLoading } : {}), ...(gizmoSpace === 'local' ? { space: 'local' } : {}), billboards: { on: main.on, top: billboardsOnTop, glows: main.glows, arrows: main.arrows, ...(main.onlyUser ? { onlyUser: true } : {}), off: [...main.off], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
   };
   const drawPlacement = (): void => {
     viewportGridIn.value = String(gridStep);
@@ -4429,11 +4733,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // Each snap's pill: its switch lit while on, its step on its dropdown (dimmed while off).
     gridSnapUi.draw(snap, gridStep);
     mapGrid.setStep(gridStep);                                 // the drawn grid the snap's (`./mapGrid`)
+    // The workplane: the grid drawn on it; the dropdown's line says where it is (the pill its step alone).
+    mapGrid.setWorkplane(workplane);
+    const wpFlat = isFlatWorkplane(workplane);
+    // A flat one's height said; a tilted one's normal not (the owner, 2026-11-17: "Remove the tilted normal text").
+    workplaneNormal.textContent = wpFlat ? `Flat at height ${workplane.at[1]}${workplane.n[1] > 0 ? '' : ', facing down'}` : '';
+    workplaneNormal.hidden = !wpFlat;
+    // The pill its step alone (the owner, 2026-11-16: "don't show tilted or whatever the direction is"); where the
+    // workplane is, the dropdown's line says, and the pill's tooltip.
+    gridSnapUi.summary.title = `Workplane snap: its step, and the workplane${wpFlat ? (workplane.at[1] ? ` (at height ${workplane.at[1]})` : '') : ' (tilted)'}`;
+    workplaneSnapIn.checked = workplaneSnap;
     turnSnapUi.draw(turnSnap, turnStep);
     // Surface snapping's button lit while on; its offset.
     surfaceIn.checked = surfaceSnap;
+    surfaceNormalIn.checked = surfaceNormal;
     surfaceSummary.classList.toggle('is-on', surfaceSnap);
-    surfaceSummary.title = `Surface snapping ${surfaceSnap ? 'on' : 'off'}: its settings`;
+    surfaceSummary.title = `Workplane and surface snapping (surface snapping ${surfaceSnap ? 'on' : 'off'}): their settings · middle-click: pick the workplane · Shift+middle-click: reset it`;
     if (doc.activeElement !== surfaceOffsetIn) surfaceOffsetIn.value = String(surfaceOffset);
     assetPreviewToggle.checked = assetTips;
     assetHoverSoundToggle.checked = assetHoverSound;
@@ -4536,6 +4851,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (view.collision) scheduleHull();
     syncAiMap(true);
     for (const [id, i] of viewportToggleInputs) i.checked = view[id];
+    workplaneShowIn.checked = view.grid;
+    syncWorkplaneSnapRow();
     texturedInput.checked = texturedOn;
     litInput.checked = litOn;
     syncGeometryDependents();
@@ -4548,6 +4865,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   texturedInput.checked = texturedOn;
   litInput.checked = litOn;
   for (const [id, i] of viewportToggleInputs) i.checked = view[id];
+  workplaneShowIn.checked = view.grid;
+  syncWorkplaneSnapRow();
   syncGeometryDependents();
   drawBillboardSwitches();                                    // the Billboards dropdown as the view was kept
   /**
@@ -5450,27 +5769,113 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let geoRev = 0;
   let geoNext = 1;
   let geoSnaps = new Map<number, GeometrySnapshot | null>([[0, null]]);
+  /** Bug 1: the geometry history's generation -- a new one each open (`resetGeoHistory`), so a revision names one geometry. */
+  let geoGen = 0;
   const resetGeoHistory = (): void => {
     geoRev = 0;
     geoNext = 1;
+    geoGen++;
     geoSnaps = new Map([[0, geometry?.snapshot() ?? null]]);
   };
   const recordGeometryStep = (label: string): void => {
     const rev = geoNext++;
     geoSnaps.set(rev, geometry?.snapshot() ?? null);
     geoRev = rev;
-    recordGeometryEdit(history, rev, label);
+    // Object mode's gizmo moving placements and geometry together: one step for the gesture (`foldGeometryEdit`).
+    if (foldGeometryNext) { foldGeometryNext = false; foldGeometryEdit(history, rev); }
+    else recordGeometryEdit(history, rev, label);
     stampSel();
     // A revision no step names now (fallen off the history's end, or a redo branch gone) is let go.
     const named = new Set(history.allStates().map((raw) => decodeHistoryStep(raw).geo ?? 0));
     for (const k of [...geoSnaps.keys()]) if (!named.has(k)) geoSnaps.delete(k);
     refreshUndo();
+    saveSoon();                                               // bug 1: the geometry is the layout's too: autosaved
   };
   const restoreGeometry = (to: number): void => {
     if (to === geoRev) return;
     geoRev = to;
     geometry?.restoreSnapshot(geoSnaps.get(to) ?? null);
+    saveSoon();
   };
+  /**
+   * Bug 1 (the Forge geometry audit; the owner, 2026-11-16: "Edits aren't saved. A reload, a base switch or opening a
+   * layout loses everything, with no warning"; a browser adaptation, FG.R2): the geometry a layout saves is an asset of
+   * its own in this browser (`./geometryStore`, by its content's hash), the layout naming it (`Layout.geometry`), as
+   * Hammer keeps a map's mesh edits in its `.vmap`. `geoSaved`: the asset of the geometry at a revision (`geometryKey`),
+   * so an autosave encodes a geometry once, not at every save of the layout; null, the base's own geometry.
+   */
+  let geoSaved: { key: string; ref: string | null } | null = null;
+  let geoSaving: { key: string; ref: Promise<string | null> } | null = null;
+  const geometryKey = (): string => `${geoGen}:${geoRev}`;
+  /** The geometry's asset now: written once a revision (`putGeometry`), null when no edit of the person's made it. */
+  const geometryRefNow = (): Promise<string | null> => {
+    const key = geometryKey();
+    if (geoSaved?.key === key) return Promise.resolve(geoSaved.ref);
+    if (geoSaving?.key === key) return geoSaving.ref;
+    const s = geometry?.savedGeometry() ?? null;
+    if (!s) { geoSaved = { key, ref: null }; return Promise.resolve(null); }
+    const map = geometry?.textureMap() ?? null;
+    const lent = map ? lentTextures.get(map.textures) : undefined;
+    // Encoded now (the geometry as it stands at this revision), kept once compressed and hashed.
+    const bytes = encodeGeometry({ geo: s.geo, hull: s.hull, lent: s.textures.flatMap((n) => { const id = lent?.get(n.toLowerCase()); return id ? [id] : []; }) });
+    const was = geoSaved?.ref ?? null;
+    const ref = gzip(bytes).then(putGeometry).then((id) => {
+      if (geoSaving?.key === key) geoSaving = null;
+      geoSaved = { key, ref: id };
+      return id;
+    }, (e: unknown) => {
+      if (geoSaving?.key === key) geoSaving = null;
+      // Refused (the store full, closed): the last asset kept stays named, so a save never drops the edits it had.
+      say(`The geometry edits could not be saved in this browser (${e instanceof Error ? e.message : String(e)}): the last saved ones stay`, true);
+      return was;
+    });
+    geoSaving = { key, ref };
+    return ref;
+  };
+  /** `l` as a save writes it: its geometry's asset named (`geometryRefNow`), none when the base's own. */
+  const withGeometry = async (l: Layout): Promise<Layout> => {
+    const ref = await geometryRefNow();
+    const { geometry: _was, ...rest } = l as Layout & { geometry?: string };
+    return ref ? { ...rest, geometry: ref } as Layout : rest as Layout;
+  };
+  /**
+   * `l` as a save at once writes it (the page's close; a check that refuses an online lobby): the asset already written
+   * for this revision, else the last one written (an edit not yet kept: a close loses that edit alone, never all of them).
+   */
+  const withGeometryNow = (l: Layout, check = false): Layout => {
+    const { geometry: _was, ...rest } = l as Layout & { geometry?: string };
+    const key = geometryKey();
+    // `check` (a refusal's read, never written): an edit not yet kept names a stand-in, so the check sees the geometry.
+    const ref = geoSaved?.key === key ? geoSaved.ref : geometry?.savedGeometry() ? geoSaved?.ref ?? (check ? UNSAVED_GEOMETRY_REF : null) : null;
+    return ref ? { ...rest, geometry: ref } as Layout : rest as Layout;
+  };
+  /** The geometry has a person's edits now (the drop warnings: `askSaveFirst`). */
+  const geometryEdited = (): boolean => geometry?.savedGeometry() != null;
+  /**
+   * The layout's saved geometry put back as its base opens (`openLayoutNow`): the textures it borrowed lent again, then the
+   * edited meshes over the base's own (`GeometryEditor.restoreSaved`). One this browser has not (another browser's, or
+   * one swept) is said, and its name kept until the next geometry edit, so an autosave does not drop it unsaid.
+   */
+  const restoreLayoutGeometry = async (l: Layout): Promise<void> => {
+    const ref = l.geometry;
+    if (!ref || !geometry) return;
+    let shown = false;
+    try {
+      const bytes = await getGeometry(ref);
+      if (!bytes) { say('This layout\'s geometry edits are not in this browser (saved in another one, or removed): the map\'s own geometry is shown', true); return; }
+      const file = decodeGeometry(await gunzip(bytes));
+      const map = base?.kind === 'map' ? baseMap : base?.kind === 'blank' ? blankGeometryMap() : null;
+      if (map) for (const id of file.lent) { const t = parseTextureAsset(id); if (t && !map.textures[t.name.toLowerCase()]) await lendInto(map, id); }
+      shown = geometry.restoreSaved(file);
+    } catch (e) {
+      say(`This layout's geometry edits could not be read (${e instanceof Error ? e.message : String(e)}): the map's own geometry is shown`, true);
+    } finally {
+      pendingGeometryRef = ref;
+      if (!shown) drawOutlinerSoon();
+    }
+  };
+  /** The open's geometry name, taken by the history's reset (`openLayoutNow`): the asset at revision 0 of the new generation. */
+  let pendingGeometryRef: string | null = null;
   /**
    * Selection in the history (the owner, 2026-11-15: "make selection part of the undo history, from face, point, edge,
    * object, outliner, etc. in general any selection pattern should be part of the undo"; as Unreal's selection is a
@@ -5646,8 +6051,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * writes its authoring envelope (`./rulesAuthoring` `forgeAuthoringText`); without, the record exactly as before.
    */
   const autosaveText = (l: ForgeLayout): { text: string } | { why: string } => forgeAuthoringText(l, l.name?.trim() || AUTOSAVE_NAME);
-  const writeAutosaveNow = async (l: Layout): Promise<void> => {
+  const writeAutosaveNow = async (laid: Layout): Promise<void> => {
     if (keepEarlier) return;
+    const l = await withGeometry(laid);                       // bug 1: the edited geometry's asset named
     const made = autosaveText(l);
     if ('why' in made) {
       if (made.why !== autosaveRefusal) { autosaveRefusal = made.why; say(`This layout is not saved: ${made.why}`, true); }
@@ -5669,11 +6075,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     } else autosaveRefusal = '';
     statusChips.update();
   };
-  const changed = (): void => {
-    agentMark();                                              // browser adaptation: the agent's layout revision
+  /** The autosave 300 ms after the last edit (a layout's, or bug 1's: the geometry's, `recordGeometryStep`). */
+  const saveSoon = (): void => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { savePending = false; const l = settledLayout(); if (l && !autosaveOff) void writeAutosave(l); statusChips.update(); }, 300);
     savePending = true;
+    statusChips.update();
+  };
+  const changed = (): void => {
+    agentMark();                                              // browser adaptation: the agent's layout revision
+    saveSoon();
     lastIssues = null;                                        // FUI-4: an edit makes the last check stale
     refreshCounts();
     refreshGameTypes();                                       // FG-51: Demolition's readiness follows the markers
@@ -5690,10 +6101,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
 
   /* ---------- selection, inspector, outliner ---------- */
   /** FG-47: whether the selection is a group (more than one member). */
-  const isGroup = (): boolean => picks.size + basePicks.size > 1;
+  const isGroup = (): boolean => picks.size + basePicks.size + geoPicks.size > 1;
+  /** A geometry object's box as it is drawn now: where the gizmo's drag carries it (`geoDrag`), else where it stands. */
+  const geoBox = (id: string): Box3 | null => {
+    const b = geometry?.objectBounds(id);
+    if (!b) return null;
+    const box = new Box3(new Vector3(...b.min), new Vector3(...b.max));
+    return geoDrag?.delta ? box.applyMatrix4(geoDrag.delta) : box;
+  };
   /** A box per member (FG-47): a map prop's read at its pick, a placement's from its drawing; none while playing. */
   const refreshBox = (): void => {
-    const list = playing ? [] : [...basePicks.items.map((b) => b.box), ...picks.items.map((r) => new Box3().setFromObject(r))];
+    const geoBoxes = [...geoPicks].flatMap((id) => { const b = geoBox(id); return b ? [b] : []; });
+    const list = playing ? [] : [...basePicks.items.map((b) => b.box), ...picks.items.map((r) => new Box3().setFromObject(r)), ...geoBoxes];
     while (boxes.length < list.length) { const h = new Box3Helper(new Box3(), new Color(0xd8a640)); scene.add(h); boxes.push(h); }
     boxes.forEach((h, i) => {
       const b = list[i];
@@ -5721,7 +6140,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** FG-47: the placements picked, their poses replaced (the same order). */
   const applyPoses = (poses: readonly Pose[]): void => { picks.items.forEach((r, i) => { const m = poses[i]; if (m) applyPose(r, m); }); };
-  const groupCentre = (): Vec3 | null => centreOf(picks.items.map((r) => [r.position.x, r.position.y, r.position.z] as Vec3));
+  const groupCentre = (): Vec3 | null => centreOf([
+    ...picks.items.map((r) => [r.position.x, r.position.y, r.position.z] as Vec3),
+    // The map props picked with them (a group's drag takes them over: `takeBaseProps`): each at its placement.
+    ...basePicks.items.map((b): Vec3 => [b.matrix.elements[12]!, b.matrix.elements[13]!, b.matrix.elements[14]!]),
+    // The geometry objects picked in Object mode: each by its box's middle.
+    ...[...geoPicks].flatMap((id): Vec3[] => { const b = geoBox(id); if (!b) return []; const c = b.getCenter(new Vector3()); return [[c.x, c.y, c.z]]; }),
+  ]);
   /** FG-47: the pivot at the group's centre, unturned (not during the gizmo's drag). */
   const placePivot = (): void => {
     const c = groupCentre();
@@ -10014,11 +10439,39 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       li.dataset['geometryObject'] = o.id;
       li.insertAdjacentHTML('beforeend', icon('geometry'));
       li.append(el(doc, 'span', 'fx-row-label', o.name), el(doc, 'span', 'fx-dim', o.kind === 'world' ? 'section' : o.kind));
-      li.classList.toggle('is-on', o.selected);
-      li.title = `${o.name}: click to select it in Geometry mode${list === madeCol || list === mapCol ? ', on the Collision layer' : ''} (Shift selects the rows from the last one clicked, Ctrl adds or takes it out); double-click to frame it`;
+      // Object mode (the owner, 2026-11-16: "when I click on the geometry object in the outliner it should not switch to
+      // geometry mode. it should just be a normal select like I did in the viewport"): a drawn object's row picks it as a
+      // click in the viewport does (`geoPicks`), beside the placements; its double-click opens Geometry mode on it. A
+      // collision object's row opens its layer in Geometry mode as before (Object mode moves the drawn layer only).
+      const drawnRow = list === madeGeo || list === mapGeo;
+      const objectMode = drawnRow && !geometry?.isActive();
+      li.classList.toggle('is-on', objectMode ? geoPicks.has(o.id) : o.selected);
+      li.title = objectMode
+        ? `${o.name}: click to select it (Shift selects the rows from the last one clicked, Ctrl adds or takes it out); double-click to open it in Geometry mode`
+        : `${o.name}: click to select it in Geometry mode${list === madeCol || list === mapCol ? ', on the Collision layer' : ''} (Shift selects the rows from the last one clicked, Ctrl adds or takes it out); double-click to frame it`;
       // As every other row of the Outliner: Shift every row of its folder from the last one clicked to this; Ctrl (Cmd)
       // this one in or out; else this one alone.
       li.addEventListener('click', (e) => {
+        if (drawnRow && !geometry?.isActive()) {
+          if (!selectGeometry) { say('Select geometry is off (the Select tool\'s settings): double-click to open it in Geometry mode', true); return; }
+          const ids = list.map((x) => x.id);
+          if (e.shiftKey) {
+            const to = ids.indexOf(o.id), from = geoAnchor === null ? -1 : ids.indexOf(geoAnchor);
+            const [a, b] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
+            select(null);
+            for (const id of ids.slice(a, b + 1)) geoPicks.add(id);
+          } else if (e.ctrlKey || e.metaKey) {
+            geoAnchor = o.id;
+            if (geoPicks.has(o.id)) geoPicks.delete(o.id); else { geometry?.openBase(); geoPicks.add(o.id); }
+          } else {
+            geoAnchor = o.id;
+            select(null);
+            geoPicks.add(o.id);
+          }
+          geometry?.openBase();                                   // the base's geometry opened for it (as a viewport pick opens it)
+          showSelection();
+          return;
+        }
         if (e.shiftKey) {
           const ids = list.map((x) => x.id);
           const to = ids.indexOf(o.id), from = geoAnchor === null ? -1 : ids.indexOf(geoAnchor);
@@ -10229,14 +10682,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (!folders.includes(f) || held.some((o) => !picks.has(o))) folderPicks.delete(f);
       }
     }
-    selected =picks.size === 1 && basePicks.size === 0 ? picks.items[0]! : null;
-    baseSelected = basePicks.size === 1 && picks.size === 0 ? basePicks.items[0]! : null;
+    // Geometry objects picked in Object mode (`geoPicks`): only while Geometry mode is off, and only those still drawn.
+    if (geometry?.isActive()) geoPicks.clear();
+    for (const id of [...geoPicks]) if (!geometry?.hasObject(id)) geoPicks.delete(id);
+    if (geoPicks.size && (entityPicked !== null || mapDataSelected)) { entityPicked = null; mapDataSelected = null; }
+    selected = picks.size === 1 && basePicks.size === 0 && geoPicks.size === 0 ? picks.items[0]! : null;
+    baseSelected = basePicks.size === 1 && picks.size === 0 && geoPicks.size === 0 ? basePicks.items[0]! : null;
     // A prop being re-placed follows the cursor: no gizmo on it meanwhile.
     // A locked placement is selected and inspected, never moved (the owner, 2026-11-11): no gizmo on it, nor on a group
     // of locked ones alone (a group with some unlocked moves those: `sources` below).
     const anyMovable = picks.items.some((r) => !lockedOf(r));
     const on = replacing ? null : selected ? (lockedOf(selected) ? null : selected)
-      : (baseSelected ? mapPropProxy : isGroup() && anyMovable ? pivot : mapDataMoving().length ? mapDataProxy
+      : (baseSelected ? mapPropProxy : (isGroup() && (anyMovable || basePicks.size > 0)) || geoPicks.size > 0 ? pivot : mapDataMoving().length ? mapDataProxy
         : inspectedEntity() && !editsLocked() ? entityProxy : null);
     if (on === entityProxy) {
       const entity = inspectedEntity();
@@ -10264,9 +10721,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       gizmo.showX = tilts || gizmo.mode !== 'rotate';
       gizmo.showZ = tilts || gizmo.mode !== 'rotate';
     } else gizmo.detach();
-    dupBtn.disabled = picks.size === 0;
+    dupBtn.disabled = picks.size === 0 && geoPicks.size === 0;   // geometry objects picked in Object mode duplicate too
     // A locked placement is never deleted: Delete greyed while only locked ones are picked.
-    delBtn.disabled = picks.items.filter((r) => !lockedOf(r)).length + basePicks.size + dataPicks.size + folderPicks.size === 0 && entityPicked === null && !(mapDataSelected && hiddenDataKeyOf(mapDataSelected));   // FCW-32 step 4: an entity's row too
+    delBtn.disabled = picks.items.filter((r) => !lockedOf(r)).length + basePicks.size + dataPicks.size + folderPicks.size + geoPicks.size === 0 && entityPicked === null && !(mapDataSelected && hiddenDataKeyOf(mapDataSelected));   // FCW-32 step 4: an entity's row too
     const unlocking = picks.size === 0 && lockHeld.length > 0;
     lockBtn.disabled = (picks.size === 0 && !unlocking) || editsLocked();
     // A lock's icon, not its word (the owner, 2026-11-11): shut while the placement is locked, open while not.
@@ -10297,6 +10754,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // FCW-32 step 4 fold F3: nothing selected drops a picked rules entity too (Circle, Escape, a click on empty ground).
     if (o === null && entityPicked !== null) { entityPicked = null; drawRulesScene(); }
     folderPicks.clear();                                        // a placement (or nothing) selected lets a folder go
+    geoPicks.clear();                                           // and the geometry objects picked
     picks.only(o);
     basePicks.clear();
     showSelection();
@@ -10393,10 +10851,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     revealSelectionInOutliner();                               // F shows the selection in the tree too
     // F (and the menu's row) frames a selected map data item as its double-click does.
-    if (mapDataSelected && picks.size + basePicks.size === 0) { frameMapData(mapDataSelected); return; }
+    if (mapDataSelected && picks.size + basePicks.size + geoPicks.size === 0) { frameMapData(mapDataSelected); return; }
     const bounds = new Box3();
     for (const prop of basePicks.items) bounds.union(prop.box);
     for (const root of picks.items) bounds.union(new Box3().setFromObject(root));
+    // The geometry objects picked in Object mode (the viewport's or the Outliner's: the owner, 2026-11-16), by their boxes.
+    for (const id of geoPicks) { const b = geoBox(id); if (b) bounds.union(b); }
     // Map items picked together (a box, the Outliner's Shift / Ctrl): their places, each with a little room round it.
     for (const spec of dataPicks.values()) bounds.union(new Box3().setFromCenterAndSize(new Vector3(...spec.at), new Vector3(20, 20, 20).addScalar(spec.reach ?? 0)));
     focusOnBounds(bounds);
@@ -10542,7 +11002,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     input.addEventListener('change', apply);
     input.addEventListener('input', () => { if (doc.activeElement !== input) apply(); });
   }
-  surfaceIn.addEventListener('change', () => { surfaceSnap = surfaceIn.checked; pushGizmo(); drawPlacement(); writeView(); });
+  surfaceIn.addEventListener('change', () => { surfaceSnap = surfaceIn.checked; syncWorkplaneSnapRow(); pushGizmo(); drawPlacement(); writeView(); });
+  surfaceNormalIn.addEventListener('change', () => { surfaceNormal = surfaceNormalIn.checked; drawPlacement(); writeView(); });
   const applySurfaceOffset = (): void => {
     const v = Number(surfaceOffsetIn.value);
     surfaceOffset = Number.isFinite(v) ? v : 0;
@@ -10550,6 +11011,164 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     writeView();
   };
   surfaceOffsetIn.addEventListener('change', applySurfaceOffset);
+  // The workplane's height: typed, reset, or picked off a surface (`startWorkplanePick`).
+  const setWorkplane = (w: Workplane): void => {
+    workplane = w;
+    if (workplaneView === 'perspective') perspectiveWorkplane = w;
+    else orthoWorkplanes.set(workplaneView, w);
+    drawPlacement();
+    writeView();
+  };
+  /**
+   * An orthographic view's workplane before it is picked there: facing it (`viewAxisNormal`), through the perspective
+   * view's workplane (a top view over a flat one at 90: flat at 90).
+   */
+  const orthoWorkplaneFor = (): Workplane =>
+    pickedWorkplane(new Vector3(...perspectiveWorkplane.at), viewAxisNormal(fly.viewportCamera().getWorldDirection(new Vector3())), null);
+  /** The shown view's workplane (`orthoWorkplanes`): a view's change switches it; back in perspective, its own again. */
+  const workplaneForView = (view: ForgeViewportView): void => {
+    if (view === workplaneView) return;
+    endWorkplanePick();
+    workplaneView = view;
+    workplane = view === 'perspective' ? perspectiveWorkplane : orthoWorkplanes.get(view) ?? orthoWorkplaneFor();
+    drawPlacement();
+  };
+  // Reset: flat at 0 in perspective; an orthographic view's facing it through the origin.
+  workplaneResetBtn.addEventListener('click', () => {
+    endWorkplanePick();
+    if (workplaneView === 'perspective') { setWorkplane(flatWorkplane(0)); say('Workplane flat at height 0'); return; }
+    setWorkplane(pickedWorkplane(new Vector3(), viewAxisNormal(fly.viewportCamera().getWorldDirection(new Vector3())), null));
+    say('Workplane through the origin, facing the view');
+  });
+  workplaneSnapIn.addEventListener('change', () => { workplaneSnap = workplaneSnapIn.checked; drawPlacement(); writeView(); });
+  // The Workplane and Surface Snapping button, middle-clicked (the owner, 2026-11-17: "middle clicking the grid snap button
+  // should start the sample workplane process. shift + middle click to reset"; then "move the workplane settings and
+  // shortcuts to the surface snapping settings button"): its Pick, or Shift's Reset. The press's own default (the
+  // browser's autoscroll) taken off.
+  surfaceSummary.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
+  surfaceSummary.addEventListener('auxclick', (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    surfaceMenu.open = false;
+    if (e.shiftKey) { workplaneResetBtn.click(); return; }
+    // Hidden: shown first, then the pick (the owner, 2026-11-17: "If I have workplane disabled, but I press the mmb on
+    // the button it should enable it and start sampling").
+    if (!view.grid) { view.grid = true; applyView(); }
+    if (!workplanePicking) workplanePickBtn.click();
+  });
+  /**
+   * Pick (the workplane's eyedropper): the next left click on the viewport takes the height of the surface under it --
+   * the world, a placement, the geometry, the floor -- on the grid step while grid snap is on. Esc, or Pick again, cancels.
+   * The press is the pick's alone (taken before the tools hear it).
+   */
+  let workplanePicking = false;
+  /** The world axis a view looks most along, turned back toward the camera: an orthographic view's workplane normal. */
+  const viewAxisNormal = (look: Vector3): Vector3 => {
+    const k = [Math.abs(look.x), Math.abs(look.y), Math.abs(look.z)];
+    const i = k.indexOf(Math.max(...k));
+    return new Vector3().setComponent(i, -Math.sign(look.getComponent(i)));
+  };
+  /**
+   * The workplane a pick at `ndc` would set, and the point it shows it at: an orthographic view's facing it (the owner,
+   * 2026-11-16: "it should not snap to the surface normal but should always be in the direction of that perspective. it
+   * is merely a height from that pov"), a perspective view's onto the surface as it lies ("it should align to the sampled
+   * position's normal") -- its normal on the side it was clicked from; exactly at the clicked point, the snap step left out
+   * (the owner, 2026-11-17: "The sample workplane button should not take into account the snap step ... it should just be
+   * whatever the ground normal is"): the grid's lift and depth pull draw it over that surface. Null: nothing there.
+   */
+  const workplanePickAt = (ndc: Vector2): { w: Workplane; at: Vector3 } | null => {
+    const hit = pickSurface(ndc, []);
+    if (!hit) return null;
+    const cam = fly.viewportCamera();
+    const facing = (cam as { isOrthographicCamera?: boolean }).isOrthographicCamera === true ? viewAxisNormal(cam.getWorldDirection(new Vector3())) : null;
+    const w = pickedWorkplane(hit.point, facing ?? hitNormal(hit), null);
+    return { w, at: onWorkplane(w, hit.point, null) };
+  };
+  /**
+   * The pick's preview (the owner, 2026-11-16: "draw a normal arrow with a circle in the direction the workplane's up will
+   * be, so it is easier to visualize where the plane will be set"; a browser adaptation): under the cursor while picking,
+   * an arrow along the would-be workplane's normal standing on a mini plane lying in it, sized to the view, drawn over everything.
+   */
+  const WORKPLANE_PREVIEW_COLOUR = 0x5ae8f0;                    // the grid's brightest tier (`./mapGrid` TIER_LOOK)
+  const workplanePreview = new Group();
+  workplanePreview.name = 'forge workplane pick preview';
+  workplanePreview.visible = false;
+  workplanePreview.renderOrder = 10;
+  workplanePreview.userData['forgeLightingInstrument'] = true;
+  {
+    const lineMat = new LineBasicMaterial({ color: WORKPLANE_PREVIEW_COLOUR, depthTest: false, transparent: true });
+    // A mini plane (the owner, 2026-11-16: "instead of a circle draw a mini plane"): a square 2 across in the would-be
+    // workplane, its edge and a cross of grid lines over a see-through fill.
+    const ring = new BufferGeometry();
+    const pts: number[] = [];
+    for (const [x0, z0, x1, z1] of [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1], [-1, 0, 1, 0], [0, -1, 0, 1]] as const) pts.push(x0, 0, z0, x1, 0, z1);
+    const fill = new Mesh(new PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: WORKPLANE_PREVIEW_COLOUR, transparent: true, opacity: 0.22, side: DoubleSide, depthTest: false, depthWrite: false }));
+    fill.renderOrder = 10;
+    fill.frustumCulled = false;
+    workplanePreview.add(fill);
+    // The shaft, and the head's four strokes: a unit arrow up +Y from the plane's centre.
+    pts.push(0, 0, 0, 0, 1.6, 0);
+    for (const [x, z] of [[0.22, 0], [-0.22, 0], [0, 0.22], [0, -0.22]] as const) pts.push(0, 1.6, 0, x, 1.25, z);
+    ring.setAttribute('position', new BufferAttribute(Float32Array.from(pts), 3));
+    const lines = new LineSegments(ring, lineMat);
+    lines.renderOrder = 10;
+    lines.frustumCulled = false;
+    workplanePreview.add(lines);
+  }
+  scene.add(workplanePreview);
+  /** The preview at the would-be workplane under `ndc` (`workplanePickAt`), or hidden where there is nothing. */
+  const drawWorkplanePreview = (ndc: Vector2): void => {
+    const got = workplanePicking ? workplanePickAt(ndc) : null;
+    workplanePreview.visible = !!got;
+    if (!got) return;
+    const cam = fly.viewportCamera();
+    // Sized to the view: a twentieth of what the view spans there.
+    const span = 'isOrthographicCamera' in cam && cam.isOrthographicCamera
+      ? (cam.top - cam.bottom) / cam.zoom
+      : 2 * Math.tan(((cam as { fov: number }).fov * Math.PI) / 360) * got.at.distanceTo(cam.getWorldPosition(new Vector3()));
+    workplanePreview.position.copy(got.at);
+    workplanePreview.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(...got.w.n));
+    workplanePreview.scale.setScalar(Math.max(1e-3, span / 20));
+    workplanePreview.updateMatrixWorld(true);
+  };
+  const endWorkplanePick = (): void => {
+    if (!workplanePicking) return;
+    workplanePicking = false;
+    workplanePreview.visible = false;
+    input.style.cursor = '';
+    workplanePickBtn.classList.remove('is-on');
+  };
+  onWorkplaneHidden = endWorkplanePick;
+  workplanePickBtn.addEventListener('click', () => {
+    if (workplanePicking) { endWorkplanePick(); return; }
+    workplanePicking = true;
+    workplanePickBtn.classList.add('is-on');
+    input.style.cursor = sampleCursor();
+    surfaceMenu.open = false;
+    say(workplaneView === 'perspective' ? 'Workplane: click a surface to set the workplane onto it (Esc cancels)' : 'Workplane: click a surface to set the depth of the workplane facing this view (Esc cancels)');
+  });
+  viewport.addEventListener('pointerdown', (e) => {
+    if (!workplanePicking || e.button !== 0 || e.altKey) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const got = workplanePickAt(ndcOf(e));
+    if (!got) { say('Workplane: nothing there -- click a surface', true); return; }
+    endWorkplanePick();
+    setWorkplane(got.w);
+    say(isFlatWorkplane(workplane) ? `Workplane at height ${workplane.at[1]}` : 'Workplane set onto the surface');
+  }, true);
+  viewport.addEventListener('pointermove', (e) => { if (workplanePicking) drawWorkplanePreview(ndcOf(e)); });
+  // Each view its own workplane (`workplaneForView`), from the view shown now.
+  onViewportViewChanged = workplaneForView;
+  workplaneForView(fly.forgeViewportView());
+  doc.addEventListener('keydown', (e) => {
+    if (!workplanePicking || e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    endWorkplanePick();
+    say('Workplane pick cancelled');
+  }, true);
   surfaceOffsetIn.addEventListener('input', () => { if (doc.activeElement !== surfaceOffsetIn) applySurfaceOffset(); });
   gridSnapUi.toggle.addEventListener('click', () => setSnaps(!snap));
   turnSnapUi.toggle.addEventListener('click', () => setSnaps(snap, !turnSnap));
@@ -11279,15 +11898,37 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const map = geometry?.isActive() ? geometry.textureMap() : open ? geometry?.openBase() ?? null : null;
     if (!geometry || !map) { say(open ? 'Textures are laid on a map\'s geometry' : 'A texture is chosen in Geometry mode, or dropped on an object\'s geometry', true); return null; }
     if (!map.textures[name]) {
-      const got = await archives.texture(t.source, name);
-      if (!got) { say(`${t.name}: it would not read from ${t.source}`, true); return null; }
-      if (geometry.textureMap() !== map) return null;           // the base changed meanwhile
-      map.textures[name] = got.rgba;
-      map.textureFlags[name] = got.flags;
-      if (got.mips) (map.textureMips ??= {})[name] = got.mips;
-      if (!quiet) say(`Texture: ${t.name}, ${t.source}'s ${got.library} (lent to this map)`);
+      const got = await lendInto(map, id, () => geometry?.textureMap() === map);
+      if (got === 'failed') { say(`${t.name}: it would not read from ${t.source}`, true); return null; }
+      if (got === 'stale') return null;                         // the base changed meanwhile
+      if (!quiet) say(`Texture: ${t.name}, ${t.source}'s ${got} (lent to this map)`);
     } else if (!quiet) say(`Texture: ${t.name}${t.source !== textureHome() ? ' (this map\'s own of that name)' : ''}`);
     return name;
+  };
+  /**
+   * Bug 1 (saving geometry): the textures lent to a map (`lendTexture`), by name to their asset ids, kept by the map's
+   * texture table (a blank base's is its library's): a saved geometry names the lent ones its faces wear, and the open
+   * lends them again before it draws (`restoreLayoutGeometry`).
+   */
+  const lentTextures = new WeakMap<object, Map<string, string>>();
+  /**
+   * Texture `id` (a `texture.<map>:<name>` asset) read and lent to `map`; its library's name, 'failed' when it would not
+   * read, 'stale' when `still` says the map is no longer the one meant once it read.
+   */
+  const lendInto = async (map: LoadedMap, id: string, still: () => boolean = () => true): Promise<string> => {
+    const t = parseTextureAsset(id);
+    if (!t) return 'failed';
+    const name = t.name.toLowerCase();
+    const got = await archives.texture(t.source, name).catch(() => null);
+    if (!got) return 'failed';
+    if (!still()) return 'stale';
+    map.textures[name] = got.rgba;
+    map.textureFlags[name] = got.flags;
+    if (got.mips) (map.textureMips ??= {})[name] = got.mips;
+    let lent = lentTextures.get(map.textures);
+    if (!lent) lentTextures.set(map.textures, lent = new Map());
+    lent.set(name, textureAssetId(t.source, t.name));
+    return got.library;
   };
   const chooseTexture = async (id: string): Promise<void> => {
     const name = await lendTexture(id);
@@ -12124,6 +12765,41 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       });
     }, 250);
   };
+  /**
+   * A group's drag's map props taken over at its first move (`pendingBaseTake`): each made the layout's own piece where
+   * it stands (its disc prototype, as `duplicateMapPropForDrag` makes one), its original hidden, and added to the drag --
+   * picked, its pose where it stood beside the others' (`dragFrom`), so the pivot carries it from there. The release's
+   * edit records them with the move: one undo puts the map's props back.
+   */
+  const takeBaseProps = (from: { poses: Pose[] }): void => {
+    const take = pendingBaseTake;
+    pendingBaseTake = null;
+    const map = baseMap;
+    if (!take?.length || !map) return;
+    const taken: string[] = [];
+    for (const b of take) {
+      const asset = assetId(map.archive, b.model);
+      const copy = pieces.piece(asset, map);
+      const id = parseAssetId(asset);
+      if (!copy || !id) { say(`Cannot move map prop ${b.model}: its prototype is unavailable`, true); continue; }
+      b.matrix.decompose(copy.position, copy.quaternion, copy.scale);
+      creatorPieceMaps.set(copy, map);
+      pieceSources.set(id.archive, map);
+      hiddenKeys.add(b.key);
+      addPlacement(copy);
+      picks.add(copy);
+      from.poses.push(poseOf(copy));
+      taken.push(b.key);
+      void hullOf(asset).then((polys) => {
+        if (!polys?.length || !roots.includes(copy)) return;
+        copy.userData['forgeHull'] = polys;
+        refreshPlacementGround();
+        if (hullWanted()) scheduleHull();
+      }).catch(() => say(`Could not load ${b.model}'s collision hull`, true));
+    }
+    basePicks.clear();
+    if (taken.length) { drawHidden(); warnBakedCollision(taken); }
+  };
   const duplicateMapPropForDrag = (source: BaseProp, before: string[], take = false): void => {
     const map = baseMap;
     if (!map || baseSelected?.key !== source.key) return;
@@ -12310,7 +12986,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     extensions?.onMapSwitch();
     pageShot?.driver.stop('map');                             // R5-B: a new base ends the agent's camera shot
     clearAll();
-    geometry?.reset();                                        // the old base's geometry edits go with it (not saved yet)
+    geometry?.reset();                                        // the old base's geometry goes (bug 1: kept in its layout's saves)
     heldContentMap = null;                                    // R7-6: a base change ends the boot's kept answer
     base = b;
     if (ownProps) { baseContentProps = ownProps; scene.add(ownProps); }
@@ -12675,6 +13351,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       await setBase(l.base);
       markBundle(opening);
       const missing = await placeAll(l);
+      pendingGeometryRef = null;
+      await restoreLayoutGeometry(l);                         // bug 1: its edited geometry over the base, before the history starts
       if (l.camera) fly.setPose(l.camera);
       else if (applySavedViewCamera && viewCamera) fly.setPose(viewCamera);
       applySavedViewCamera = false;
@@ -12686,9 +13364,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       baseAsk.hidden = true;
       say(missing ? `${missing} piece${missing === 1 ? '' : 's'} not found on this disc` : 'layout open', missing > 0);
       noteMissingPacks();
-      changed();
       history.reset(encodeHistoryStep(layoutText(), []));
       resetGeoHistory();
+      // Bug 1: revision 0 of this open is the asset it opened with (read back, or kept named though not read).
+      geoSaving = null;
+      geoSaved = { key: geometryKey(), ref: pendingGeometryRef };
+      pendingGeometryRef = null;
+      changed();
       baseKept = new Map();
       stampSel();
       refreshUndo();
@@ -12733,7 +13415,36 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         return ai && loc ? { loc, soil: aiSoilAt(ai, loc), disc: aiSoilAt(discAiNow()!, loc) } : null;
       },
       /** Every placement: its kind's word and its place (a test reads where Place and the gizmo's snap left it). */
-      placed: () => roots.map((r) => ({ kind: kindOf(r), at: [r.position.x, r.position.y, r.position.z] })),
+      placed: () => roots.map((r) => ({ kind: kindOf(r), at: [r.position.x, r.position.y, r.position.z], turn: turnOf(r.quaternion) })),
+      /** The workplane: a flat one's height (a tilted one's offset along its normal) as set and as the grid draws it; the plane. */
+      workplane: () => {
+        const g = mapGrid.planeNow();
+        const level = (w: Workplane): number => (isFlatWorkplane(w) ? w.at[1] : workplaneOffset(w));
+        return { y: level(workplane), grid: level(g), at: workplane.at, n: workplane.n, gridN: g.n, snap: workplaneSnap };
+      },
+      /** The pick's preview (`drawWorkplanePreview`): shown, where, and its up. */
+      workplanePreview: () => ({ shown: workplanePreview.visible, at: workplanePreview.position.toArray(), up: new Vector3(0, 1, 0).applyQuaternion(workplanePreview.quaternion).toArray().map((v) => Math.round(v * 1000) / 1000 + 0), view: workplaneView }),
+      /** The workplane set (a test's): flat at `y`, or tilted. */
+      setWorkplane: (w: Workplane) => setWorkplane(w),
+      /** Object mode's picks: the geometry objects' ids, the placements' count, and where the gizmo stands (its target's place). */
+      /** The base map's own props (the first `n`), by key, model and place; and one picked (`add`: into the selection). */
+      mapProps: (n = 20) => mapPropPlacements().slice(0, n).map(({ placement, model }) => {
+        const m = baseMap?.props[placement.prop]?.matrices;
+        const i = placement.index * 16;
+        return { key: placement.key, model, at: m ? [m[i + 12], m[i + 13], m[i + 14]] : null };
+      }),
+      pickMapProp: (key: string, add = false): boolean => {
+        const found = mapPropPlacements().find(({ placement }) => placement.key === key);
+        return !!found && selectMapProp(found.placement, found.model, add ? 'add' : 'only') !== null;
+      },
+      /** What the Select tool's geometry pick finds at page point (x, y) (`geoAt`), and what the page's own pick struck. */
+      geoAt: (x: number, y: number) => {
+        const r = viewport.getBoundingClientRect();
+        const n = new Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+        const chose = pick(n);
+        return { id: geoAt(n, chose), raw: geometry?.objectAt(n) ?? null, chose: chose ? { distance: chose.distance, name: chose.object.name } : null, selectGeometry, active: geometry?.isActive() ?? null };
+      },
+      objectPicks: () => ({ geo: [...geoPicks], placements: picks.size, gizmo: gizmo.object === pivot ? 'pivot' : gizmo.object ? 'one' : null, at: gizmo.object ? gizmo.object.position.toArray() : null }),
       /** The ground's polygons within `r` of point `p` (x, z): their corner count, height span and words. */
       near: async (p: number[], r: number) => {
         const c = await composeGround();
@@ -12898,6 +13609,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return at;
   };
   const placeAt = (hit: Intersection | null): Vector3 => {
+    // Nothing under the cursor (the sky, a hole in the world): on the workplane where the cursor's ray meets it (the
+    // owner, 2026-11-16; in front of the camera and within reach), on the grid across it while grid snap is on.
+    // A workplane hit (Snap to Workplane, `workplaneHitAt`): on it, on its grid while snap is on.
+    if (hit && hit.object === mapGrid.group) return onWorkplane(workplane, hit.point, snap ? gridStep : null);
+    if (!hit) {
+      const p = rayOnWorkplane(workplane, ray.ray.origin, ray.ray.direction, WORKPLANE_REACH);
+      if (p) return onWorkplane(workplane, p, snap ? gridStep : null);
+    }
     const raw = hit ? hit.point : ray.ray.at(300, new Vector3());
     const probe = (x: number, z: number): number[] => (placementGrid ? surfaceYs(placementGrid, x, z) : []);
     const p: PlacePoint = restingPoint({ x: raw.x, y: raw.y, z: raw.z }, probe, snap ? gridStep : null);
@@ -12984,7 +13703,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (replacing) {
       // The prop being re-placed is its own ghost: on the surface under the cursor, its turn kept.
       if (!roots.includes(replacing.r)) { replacing = null; return; }   // gone meanwhile (an undo, a delete)
-      const struck = pick(ndc);
+      const struck = placePick(ndc);
       // FC2 (ours; B-3): a wall that would tilt a pack piece among them holds them where they were (`replaceOnto`).
       if (replaceOnto(replacing.r, struck) === 'floor') seatOn(replacing.r, placeAt(struck));
       carryReplace();                                          // the rest of the selection, and what is under them, along
@@ -12992,15 +13711,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return;
     }
     if (!ghost) return;
-    const struck = pick(ndc);
+    const struck = placePick(ndc);
     const at = mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist' ? onDrawnTop(placeAt(struck), struck) : placeAt(struck);
     const ghostPiece = mode === 'place' ? chosen ?? undefined : mode === 'ladder' && ghostAsset?.startsWith('ladder:') ? ghostAsset.slice(7) : undefined;
-    if (!wallPose(ghost, struck, ghostPiece)) {
+    if (!placeTilt(ghost, struck, ghostPiece) && !wallPose(ghost, struck, ghostPiece)) {
       ghost.rotation.y = ghostYaw();
       seatOn(ghost, at);
     }
     ghost.visible = true;
     paintGhost(ghost, shellState().canPlace);                     // R3-B: a staged drop's ghost takes the same tint
+    ghostOverWorkplane(ghost, struck?.object === mapGrid.group);   // seated on the workplane: over its grid; else depth decides
   };
   /**
    * Every placing tool but Select (the owner, 2026-11-06): a click places, a drag moves the selection's gizmo, as the
@@ -13122,10 +13842,124 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     });
   };
   /** At the centre or the pointer: select, or place; `toggle` (FG-47: Shift / Ctrl, Cross held) adds or takes out, in any tool. */
-  const act = (ndc: Vector2, toggle = false): void => {
-    if (busy) return;
+  /**
+   * How the Select tool takes what it finds (the owner, 2026-11-16: "holding shift + click should be additive not toggle
+   * selection. ctrl + click should be toggleable"): `only` it alone (a plain click), `add` it added (Shift; never taken
+   * out), `toggle` it in or out (Ctrl), `remove` it taken out (a Ctrl drag's paint).
+   */
+  type SelectOp = 'only' | 'add' | 'toggle' | 'remove';
+  /** What the Select tool finds under the pointer (`selectTargetAt`): a placement, a map prop, a geometry object or a map item. */
+  type SelectTarget = { kind: 'root'; r: Object3D } | { kind: 'base'; b: BaseProp } | { kind: 'mapProp'; placement: Placement; model: string } | { kind: 'geo'; id: string } | { kind: 'data'; key: string };
+  /**
+   * What the Select tool takes at `ndc` -- a click's (`act`) and a drag's (`applyPaint`) one finding: a billboard when it
+   * is the nearest thing (a placement's, a map prop's M, a map item's), else a geometry object when it is (`geoAt`), else
+   * the placement or the map prop struck. The Select tool's settings pass over a kind switched off. Null: nothing.
+   */
+  const selectTargetAt = (ndc: Vector2): SelectTarget | null => {
     const hit = pick(ndc);
-    agentPointHook?.(hit ? [hit.point.x, hit.point.y, hit.point.z] : null);   // AX-13: the agent's forge.focus reads this pick
+    const chose = selectMapProps && selectUserProps ? hit : selectUserProps ? pick(ndc, 'placed') : selectMapProps ? pick(ndc, 'map') : null;
+    ray.setFromCamera(ndc, fly.viewportCamera());
+    // A map data billboard, when it is the nearest thing under the cursor (one behind a wall is not drawn, so not picked).
+    const mark = mapBillboards.pick(ray, selectHidden);
+    if (mark) {
+      const userRoot = rootOfUserMark(mark.key);
+      // A user placement's mark (square) under "Select user props"; the map's own (round) under "Select map props".
+      // A map prop's M only while the Ms show (`propMarksShown`); with them off a click hit-tests the prop itself.
+      const propKey = placementOfMark(mark.key);
+      const allowed = userRoot ? selectUserProps && rootSelectable(userRoot)
+        : selectMapProps && (propKey ? propMarksShown() : kindSelectable(mapDataIndex.get(mark.key)?.kind ?? null));
+      if (allowed && mark.distance <= (chose?.distance ?? Infinity)) {
+        if (userRoot) return { kind: 'root', r: userRoot };
+        const found = propKey ? mapPropPlacements().find(({ placement }) => placement.key === propKey) : undefined;
+        if (found) return { kind: 'mapProp', placement: found.placement, model: found.model };
+        if (!propKey && !mark.key.startsWith('user:') && mapDataIndex.has(mark.key)) return { kind: 'data', key: mark.key };
+        return null;
+      }
+    }
+    // A geometry object, when it is the nearest thing struck (`geoAt`).
+    const geoId = geoAt(ndc, chose);
+    if (geoId) return { kind: 'geo', id: geoId };
+    // A placement of a kind its View switch hides is passed over, as nothing there.
+    const struck = forgeRootOf(chose?.object ?? null);
+    if (struck) return rootSelectable(struck) ? { kind: 'root', r: struck } : null;
+    if (selectMapProps && chose && baseMap && baseView && isUnder(chose.object, baseView.group)) {
+      // FG-17: one of the map's own props -- its placement by model and place (`./hide` `placementOf`).
+      const o = chose.object as Mesh;
+      const model = o.name.replace(/ \((lod|flare)\)$/, '');
+      const m = new Matrix4();
+      if (o instanceof InstancedMesh && chose.instanceId !== undefined) { o.getMatrixAt(chose.instanceId, m); m.premultiply(o.matrixWorld); }
+      else m.copy(o.matrixWorld);
+      const found = placementOf(baseMap, model, m.elements);
+      if (found) return { kind: 'base', b: { ...found, model, object: o, instance: o instanceof InstancedMesh && chose.instanceId !== undefined ? chose.instanceId : null, matrix: m, box: basePropBox(o, m) } };
+    }
+    return null;
+  };
+  /**
+   * `t` into the selection as `op` says (`SelectOp`). `quiet`: the selection's drawing left for the caller (a drag draws
+   * once a move). True when the selection changed.
+   */
+  const applySelect = (t: SelectTarget, op: SelectOp, quiet = false): boolean => {
+    // In (`add`), out (`remove`), or the other of what it is (`toggle`); `only` is each kind's own below.
+    const want = (had: boolean): boolean => (op === 'toggle' ? !had : op !== 'remove');
+    let changed: boolean;
+    if (t.kind === 'root') {
+      if (op === 'only') { select(t.r); return true; }
+      const had = picks.has(t.r);
+      changed = want(had) !== had;
+      if (changed) picks.toggle(t.r);
+    } else if (t.kind === 'base' || t.kind === 'mapProp') {
+      const b = t.kind === 'base' ? t.b : resolveMapProp(t.placement, t.model);
+      if (!b) { if (!quiet && t.kind === 'mapProp') say(`Cannot select map prop ${t.model}: its rendered placement is unavailable`, true); return false; }
+      if (op === 'only') { picks.clear(); geoPicks.clear(); dataPicks.clear(); basePicks.only(b); changed = true; }
+      else {
+        const had = basePicks.items.some((x) => x.key === b.key);
+        changed = want(had) !== had;
+        if (changed) basePicks.toggle(b);
+      }
+      entityPicked = null;
+    } else if (t.kind === 'geo') {
+      if (op === 'only') { select(null); geoPicks.add(t.id); changed = true; }
+      else {
+        const had = geoPicks.has(t.id);
+        changed = want(had) !== had;
+        if (changed) { if (had) geoPicks.delete(t.id); else geoPicks.add(t.id); }
+      }
+    } else {
+      if (op === 'only') { selectMapData(t.key); return true; }
+      if (mapDataSelected) { dataPicks.set(mapDataSelected.key, mapDataSelected); mapDataSelected = null; }
+      const item = mapDataIndex.get(t.key);
+      const had = dataPicks.has(t.key);
+      changed = want(had) !== had && (had || !!item);
+      if (changed) { if (had) dataPicks.delete(t.key); else dataPicks.set(t.key, item!); }
+      mapDataAnchor = t.key;
+      if (!quiet) drawOutliner();
+    }
+    if (!quiet && changed) { showSelection(); highlightSelectionMark(); }
+    return changed;
+  };
+  /**
+   * The geometry object at `ndc` for the Select tool (its Geometry switch on; Geometry mode off), when it is nearer than
+   * what the page's own pick struck (`chose`) or that is the map's world itself (a section drawn by the base view): its id,
+   * else null -- a placement or a map prop in front of it wins, as the nearest always does.
+   */
+  const geoAt = (ndc: Vector2, chose: Intersection | null): string | null => {
+    if (!selectGeometry || replacing || !geometry || geometry.isActive()) return null;
+    const g = geometry.objectAt(ndc);
+    if (!g) return null;
+    // The world as drawn: the base view's, or the geometry's own once edited (`GeometryEditor.view`: its faces themselves).
+    const drawn = geometry.view();
+    const world = !!chose && ((!!baseView && baseView.worldObjects.some((w) => isUnder(chose.object, w))) || (!!drawn && isUnder(chose.object, drawn.group)));
+    return !chose || world || g.distance < chose.distance - 1e-3 ? g.id : null;
+  };
+  const act = (ndc: Vector2, how: SelectOp | boolean = 'only'): void => {
+    // A click's way with the selection (the owner, 2026-11-16): alone, Shift's added, Ctrl's in or out (`true`: Ctrl's).
+    const op: SelectOp = how === true ? 'toggle' : how === false ? 'only' : how;
+    const toggle = op !== 'only';
+    if (busy) return;
+    const surfaceHit = pick(ndc);
+    agentPointHook?.(surfaceHit ? [surfaceHit.point.x, surfaceHit.point.y, surfaceHit.point.z] : null);
+    // What a placement is seated on (Snap to Workplane: the workplane; `placePick`).
+    const hit = workplaneSnapOn() && mode !== 'select' ? placePick(ndc) : surfaceHit;   // AX-13: the agent's forge.focus reads this pick
     // A re-placed prop: a click puts it down where it follows the cursor (a modified click changes nothing meanwhile).
     if (replacing) {
       if (toggle || refuseEdit()) return;
@@ -13139,68 +13973,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (entityTool !== null && !toggle) { placeEntity(entityTool, placeAt(hit)); return; }   // FCW-32 step 4 (D4)
     if (mode === 'select' || toggle) {
-      // The Select tool's settings: a kind switched off is looked through -- map props off, a click finds the placements
-      // behind the map; user props off, the map behind the placements; both off, nothing.
-      const chose = selectMapProps && selectUserProps ? hit : selectUserProps ? pick(ndc, 'placed') : selectMapProps ? pick(ndc, 'map') : null;
-      // A map data billboard, when it is the nearest thing under the cursor (one behind a wall is not drawn, so not
-      // picked), is the map's own data selected (read only); under the same setting as the map's props.
-      {
-        const mark = mapBillboards.pick(ray, selectHidden);
-        const userRoot = mark ? rootOfUserMark(mark.key) : null;
-        // A user placement's mark (square) under "Select user props"; the map's own (round) under "Select map props".
-        // A map prop's M only while the Ms show (`propMarksShown`); with them off a click hit-tests the prop itself.
-        const propMark = !!mark && !!placementOfMark(mark.key);
-        const allowed = mark && (userRoot ? selectUserProps && rootSelectable(userRoot)
-          : selectMapProps && (propMark ? propMarksShown() : kindSelectable(mapDataIndex.get(mark.key)?.kind ?? null)));
-        if (mark && allowed && mark.distance <= (chose?.distance ?? Infinity)) {
-          // Ctrl (or Shift) on a mark (the owner, 2026-11-06): its object in or out of the selection, the rest kept --
-          // as Ctrl in the Outliner. A placement's, a map prop's (by its M) or a map data item's.
-          if (toggle) {
-            if (userRoot) { picks.toggle(userRoot); showSelection(); return; }
-            const propKey = placementOfMark(mark.key);
-            const found = propKey ? mapPropPlacements().find(({ placement }) => placement.key === propKey) : undefined;
-            if (found) { selectMapProp(found.placement, found.model, 'toggle'); return; }
-            const item = mapDataIndex.get(mark.key);
-            if (!propKey && item) {
-              if (mapDataSelected) { dataPicks.set(mapDataSelected.key, mapDataSelected); mapDataSelected = null; }
-              if (dataPicks.has(item.key)) dataPicks.delete(item.key); else dataPicks.set(item.key, item);
-              mapDataAnchor = item.key;
-              showSelection();
-              highlightSelectionMark();
-              drawOutliner();
-            }
-            return;
-          }
-          if (userRoot) { select(userRoot); return; }               // a user mark: its placement selected, as a click on it
-          // A map prop's mark (M) selects the prop itself, as a click on it does; any other, the map data item.
-          const propKey = placementOfMark(mark.key);
-          const found = propKey ? mapPropPlacements().find(({ placement }) => placement.key === propKey) : undefined;
-          if (found) selectMapProp(found.placement, found.model);
-          else if (!propKey && !mark.key.startsWith('user:')) selectMapData(mark.key);
-          return;
-        }
-      }
-      // A placement of a kind its View switch hides is passed over, as nothing there.
-      const struck = forgeRootOf(chose?.object ?? null);
-      const root = struck && rootSelectable(struck) ? struck : null;
-      if (selectMapProps && !struck && chose && baseMap && baseView && isUnder(chose.object, baseView.group)) {
-        // FG-17: one of the map's own props -- its placement by model and place (`./hide` `placementOf`).
-        const o = chose.object as Mesh;
-        const model = o.name.replace(/ \((lod|flare)\)$/, '');
-        const m = new Matrix4();
-        if (o instanceof InstancedMesh && chose.instanceId !== undefined) { o.getMatrixAt(chose.instanceId, m); m.premultiply(o.matrixWorld); }
-        else m.copy(o.matrixWorld);
-        const found = placementOf(baseMap, model, m.elements);
-        if (found) {
-          const b: BaseProp = { ...found, model, object: o, instance: o instanceof InstancedMesh && chose.instanceId !== undefined ? chose.instanceId : null, matrix: m, box: basePropBox(o, m) };
-          if (toggle) basePicks.toggle(b);
-          else { picks.clear(); basePicks.only(b); }
-          showSelection();
-          return;
-        }
-      }
-      if (toggle) { if (root) { picks.toggle(root); showSelection(); } return; }   // nothing there: the selection as it was
-      select(root);
+      // What is under the click (`selectTargetAt`), taken as `op` says; nothing there, a plain click lets the selection go.
+      const t = selectTargetAt(ndc);
+      if (!t) { if (op === 'only') select(null); return; }
+      applySelect(t, op);
       return;
     }
     if (refuseEdit()) return;                                 // FG-26: placing is an edit
@@ -13454,7 +14230,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (!r) { say(`${asset} has no geometry to place`, true); return; }
         // On a wall, as the wall faces (`wallPose`); else the ghost's turn (FUI-22 D4: the wheel's with it) and its box's
         // bottom on the surface, as the ghost's.
-        if (!wallPose(r, hit, asset)) { r.rotation.y = placementYaw(); seatOn(r, at); }
+        // Snap to Surface Normal: tilted onto the surface, as its ghost (`placeTilt`).
+        if (!placeTilt(r, hit, asset) && !wallPose(r, hit, asset)) { r.rotation.y = placementYaw(); seatOn(r, at); }
         addRoot(r);
         select(r);
         say(`placed ${asset}`);
@@ -13470,6 +14247,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return new Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   };
   input.addEventListener('contextmenu', (e) => e.preventDefault());
+  // A double-click on a geometry object in Object mode (the owner, 2026-11-16: "double clicking geo to go geo mode is
+  // good"): Geometry mode on, that object selected in it -- as its Outliner row's double-click.
+  input.addEventListener('dblclick', (e) => {
+    if (mode !== 'select' || busy || playing || e.button !== 0 || e.altKey || !geometry || geometry.isActive()) return;
+    const n = ndcOf(e as unknown as PointerEvent);
+    const id = geoAt(n, pick(n));
+    if (!id) return;
+    e.preventDefault();
+    geoPicks.clear();
+    geometry.selectObject(id, false);
+  });
   /** The pointer's last place: Play stands under it when the camera has no floor (FG-50). */
   let pointerClient: { x: number; y: number } | null = null;
   /**
@@ -13511,13 +14299,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (e.button !== 0 || gizmo.dragging) return;
     if (!placingTool() && gizmo.axis !== null) return;   // Select: the gizmo's own drag. A placing tool: a click places.
     lastNdc = ndcOf(e);
-    const add = e.shiftKey || e.ctrlKey || e.metaKey;           // FG-47: a pointer's modifiers, read off the click (no key listener)
+    // A pointer's modifiers, read off the click (no key listener): Ctrl (Cmd) toggles, Shift adds (the owner, 2026-11-16).
+    const clickOp: SelectOp = e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'add' : 'only';
     if (mode === 'select' && !busy) {
       // FG-47: on a placement, at once as before (Shift / Ctrl adds or takes out); on none, a box if the pointer drags,
       // else a click at its release (a map prop, or nothing: deselect).
       const ndc = ndcOf(e);
-      if (selectUserProps && forgeRootOf(pick(ndc)?.object ?? null)) { act(ndc, add); return; }   // user props off: a box, as on nothing
-      boxDrag = { x: e.clientX, y: e.clientY, ndc, add, drawn: false };
+      selDrag = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, ndc, op: clickOp, painting: false };
       // FG-47 (the review's F3): the pointer captured, so the release ends the box wherever it lands (a dock, the lobby's
       // window), not only over the viewport -- the gizmo's own capture is off while a lobby locks the edits.
       try { input.setPointerCapture(e.pointerId); } catch { /* a pointer the page cannot capture: the box ends at its own pointerup */ }
@@ -13525,19 +14313,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     act(lastNdc);
   });
-  /** FG-47: a left-drag begun on no placement in the Select tool: its start, and whether the box shows yet. */
-  let boxDrag: { x: number; y: number; ndc: Vector2; add: boolean; drawn: boolean } | null = null;
+  /**
+   * A press of the Select tool (the owner, 2026-11-16: "remove box select mode in the normal object mode"; earlier, "just
+   * have the same drag to select like we do in geometry tool, keep it consistent across all the tools"): let go where it
+   * began, a click (`act`: what is under it, as `op` says); dragged, a paint -- what the pointer passes over is taken (a
+   * plain drag starting the selection afresh, Shift's adding to it), or (Ctrl's) taken out, as Geometry mode's drag does.
+   */
+  let selDrag: { x: number; y: number; lastX: number; lastY: number; ndc: Vector2; op: SelectOp; painting: boolean } | null = null;
   /** The pointer moved this far (CSS pixels) is a drag, not a click (the forge's own). */
   const BOX_DRAG_PX = 4;
-  const drawMarquee = (e: PointerEvent): void => {
-    if (!boxDrag) return;
-    const r = viewport.getBoundingClientRect();
-    marquee.style.left = `${Math.min(boxDrag.x, e.clientX) - r.left}px`;
-    marquee.style.top = `${Math.min(boxDrag.y, e.clientY) - r.top}px`;
-    marquee.style.width = `${Math.abs(e.clientX - boxDrag.x)}px`;
-    marquee.style.height = `${Math.abs(e.clientY - boxDrag.y)}px`;
-    marquee.hidden = false;
-  };
+  /** A drag's paint sampled along its path every this many pixels, at most `PAINT_SELECT_SAMPLES` a move (each a pick). */
+  const PAINT_SELECT_STEP_PX = 8;
+  const PAINT_SELECT_SAMPLES = 12;
   input.addEventListener('pointermove', (e) => {
     pointerClient = { x: e.clientX, y: e.clientY };
     if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
@@ -13554,11 +14341,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }
       if (h.drag) gizmoPointer.pointerMove(ndcToPointer(e, -1));
     }
-    if (!boxDrag) return;
-    if (!boxDrag.drawn && Math.hypot(e.clientX - boxDrag.x, e.clientY - boxDrag.y) < BOX_DRAG_PX) return;
-    boxDrag.drawn = true;
-    drawMarquee(e);
+    const d = selDrag;
+    if (!d) return;
+    // A drag's paint: a plain one starts afresh and adds, Shift's adds, Ctrl's takes out.
+    const paintOp: SelectOp = d.op === 'toggle' ? 'remove' : 'add';
+    if (!d.painting) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < BOX_DRAG_PX) return;
+      d.painting = true;
+      if (d.op === 'only') select(null);
+      applyPaint(d.ndc, paintOp);
+    }
+    // Sampled along the way from the last event, so a quick sweep skips nothing between two events.
+    const r = input.getBoundingClientRect();
+    const steps = Math.min(PAINT_SELECT_SAMPLES, Math.max(1, Math.ceil(Math.hypot(e.clientX - d.lastX, e.clientY - d.lastY) / PAINT_SELECT_STEP_PX)));
+    let changed = false;
+    for (let i = 1; i <= steps; i++) {
+      const x = d.lastX + ((e.clientX - d.lastX) * i) / steps, y = d.lastY + ((e.clientY - d.lastY) * i) / steps;
+      if (applyPaint(new Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), paintOp)) changed = true;
+    }
+    d.lastX = e.clientX;
+    d.lastY = e.clientY;
+    if (changed) { showSelection(); highlightSelectionMark(); }
   });
+  /** One point of a drag's paint: what is there added or taken out; true when the selection changed. */
+  const applyPaint = (ndc: Vector2, op: SelectOp): boolean => {
+    const t = selectTargetAt(ndc);
+    return !!t && applySelect(t, op, true);
+  };
   input.addEventListener('pointerup', (e) => {
     const h = placeHold;
     if (h && h.pointerId === e.pointerId && e.button === 0) {
@@ -13566,189 +14375,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (h.drag) { if (gizmo.dragging) gizmoPointer.pointerUp(ndcToPointer(e, 0)); }
       else act(new Vector2(h.nx, h.ny));
     }
-    const d = boxDrag;
-    boxDrag = null;
-    marquee.hidden = true;
+    const d = selDrag;
+    selDrag = null;
     if (!d || e.button !== 0) return;
-    if (!d.drawn) { act(d.ndc, d.add); return; }
-    // The user placements and visible map-prop bounds whose screen positions lie inside the box (`./group` `inRect`).
-    const end = ndcOf(e);
-    const camera = fly.viewportCamera();
-    camera.updateMatrixWorld();
-    // The Select tool's settings: a kind switched off is left out of the box.
-    const shownRoots = selectUserProps ? roots.filter((r) => shown(r) && rootSelectable(r)) : [];   // locked ones too
-    const ndcs = shownRoots.map((r) => { const v = r.getWorldPosition(new Vector3()).project(camera); return [v.x, v.y, v.z] as Vec3; });
-    const inBox = inRect(ndcs, [d.ndc.x, d.ndc.y], [end.x, end.y]).map((i) => shownRoots[i]!);
-    // The map's own props, by the owner's rules (2026-11-06; `propMarksShown`): with their M billboards on, every M in
-    // the box (behind a wall or not, drawn or an alternate state); with them off, a hit test of the drawn props -- the
-    // middle of each drawn body in the box. Its drawn mesh found through one walk of the base world, every entry of its
-    // placement tried (a LOD pair's near and far copies are two entries); one with none drawn sized from its geometry.
-    const placements = !selectMapProps || !baseMap ? [] : mapPropPlacements().filter(({ placement }) => !hiddenKeys.has(placement.key));
-    const meshesOf = new Map<number, Mesh[]>();
-    const entriesOf = new Map<string, [number, number][]>();
-    if (placements.length && baseMap && baseView) {
-      baseView.group.updateMatrixWorld(true);
-      baseView.group.traverse((o) => {
-        const tag = o.userData['forgeBaseProp'] as { prop?: number } | undefined;
-        if (!(o instanceof Mesh) || typeof tag?.prop !== 'number') return;
-        const list = meshesOf.get(tag.prop) ?? [];
-        list.push(o);
-        meshesOf.set(tag.prop, list);
-      });
-      for (const [entry, prop] of baseMap.props.entries()) {
-        for (let i = 0; i < prop.matrices.length / 16; i++) {
-          const m = prop.matrices, at = i * 16;
-          const key = placementKey(prop.modelName, m[at + 12]!, m[at + 13]!, m[at + 14]!);
-          const list = entriesOf.get(key) ?? [];
-          list.push([entry, i]);
-          entriesOf.set(key, list);
-        }
-      }
-    }
-    const meshOf = (entry: number, index: number): { o: Mesh; matrix: Matrix4; drawn: boolean } | null => {
-      let fallback: { o: Mesh; matrix: Matrix4; drawn: boolean } | null = null;
-      for (const o of meshesOf.get(entry) ?? []) {
-        const tag = o.userData['forgeBaseProp'] as { index?: number };
-        const matrix = new Matrix4();
-        if (o instanceof InstancedMesh) {
-          if (index >= o.count) continue;
-          o.getMatrixAt(index, matrix);
-          if (Math.abs(matrix.determinant()) < 1e-12) continue;   // an instance drawn hidden: its geometry below instead
-          matrix.premultiply(o.matrixWorld);
-        } else {
-          if (tag.index !== undefined && tag.index !== index) continue;
-          matrix.copy(o.matrixWorld);
-        }
-        const found = { o, matrix, drawn: shown(o) };
-        if (found.drawn) return found;
-        fallback ??= found;
-      }
-      return fallback;
-    };
-    /** A placement's own geometry's bounds, from the map's prop entry (no drawn mesh needed). */
-    const partsBox = (entry: number, index: number): { matrix: Matrix4; box: Box3 } | null => {
-      const prop = baseMap?.props[entry];
-      if (!prop) return null;
-      const matrix = new Matrix4().fromArray(Array.from(prop.matrices.subarray(index * 16, index * 16 + 16)));
-      const box = new Box3(), v = new Vector3();
-      for (const part of prop.parts) {
-        const pos = part.positions;
-        for (let k = 0; k + 2 < pos.length; k += 3) box.expandByPoint(v.set(pos[k]!, pos[k + 1]!, pos[k + 2]!));
-      }
-      return box.isEmpty() ? null : { matrix, box: box.applyMatrix4(matrix) };
-    };
-    const [rx0, rx1] = [Math.min(d.ndc.x, end.x), Math.max(d.ndc.x, end.x)];
-    const [ry0, ry1] = [Math.min(d.ndc.y, end.y), Math.max(d.ndc.y, end.y)];
-    const inside = (p: Vector3): boolean => { const v = p.clone().project(camera); return v.x >= rx0 && v.x <= rx1 && v.y >= ry0 && v.y <= ry1 && v.z >= -1 && v.z <= 1; };
-    /**
-     * M billboards off: whether a prop shows from the camera inside the box (the owner, 2026-11-06: no geometry behind a
-     * wall or across the map) -- a ray from the camera to its middle, then (blocked) to points across its body, each
-     * inside the box: shown when the first drawn thing a ray meets is the prop itself (any mesh drawing its placement), or
-     * nothing before the point. The world, the other props and the layout's own pieces all block.
-     */
-    const occluders: Object3D[] = [...roots, ...worldTargets(false)];
-    const sightRay = new Raycaster();
-    const seenFromCamera = (own: Set<Object3D>, instance: number | null, box: Box3): boolean => {
-      const c = box.getCenter(new Vector3());
-      const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new Vector3(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z)
-        .lerp(c, 0.35));                                      // a third of the way in: on the body, not its box's air
-      for (const target of [c, ...corners]) {
-        if (!inside(target)) continue;
-        // The camera's own ray through the point's place on screen (a perspective eye, or an orthographic view's parallel).
-        const ndcAt = target.clone().project(camera);
-        sightRay.setFromCamera(new Vector2(ndcAt.x, ndcAt.y), camera);
-        const dist = sightRay.ray.origin.distanceTo(target);
-        if (!(dist > 0)) return true;
-        sightRay.far = dist + 1;
-        const first = sightRay.intersectObjects(occluders, true).find((h) => {
-          if (!shown(h.object)) return false;
-          const root = forgeRootOf(h.object);
-          return !root || !lockedOf(root);
-        });
-        if (!first || first.distance >= dist - 1) return true;               // nothing before the point
-        if (own.has(first.object) && (instance === null || first.instanceId === undefined || first.instanceId === instance)) return true;
-      }
-      return false;
-    };
-    /**
-     * A billboard seen from the camera (the owner, 2026-11-06): with Always on top off its icons are drawn behind what
-     * stands in front, so a box picks only those it can see -- nothing drawn between the camera and the icon. With Always
-     * on top on, every icon in the box (all are drawn).
-     */
-    const markSeen = (at: Vector3, drawn = true): boolean => {
-      if (billboardsOnTop && drawn) return true;
-      const ndcAt = at.clone().project(camera);
-      sightRay.setFromCamera(new Vector2(ndcAt.x, ndcAt.y), camera);
-      const dist = sightRay.ray.origin.distanceTo(at);
-      if (!(dist > 0)) return true;
-      sightRay.far = dist;
-      const first = sightRay.intersectObjects(occluders, true).find((h) => {
-        if (!shown(h.object)) return false;
-        const root = forgeRootOf(h.object);
-        return !root || !lockedOf(root);
-      });
-      return !first || first.distance >= dist - 1;
-    };
-    let unresolved = 0;
-    const mapInBox = placements.flatMap(({ placement, model }) => {
-      const tried: [number, number][] = [[placement.prop, placement.index], ...(entriesOf.get(placement.key) ?? [])];
-      let mesh: { o: Mesh; matrix: Matrix4; drawn: boolean } | null = null;
-      for (const [entry, index] of tried) {
-        const m = meshOf(entry, index);
-        if (m && (m.drawn || !mesh)) mesh = m;
-        if (mesh?.drawn) break;
-      }
-      // M billboards on: the prop's M alone (its place) -- every M in the box, drawn or not. Off: a hit test of its drawn
-      // body, as before -- the middle of a drawn prop in the box (nothing drawn, nothing to hit).
-      const marks = propMarksShown();
-      if (!marks && !mesh?.drawn) return [];
-      const own = mesh ? { matrix: mesh.matrix, box: basePropBox(mesh.o, mesh.matrix) } : partsBox(placement.prop, placement.index);
-      if (!own) { unresolved++; return []; }
-      // The M where it is drawn (lifted over the prop's place: a box round the icon close up holds the icon, not the place).
-      const markAt = marks ? mapBillboards.markAt(propMarkKey(placement.key)) ?? new Vector3().setFromMatrixPosition(own.matrix) : null;
-      if (markAt ? !inside(markAt) || !markSeen(markAt) : !inside(own.box.getCenter(new Vector3()))) return [];
-      // M billboards off: only a prop the camera sees (`seenFromCamera`), any of its placement's drawn meshes its own.
-      if (!marks && mesh) {
-        const meshes = new Set<Object3D>(tried.flatMap(([entry]) => meshesOf.get(entry) ?? []));
-        if (!seenFromCamera(meshes, mesh.o instanceof InstancedMesh ? placement.index : null, own.box)) return [];
-      }
-      return [{ ...placement, model, object: mesh?.o ?? baseView!.group, instance: mesh && mesh.o instanceof InstancedMesh ? placement.index : null,
-        matrix: own.matrix, box: own.box } as BaseProp];
-    });
-    // Every map data item whose marks show (the View dropdown's switches; the owner, 2026-11-06: read only ones too) --
-    // spawns, respawns, hostages, the bomb start, doors, gates, turrets, ladders, actions, points, zones, views, flares,
-    // cranes -- at its billboard's place; Delete then takes out the deletable ones (`./mapDataHide`) and says of the rest.
-    const dataCandidates = !selectMapProps ? [] : [...mapDataIndex.values()].filter((spec) => !PROP_MARK_KINDS.has(spec.kind) && kindSelectable(spec.kind));
-    // Each where its mark is drawn (lifted over its place), as the props' Ms; with Always on top off, only those seen.
-    const dataAt = dataCandidates.map((spec) => mapBillboards.markAt(spec.key) ?? new Vector3(...spec.at));
-    const dataInBox = inRect(dataAt.map((at) => { const v = at.clone().project(camera); return [v.x, v.y, v.z] as Vec3; }),
-      [d.ndc.x, d.ndc.y], [end.x, end.y]).filter((i) => markSeen(dataAt[i]!, mapBillboards.drawn(dataCandidates[i]!.key))).map((i) => dataCandidates[i]!);
-    // The placements by their billboards too (the owner, 2026-11-11: "rect select needs to work with billboards as well"):
-    // each whose mark is drawn in the box, as the map's own marks are taken (`markSeen`: with Always on top off, if seen).
-    const marksInBox = shownRoots.filter((r) => {
-      if (inBox.includes(r)) return false;
-      const at = mapBillboards.markAt(userMarkKeyOf(r));
-      if (!at) return false;
-      const v = at.clone().project(camera);
-      return inRect([[v.x, v.y, v.z]], [d.ndc.x, d.ndc.y], [end.x, end.y]).length > 0 && markSeen(at, mapBillboards.drawn(userMarkKeyOf(r)));
-    });
-    if (!d.add) { picks.clear(); basePicks.clear(); dataPicks.clear(); mapDataSelected = null; }
-    picks.addAll([...inBox, ...marksInBox]);
-    basePicks.addAll(mapInBox);
-    for (const spec of dataInBox) dataPicks.set(spec.key, spec);
+    if (!d.painting) { act(d.ndc, d.op); return; }             // let go where it began: a click
     showSelection();
     highlightSelectionMark();
-    const n = picks.size + basePicks.size + dataPicks.size;
-    const deletable = [...dataPicks.values()].filter((spec) => hiddenDataKeyOf(spec) !== null).length;
-    say(`${inBox.length + mapInBox.length + dataInBox.length} in the box · ${n} selected${mapInBox.length ? ` · ${mapInBox.length} map prop${mapInBox.length === 1 ? '' : 's'}` : ''}${unresolved ? ` · ${unresolved} map prop${unresolved === 1 ? '' : 's'} not drawn` : ''}${dataPicks.size ? ` · ${dataPicks.size} map item${dataPicks.size === 1 ? '' : 's'}${deletable < dataPicks.size ? ` (${deletable} can be deleted)` : ''}` : ''}`);
+    const n = picks.size + basePicks.size + dataPicks.size + geoPicks.size;
+    say(n ? `${n} selected` : 'Nothing selected');
   });
   input.addEventListener('pointercancel', (e) => {
     if (placeHold && placeHold.pointerId === e.pointerId) {
       if (placeHold.drag && gizmo.dragging) gizmoPointer.pointerUp({ x: placeHold.nx, y: placeHold.ny, button: 0 });
       placeHold = null;
     }
-    boxDrag = null;
-    marquee.hidden = true;
+    selDrag = null;
   });
   input.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -13894,9 +14535,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (content) r.userData['forgeContent'] = JSON.parse(JSON.stringify(content)) as Piece['content'];
     return r;
   };
+  /** When the placements' clipboard was last filled (`performance.now()`): Paste takes the latest copy (`pasteClipboard`). */
+  let clipAt = -Infinity;
   const copySelection = (): void => {
     const from = picks.items.filter((r) => !lockedOf(r));
-    if (from.length === 0) { say('nothing to copy', true); return; }
+    const geoIds = [...geoPicks];
+    if (from.length === 0 && geoIds.length === 0) { say('nothing to copy', true); return; }
+    // The geometry objects picked in Object mode to the geometry's clipboard, stamped as this copy (both pasted together).
+    const at = performance.now();
+    const geoCopied = geoIds.length && geometry ? geometry.copyObjects(geoIds, at) : 0;
+    clipAt = at;
+    if (from.length === 0) { clipboard = []; say(`copied ${geoCopied} geometry object${geoCopied === 1 ? '' : 's'}`); return; }
     const points = from.map((r): Vec3 => [r.position.x, r.position.y, r.position.z]);
     const clip = clipOf(points, from.map((r) => poseOf(r).q));
     clipboard = from.map((r, i) => ({
@@ -13912,21 +14561,40 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       missing: r.userData['forgeMissing'] === true,
       clone: markerClone(r),
     }));
-    say(`copied ${clipboard.length}`);
+    say(`copied ${clipboard.length + geoCopied}`);
   };
-  /** Cut (the Edit menu, Ctrl+X): the placements copied (`copySelection`), then deleted -- one step to undo. */
+  /** Cut (the Edit menu, Ctrl+X): the placements and geometry objects copied (`copySelection`), then deleted -- one step to undo. */
   const cutSelection = (): void => {
-    if (!picks.items.some((r) => !lockedOf(r))) { say('nothing to cut', true); return; }
+    if (!picks.items.some((r) => !lockedOf(r)) && geoPicks.size === 0) { say('nothing to cut', true); return; }
     copySelection();
     basePicks.clear();                                          // a map prop's hiding is not a cut: yours alone
     dataPicks.clear();
     entityPicked = null;
     remove();
   };
+  /**
+   * Paste (Ctrl+V): the latest copy -- the placements' (at the cursor, as before), the geometry's (in place: the owner,
+   * 2026-11-16, "keep it in the same position"; a copy made in Geometry mode too), or both when one Copy took both.
+   */
   const pasteClipboard = (): void => {
-    const clip = clipboard;
-    if (clip.length === 0) { say('nothing to paste', true); return; }
+    const geoClipAt = geometry?.clipAt() ?? -Infinity;
+    const geoPaste = !!geometry?.hasClip() && geoClipAt >= clipAt;
+    const placePaste = clipboard.length > 0 && clipAt >= geoClipAt;
+    if (!geoPaste && !placePaste) { say('nothing to paste', true); return; }
     if (refuseEdit() || busy || playing) return;
+    if (geoPaste && geometry) {
+      const made = geometry.pasteObjects();
+      if (made.length) {
+        picks.clear(); basePicks.clear(); dataPicks.clear(); geoPicks.clear();
+        for (const id of made) geoPicks.add(id);
+        showSelection();
+        if (!placePaste) say(`pasted ${made.length} geometry object${made.length === 1 ? '' : 's'} in place: drag it off with the gizmo`);
+      }
+    }
+    if (placePaste) { if (!geoPaste) geoPicks.clear(); pastePlacements(); }
+  };
+  const pastePlacements = (): void => {
+    const clip = clipboard;
     const before = selectionIds();
     const at = placeAt(pick(lastNdc));
     const places = pastedPlaces(clip.map((c) => c.offset), [at.x, at.y, at.z]);
@@ -14073,6 +14741,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }), true);
   };
   const duplicate = (): void => {
+    // The geometry objects picked in Object mode (the owner, 2026-11-16): copied in place and picked instead; then the
+    // placements picked with them, as a group's are (`duplicateGroup`: their copies picked, the geometry's kept).
+    if (geoPicks.size && geometry) {
+      if (refuseEdit()) return;
+      const made = geometry.duplicateObjects([...geoPicks]);
+      geoPicks.clear();
+      for (const id of made) geoPicks.add(id);
+      if (picks.size) duplicateGroup(); else showSelection();
+      if (made.length && !picks.size) say(`Duplicated ${made.length} geometry object${made.length === 1 ? '' : 's'} in place: drag it off with the gizmo`);
+      return;
+    }
     if (isGroup()) { duplicateGroup(); return; }
     const s = selected;
     if (!s || refuseEdit()) return;
@@ -14125,6 +14804,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     notifier.refused(`Hidden, but no collision of its own was found for ${named}: if it is solid in the game, its collision is part of the map and stays (an invisible wall)`);
   };
   const remove = (): void => {
+    // The geometry objects picked in Object mode (the owner, 2026-11-16): deleted with the rest -- after it, and folded
+    // into its step when the rest made one, so one undo puts all of it back.
+    if (geoPicks.size && geometry) {
+      if (refuseEdit()) return;
+      const ids = [...geoPicks];
+      geoPicks.clear();
+      const was = decodeHistoryStep(history.current()).text;
+      if (picks.size || basePicks.size || dataPicks.size || folderPicks.size || entityPicked !== null) remove();
+      foldGeometryNext = decodeHistoryStep(history.current()).text !== was;
+      geometry.deleteObjects(ids);
+      foldGeometryNext = false;
+      showSelection();
+      return;
+    }
     // A folder selected from its row: deleted with everything under it (and whatever else is picked with it).
     if (folderPicks.size) { deleteFolders(); return; }
     // FCW-32 step 4 (D4): a rules entity picked from its row is deleted by its reference (refused while a rule names it).
@@ -14966,7 +15659,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const onlineWhy = (): string | null => {
     const l = layoutNow(false);
     // FC2.R8: of the layout as the lobby is sent it (its held Map Settings stripped, `withoutHeldSettings`).
-    const online = l ? onlineRecordRefusal(recordOfLayout(withoutHeldSettings(l), l.name?.trim() || 'Layout')) : [];
+    // Bug 1: with its edited geometry named -- in this browser alone, so no lobby can play it.
+    const online = l ? onlineRecordRefusal(recordOfLayout(withoutHeldSettings(withGeometryNow(l, true)), l.name?.trim() || 'Layout')) : [];
     return online.length ? online.map((d) => d.text).join(' ') : null;
   };
   lobbyTitle = () => {
@@ -15218,7 +15912,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // R3-B (item 6; H273, H274): a lobby plays the disc's own content -- a layout that needs a creator pack or names a
     // creator mode is refused before anything is asked or posted, in the policy's own words (central refuses it too).
     // FC2.R8: asked of the layout as it is sent (`withoutHeldSettings`), so held Map Settings strip, not refuse; told in a line.
-    const online = onlineRecordRefusal(recordOfLayout(withoutHeldSettings(l), l.name?.trim() || 'Layout'));
+    const online = onlineRecordRefusal(recordOfLayout(withoutHeldSettings(withGeometryNow(l, true)), l.name?.trim() || 'Layout'));   // bug 1: its geometry too
     if (online.length) { notifier.refused(online.map((d) => d.text).join(' ')); return; }
     const held = heldSettingsOf(l);
     if (held.length) pop(`Map Settings are not played in online lobbies yet: ${held.join(', ')}; this lobby plays the map's own`);
@@ -15345,6 +16039,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!open) return;
     selectMapPropsIn.checked = selectMapProps;
     selectUserPropsIn.checked = selectUserProps;
+    selectGeometryIn.checked = selectGeometry;
     selectHiddenIn.checked = selectHidden;
     placeSelectSettings();
     selectMapPropsIn.focus();
@@ -15370,6 +16065,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     selectUserProps = selectUserPropsIn.checked;
     writeView();
     say(selectUserProps ? 'Select: user data can be selected' : 'Select: user data is passed over');
+  });
+  selectGeometryIn.addEventListener('change', () => {
+    selectGeometry = selectGeometryIn.checked;
+    if (!selectGeometry && geoPicks.size) { geoPicks.clear(); showSelection(); }
+    writeView();
+    say(selectGeometry ? 'Select: geometry objects can be selected' : 'Select: geometry is passed over');
   });
   selectHiddenIn.addEventListener('change', () => setSelectHidden(selectHiddenIn.checked));
   moveBtn.addEventListener('click', () => setGizmo('translate'));
@@ -15474,26 +16175,48 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (chosen === null) return;
     const next = await layoutForSelect(chosen, paletteStem() || entries[0]?.stem || BLANK_LIBRARY).catch((e: unknown) => { say(String(e), true); return null; });
     if (!next) return;
-    const entities = (layoutEntities.zones?.length ?? 0) + (layoutEntities.markers?.length ?? 0) + (layoutEntities.spawners?.length ?? 0);
-    const asked = newLayoutDropWords(roots.length, layoutRules !== null, entities);
-    if (asked) {
-      // Save it first (a named save in this browser, as the Saves card's), drop it, or stay where it is.
-      const answer = await askSaveFirst('Save this layout first?', asked);
-      if (answer === null) return;
-      if (answer === 'save') {
-        // As the Saves card's Save as: a named save in this browser, a save of the name replaced.
-        const current = layoutForSave();
-        if (!current) return;
-        const name = await askText('Save this layout', 'A save with this name is replaced. It stays in this browser.', layoutName, RECORD_LIMITS.name, 'Save');
-        if (!name) return;
-        const kept = saveNamedRules(named, name, recordOfLayout(current, name), (current as ForgeLayout).rules);
-        if (kept.error) { say(kept.error, true); return; }
-        if ((await persistNamed(kept.saves)) !== 'written') return;    // refused or saved elsewhere: said there, nothing dropped
-        pop(`Saved ${name}`);
-      }
-    }
+    if (!(await saveFirstOrStay())) return;
     await openLayout(next, 'player').then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; say(String(e), true); });
   })(); });
+  /**
+   * Before the open layout is dropped -- New, a save opened, another base (the owner, 2026-11-06: New over an edited
+   * layout; bug 1, 2026-11-16: "opening a layout loses everything, with no warning") -- when it holds work (pieces, rules,
+   * zones, markers, spawners, or the geometry's edits): save it first (a named save in this browser, as the Saves card's),
+   * drop it, or stay. True to go on (nothing to lose, saved, or dropped by choice), false to stay where it is.
+   */
+  const saveFirstOrStay = async (): Promise<boolean> => {
+    const entities = (layoutEntities.zones?.length ?? 0) + (layoutEntities.markers?.length ?? 0) + (layoutEntities.spawners?.length ?? 0);
+    const asked = newLayoutDropWords(roots.length, layoutRules !== null, entities, geometryEdited());
+    if (!asked || savedAsIs()) return true;
+    const answer = await askSaveFirst('Save this layout first?', asked);
+    if (answer === null) return false;
+    if (answer === 'discard') return true;
+    // As the Saves card's Save as: a named save in this browser, a save of the name replaced.
+    const laid = layoutForSave();
+    if (!laid) return false;
+    const name = await askText('Save this layout', 'A save with this name is replaced. It stays in this browser.', layoutName, RECORD_LIMITS.name, 'Save');
+    if (!name) return false;
+    const current = await withGeometry(laid);                 // bug 1: its geometry's asset named in the save
+    const kept = saveNamedRules(named, name, recordOfLayout(current, name), (current as ForgeLayout).rules);
+    if (kept.error) { say(kept.error, true); return false; }
+    if ((await persistNamed(kept.saves)) !== 'written') return false;   // refused or saved elsewhere: said there, nothing dropped
+    pop(`Saved ${name}`);
+    return true;
+  };
+  /**
+   * Bug 1: the layout open now is its named save as it stands (opened from it and unchanged since, or saved since): its
+   * record, the camera aside, and its geometry's asset the same -- nothing is lost by dropping it, so nothing is asked.
+   */
+  const savedAsIs = (): boolean => {
+    const name = layoutName.trim();
+    const s = name ? named.find((x) => x.name === name) : undefined;
+    const now = layoutNow(false);
+    if (!s || !now) return false;
+    try {
+      const recordOf = (l: Layout): string => { const { camera: _c, ...rest } = recordOfLayout(l, name) as { camera?: unknown }; return JSON.stringify(rest); };
+      return recordOf(withGeometryNow(now)) === recordOf(layoutOfAuthoring(s));
+    } catch { return false; }
+  };
   /**
    * The layout renamed as a person's edit (`layout.name`): one undoable step, autosaved, refused (and said) where an edit
    * is refused -- the name field's and Saves > Save as's one path (LATER 804). False when refused.
@@ -15517,8 +16240,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const saveBundleAs = async (): Promise<void> => {
     const from = bundleOpen;
-    const l = layoutNow();
-    if (!from || !l) return;
+    const laid = layoutNow();
+    if (!from || !laid) return;
+    const l = await withGeometry(laid);                       // bug 1: its geometry's asset named
     await savesOpen();
     const name = await askText('Save as', 'This custom map is installed and read-only: a copy is saved in this browser, and opened to edit.', layoutName || from.name, RECORD_LIMITS.name, 'Save');
     if (!name) return;
@@ -15563,9 +16287,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (r.outcome === 'conflict') savedElsewhere();
     return r.value && (r.outcome === 'written' || r.outcome === 'unchanged');
   };
+  /** Bug 1: what a file or a link keeps of an edited geometry -- nothing yet: the asset is this browser's alone. */
+  const GEOMETRY_NOT_CARRIED = 'The edits to the map\'s geometry stay in this browser: a file or a share link does not carry them yet';
   const downloadLayout = (): void => {
     const l = layoutToSave();
     if (!l) return;
+    if (geometryEdited()) say(GEOMETRY_NOT_CARRIED, true);
     const record = recordOfLayout(l, l.name?.trim() || 'Layout');
     // FCW-32: a layout with rules downloads its authoring envelope (the record and its rules), which the file open reads.
     const rules = (l as ForgeLayout).rules;
@@ -15626,6 +16353,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const s = named.find((x) => x.id === id);
         if (!s) return;
         closeSaves();
+        // Bug 1 (2026-11-16): the layout open now is dropped -- asked first when it holds work.
+        if (!(await saveFirstOrStay())) { openSaves(); return; }
         await openLayout(layoutOfAuthoring(s), 'player').then(() => pop(`Opened ${s.name}`))
           .catch((e: unknown) => say(e instanceof Error ? e.message : String(e), true));
       })(); },
@@ -15655,7 +16384,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // LATER 804: the rename is the page's own edit (`renameLayout`), never a bare assignment. A joiner's save names
         // only its copy, as before; a rename refused (said) keeps the layout's name, and the copy is still saved by it.
         if (!(lobby && lobby.role === 'joiner' && !lobby.ended) && name !== layoutName) renameLayout(name);
-        const saved = layoutForSave() ?? l;
+        const saved = await withGeometry(layoutForSave() ?? l);   // bug 1: its geometry's asset named
         const next = saveNamedRules(named, name, recordOfLayout(saved, name), (saved as ForgeLayout).rules);   // FCW-32: its rules beside it
         if (next.error) { say(next.error, true); openSaves(); return; }
         if ((await persistNamed(next.saves)) === 'written') pop(`Saved ${name}`);
@@ -15700,6 +16429,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     } catch {
       pop('Share link ready to copy');
     }
+    if (geometryEdited()) say(GEOMETRY_NOT_CARRIED, true);
   };
   const saveLobbyMap = async (): Promise<void> => {
     const l = lobby;
@@ -15790,7 +16520,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     doc.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const m of menus) if (m.d.open) shut(m); });
     top.addEventListener('scroll', () => { for (const m of menus) shut(m); }, { passive: true });
     doc.defaultView?.addEventListener('resize', () => { for (const m of menus) shut(m); });
-    const unlocked = (): boolean => picks.items.some((r) => !lockedOf(r));
+    const unlocked = (): boolean => picks.items.some((r) => !lockedOf(r)) || geoPicks.size > 0;   // or geometry picked in Object mode
+    /** Geometry mode is on: the Edit menu's rows are the geometry editor's. */
+    const geoEdits = (): boolean => geometry?.isActive() === true;
     topMenu('File', () => [
       { label: 'New…', icon: icon('file'), act: () => newBtn.click() },
       { label: 'Open…', icon: icon('open'), keys: 'Ctrl+O', act: () => openBtn.click() },
@@ -15800,12 +16532,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       { label: 'Undo', icon: icon('undo'), keys: 'Ctrl+Z', act: undo, enabled: () => !undoBtn.disabled },
       { label: 'Redo', icon: icon('redo'), keys: 'Ctrl+Y', act: redo, enabled: () => !redoBtn.disabled },
       'rule',
-      { label: 'Cut', icon: icon('cut'), keys: 'Ctrl+X', act: cutSelection, enabled: unlocked },
-      { label: 'Copy', icon: icon('copy'), keys: 'Ctrl+C', act: copySelection, enabled: unlocked },
-      { label: 'Paste', icon: icon('paste'), keys: 'Ctrl+V', act: pasteClipboard, enabled: () => clipboard.length > 0 },
+      // Geometry mode (the owner, 2026-11-16): the rows are the geometry's own (`GeometryEditor.command`), as their keys are.
+      { label: 'Cut', icon: icon('cut'), keys: 'Ctrl+X', act: () => (geoEdits() ? geometry!.command('cut') : cutSelection()), enabled: () => (geoEdits() ? geometry!.canCommand('cut') : unlocked()) },
+      { label: 'Copy', icon: icon('copy'), keys: 'Ctrl+C', act: () => (geoEdits() ? geometry!.command('copy') : copySelection()), enabled: () => (geoEdits() ? geometry!.canCommand('copy') : unlocked()) },
+      { label: 'Paste', icon: icon('paste'), keys: 'Ctrl+V', act: () => (geoEdits() ? geometry!.command('paste') : pasteClipboard()), enabled: () => (geoEdits() ? geometry!.canCommand('paste') : clipboard.length > 0 || !!geometry?.hasClip()) },
       'rule',
-      { label: 'Duplicate', icon: icon('duplicate'), keys: 'Ctrl+D', act: duplicate, enabled: () => !dupBtn.disabled },
-      { label: 'Delete', icon: icon('trash'), keys: 'Del', act: remove, enabled: () => !delBtn.disabled },
+      { label: 'Duplicate', icon: icon('duplicate'), keys: 'Ctrl+D', act: () => (geoEdits() ? geometry!.command('duplicate') : duplicate()), enabled: () => (geoEdits() ? geometry!.canCommand('duplicate') : !dupBtn.disabled) },
+      { label: 'Delete', icon: icon('trash'), keys: 'Del', act: () => (geoEdits() ? geometry!.command('delete') : remove()), enabled: () => (geoEdits() ? geometry!.canCommand('delete') : !delBtn.disabled) },
     ]);
     // The AI Navigation menu is gone (the owner, 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
     // settings"): its layer switches are AI Navigation mode's View (`navToggle`); the map's switch the Overlays menu's.
@@ -16031,8 +16764,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           ? { id: 'lock-selection', label: 'Unlock', note: 'The placement just locked can be selected and moved again', act: () => lockBtn.click() }
           : { id: 'lock-selection', label: 'Lock selection', note: 'It cannot be selected or moved until unlocked (Outliner, Square)', disabled: picks.size === 0, act: () => lockBtn.click() },
         { id: 'frame-selection', label: 'Frame selection', note: 'The camera looks at the selected objects', disabled: picks.size + basePicks.size === 0 && !mapDataSelected, act: frameSelection },
-        { id: 'snap', label: 'Snap', value: snap && turnSnap ? 'On' : snap ? 'Grid' : turnSnap ? 'Turn' : 'Off', keepOpen: true, act: () => setSnap(!snapAny()), left: () => setSnap(!snapAny()), right: () => setSnap(!snapAny()) },
-        { id: 'grid-step', label: 'Grid step', value: `${gridStep}`, keepOpen: true,
+        { id: 'snap', label: 'Snap', value: snap && turnSnap ? 'On' : snap ? 'Workplane' : turnSnap ? 'Turn' : 'Off', keepOpen: true, act: () => setSnap(!snapAny()), left: () => setSnap(!snapAny()), right: () => setSnap(!snapAny()) },
+        { id: 'grid-step', label: 'Workplane step', value: `${gridStep}`, keepOpen: true,
           left: () => stepField(viewportGridIn, GRID_STEP_LADDER, gridStep, -1), right: () => stepField(viewportGridIn, GRID_STEP_LADDER, gridStep, 1) },
         { id: 'turn-step', label: 'Turn step', value: `${turnStep}°`, keepOpen: true,
           left: () => stepField(viewportTurnIn, TURN_STEP_LADDER, turnStep, -1), right: () => stepField(viewportTurnIn, TURN_STEP_LADDER, turnStep, 1) },
@@ -16201,8 +16934,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (refuseEdit()) { baseAsk.hidden = true; baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false; return; }
     baseAsk.hidden = true;
     // A cancelled question (the empty map's library) leaves the layout as it was, the base list put back.
-    void layoutForSelect(baseSel.value, blankLibrary()).then((l) => {
-      if (l) return openLayout(l, 'player').then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; throw e; });
+    void layoutForSelect(baseSel.value, blankLibrary()).then(async (l) => {
+      // Bug 1 (2026-11-16): another base drops the layout open now -- asked first when it holds work.
+      if (l && await saveFirstOrStay()) return openLayout(l, 'player').then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; throw e; });
       baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false;
       return undefined;
     }).catch((e: unknown) => say(String(e), true));
@@ -16447,6 +17181,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     keysGone = true;                                          // R3-A: a torn-down page's keys answer nothing
     globalThis.removeEventListener('keydown', onLeaseKey);
     viewWin?.removeEventListener('pagehide', onPageHide);
+    viewWin?.removeEventListener('beforeunload', onBeforeUnload);
     viewWin?.removeEventListener('pageshow', onPageShow);
     shell.dispose();                                         // FUI-1: every registered panel, its signal, listeners and timers
     disposeTiles();                                          // FUI-22: the list's tiles, their tooltip and its renderer
@@ -16484,12 +17219,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const autosaveOnHide = (): void => {
     if (autosaveOff || keepEarlier || forgeSaves.state !== 'ready') return;
-    const l = settledLayout();
-    if (!l) return;
-    const made = autosaveText(l);
+    const laid = settledLayout();
+    if (!laid) return;
+    const made = autosaveText(withGeometryNow(laid));          // bug 1: the geometry's asset as last kept
     if ('why' in made || made.text === forgeSaves.text('autosave')) return;
     forgeSaves.writeOnHide('autosave', made.text);
   };
+  /**
+   * Bug 1 (a browser adaptation): leaving while the last geometry edit is still being kept (`geometryRefNow`: encoded,
+   * compressed, written) asks the browser's own "Leave site?" -- the close's autosave (`autosaveOnHide`) can only name the
+   * asset already written, so that edit would be lost. Asked only then: a layout edit's close is the store's own.
+   */
+  function onBeforeUnload(e: BeforeUnloadEvent): void {
+    if (autosaveOff || keepEarlier) return;
+    const unkept = geoSaving !== null || (geoSaved?.key !== geometryKey() && geometry?.savedGeometry() != null);
+    if (!unkept) return;
+    void geometryRefNow();                                    // started now, so a Stay finds it under way
+    e.preventDefault();
+    e.returnValue = '';
+  }
   function onPageHide(e: PageTransitionEvent): void {
     pageShot?.driver.stop('disconnected');
     agentPlay.cancel('page hidden');
@@ -16509,6 +17257,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   doc.addEventListener('visibilitychange', onVisibility);
   viewWin?.addEventListener('pagehide', onPageHide);
   viewWin?.addEventListener('pageshow', onPageShow);
+  viewWin?.addEventListener('beforeunload', onBeforeUnload);
 
   /* ================= agent editor facade (browser adaptation; no original/game controls) ================= */
   /** Explicit camera commands settle immediately and use the same view/autosave writer as a human camera settle. */
@@ -17336,6 +18085,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     await savesOpen();
     const keptText = forgeSaves.text('autosave');
     const earlier = readAutosave(keptText);
+    // Bug 1: the geometry assets no layout in this browser names any more (an edit since replaced, a save deleted) let go
+    // -- every text the store holds read for names: the autosave, the saves, the copies kept aside.
+    void sweepGeometry([keptText ?? '', JSON.stringify(forgeSaves.view())]).catch(() => undefined);
     // LATER 193 (the merge controller's call: set it aside and say so, as the saved list's `setAsideSaves`): an autosave
     // this build cannot read is kept as it was before anything the page writes next could replace it. Where it cannot be
     // set aside (the list full, a refused write: `setAsideAutosave`), it counts as work and is held in place: a share

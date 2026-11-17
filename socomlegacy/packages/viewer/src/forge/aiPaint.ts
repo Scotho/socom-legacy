@@ -280,9 +280,14 @@ export class AiPaintTool {
       this.paintAt(ndc);
       return;
     }
-    // Select: Shift adds, Ctrl takes out, a plain press starts afresh.
-    const op = e.ctrlKey || e.metaKey ? 'remove' : 'add';
-    if (!e.shiftKey && op === 'add') this.selected.clear();
+    // Select (the owner, 2026-11-16: "shift + click should be additive not toggle selection. ctrl + click should be
+    // toggleable"): Shift adds; Ctrl toggles -- the cell under the press taken out when it is selected, else added (a drag
+    // goes on as it began); a plain press starts afresh.
+    let op: 'add' | 'remove' = 'add';
+    if (e.ctrlKey || e.metaKey) {
+      const under = this.deps.cellAt(ndc);
+      op = under && this.selected.has(aiCellKey(under.loc)) ? 'remove' : 'add';
+    } else if (!e.shiftKey) this.selected.clear();
     this.picking = { pointerId: e.pointerId, op };
     this.selectAt(ndc);
   }

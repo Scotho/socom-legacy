@@ -385,23 +385,33 @@ export function markReshaped(o: GeoObject): void {
   // moved and then reshaped keeps the disc's hull, moved, where its faces were not changed.
 }
 
-/** A copy of an object (Ctrl-drag in object mode), moved by `mat` when given. */
-export function duplicateObject(g: WorldGeometry, o: GeoObject, mat?: ArrayLike<number>): GeoObject {
+/**
+ * What a new object is made from (`addObject`'s argument, no id): a copy of a whole object or of some of its faces --
+ * the clipboard's item (`GeometryEditor`'s copy), a duplicate's. It shares nothing with the geometry it came from.
+ */
+export type GeoObjectCopy = Omit<GeoObject, 'id'>;
+
+/** A whole object's copy (`objectCopy`'s), not yet added: a node of the world's faces alone, a plain mesh then. */
+export function objectCopy(g: WorldGeometry, o: GeoObject, name = `${o.name} copy`): GeoObjectCopy {
   const mesh = o.group === undefined ? cloneMesh(o.mesh) : compact(cloneMesh({ ...o.mesh, faces: o.mesh.faces.map((f) => (f && f.group === o.group ? f : null)) }));
   for (const f of mesh.faces) if (f) delete f.group;
   // A copy of a node of the world is solid on the node's own commonest surface (its hull made from its faces at Build).
   const surface = o.solid ? [...o.solid] as Surface : o.group !== undefined ? nodeSurface(g, o) : null;
-  const copy = addObject(g, { name: `${o.name} copy`, kind: o.kind === 'world' ? 'mesh' : o.kind, mesh, ...(surface ? { solid: surface } : {}) });
+  return { name, kind: o.kind === 'world' ? 'mesh' : o.kind, mesh, ...(surface ? { solid: surface } : {}) };
+}
+
+/** A copy of an object (Ctrl-drag in object mode), moved by `mat` when given. */
+export function duplicateObject(g: WorldGeometry, o: GeoObject, mat?: ArrayLike<number>): GeoObject {
+  const copy = addObject(g, objectCopy(g, o));
   if (mat) transformObject(copy, mat);
   return copy;
 }
 
 /**
- * Faces of an object made an object of their own (Hammer's separate): moved out with their points, corners and styles,
- * so a building carved out of the map's world moves, hides and copies as one. Points the two share are copied, the
- * seam opening only where one is moved.
+ * Some of an object's faces copied out as an object of their own, not yet added (Hammer's copy of faces): their points,
+ * corners, styles, mappings and displacements, the source left as it was. Null when none of `faces` is there.
  */
-export function separateFaces(g: WorldGeometry, from: GeoObject, faces: readonly number[], name: string): GeoObject | null {
+export function facesCopy(g: WorldGeometry, from: GeoObject, faces: readonly number[], name: string): GeoObjectCopy | null {
   const live = faces.filter((f) => from.mesh.faces[f]);
   if (!live.length) return null;
   const src = from.mesh;
@@ -424,12 +434,30 @@ export function separateFaces(g: WorldGeometry, from: GeoObject, faces: readonly
     const copy = m.faces[nf]!;
     if (face.mapping) copy.mapping = { ...face.mapping };
     if (face.disp) copy.disp = { power: face.disp.power, heights: [...face.disp.heights] };
-    src.faces[f] = null;
   }
-  // The node it came from is reshaped (its hull made from its faces left); the piece is solid on the node's surface.
+  // Solid on the source's surface (a node's commonest), as a separated piece is.
   const surface = from.solid ? [...from.solid] as Surface : from.group !== undefined ? nodeSurface(g, from) : null;
+  return { name, kind: 'mesh', mesh: m, ...(surface ? { solid: surface } : {}) };
+}
+
+/** A copy of a copy, in place (a paste's, a duplicate's): its own mesh and surface, so the clipboard pastes again unchanged. */
+export function inPlaceCopy(c: GeoObjectCopy): GeoObjectCopy {
+  return { ...c, mesh: cloneMesh(c.mesh), ...(c.solid ? { solid: [...c.solid] as Surface } : {}) };
+}
+
+/**
+ * Faces of an object made an object of their own (Hammer's separate): moved out with their points, corners and styles,
+ * so a building carved out of the map's world moves, hides and copies as one. Points the two share are copied, the
+ * seam opening only where one is moved.
+ */
+export function separateFaces(g: WorldGeometry, from: GeoObject, faces: readonly number[], name: string): GeoObject | null {
+  // The copy first (its surface read while the node still has its faces), then the faces taken out of the source.
+  const piece = facesCopy(g, from, faces, name);
+  if (!piece) return null;
+  for (const f of faces) from.mesh.faces[f] = null;
+  // The node it came from is reshaped (its hull made from its faces left); the piece is solid on the node's surface.
   markReshaped(from);
-  return addObject(g, { name, kind: 'mesh', mesh: m, ...(surface ? { solid: surface } : {}) });
+  return addObject(g, piece);
 }
 
 /** Objects merged into the first (their faces appended, styles carried). */

@@ -164,6 +164,14 @@ export interface Layout {
    */
   aiSoil?: Record<string, number>;
   /**
+   * The base's world geometry as this layout edits it (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits
+   * aren't saved"; a browser adaptation, FG.R2): a reference (`GEOMETRY_REF`, `geometry:` and the content's SHA-256) to
+   * the edited meshes kept as an asset in this browser's store (`viewer/src/forge/geometryStore`), as Hammer keeps a map's
+   * mesh edits in its `.vmap`. The disc's map is untouched. Absent: the base's own geometry. Online refused (another
+   * player's browser has no such asset).
+   */
+  geometry?: string;
+  /**
    * The placements' tree (the owner, 2026-11-10: "implement the tree layout"): each `[child, parent]` pair a placement's
    * parent, both by their place in the layout (`TREE_REF`: `piece:3`, `door:0`, `bomb:seal:0`) -- the engine's own
    * model (a node's matrix local to its parent's, `@s2u/scene` `flattenScene`). Every placement keeps its own world place
@@ -1749,6 +1757,11 @@ export function parseLayout(text: string): Layout {
       if (why) throw new Error(why);
       return { aiSoil: aiSoilOf(raw["aiSoil"] as Record<string, number>) };
     })()),
+    ...(raw["geometry"] === undefined ? {} : (() => {
+      const why = geometryRefWhy(raw["geometry"]);
+      if (why) throw new Error(why);
+      return { geometry: raw["geometry"] as string };
+    })()),
     ...(raw["settings"] === undefined ? {} : { settings: parseSettings(raw["settings"]) }),
     ...(raw["objectives"] === undefined ? {} : { objectives: parseObjectives(raw["objectives"]) }),
     ...(raw["ids"] === undefined ? {} : objectiveIdsOf(raw["ids"])),
@@ -2114,6 +2127,8 @@ export interface CreatorLayoutRecord {
   movedData?: Record<string, MovedMapData>;
   /** The base map's AI cells the layout paints (`Layout.aiSoil`), present only when it paints some. */
   aiSoil?: Record<string, number>;
+  /** The edited world geometry's asset (`Layout.geometry`), present only when the layout edits the base's geometry. */
+  geometry?: string;
   /** The placements' tree (`Layout.tree`), present only when some placement has a parent. */
   tree?: [string, string][];
   /** The Outliner's folders (`Layout.folders`) and its order (`Layout.order`), present only when the layout has some. */
@@ -2273,6 +2288,15 @@ function aiSoilWhy(raw: unknown): string | null {
   }
   return null;
 }
+/**
+ * An edited geometry's reference (`Layout.geometry`): `geometry:` and its content's SHA-256, 64 lower-case hex digits
+ * (`viewer/src/forge/geometryStore` names each asset so, so the same edits are one asset).
+ */
+export const GEOMETRY_REF = /^geometry:[0-9a-f]{64}$/;
+/** Why `raw` is not a geometry reference, or null. */
+function geometryRefWhy(raw: unknown): string | null {
+  return typeof raw === "string" && GEOMETRY_REF.test(raw) ? null : "geometry is not an edited geometry's reference";
+}
 /** A checked `aiSoil` map, copied. */
 function aiSoilOf(raw: Record<string, number>): Record<string, number> {
   return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v]));
@@ -2284,7 +2308,7 @@ function movedDataOf(raw: Record<string, MovedMapData>): Record<string, MovedMap
 
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "movedData", "aiSoil", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
+  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "movedData", "aiSoil", "geometry", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
   "poses", "mapScript"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
@@ -2451,6 +2475,7 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   if (l.hiddenData?.length) record.hiddenData = [...l.hiddenData];
   if (l.movedData && Object.keys(l.movedData).length) record.movedData = movedDataOf(l.movedData);
   if (l.aiSoil && Object.keys(l.aiSoil).length) record.aiSoil = aiSoilOf(l.aiSoil);
+  if (l.geometry) record.geometry = l.geometry;
   if (l.tree?.length) record.tree = l.tree.map(([c, p]) => [c, p] as [string, string]);
   if (l.folders?.length) record.folders = l.folders.map((f) => ({ name: f.name }));
   if (l.order?.length) record.order = [...l.order];
@@ -2584,6 +2609,7 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   if (!isV2(r) && r.hiddenData?.length) layout.hiddenData = [...r.hiddenData];
   if (!isV2(r) && r.movedData && Object.keys(r.movedData).length) layout.movedData = movedDataOf(r.movedData);
   if (!isV2(r) && r.aiSoil && Object.keys(r.aiSoil).length) layout.aiSoil = aiSoilOf(r.aiSoil);
+  if (!isV2(r) && r.geometry) layout.geometry = r.geometry;
   if (!isV2(r) && r.tree?.length) layout.tree = r.tree.map(([c, p]) => [c, p] as [string, string]);
   if (!isV2(r) && r.folders?.length) layout.folders = r.folders.map((f) => ({ name: f.name }));
   if (!isV2(r) && r.order?.length) layout.order = [...r.order];
@@ -2770,6 +2796,7 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
   }
   if (r["movedData"] !== undefined) { const why = movedDataWhy(r["movedData"]); if (why) return why; }
   if (r["aiSoil"] !== undefined) { const why = aiSoilWhy(r["aiSoil"]); if (why) return why; }
+  if (r["geometry"] !== undefined) { const why = geometryRefWhy(r["geometry"]); if (why) return why; }
   if (r["npcs"] !== undefined) {
     const npcs = r["npcs"];
     if (!Array.isArray(npcs) || npcs.length === 0 || npcs.length > RECORD_LIMITS.spawns) return "npcs is not a list";
@@ -3289,6 +3316,7 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", r.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(r.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "aiSoil", Object.keys(r.aiSoil ?? {}).length, "AI cells (this layout paints some of the map's)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "geometry", r.geometry ? 1 : 0, "edited world geometry (kept in this browser)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", r.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", r.triggers?.length ?? 0, "damage triggers on props"),
     ...placedRefusal(RECORD_CODES.onlineObjects, "objects", r.objects?.filter((o) => o[0] !== "ambient").length ?? 0, "cranes"),
@@ -3366,6 +3394,7 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", l.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(l.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "aiSoil", Object.keys(l.aiSoil ?? {}).length, "AI cells (this layout paints some of the map's)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "geometry", l.geometry ? 1 : 0, "edited world geometry (kept in this browser)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", l.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", l.triggers?.length ?? 0, "damage triggers on props"),
     // An ambient effect plays online (the owner, 2026-11-10: "make it ... such that they will load in online games"): the

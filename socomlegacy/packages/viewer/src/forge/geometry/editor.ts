@@ -20,15 +20,18 @@ import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, climbFlagOf, COLLISION_
 import { HULL_COLOURS, type HullViewPoly } from '../hull';
 import { deleteEdges, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, transformVerts } from './ops';
 import { box, cylinder, plane, sphere, type PrimitiveOptions } from './primitives';
-import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFaces, selectionCentre, selectionVerts, type Ray, type SelectMode, type Selection } from './selection';
+import { flatWorkplane, rayOnWorkplane, type Workplane } from '../mapGrid';
+import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFaces, selectionCentre, selectionVerts, type PickOp, type Ray, type SelectMode, type Selection } from './selection';
 import type { DrawSources } from './worldMesh';
 import type { FloorLook } from './blank';
 import type { Surface } from './collision';
 import { align, applyTexture, justify, medianTexelScale, pasteLook, sampleFace, type FaceLook, type TextureSize } from './texturing';
 import {
-  addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, geometryOfMap, markReshaped, mul4, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
+  addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
+  type GeoObjectCopy,
   type GeoObject, type WorldGeometry,
 } from './world';
+import type { SavedWorld } from './geometryFile';
 
 /**
  * The Forge's geometry mode (a browser adaptation, FG.R2; the owner, 2026-11-14: "a full on hammer like geometry editing
@@ -100,6 +103,8 @@ export interface GeometryEditorDeps {
    * `floorLookOf`) -- the plane an empty world opens with. Null on a disc map's base, whose world is its own.
    */
   defaultFloor?: () => { size: number; divisions: number; look: FloorLook } | null;
+  /** The workplane (the page's grid dropdown, `../mapGrid`): a shape made where the view's middle meets nothing stands on it. */
+  workplane?: () => Workplane;
   /**
    * The Texture button pressed (the owner, 2026-11-16: "make it a button that opens the asset browser filtered to textures
    * only"): the page opens its asset browser on its Textures tab by `anchor`, a pick handed back through `setTexture`.
@@ -185,6 +190,11 @@ function clearGroup(g: Group): void {
 interface Cage { edges: Float32Array; points: Float32Array; verts: number[]; edgeKeys: string[] }
 
 /** The geometry's selection as a step of the page's history keeps it: its mode, objects, and each object's items. */
+/** The Edit menu's commands on the geometry (`GeometryEditor.command`): Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D and Delete. */
+export type GeometryCommand = 'copy' | 'cut' | 'paste' | 'duplicate' | 'delete';
+/** The Ctrl chords of `GeometryCommand`, by key code (the page's own, `../keys`). */
+const CHORD_COMMANDS: Readonly<Record<string, GeometryCommand>> = { KeyC: 'copy', KeyX: 'cut', KeyV: 'paste', KeyD: 'duplicate' };
+
 export interface GeometrySelectionState { mode: SelectMode; objects: string[]; items: [string, (number | string)[]][] }
 
 /**
@@ -194,7 +204,8 @@ export interface GeometrySelectionState { mode: SelectMode; objects: string[]; i
 /** An Outliner row of a geometry layer: an object, its kind ('world' a map section), and whether it is selected. */
 export interface OutlineRow { id: string; name: string; kind: GeoObject['kind'] | 'world'; selected: boolean }
 
-export interface GeometrySnapshot { map: LoadedMap; geo: WorldGeometry; edited: boolean; hull?: WorldGeometry | null }
+/** `authored`: a person's edit made it (bug 1's `savedGeometry`); absent, as `edited` says. */
+export interface GeometrySnapshot { map: LoadedMap; geo: WorldGeometry; edited: boolean; authored?: boolean; hull?: WorldGeometry | null }
 
 
 /** The camera's letters while it navigates, as the page's (`../keys` `FLY_LETTERS`). */
@@ -381,6 +392,12 @@ export class GeometryEditor {
   private draws: LoadedMesh[] | null = null;
   private built: GroundData | null = null;
   private edited = false;
+  /**
+   * Bug 1 (saving): a person's edit made the geometry what it is -- an edit, an undo or a redo to one, or a saved one put
+   * back (`restoreSaved`). Not set by a blank base's own floor (`edited` is: the floor is drawn from the start), so a
+   * layout that never touched its geometry saves none (`savedGeometry`).
+   */
+  private authored = false;
   /**
    * The collision rebuilt by itself (the owner, 2026-11-15: no Build button, "update the collision mesh in real time";
    * measured 2026-11-15: a whole Build 3-18 ms on MP6, MP51 and MP72): after each edit, undo and redo, once a burst of
@@ -699,7 +716,10 @@ export class GeometryEditor {
 
   /* ---------- the page's hooks ---------- */
 
-  /** A new base: the geometry of the old one goes (not saved yet: a later phase keeps it in the layout). */
+  /**
+   * A new base: the geometry of the old one goes from here -- kept, when a person edited it, in the layout's saves (bug 1:
+   * `savedGeometry`, the page's autosave and its "Save first?"), and put back by the open of a layout naming it.
+   */
   reset(): void {
     this.setActive(false);
     if (this.drawn) this.deps.onViewSwap(null);
@@ -709,6 +729,7 @@ export class GeometryEditor {
     this.draws = null;
     this.built = null;
     this.edited = false;
+    this.authored = false;
     this.cancelBuild();
     this.texelScale = null;
     this.sel = emptySelection(this.sel.mode);
@@ -726,8 +747,10 @@ export class GeometryEditor {
     objects: { id: string; name: string; kind: string; hullNode?: number; hullOf?: string; manual: boolean; solid: boolean; faces: number; types: Record<string, number>; centre: number[] | null }[];
     pivot: number[] | null;
     live: { verts: number; overlay: number[] };
+    selection: GeometrySelectionState | null;
   } {
     return {
+      selection: this.selectionState(),
       active: this.active, collision: this.collisionOn, painting: this.paintOn ? this.collisionType : null, edited: this.edited, stale: this.stale,
       builtPolys: this.built ? this.built.fields.length / 6 : null,
       objects: (this.geo?.objects ?? []).map((o) => {
@@ -1006,6 +1029,148 @@ export class GeometryEditor {
     this.drawSelection();
   }
 
+  /*
+   * Object mode's own hold on the geometry (the owner, 2026-11-16: "allow to select meshes when in normal object mode ...
+   * just be able to move the geometry with the transform gizmo ... it should move the linked collision object with it";
+   * "ok to have mixed selection since we are only selecting whole objects"): the page's Select tool picks whole geometry
+   * objects beside its placements (`objectAt`), boxes them (`objectBounds`), and its gizmo moves them with the rest -- live
+   * (`beginMove`, `moveBy`), then once at the release (`endMove`), as Geometry mode's object move does (`transformObjects`:
+   * the textures locked, the hand-edited collision carried, a node's own hull moved with it at Build). Geometry mode is not
+   * opened for any of it; the drawn layer is the one moved.
+   */
+
+  /**
+   * The geometry object a click at viewport point `ndc` strikes, and how far along the ray -- the drawn layer's, the base's
+   * geometry opened for it (`openBase`). A blank base's own floor is the ground, never picked (a click on it is a click on
+   * nothing, as before). Null over nothing, or while Geometry mode is on (its own picks are its own).
+   */
+  objectAt(ndc: { x: number; y: number }): { id: string; distance: number } | null {
+    if (this.active) return null;
+    if (!this.openBase() || !this.geo) return null;
+    const hit = pickFace(this.geo, this.rayAt(new Vector2(ndc.x, ndc.y), this.deps.camera()), this.index);
+    if (!hit || this.isBaseFloor(hit.object)) return null;
+    return { id: hit.object.id, distance: hit.t };
+  }
+
+  /** A blank base's own floor plane (made at the open: `open`'s `defaultFloor`), the ground of a custom map. */
+  private isBaseFloor(o: GeoObject): boolean {
+    return !!this.forMap && this.forMap.world.length === 0 && o.kind === 'plane' && o.name === 'Floor';
+  }
+
+  /** Whether the drawn layer has the object `id` now (an undo may have taken it away). */
+  hasObject(id: string): boolean { return !this.collisionOn && !!this.objectById(id); }
+
+  /** The object `id`'s box over its live faces' points, or null. */
+  objectBounds(id: string): { min: Vec3; max: Vec3 } | null {
+    const o = this.collisionOn ? undefined : this.objectById(id);
+    if (!o) return null;
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const v of selectionVerts(this.objectSelection([id]), o)) {
+      const p = vertPos(o.mesh, v);
+      for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i]!, p[i]!); max[i] = Math.max(max[i]!, p[i]!); }
+    }
+    return Number.isFinite(min[0]) ? { min, max } : null;
+  }
+
+  private objectSelection(ids: readonly string[]): Selection {
+    const s = emptySelection('object');
+    for (const id of ids) if (this.objectById(id)) s.objects.add(id);
+    return s;
+  }
+
+  /** The gizmo's drag takes the objects `ids` up: drawn where it carries them from now (`moveBy`), until `endMove`. */
+  beginMove(ids: readonly string[]): void {
+    if (this.active || !this.geo || !ids.length) return;
+    this.startLive(this.objectSelection(ids));
+  }
+
+  /** The drag's carry since `beginMove` (a column-major change), drawn at once. */
+  moveBy(delta: Matrix4): void { if (this.live.length) this.moveLive(delta); }
+
+  /**
+   * The drag let go: the objects `ids` moved by `mat` as one geometry edit -- their collision with them (`transformObjects`'
+   * way) -- or, `mat` null (no move), put back as they were. The page's history takes the edit (`deps.onEdit`).
+   */
+  endMove(ids: readonly string[], mat: ArrayLike<number> | null): void {
+    const geo = this.geo;
+    const moved = !!mat && !new Matrix4().fromArray(Array.from(mat)).equals(new Matrix4());
+    this.endLive(!moved);
+    if (!geo || !moved || this.active) return;
+    this.edit('Move geometry', () => {
+      let any = false;
+      for (const id of ids) {
+        const o = this.objectById(id);
+        if (!o) continue;
+        transformObject(o, mat!, this.size);
+        for (const h of followersOf(this.hullGeo, o)) moveFollower(h, mat!);
+        any = true;
+      }
+      return any;
+    }, { selectionTouched: false });
+  }
+
+  /*
+   * Object mode's Delete, Copy, Paste and Duplicate on the geometry objects it picked (the owner, 2026-11-16: "make
+   * Delete, Copy, Paste and Duplicate in Object mode"): whole objects of the drawn layer, as Geometry mode's Object
+   * selection does them (`command`) -- Delete takes a made object out and a map section's faces away; Copy fills the one
+   * clipboard Geometry mode's Paste reads too; Paste and Duplicate make the copies in place (the owner, same day: "keep it
+   * in the same position"). Each an edit of its own (`edit`); the page folds one into the placements' step of the same
+   * command where it can.
+   */
+
+  /** The objects `ids` deleted: a made one taken out, a map section's faces taken away (its hull with them at Build). */
+  deleteObjects(ids: readonly string[]): void {
+    const geo = this.geo;
+    if (!geo || this.active || !ids.length) return;
+    this.edit('Delete geometry', () => {
+      let any = false;
+      for (const id of ids) {
+        const o = this.objectById(id);
+        if (!o) continue;
+        if (o.group === undefined) removeObject(geo, id); else deleteFaces(o.mesh, objectFaces(o));
+        markReshaped(o);
+        any = true;
+      }
+      return any;
+    }, { selectionTouched: false });
+  }
+
+  /**
+   * The objects `ids` to the clipboard, whole (Geometry mode's Paste reads it too), stamped `at` (the page's copy's time,
+   * so a Copy of placements and geometry together pastes both: `clipAt`); how many.
+   */
+  copyObjects(ids: readonly string[], at: number): number {
+    const geo = this.geo;
+    if (!geo || this.active) return 0;
+    const items = ids.flatMap((id) => { const o = this.objectById(id); return o ? [objectCopy(geo, o)] : []; });
+    if (items.length) this.clip = { layer: 'geometry', mode: 'object', items, at };
+    return items.length;
+  }
+
+  /** Whether Object mode's Paste has geometry to make: a clipboard of the drawn layer's (faces or objects). */
+  hasClip(): boolean { return this.clip?.layer === 'geometry'; }
+
+  /** The clipboard's sets made in place (Object mode's Paste), one edit; the new objects' ids. */
+  pasteObjects(): string[] {
+    const items = this.clip?.layer === 'geometry' ? this.clip.items : [];
+    return this.makeObjects(items, 'Paste geometry');
+  }
+
+  /** The objects `ids` copied in place (Object mode's Duplicate), one edit; the copies' ids. */
+  duplicateObjects(ids: readonly string[]): string[] {
+    const geo = this.geo;
+    if (!geo) return [];
+    return this.makeObjects(ids.flatMap((id) => { const o = this.objectById(id); return o ? [objectCopy(geo, o)] : []; }), 'Duplicate geometry');
+  }
+
+  private makeObjects(items: readonly GeoObjectCopy[], label: string): string[] {
+    const geo = this.geo;
+    if (!geo || this.active || !items.length) return [];
+    const made: string[] = [];
+    this.edit(label, () => { for (const c of items) made.push(addObject(geo, inPlaceCopy(c)).id); }, { selectionTouched: false });
+    return made;
+  }
+
   /**
    * The Inspector's Transform in Geometry mode (the owner, 2026-11-15: "show the transform for geometry objects, and allow
    * the user to edit these values, but only when in object mode ... basically equivalent to moving the gizmo"): the
@@ -1180,6 +1345,7 @@ export class GeometryEditor {
     this.draws = null;
     this.built = null;
     this.edited = false;
+    this.authored = false;
     this.cancelBuild();
     this.sel = emptySelection(this.sel.mode);
     this.texelScale = null;
@@ -1256,6 +1422,7 @@ export class GeometryEditor {
       for (const [id, s] of solidsBefore ?? []) if (!now.has(id) && s !== undefined) geo.clearedSolids = [...new Set([...(geo.clearedSolids ?? []), s])];
     }
     this.edited = true;
+    this.authored = true;
     this.collisionOutline = null;
     this.redraw();
     this.buildSoon();
@@ -1269,7 +1436,41 @@ export class GeometryEditor {
   snapshot(): GeometrySnapshot | null {
     const geo = this.drawGeometry;
     if (!geo || !this.forMap) return null;
-    return { map: this.forMap, geo: cloneGeometry(geo), edited: this.edited, hull: this.hullGeo ? cloneGeometry(this.hullGeo) : null };
+    return { map: this.forMap, geo: cloneGeometry(geo), edited: this.edited, authored: this.authored, hull: this.hullGeo ? cloneGeometry(this.hullGeo) : null };
+  }
+
+  /**
+   * Bug 1 (the owner, 2026-11-16: "Edits aren't saved"): the geometry as a layout saves it (`./geometryFile`) -- the drawn
+   * layer, the collision layer when it was edited, and the texture names its faces wear (the page keeps which of them it
+   * lent from other maps) -- or null when no edit of a person's made it (the base's own; a blank base's floor untouched).
+   */
+  savedGeometry(): { geo: WorldGeometry; hull: WorldGeometry | null; textures: string[] } | null {
+    const geo = this.drawGeometry;
+    if (!geo || !this.authored) return null;
+    const textures = new Set<string>();
+    for (const w of [geo, this.hullGeo]) for (const o of w?.objects ?? []) for (const s of o.mesh.styles) if (s.style.textureName) textures.add(s.style.textureName);
+    return { geo, hull: this.hullGeo, textures: [...textures] };
+  }
+
+  /**
+   * Bug 1: a saved geometry (`./geometryFile` `decodeGeometry`) put back over the base as it opens (its layout's
+   * `geometry`): the base's geometry read afresh for what a file never holds -- the hull as read, the world's mesh as
+   * read, the owners' nodes -- then the saved objects stood in its place, as an undo puts a step back (`restoreSnapshot`).
+   * It is then the geometry the walk, Play and every mode draw.
+   */
+  restoreSaved(saved: { geo: SavedWorld; hull: SavedWorld | null }): boolean {
+    const map = this.deps.map();
+    if (!map) return false;
+    this.open(map);
+    const fresh = this.geo;
+    if (!fresh) return false;
+    const world = (w: SavedWorld): WorldGeometry => ({
+      objects: w.objects, collision: w.collision ? fresh.collision : null, ownerNodes: fresh.ownerNodes,
+      ...(w.original && fresh.original ? { original: fresh.original } : {}),
+      ...(w.clearedNodes ? { clearedNodes: w.clearedNodes } : {}), ...(w.clearedSolids ? { clearedSolids: w.clearedSolids } : {}),
+    });
+    this.restoreSnapshot({ map, geo: world(saved.geo), edited: true, authored: true, hull: saved.hull ? world(saved.hull) : null });
+    return true;
   }
 
   /**
@@ -1314,6 +1515,7 @@ export class GeometryEditor {
       if (this.collisionOn && hull) { this.drawGeo = draw; this.geo = this.hullGeo = hull; }
       else { if (this.collisionOn) this.leaveCollision(); this.geo = draw; this.hullGeo = stepHull; }
       this.edited = true;
+      this.authored = s.authored ?? s.edited;
       this.redrawWorld();
       this.buildSoon();
     }
@@ -1938,6 +2140,135 @@ export class GeometryEditor {
     });
   }
 
+  /**
+   * Copy, Cut, Paste, Duplicate and Delete on the geometry (the owner, 2026-11-16: "implement copy/paste/cut/duplicate/
+   * delete when in geometry mode ... on faces"), as Source 2 Hammer has them: they act on faces (Face mode) or whole
+   * objects (Object mode). A vertex or an edge is part of the faces round it, not geometry of its own, so there is
+   * nothing of it to copy -- Hammer copies none; Delete (a hole) and Backspace (dissolve) are what those modes have.
+   * - Copy: the selected faces (or objects) to the clipboard, as they are now.
+   * - Cut: Copy, then Delete -- one step.
+   * - Paste: a new object made of each copied set, in place -- exactly where it was copied, so it moves off in the old
+   *   one's plane -- and selected, so the gizmo moves it on.
+   * - Duplicate: a copy in place, selected (Hammer's way: then drag it off).
+   * A face set pasted or duplicated is an object of its own (Hammer's paste makes a new mesh): the faces it came from
+   * stay as they were, and nothing is welded. The clipboard keeps its layer: Geometry faces paste on the Geometry layer,
+   * Collision faces on the Collision layer. The Texture layer edits no shape.
+   */
+  command(c: GeometryCommand): void {
+    if (!this.geo || !this.active) return;
+    if (this.textureOn) { this.deps.say('The Texture layer paints textures only: switch to the Geometry or Collision layer to edit shapes', true); return; }
+    if (c === 'delete') { this.deleteSelection(); return; }
+    if (c === 'paste') { this.pasteClip(); return; }
+    if (this.sel.mode === 'point' || this.sel.mode === 'edge') {
+      this.deps.say(`${c[0]!.toUpperCase()}${c.slice(1)} works on faces or whole objects: vertices and edges are parts of faces (switch to Face or Object mode)`, true);
+      return;
+    }
+    const copies = this.selectionCopies();
+    if (!copies.length) { this.deps.say(this.sel.mode === 'face' ? 'Select faces first' : 'Select objects first', true); return; }
+    if (c === 'copy' || c === 'cut') {
+      this.clip = { layer: this.collisionOn ? 'collision' : 'geometry', mode: this.sel.mode, items: copies, at: performance.now() };
+      const n = this.clipCount();
+      if (c === 'cut') this.deleteSelection();
+      this.deps.say(`${c === 'cut' ? 'Cut' : 'Copied'} ${n}`);
+      return;
+    }
+    this.placeCopies(copies, this.sel.mode, 'Duplicate geometry');
+    this.deps.say(`Duplicated ${this.clipCount(copies, this.sel.mode)} in place: drag it off with the gizmo`);
+  }
+
+  /** Whether `c` has anything to act on now (the Edit menu's rows). */
+  canCommand(c: GeometryCommand): boolean {
+    if (!this.geo || !this.active || this.textureOn) return false;
+    if (c === 'paste') return !!this.clip && this.clip.layer === (this.collisionOn ? 'collision' : 'geometry');
+    if (c === 'delete') return this.sel.objects.size > 0;
+    return (this.sel.mode === 'face' || this.sel.mode === 'object') && this.sel.objects.size > 0;
+  }
+
+  /** The clipboard: the copied sets as new objects would be made of them, the layer they came from, and their mode. */
+  private clip: { layer: 'geometry' | 'collision'; mode: 'face' | 'object'; items: GeoObjectCopy[]; at: number } | null = null;
+
+  /** When the clipboard was last filled (`performance.now()`), -Infinity when it holds nothing Object mode can paste. */
+  clipAt(): number { return this.clip?.layer === 'geometry' ? this.clip.at : -Infinity; }
+
+  /** "3 faces" / "2 objects": what a set of copies holds, for the status line. */
+  private clipCount(items = this.clip?.items ?? [], mode = this.clip?.mode ?? 'face'): string {
+    if (mode === 'object') return `${items.length} object${items.length === 1 ? '' : 's'}`;
+    const n = items.reduce((s, c) => s + c.mesh.faces.filter((f) => f).length, 0);
+    return `${n} face${n === 1 ? '' : 's'}`;
+  }
+
+  /** The selection copied as new objects would be made of it: each object's selected faces, or each object whole. */
+  private selectionCopies(): GeoObjectCopy[] {
+    const geo = this.geo;
+    if (!geo) return [];
+    const out: GeoObjectCopy[] = [];
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      if (!o) continue;
+      if (this.sel.mode === 'object') { out.push(objectCopy(geo, o)); continue; }
+      const faces = [...(this.sel.items.get(id) ?? [])] as number[];
+      const c = faces.length ? facesCopy(geo, o, faces, `${o.name} faces`) : null;
+      if (c) out.push(c);
+    }
+    return out;
+  }
+
+  /**
+   * A Ctrl-drag of faces let go (as an object's Ctrl-drag copies it, `transformObjects`): the selected faces copied out,
+   * each object's an object of its own (`facesCopy`, as Copy and Paste make them), moved by the drag's `mat` with their
+   * textures locked to them; the faces they came from stay where they were. The copies' faces selected after, one step.
+   */
+  private copyFacesBy(mat: ArrayLike<number>): void {
+    const geo = this.geo;
+    if (!geo) return;
+    this.edit('Copy faces', () => {
+      const made: GeoObject[] = [];
+      for (const id of this.sel.objects) {
+        const o = this.objectById(id);
+        const faces = [...(this.sel.items.get(id) ?? [])] as number[];
+        const c = o && faces.length ? facesCopy(geo, o, faces, `${o.name} faces`) : null;
+        if (!c) continue;
+        const copy = addObject(geo, c);
+        transformObject(copy, mat, this.size);
+        made.push(copy);
+      }
+      if (!made.length) return false;
+      this.sel = emptySelection('face');
+      for (const o of made) { this.sel.objects.add(o.id); this.sel.items.set(o.id, new Set(objectFaces(o))); }
+      return true;
+    });
+  }
+
+  /** Paste: the clipboard's sets where the cursor points (`pasteOffset`), on the layer they were copied on. */
+  private pasteClip(): void {
+    const clip = this.clip;
+    if (!clip) { this.deps.say('Nothing to paste: copy faces (Face mode) or objects first', true); return; }
+    const layer = this.collisionOn ? 'collision' : 'geometry';
+    if (clip.layer !== layer) { this.deps.say(`Those were copied on the ${clip.layer === 'collision' ? 'Collision' : 'Geometry'} layer: paste them there`, true); return; }
+    this.placeCopies(clip.items, this.sel.mode === 'object' ? 'object' : 'face', 'Paste geometry');
+    this.deps.say(`Pasted ${this.clipCount()} in place: drag it off with the gizmo`);
+  }
+
+  /**
+   * New objects made of `items`, in place (the owner, 2026-11-16: "keep it in the same position, dont offset the copy.
+   * this makes it easy to move in the same plane as the old one"), as one step: selected after, as `mode` selects --
+   * Object mode the objects, else every face of them in Face mode (a paste in Vertex or Edge mode lands in Face mode).
+   * Each is made from its own copy of the mesh, so the clipboard pastes again unchanged.
+   */
+  private placeCopies(items: readonly GeoObjectCopy[], mode: 'face' | 'object', label: string): void {
+    const geo = this.geo;
+    if (!geo || !items.length) return;
+    this.edit(label, () => {
+      const made = items.map((c) => addObject(geo, inPlaceCopy(c)));
+      this.sel = emptySelection(mode);
+      for (const o of made) {
+        this.sel.objects.add(o.id);
+        if (mode === 'face') this.sel.items.set(o.id, new Set(objectFaces(o)));
+      }
+      this.focus = made[0]?.id ?? this.focus;
+    });
+  }
+
   private addPrimitive(kind: 'box' | 'plane' | 'sphere' | 'cylinder'): void {
     if (!this.geo) return;
     const geo = this.geo;
@@ -1948,7 +2279,11 @@ export class GeometryEditor {
     const cam = this.deps.camera();
     const ray = this.rayAt(new Vector2(0, 0), cam);
     const hit = pickFace(geo, ray, this.index);
-    const at: Vec3 = hit && hit.t < 200 * unit ? hit.at : [ray.origin[0]! + ray.dir[0]! * 10 * unit, ray.origin[1]! + ray.dir[1]! * 10 * unit, ray.origin[2]! + ray.dir[2]! * 10 * unit];
+    // Nothing near in the middle of the view: on the workplane where the view's middle meets it (the owner, 2026-11-16),
+    // else 10 m ahead as before.
+    const wp = rayOnWorkplane(this.deps.workplane?.() ?? flatWorkplane(0), new Vector3(...ray.origin), new Vector3(...ray.dir), 200 * unit);
+    const onPlane: Vec3 | null = wp ? [wp.x, wp.y, wp.z] : null;
+    const at: Vec3 = hit && hit.t < 200 * unit ? hit.at : onPlane ?? [ray.origin[0]! + ray.dir[0]! * 10 * unit, ray.origin[1]! + ray.dir[1]! * 10 * unit, ray.origin[2]! + ray.dir[2]! * 10 * unit];
     // Snap on: its footing on the world grid (absolute, Hammer's), across the floor; its height the surface's.
     const g = this.gridSnap;
     if (g) { at[0] = Math.round(at[0] / g) * g; at[2] = Math.round(at[2] / g) * g; }
@@ -2136,6 +2471,7 @@ export class GeometryEditor {
     if (delta.equals(new Matrix4())) { this.endLive(true); this.drawSelection(); return; }   // no move: the preview goes
     this.endLive(false);
     if (this.sel.mode === 'object') { this.transformObjects(mat, copy); return; }
+    if (copy && this.sel.mode === 'face') { this.copyFacesBy(mat); return; }
     this.edit(`Transform ${modeWord(this.sel.mode, 2)}`, () => {
       for (const id of this.sel.objects) {
         const o = this.objectById(id);
@@ -2205,17 +2541,17 @@ export class GeometryEditor {
    * The live drag begins: the edited world drawn by the editor's own view (built now if nothing was edited yet), and every
    * drawn vertex and face edge end on a moving point found, with where it stands. Object mode moves an object's every point.
    */
-  private startLive(): void {
+  private startLive(sel: Selection = this.sel): void {
     this.live = [];
     if (!this.geo) return;
     if (!this.drawn) this.redraw();
     const view = this.drawn;
     if (!view) return;
     const moving = new Map<EditMesh, Set<number>>();
-    for (const id of this.sel.objects) {
+    for (const id of sel.objects) {
       const o = this.objectById(id);
       if (!o) continue;
-      const vs = selectionVerts(this.sel, o);
+      const vs = selectionVerts(sel, o);
       if (!vs.size) continue;
       const set = moving.get(o.mesh) ?? new Set<number>();
       for (const v of vs) set.add(v);
@@ -2328,7 +2664,9 @@ export class GeometryEditor {
     if (this.gizmo.object && this.gizmo.getHelper().visible) {
       this.drive.pointerHover({ x: n.x, y: n.y, button: 0 });
       if (this.gizmo.axis !== null) {
-        this.dragCopy = (e.ctrlKey || e.metaKey) && this.sel.mode === 'object';
+        // Ctrl-drag copies: objects whole, and faces (the owner, 2026-11-16: "allow ctrl click drag to copy meshes as well
+        // when in geometry mode"; `copyFacesBy`). A vertex or an edge has nothing of its own to copy: it moves.
+        this.dragCopy = (e.ctrlKey || e.metaKey) && (this.sel.mode === 'object' || this.sel.mode === 'face');
         this.drive.pointerDown({ x: n.x, y: n.y, button: 0 });
         try { this.deps.input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
         return;
@@ -2341,15 +2679,15 @@ export class GeometryEditor {
     try { this.deps.input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
   }
 
-  /** A click's pick (its release with no drag): the item under the press, Shift or Ctrl adding or taking out. */
-  private clickPick(n: Vector2, toggle: boolean): void {
+  /** A click's pick (its release with no drag): the item under the press alone, Shift's added, Ctrl's in or out (`PickOp`). */
+  private clickPick(n: Vector2, op: PickOp): void {
     if (!this.geo) return;
     const ray = this.rayAt(n, this.deps.camera());
     const hit = pickFace(this.geo, ray, this.index);
     const tolerance = hit ? Math.max(0.05, hit.t * 0.015) : 1;
     if (hit) this.focus = hit.object.id;
-    if (this.sel.mode === 'point' || this.sel.mode === 'edge') this.pickOnScreen(n, hit?.object ?? null, toggle);
-    else pick(this.geo, this.sel, ray, tolerance, toggle, this.index);
+    if (this.sel.mode === 'point' || this.sel.mode === 'edge') this.pickOnScreen(n, hit?.object ?? null, op);
+    else pick(this.geo, this.sel, ray, tolerance, op, this.index);
     this.drawSelection();
   }
 
@@ -2705,14 +3043,14 @@ export class GeometryEditor {
   }
 
   /** A click in point or edge mode: the screen's nearest taken (added, or flipped with `toggle`); a miss without it clears. */
-  private pickOnScreen(ndc: Vector2, under: GeoObject | null, toggle: boolean): void {
+  private pickOnScreen(ndc: Vector2, under: GeoObject | null, op: PickOp): void {
     const near = this.screenNearest(ndc, under);
-    if (!toggle) { this.sel.objects.clear(); this.sel.items.clear(); }
+    if (op === 'only') { this.sel.objects.clear(); this.sel.items.clear(); }
     if (!near) return;
     let set = this.sel.items.get(near.object.id);
     if (!set) { set = new Set(); this.sel.items.set(near.object.id, set); }
     this.sel.objects.add(near.object.id);
-    if (toggle && set.has(near.item)) set.delete(near.item); else set.add(near.item);
+    if (op === 'toggle' && set.has(near.item)) set.delete(near.item); else set.add(near.item);
   }
 
   /**
@@ -2787,7 +3125,7 @@ export class GeometryEditor {
     if (press && press.pointerId === e.pointerId && e.button === 0) {
       this.press = null;
       if (press.painting) this.drawSelection();
-      else this.clickPick(press.ndc, press.shift || press.ctrl);
+      else this.clickPick(press.ndc, press.ctrl ? 'toggle' : press.shift ? 'add' : 'only');   // Ctrl toggles, Shift adds
       return;
     }
     if (!this.gizmo.dragging) return;
@@ -2815,6 +3153,10 @@ export class GeometryEditor {
       this.stop(e);
       return;
     }
+    // Copy, Cut, Paste and Duplicate (Ctrl+C / X / V / D): the geometry's own in this mode (`command`); the page leaves
+    // them to it (`../keys` `GEOMETRY_SHARED`), so none does two things.
+    const chord = mod && !e.altKey && !e.shiftKey ? CHORD_COMMANDS[e.code] : undefined;
+    if (chord) { if (!e.repeat) this.command(chord); this.stop(e); return; }
     // Ctrl+Z and Ctrl+Y are the page's: its one history holds the geometry's steps too (bug 20).
     if (mod) return;
     // W / E / R and Q are the page's (its gizmo's mode and space), which it hands on here (`syncGizmo`).

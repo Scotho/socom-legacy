@@ -395,5 +395,8 @@ describe('FCW-32: what "Start a new layout?" says (newLayoutDropWords)', () => {
     expect(newLayoutDropWords(0, false, 1)).toBe(named);
     expect(newLayoutDropWords(0, true, 0)).toBe(named);
     expect(newLayoutDropWords(2, true, 1)).toBe(named);
+    // Bug 1 (the geometry audit, 2026-11-16): the geometry's edits are work too, said alone or after the rest.
+    expect(newLayoutDropWords(0, false, 0, true)).toBe('The edits to the map\'s geometry are dropped. Save first to keep them.');
+    expect(newLayoutDropWords(3, false, 0, true)).toBe('The pieces placed now are dropped. So are the edits to the map\'s geometry. Save first to keep them.');
   });
 });

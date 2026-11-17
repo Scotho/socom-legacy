@@ -296,8 +296,8 @@ export function inspectorField(doc: Document, label: string): HTMLInputElement {
 
 /* ---------------- the viewport's snaps (map V1) ---------------- */
 
-/** Map V1: a viewport snap pill's on / off toggle ('Grid snap' or 'Rotation snap'); `is-on` while that snap is on. */
-export function snapToggle(doc: Document, label: 'Grid snap' | 'Rotation snap'): HTMLButtonElement {
+/** Map V1: a viewport snap pill's on / off toggle ('Workplane snap' or 'Rotation snap'); `is-on` while that snap is on. */
+export function snapToggle(doc: Document, label: 'Workplane snap' | 'Rotation snap'): HTMLButtonElement {
   const b = doc.querySelector<HTMLButtonElement>(`.fx-snap-pill[aria-label="${label}"] > .fx-snap-toggle`);
   if (!drawn(b)) throw new EditorMapError('V1', `the viewport has no '${label}' pill`);
   return b;

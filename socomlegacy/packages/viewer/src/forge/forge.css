@@ -1143,7 +1143,7 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-snap-preset:hover { background: var(--fx-hover); }
 .fx-snap-preset[aria-pressed="true"] { color: var(--fx-gold); background: var(--fx-selected); }
 .fx-snap-pill .fx-viewport-snap-field { margin-top: var(--s2u-space-1); }
-/* Surface snapping's button: round, its icon lit gold while on; its dropdown the switch, then its settings. */
+/* The Workplane and Surface Snapping button: round, its icon lit gold while surface snapping is on; its dropdown the workplane's section, then surface snapping's. */
 .fx-surface-snap { position: relative; display: flex; }
 .fx-surface-button { display: inline-grid; place-items: center; width: 28px; height: 28px; box-sizing: border-box; color: var(--fx-ico-quiet); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: 50%; cursor: pointer; list-style: none; }
 .fx-surface-button::-webkit-details-marker { display: none; }
@@ -1154,6 +1154,17 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-surface-row { display: flex; align-items: center; gap: var(--s2u-space-2); color: var(--fx-text); font: var(--fx-type-control); }
 .fx-surface-row.is-disabled { opacity: var(--fx-disabled); cursor: default; }
 .fx-surface-offset { grid-template-columns: auto 1fr; align-items: center; }
+.fx-surface-offset.is-disabled { opacity: var(--fx-disabled); }
+/* The workplane's section, first in that dropdown; surface snapping's set apart below it by a rule and space. */
+.fx-workplane-section { display: grid; gap: var(--s2u-space-1); padding-bottom: var(--s2u-space-2); }
+.fx-snap-section-start { margin-top: var(--s2u-space-2); padding-top: var(--s2u-space-3); border-top: 1px solid var(--fx-edge); }
+.fx-workplane-normal { color: var(--fx-text); font-size: 0.9em; }
+.fx-workplane-buttons { display: flex; gap: var(--s2u-space-1); }
+/* Pick and Reset as buttons (the owner, 2026-11-17: "make the pick and reset buttons a bit more visible"). */
+.fx-workplane-buttons .fx-tool { flex: 1; justify-content: center; padding: 4px 8px; color: var(--fx-text); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); }
+.fx-workplane-buttons .fx-tool:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-gold); }
+.fx-workplane-buttons .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; background: var(--fx-veil); border-color: var(--fx-edge); }
+.fx-workplane-buttons .fx-tool.is-on { color: var(--fx-gold); background: var(--fx-selected); border-color: var(--fx-gold); }
 /* The row's » (`fitHud`): what does not fit beside the view's menus, in a dropdown under it, each as it is on the row. */
 .fx-hud-more { position: relative; }
 .fx-hud-more[hidden] { display: none; }
