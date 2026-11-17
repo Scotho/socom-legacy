@@ -16,11 +16,20 @@ import { refreshUvs, worldAligned, type TextureSize } from './texturing';
  * so this is named, not chosen to match.
  */
 export const NEW_GEOMETRY_COLOR_PLACEHOLDER: readonly [number, number, number, number] = [1, 1, 1, 1];
+/**
+ * A blank map's floor plane's vertex colour, untextured (the owner, 2026-11-17: "make the ground floor a mid gray color
+ * then so that it doesnt blow out the grid"; "make it a darker gray"): a dark grey, drawn so in the Forge and in a match alike. A browser adaptation
+ * with no original (the disc has no untextured floor); a texture laid on it puts the face back to
+ * `NEW_GEOMETRY_COLOR_PLACEHOLDER` (`./texturing` `applyTexture`).
+ */
+export const UNTEXTURED_FLOOR_COLOR_ADAPTATION: readonly [number, number, number, number] = [0.15, 0.15, 0.15, 1];
 
 export interface PrimitiveOptions {
   textureName: string | null;
   size: TextureSize;
   scaleTexel: number;
+  /** Every corner's vertex colour (`NEW_GEOMETRY_COLOR_PLACEHOLDER` unless given). */
+  color?: readonly [number, number, number, number];
 }
 
 /** A mesh of `points` and polygon `rings` (point indices, CCW from outside), textured as `opts` says. */
@@ -29,7 +38,7 @@ export function meshOf(points: readonly Vec3[], rings: readonly number[][], opts
   const vs = points.map((p) => addVert(m, p));
   const faces: number[] = [];
   for (const ring of rings) {
-    const corners = ring.map((i) => addCorner(m, vs[i]!, { uv: [0, 0], color: NEW_GEOMETRY_COLOR_PLACEHOLDER, normal: [0, 1, 0] }));
+    const corners = ring.map((i) => addCorner(m, vs[i]!, { uv: [0, 0], color: opts.color ?? NEW_GEOMETRY_COLOR_PLACEHOLDER, normal: [0, 1, 0] }));
     const f = addFace(m, corners, 0);
     const n = faceNormal(m, f);
     for (const c of corners) m.cNormal.splice(c * 3, 3, n[0], n[1], n[2]);

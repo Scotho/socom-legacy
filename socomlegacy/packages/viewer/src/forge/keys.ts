@@ -84,10 +84,10 @@ export const FORGE_TOOL_ORDER = [
   'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate', 'flare',
   'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc',
 ] as const;
-export type ForgeToolKey = 'select' | 'place' | (typeof FORGE_TOOL_ORDER)[number];
+export type ForgeToolKey = 'select' | (typeof FORGE_TOOL_ORDER)[number];
 
-/** The keyed tools in key order: Select, Place, then the placing tools (`FORGE_TOOL_ORDER`). */
-const KEYED_TOOLS: readonly ForgeToolKey[] = ['select', 'place', ...FORGE_TOOL_ORDER];
+/** The keyed tools in key order: Select, then the placing tools (`FORGE_TOOL_ORDER`); no Place tool (the owner, 2026-11-17: a prop is dragged in, then moved by the gizmo). */
+const KEYED_TOOLS: readonly ForgeToolKey[] = ['select', ...FORGE_TOOL_ORDER];
 
 const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'] as const;
 

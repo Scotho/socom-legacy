@@ -170,6 +170,8 @@ export interface ForgeEditor {
   soundProgress?(asset: string): number | null;
   /** A sound asset's card in the preview's picture (a Sound tile has no model): its name and art; null for any other. */
   soundCard?(asset: string): { name: string; art: string } | null;
+  /** A flat asset's picture in the preview (a Textures tile has no model): its name and its picture (null while it is read); null for any other. */
+  pictureCard?(asset: string): { name: string; url: string | null } | null;
   /** A drag over the viewport driven through the page's own Place tool (`../../creator/assetsForgePanel` `dragPlace`). */
   dragPlace?: { enter(asset: string): boolean; over(clientX: number, clientY: number): boolean; drop(clientX: number, clientY: number): boolean; leave(): void };
   /**

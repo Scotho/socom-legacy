@@ -2,6 +2,8 @@ import {
   cloneCorner, cross, dot, faceNormal, facePoints, faceVerts, length, liveFaces, normalize, scale, sub, vertPos,
   type EditMesh, type StyleSlot, type TextureMapping, type Vec3,
 } from './editMesh';
+// Used inside `applyTexture` alone (`./primitives` reads this module too: no value of it is needed as either loads).
+import { NEW_GEOMETRY_COLOR_PLACEHOLDER } from './primitives';
 
 /**
  * Face texturing as Hammer does it (a browser adaptation; the owner, 2026-11-14: "make it work the same way hammer does
@@ -155,9 +157,11 @@ export function applyTexture(
 ): void {
   const align = opts.align ?? 'keep';
   const scaleTexel = opts.scaleTexel ?? 1;
+  const bare: number[] = [];                                   // the faces textured for the first time
   for (const f of faces) {
     const face = m.faces[f];
     if (!face) continue;
+    if (textureName && !m.styles[face.style]!.style.textureName) bare.push(f);
     const oldSize = size(m.styles[face.style]!.style.textureName);
     if (opts.paste) face.mapping = { ...opts.paste };
     else if (align === 'world') face.mapping = worldAligned(faceNormal(m, f), scaleTexel);
@@ -166,6 +170,9 @@ export function applyTexture(
     face.style = styleWithTexture(m, face.style, textureName);
   }
   refreshUvs(m, faces, size);
+  // An untextured face's colour (a blank floor's grey, `UNTEXTURED_FLOOR_COLOR_ADAPTATION`) gives way to the texture's:
+  // its corners -- its own now (`refreshUvs`) -- back to new geometry's colour, so the texture shows as it is.
+  for (const f of bare) for (const c of m.faces[f]!.corners) m.cColor.splice(c * 4, 4, ...NEW_GEOMETRY_COLOR_PLACEHOLDER);
 }
 
 /**
@@ -354,3 +361,4 @@ export function lockMapping(map: TextureMapping, mat: ArrayLike<number>): Textur
   const u = carry(map.u, map.scaleU, map.shiftU), v = carry(map.v, map.scaleV, map.shiftV);
   return { u: u.axis, v: v.axis, scaleU: u.s, scaleV: v.s, shiftU: u.h, shiftV: v.h };
 }
+

@@ -1,8 +1,9 @@
 import { scrubbing } from '../scrub';
 import { brushCursor, hexOf, sampleCursor } from '../paintCursor';
 import { PaintToolBar, type PaintTool } from '../paintTools';
+import { blockShapeIcon } from './blockShapeIcons';
 import {
-  Box3, BoxGeometry, BufferAttribute, BufferGeometry, Color, DataTexture, Euler, Group, RepeatWrapping, RGBAFormat, InstancedMesh, InterleavedBufferAttribute, LineBasicMaterial, LineSegments, Matrix4, Mesh, MeshBasicMaterial, Object3D,
+  Box3, BoxGeometry, BufferAttribute, BufferGeometry, Color, DataTexture, DoubleSide, Euler, Group, RepeatWrapping, RGBAFormat, InstancedMesh, InterleavedBufferAttribute, LineBasicMaterial, LineSegments, Matrix4, Mesh, MeshBasicMaterial, Object3D,
   OrthographicCamera, PerspectiveCamera, Points, PointsMaterial, Quaternion, Raycaster, Vector2, Vector3, type Camera, type Scene,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -13,14 +14,15 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import type { LoadedMap, LoadedMesh } from '../../loadMap';
 import type { GroundData } from '../../mover';
 import { buildWorld, type WorldView } from '../../world';
-import { commonGroundSurface } from './collision';
+import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, floorWordsOf, wallWordsOf } from './collision';
 import { displacementGrid, makeDisplacement, sculpt } from './displacement';
-import { edgeMap, edgeOfKey, faceNormal, facePoints, faceVerts, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type Vec3 } from './editMesh';
-import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, twinIndexOf, withCollisionType, withTwins, wordsOf, type CollisionType } from './hullGeometry';
+import { add, cloneMesh, cross, dot, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type Vec3 } from './editMesh';
+import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, LADDER_CLIMB_FLAG, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, twinIndexOf, withCollisionType, withTwins, wordsOf, type CollisionType } from './hullGeometry';
 import { HULL_COLOURS, type HullViewPoly } from '../hull';
-import { deleteEdges, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, transformVerts } from './ops';
-import { box, cylinder, plane, sphere, type PrimitiveOptions } from './primitives';
-import { flatWorkplane, rayOnWorkplane, type Workplane } from '../mapGrid';
+import { deleteEdges, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, snapVerts, transformVerts } from './ops';
+import { box, cylinder, plane, sphere, UNTEXTURED_FLOOR_COLOR_ADAPTATION, type PrimitiveOptions } from './primitives';
+import { rayOnWorkplane, workplaneFrame, type Workplane } from '../mapGrid';
+import { BLOCK_PREVIEW_SIZE_ADAPTATION, BLOCK_SHAPE_GROUPS, BLOCK_SHAPES, cleanOutline, outlineCrosses, polygonMesh, SHAPE_SETTINGS, shapeSettings, type ShapeSetting, type ShapeSettings, blockKind, blockMakes, blockMesh, blockParts, frameToWorld, stairsRampMesh, stairsRun, worldToFrame, type BlockFrame, type BlockShape } from './blockShapes';
 import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFaces, selectionCentre, selectionVerts, type PickOp, type Ray, type SelectMode, type Selection } from './selection';
 import type { DrawSources } from './worldMesh';
 import type { FloorLook } from './blank';
@@ -53,6 +55,8 @@ export interface GeometryEditorDeps {
   tools: HTMLElement;
   /** Where the status line goes (over the viewport). */
   statusHost: HTMLElement;
+  /** The viewport's lower-left legend stack (the page's), for Create's settings panel; absent, the status host. */
+  legendHost?: () => HTMLElement;
   /** The geometry's undo state changed (the toolbar's Undo and Redo answer for it in Geometry mode). */
   onHistory: () => void;
   /**
@@ -103,8 +107,10 @@ export interface GeometryEditorDeps {
    * `floorLookOf`) -- the plane an empty world opens with. Null on a disc map's base, whose world is its own.
    */
   defaultFloor?: () => { size: number; divisions: number; look: FloorLook } | null;
-  /** The workplane (the page's grid dropdown, `../mapGrid`): a shape made where the view's middle meets nothing stands on it. */
+  /** The workplane (the page's Workplane menu, `../mapGrid`): the block tool drags its shapes out on it while it is shown. */
   workplane?: () => Workplane;
+  /** The workplane shown (the Display menu's Workplane): the block tool's plane; hidden, the surface pressed on is. */
+  workplaneShown?: () => boolean;
   /**
    * The Texture button pressed (the owner, 2026-11-16: "make it a button that opens the asset browser filtered to textures
    * only"): the page opens its asset browser on its Textures tab by `anchor`, a pick handed back through `setTexture`.
@@ -157,6 +163,25 @@ const PAINT_DRAG_PX = 4;
 /** A drag select samples its path this often (CSS pixels), at most `PAINT_SAMPLES_MAX` picks a pointer event (a browser adaptation). */
 const PAINT_STEP_PX = 6;
 const PAINT_SAMPLES_MAX = 6;
+/** The block tool's outline colour while a shape is dragged out (a browser adaptation; the selection's gold family). */
+const BLOCK_PREVIEW_COLOUR = 0xffc400;
+/** How far along the pointer's ray the block tool still meets the workplane (game units; the page's `WORKPLANE_REACH`). */
+const BLOCK_REACH = 20000;
+/** How much nearer than the workplane, along the pointer's ray (game units), a face must be to take Create's press (`nearerOfWorkplane`'s `WORKPLANE_SEE_TOLERANCE` alike; a browser adaptation). */
+const BLOCK_SEE_TOLERANCE = 0.5;
+/** How near the outline's first point (CSS pixels) a Polygon click closes it (a browser adaptation, as Hammer's snap to it). */
+const POLY_CLOSE_PX = 10;
+/** The height of a shape made where none can be pulled, with no snap and none pulled before: a metre (10 game units; a browser adaptation). */
+const BLOCK_DEFAULT_PULL_ADAPTATION = 10;
+/** The resize handles' size on screen, how near a press must be to take one (CSS pixels), and the least extent a handle leaves (game units, snap off). */
+const BLOCK_HANDLE_PX = 11;
+const BLOCK_HANDLE_PICK_PX = 12;
+const BLOCK_HANDLE_MIN = 0.01;
+/** The preview's faces: how see-through, and their colour with no texture chosen (a browser adaptation). */
+const BLOCK_SOLID_OPACITY = 0.8;
+const BLOCK_SOLID_PLAIN = 0x9a9a9a;
+/** The start marker's cross off the workplane (no snap step): its arm this share of the distance from the camera. */
+const BLOCK_START_CROSS_SHARE = 0.02;
 
 /** How many of the nearest points or edges a pick tests for being seen before it gives up (each test a ray). */
 const VISIBLE_TESTS_MAX = 8;
@@ -238,7 +263,6 @@ export class GeometryEditor {
   private readonly brushTextures = new Map<string, DataTexture>();
   /** A stroke's painted faces, drawn textured until its end compiles the world (one rebuild a stroke, not a face). */
   private readonly strokeLayer = new Group();
-  private createGroup!: HTMLElement;
   private editGroup!: HTMLElement;
   private drawGeo: WorldGeometry | null = null;
   private hullGeo: WorldGeometry | null = null;
@@ -551,6 +575,7 @@ export class GeometryEditor {
     this.gizmo.addEventListener('dragging-changed', (e) => this.onDragging((e as unknown as { value: boolean }).value));
     this.gizmo.addEventListener('objectChange', () => this.onDragMove());
     deps.scene.add(this.gizmo.getHelper());
+    deps.scene.add(this.blockPreview, this.blockHandles, this.blockSolid, this.blockStartDot, this.blockStartCross);
     this.gizmo.getHelper().visible = false;
 
     deps.tools.hidden = true;
@@ -600,12 +625,6 @@ export class GeometryEditor {
     deps.modeTools.append(label('Layer', ' fx-geo-layer-label'), layerRow);
     this.layerGroup = layerRow;
     deps.tools.append(
-      (this.createGroup = group('Create',
-        this.button('box', 'Box', 'A new box in front of the camera', () => this.addPrimitive('box')),
-        this.button('plane', 'Plane', 'A new plane in front of the camera (a displacement base)', () => this.addPrimitive('plane')),
-        this.button('sphere', 'Sphere', 'A new sphere in front of the camera', () => this.addPrimitive('sphere')),
-        this.button('cylinder', 'Cylinder', 'A new cylinder in front of the camera', () => this.addPrimitive('cylinder')),
-      )),
       (this.editGroup = group('Edit',
         this.button('extrude', 'Extrude', 'Extrude the selected faces (then move them with the gizmo)', () => this.extrude()),
         this.button('separate', 'Separate', 'Make the selected faces an object of their own', () => this.separate()),
@@ -677,8 +696,21 @@ export class GeometryEditor {
         apply: 'Apply the active texture or collision type to the selection',
       },
     });
+    // Create last of the tools, its shape right beside it (the owner, 2026-11-17: "in collision mode, create button should
+    // be next to the dropdown"): Select | Create on the Geometry layer; Select | Paint | Sample | Create on Collision.
+    // Block beside Select (the owner, 2026-11-17: "bring back the select workflow to the geometry mode, it should be a tool
+    // and turned on by default ... Tool Select | Block"), its shape beside the section while it is on.
+    this.toolBar.addTab('block', 'Create', 'Create: drag a shape out -- press and drag a rectangle on the workplane (shown; on its grid while snapping) or on the surface pressed (by its normal, unsnapped), let go, move to set its height, click or Enter to make it. Esc cancels, then back to Select', 'sample', () => this.setBlockOn(true));
+    this.toolBar.tabOf('block')?.after(this.blockToolUi());
+    // The tools on the top toolbar, first, as Object mode's (the owner, 2026-11-17: "for all the tools section in geometry
+    // and ai nav mode, move it to the top toolbar like the object mode, and call it Tools ... make sure the tools are the
+    // first in the list(left)"): before the selection modes and the layers.
+    this.toolGroup = this.toolBar.row;
+    deps.modeTools.prepend(label('Tools'), this.toolBar.row);
+    // The Geometry layer's from the start (the owner, 2026-11-17: "the paint/sample buttons shouldn't even be there in geo
+    // layer"): Select and Create alone; the Collision and Texture layers show the rest (`collisionUi`).
+    for (const k of ['paint', 'sample', 'apply']) this.toolBar.setShown(k, false);
     deps.tools.append(
-      (this.toolGroup = group('Tool', this.toolBar.row)),
       (this.surfaceGroup = group('Collision',
         typeRow,
       )),
@@ -703,14 +735,14 @@ export class GeometryEditor {
     deps.input.addEventListener('pointerdown', (e) => this.onPointerDown(e), true);
     deps.input.addEventListener('pointermove', (e) => this.onPointerMove(e), true);
     deps.input.addEventListener('pointerup', (e) => this.onPointerUp(e), true);
-    deps.input.addEventListener('pointerleave', () => { this.hoverAt = null; this.drawHover(); });
+    deps.input.addEventListener('pointerleave', () => { this.hoverAt = null; this.drawHover(); this.drawBlockStart(null); });
     deps.input.addEventListener('pointercancel', () => { this.press = null; });
     const tick = (): void => { if (this.clouds.size) this.frameHandles(); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
     doc.addEventListener('keydown', (e) => this.onKey(e), true);
     // Shift held while painting: the sampler's cursor (a Shift+click samples); let go, or the window left, the brush's.
-    doc.addEventListener('keydown', (e) => { if (e.key === 'Shift') this.setShiftHeld(true); }, true);
-    doc.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.setShiftHeld(false); }, true);
+    doc.addEventListener('keydown', (e) => { if (e.key === 'Shift') this.setShiftHeld(true); if (e.key === 'Control' || e.key === 'Meta') this.setCtrlHeld(true); }, true);
+    doc.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.setShiftHeld(false); if (e.key === 'Control' || e.key === 'Meta') this.setCtrlHeld(false); }, true);
     doc.defaultView?.addEventListener('blur', () => this.setShiftHeld(false));
   }
 
@@ -748,9 +780,16 @@ export class GeometryEditor {
     pivot: number[] | null;
     live: { verts: number; overlay: number[] };
     selection: GeometrySelectionState | null;
+    /** What the hover highlights under the pointer (its key; '' for nothing), and whether Create is on. */
+    hover: string;
+    creating: boolean;
+    /** Create's previews shown: the shape's faces (with the texture they wear), its start marker, its resize handles. */
+    createPreview: { solid: boolean; texture: string | null; start: boolean; handles: number };
   } {
     return {
       selection: this.selectionState(),
+      hover: this.hoverKey, creating: this.blockOn || this.polyOn,
+      createPreview: { solid: this.blockSolid.visible, texture: this.blockSolid.visible && (this.blockSolid.material as MeshBasicMaterial).map ? this.blockTex?.name ?? null : null, start: this.blockStartDot.visible, handles: this.blockHandles.visible ? this.blockHandleAt.length : 0 },
       active: this.active, collision: this.collisionOn, painting: this.paintOn ? this.collisionType : null, edited: this.edited, stale: this.stale,
       builtPolys: this.built ? this.built.fields.length / 6 : null,
       objects: (this.geo?.objects ?? []).map((o) => {
@@ -906,20 +945,185 @@ export class GeometryEditor {
    * The viewport's transform controls, the page's one set for both gizmos (the owner, 2026-11-14: "unify it"): its
    * Move / Rotate / Scale, World / Local and the grid and turn snaps, as the page sets its own gizmo.
    */
-  syncGizmo(s: { mode: 'translate' | 'rotate' | 'scale'; space: 'world' | 'local'; translationSnap: number | null; rotationSnap: number | null; surface?: { on: boolean; offset: number } }): void {
+  syncGizmo(s: { mode: 'translate' | 'rotate' | 'scale'; space: 'world' | 'local'; translationSnap: number | null; rotationSnap: number | null; surface?: { on: boolean; offset: number }; snapStep?: number; turnStep?: number; snapBy?: 'pivot' | 'centre' | 'bounds' }): void {
     if (s.surface) this.surface = { ...s.surface };
+    if (s.snapStep !== undefined) this.snapStep = s.snapStep;
+    if (s.turnStep !== undefined) this.turnStep = s.turnStep;
+    if (s.snapBy) this.snapBy = s.snapBy;
+    this.rotSnap = s.rotationSnap;
     this.gizmo.setMode(s.mode);
     this.gizmo.setSpace(s.space);
     const turned = s.space !== this.space;
     this.space = s.space;
     if (turned && this.active) this.drawSelection();
-    this.gizmo.setTranslationSnap(s.translationSnap);
-    this.gizmo.setRotationSnap(s.rotationSnap);
     this.gridSnap = s.translationSnap;
+    this.applyDragSnaps();
+  }
+
+  /**
+   * Snap by (the owner, 2026-11-17: "in object mode it should snap to center/pivot, and in geometry to edges"; then "both
+   * modes should have the same settings"): Pivot -- where the gizmo sits lands on the grid (its own snap); Centre -- the
+   * middle of what is moved (its box's, `boxSnapDrag`); Bounds -- a whole object lands its nearest edge on a grid line on
+   * each moved axis (`boxSnapDrag`), points, edges and faces each moved point on the grid (`snapVerts`). The steps kept
+   * apart from the snaps' switches, so Ctrl can turn a snap on in a drag (`ctrlHeld`).
+   */
+  private snapBy: 'pivot' | 'centre' | 'bounds' = 'bounds';
+  private snapStep = 0;
+  private turnStep = 0;
+  private rotSnap: number | null = null;
+  /**
+   * Ctrl held (the owner, 2026-11-17: "make ctrl drag the snap"): the snaps the other way for the drag -- off while they
+   * are on, on while off -- the gizmo's moves and turns, and Create's drag, pull and handles.
+   */
+  private ctrlHeld = false;
+  /** The move snap's step as it stands now (Ctrl's flip in), or null when off. */
+  private moveSnap(): number | null { return (this.gridSnap !== null) !== this.ctrlHeld && this.snapStep > 0 ? this.snapStep : null; }
+  /** The turn snap's as it stands now (Ctrl's flip in), radians, or null when off. */
+  private turnSnap(): number | null { return (this.rotSnap !== null) !== this.ctrlHeld && this.turnStep > 0 ? this.turnStep : null; }
+  /** Whether the move snaps by the box itself (`boxSnapDrag`): Centre, or Bounds of whole objects; the World gizmo's moves. */
+  private boxSnaps(): boolean {
+    return (this.snapBy === 'centre' || (this.snapBy === 'bounds' && this.sel.mode === 'object')) && this.space === 'world' && this.gizmo.mode === 'translate';
+  }
+  /** The gizmo's own snaps as they stand: its move snap off where the box snaps itself (`boxSnapDrag`). */
+  private applyDragSnaps(): void {
+    const own = this.boxSnaps();
+    this.gizmo.setTranslationSnap(own ? null : this.moveSnap());
+    this.gizmo.setRotationSnap(this.turnSnap());
+  }
+  private setCtrlHeld(on: boolean): void {
+    if (on === this.ctrlHeld) return;
+    this.ctrlHeld = on;
+    this.applyDragSnaps();
+    if (this.dragStart) { this.onDragMove(); }                // a drag under way takes the flip at once
+  }
+  /** Bounds for a whole-object move: where it began and the moved objects' box, at the drag's start. */
+  private dragBounds: { from: Vector3; min: Vec3; max: Vec3 } | null = null;
+  /**
+   * Snap by Centre or Bounds (`snapBy`): the pivot moved so that, on each axis the gizmo moves along, the moved box's
+   * middle (Centre) or its nearer edge to a grid line (Bounds, Hammer's: what is moved lines up by its edges) lands on it.
+   */
+  private boxSnapDrag(): void {
+    const b = this.dragBounds;
+    const step = this.moveSnap();
+    if (!b || !step || !this.boxSnaps()) return;
+    const axis = this.gizmo.axis ?? '';
+    const p = this.pivot.position;
+    const off = [p.x - b.from.x, p.y - b.from.y, p.z - b.from.z];
+    for (let k = 0; k < 3; k++) {
+      if (!axis.includes('XYZ'[k]!)) continue;
+      const lo = b.min[k]! + off[k]!, hi = b.max[k]! + off[k]!;
+      if (this.snapBy === 'centre') { const c = (lo + hi) / 2; off[k] = off[k]! + Math.round(c / step) * step - c; continue; }
+      const dLo = Math.round(lo / step) * step - lo, dHi = Math.round(hi / step) * step - hi;
+      off[k] = off[k]! + (Math.abs(dLo) <= Math.abs(dHi) ? dLo : dHi);
+    }
+    p.set(b.from.x + off[0]!, b.from.y + off[1]!, b.from.z + off[2]!);
+    this.pivot.updateMatrixWorld(true);
   }
 
   /** The grid snap's step while it is on (`syncGizmo`): a new primitive's footing lands on it. */
   private gridSnap: number | null = null;
+  /**
+   * The block tool (Create's Block and its shape; the owner, 2026-11-17: "implement a Drag-out block tool on the grid ...
+   * It should work very similar to the hammer source 2 tool"): while on, a press drags a rectangle out on the plane --
+   * the workplane, shown, on its grid while the snap is on; else the surface pressed on, by its normal, unsnapped -- the
+   * release then pulls the height along the plane's normal until a click (or Enter) makes the shape. Esc cancels.
+   */
+  private blockOn = false;
+  /**
+   * The last height a shape was pulled to (Create's, Polygon's), this session: a shape made in a view that looks along
+   * its plane's normal (an orthographic view's: no height to read off the pointer) takes it, else one snap step (the
+   * owner, 2026-11-17: "in top/left/bottom/front ... I can't set the extrude height"; a browser adaptation, as Hammer's 2D
+   * views keep the last depth).
+   */
+  private lastPull: number | null = null;
+  /**
+   * The Polygon tool (the owner, 2026-11-17: "add the polygon tool similar to how hammer does it in geometry mode. This
+   * allows me to create custom shapes by drawing them line by line"; a browser adaptation, after Source 2 Hammer's): on,
+   * and the outline being drawn -- its plane (the workplane, or the face first clicked, as Create's), its snap, its
+   * points in the plane's frame, where the pointer is, and its phase: points clicked one by one, then the height pulled.
+   */
+  private get polyOn(): boolean { return this.blockOn && this.blockShape === 'polygon'; }
+  private poly: { frame: BlockFrame; snap: number | null; pts: [number, number][]; cursor: [number, number] | null; phase: 'points' | 'height'; h: number } | null = null;
+  private blockShape: BlockShape = 'block';
+  private block: { phase: 'base' | 'height'; frame: BlockFrame; snap: number | null; a: [number, number]; b: [number, number]; h: number; pointerId: number; clicked?: true } | null = null;
+  private readonly blockPreview = (() => {
+    const l = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: BLOCK_PREVIEW_COLOUR, depthTest: false, transparent: true }));
+    l.renderOrder = 13;
+    l.frustumCulled = false;
+    l.visible = false;
+    return l;
+  })();
+  private blockShapeSel: HTMLButtonElement | null = null;
+  /** Create's menu: its button redrawn (the shape chosen), and closed; the shape its hover previews (`previewShape`). */
+  private drawShapeButton: (() => void) | null = null;
+  private closeShapeMenu: (() => void) | null = null;
+  private hoverShape: BlockShape | null = null;
+  /**
+   * Each shape's settings as the user set them (`SHAPE_SETTINGS`' defaults under them; the owner, 2026-11-17: "would be
+   * nice for each shape to have some settings we can predefine"), kept in this browser (`SHAPE_SETTINGS_KEY`: a browser
+   * adaptation, FG.R2 -- a viewer's own preference, never the layout's).
+   */
+  private shapeSettingsStore: Partial<Record<BlockShape, ShapeSettings>> = readShapeSettings();
+  /** Create's settings panel redrawn (the hovered shape's, else the chosen one's), the panel itself, and the menu opened or closed. */
+  private drawShapeSettings: (() => void) | null = null;
+  private createPanel: HTMLElement | null = null;
+  /**
+   * A setting being dragged (the owner, 2026-11-17: "when changing the settings via drag, it updates the preview in real
+   * time"): its shape's settings with the dragged value, read by `settingsFor` until the release keeps it (`change`).
+   */
+  private liveSettings: { shape: BlockShape; settings: ShapeSettings } | null = null;
+  private toggleShapeMenu: (() => void) | null = null;
+  /**
+   * The shape being made drawn as it will be (the owner, 2026-11-17: "when dragging to create it should show a live
+   * preview of the geometry and texture"): its faces with the texture Create lays, a little see-through, under its outline.
+   */
+  private readonly blockSolid = (() => {
+    const m = new Mesh(new BufferGeometry(), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: BLOCK_SOLID_OPACITY, side: DoubleSide, depthWrite: false }));
+    m.renderOrder = 12;
+    m.frustumCulled = false;
+    m.visible = false;
+    return m;
+  })();
+  /** The texture the preview wears, by name (`blockTexture`): built from the map's own pixels once. */
+  private blockTex: { name: string; tex: DataTexture } | null = null;
+  /**
+   * Where a press would start the shape (the owner, 2026-11-17: "when hovering in create mode show a preview of where the
+   * start corner would be so that we know where it will initially snap to"): a dot at the corner, a cross along the
+   * plane's two axes.
+   */
+  private readonly blockStartDot = (() => {
+    const p = new Points(new BufferGeometry(), new PointsMaterial({ color: BLOCK_PREVIEW_COLOUR, size: BLOCK_HANDLE_PX, sizeAttenuation: false, depthTest: false, transparent: true }));
+    p.renderOrder = 14;
+    p.frustumCulled = false;
+    p.visible = false;
+    return p;
+  })();
+  private readonly blockStartCross = (() => {
+    const l = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: BLOCK_PREVIEW_COLOUR, depthTest: false, transparent: true }));
+    l.renderOrder = 14;
+    l.frustumCulled = false;
+    l.visible = false;
+    return l;
+  })();
+  /**
+   * The shape Create made last, while it is selected alone and unchanged but for moves (`syncBlockHandles`): its frame and
+   * its extent in it -- [x0, x1] along u, [y0, y1] along n, [z0, z1] along v -- the snap it was made with, its texture,
+   * and its points as they stood (a move carries the frame along; any other change lets the handles go). Its handles
+   * resize it (the owner, 2026-11-17: "would be nice to have handles that allow us to quickly change the size of the
+   * shape after it is created").
+   */
+  private lastBlock: { id: string; shape: BlockShape; frame: BlockFrame; x: [number, number]; y: [number, number]; z: [number, number]; snap: number | null; textureName: string | null; verts: number[]; run: { alongZ: boolean; rev: boolean }; settings: ShapeSettings } | null = null;
+  /** The handles drawn (`syncBlockHandles`): each its axis, which end, and where it is. */
+  private blockHandleAt: { axis: 'x' | 'y' | 'z'; end: 0 | 1; at: Vec3 }[] = [];
+  private readonly blockHandles = (() => {
+    const p = new Points(new BufferGeometry(), new PointsMaterial({ color: BLOCK_PREVIEW_COLOUR, size: BLOCK_HANDLE_PX, sizeAttenuation: false, depthTest: false, transparent: true }));
+    p.renderOrder = 14;
+    p.frustumCulled = false;
+    p.visible = false;
+    return p;
+  })();
+  /** A handle being dragged: which, the extent as the drag began, where along its axis it was grabbed. */
+  private handleDrag: { i: number; pointerId: number; x: [number, number]; y: [number, number]; z: [number, number]; grab: number } | null = null;
   /** The page's Surface snapping and its offset (`syncGizmo`): the centre handle's drag seats the objects (`surfaceSnapDrag`). */
   private surface = { on: true, offset: 0 };
   /** The pointer over the viewport (NDC), as the last move left it: where a surface-snapped drag seats the selection. */
@@ -1142,7 +1346,7 @@ export class GeometryEditor {
   copyObjects(ids: readonly string[], at: number): number {
     const geo = this.geo;
     if (!geo || this.active) return 0;
-    const items = ids.flatMap((id) => { const o = this.objectById(id); return o ? [objectCopy(geo, o)] : []; });
+    const items = ids.flatMap((id) => { const o = this.objectById(id); return o ? [this.copyWithHull(geo, o)] : []; });
     if (items.length) this.clip = { layer: 'geometry', mode: 'object', items, at };
     return items.length;
   }
@@ -1160,15 +1364,38 @@ export class GeometryEditor {
   duplicateObjects(ids: readonly string[]): string[] {
     const geo = this.geo;
     if (!geo) return [];
-    return this.makeObjects(ids.flatMap((id) => { const o = this.objectById(id); return o ? [objectCopy(geo, o)] : []; }), 'Duplicate geometry');
+    return this.makeObjects(ids.flatMap((id) => { const o = this.objectById(id); return o ? [this.copyWithHull(geo, o)] : []; }), 'Duplicate geometry');
   }
 
   private makeObjects(items: readonly GeoObjectCopy[], label: string): string[] {
     const geo = this.geo;
     if (!geo || this.active || !items.length) return [];
     const made: string[] = [];
-    this.edit(label, () => { for (const c of items) made.push(addObject(geo, inPlaceCopy(c)).id); }, { selectionTouched: false });
+    this.edit(label, () => { for (const c of items) made.push(this.addCopy(geo, c).id); }, { selectionTouched: false });
     return made;
+  }
+
+  /** A drawn object's own collision (`hullOf`, edited: stairs' ramp, a ladder's box, a hand edit): a copy of it, or null. */
+  private ownHullOf(o: GeoObject): GeoObject | null {
+    if (this.collisionOn || !o.solid) return null;
+    const h = followersOf(this.hullGeo, o).find((x) => x.hullOf === o.id);
+    return h ? { ...h, mesh: cloneMesh(h.mesh) } : null;
+  }
+
+  /** `o` copied whole (`objectCopy`), its own collision with it (`ownHullOf`), for whatever makes the copy. */
+  private copyWithHull(geo: WorldGeometry, o: GeoObject): GeoObjectCopy {
+    const c = objectCopy(geo, o);
+    const own = this.ownHullOf(o);
+    if (own) copyHulls.set(c, own.mesh);
+    return c;
+  }
+
+  /** A copy made in place (`inPlaceCopy`) and its own collision, if it carries one (`copyWithHull`), set on it. */
+  private addCopy(geo: WorldGeometry, c: GeoObjectCopy): GeoObject {
+    const o = addObject(geo, inPlaceCopy(c));
+    const own = copyHulls.get(c);
+    if (own && !this.collisionOn && o.solid) this.setShapeHull(o, cloneMesh(own));
+    return o;
   }
 
   /**
@@ -1283,8 +1510,13 @@ export class GeometryEditor {
         // Ctrl-drag in object mode copies (the Forge's way for every placed kind).
         const moved = copy ? duplicateObject(geo, o) : o;
         transformObject(moved, mat, this.size);
-        // C1: its collision edited by hand moves with it (a copy's is made by Build from the copy, as any new shape's).
-        if (!copy && !this.collisionOn) for (const h of followersOf(this.hullGeo, o)) moveFollower(h, mat);
+        // C1: its collision edited by hand moves with it; a copy takes its own copy of it (the owner, 2026-11-17: a
+        // ladder's, stairs' ramp: "check to see if this happens in any other cases") -- else Build would make the copy's
+        // from its faces (steps, no ladder).
+        if (!this.collisionOn) {
+          if (!copy) for (const h of followersOf(this.hullGeo, o)) moveFollower(h, mat);
+          else { const own = this.ownHullOf(o); if (own) { moveFollower(own, mat); this.setShapeHull(moved, own.mesh); } }
+        }
         this.sel.objects.add(moved.id);
       }
     });
@@ -1310,6 +1542,7 @@ export class GeometryEditor {
     if (on === this.active) return;
     this.previewObjectTransform('position', null);             // a field's live drag let go: nothing left half-moved
     if (!on && this.tool !== 'select') this.setTool('select'); // the sampler's or the brush's cursor goes with the mode
+    if (!on) this.setBlockOn(false);                           // and the block tool, a shape half-made let go
     if (!on && this.collisionOn) this.leaveCollision();       // and collision editing (its edits kept in the collision)
     // The mode left, what was selected in it let go (the owner, 2026-11-16: "when switching modes on the top bar,
     // deselect whatever we selected in that mode"), as Object mode's own selection is on entering this one.
@@ -1358,7 +1591,8 @@ export class GeometryEditor {
       const { size, divisions, look } = floor;
       if (look.texelScale) this.texelScale = look.texelScale;
       if (look.texture) this.textureName = look.texture;
-      const mesh = plane([0, 0, 0], size, size, divisions, { textureName: look.texture, size: this.size, scaleTexel: this.scaleTexel() });
+      // Untextured, mid grey (`UNTEXTURED_FLOOR_COLOR_ADAPTATION`): a white floor would drown the grid.
+      const mesh = plane([0, 0, 0], size, size, divisions, { textureName: look.texture, size: this.size, scaleTexel: this.scaleTexel(), ...(look.texture ? {} : { color: UNTEXTURED_FLOOR_COLOR_ADAPTATION }) });
       addObject(this.geo, { name: 'Floor', kind: 'plane', mesh, solid: look.surface ?? DEFAULT_FLOOR_SURFACE_PLACEHOLDER });
       // The floor stands for the blank base's own from the start: drawn, and what Play draws, at once -- its collision
       // built from it as well (a custom map's collision is the floor's and the objects', the Collision layer's to edit).
@@ -1686,13 +1920,19 @@ export class GeometryEditor {
     this.layerGroup?.classList.toggle('is-collision', this.collisionOn);
     if (this.surfaceGroup) this.surfaceGroup.hidden = !this.collisionOn;
     if (!this.collisionOn && !this.textureOn && this.tool !== 'select') { this.endStroke(); this.tool = 'select'; }
-    if (this.toolGroup) this.toolGroup.hidden = !this.collisionOn && !this.textureOn;
+    // The Tool section on every layer: Select and Block on the Geometry layer; Paint, Sample and Apply too on the
+    // Collision layer; Select, Paint, Sample and Apply on the Texture layer (it makes no shape).
+    if (this.textureOn && this.blockOn) this.setBlockOn(false);
+    if (this.toolBar) {
+      const paints = this.collisionOn || this.textureOn;
+      for (const k of ['paint', 'sample', 'apply']) this.toolBar.setShown(k, paints);
+      this.toolBar.setShown('block', !this.textureOn);
+    }
     this.paintUi();
     // The Texture section the Texture layer's (the Geometry layer edits shape alone; a tile dropped still textures);
     // Create, Edit and Displace never on it -- the geometry is not edited there.
     if (this.textureGroup) this.textureGroup.hidden = !this.textureOn || this.collisionOn;
     if (this.displaceGroup) this.displaceGroup.hidden = this.collisionOn || this.textureOn;
-    if (this.createGroup) this.createGroup.hidden = this.textureOn;
     if (this.editGroup) this.editGroup.hidden = this.textureOn;
     this.applyWorldShown();
   }
@@ -1731,6 +1971,8 @@ export class GeometryEditor {
 
   /** The paint tool's mode (`../paintTools`): Paint and Sample on the Collision and Texture layers alone. */
   private setTool(t: PaintTool): void {
+    if (this.blockOn) { this.blockOn = false; this.blockCancel(); }   // Select, Paint or Sample chosen: Block off
+    if (this.poly) this.polyCancel();                               // and a polygon half-drawn
     if (!this.collisionOn && !this.textureOn) t = 'select';
     if (t === 'paint' && this.textureOn && !this.textureName) { this.deps.say('Choose a texture first (the Texture button, or the asset browser)', true); t = this.tool; }
     if (t === this.tool) { this.paintUi(); return; }
@@ -1778,11 +2020,15 @@ export class GeometryEditor {
    */
   private paintUi(): void {
     for (const [t, b] of this.typeTabs) { const on = t === this.collisionType; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
-    this.toolBar?.show(this.tool);
+    this.toolBar?.show(this.blockOn ? 'block' : this.tool);
+    // Create's shape always shown beside it (the owner, 2026-11-17: "don't hide the create dropdown when the create button
+    // is not active. I want to see the dropdown all the time"): gone with Create's own button on the Texture layer alone.
+    if (this.blockShapeSel) { this.blockShapeSel.hidden = this.textureOn; if (this.textureOn) this.closeShapeMenu?.(); }
+    if (this.createPanel) { const shown = this.active && this.blockOn && !this.textureOn; if (shown && this.createPanel.hidden) this.drawShapeSettings?.(); this.createPanel.hidden = !shown; }
     if (this.climbFlagLabel) this.climbFlagLabel.textContent = CLIMB_FLAGS.find((c) => c.flag === this.climbFlag)?.short ?? String(this.climbFlag);
     if (!this.collisionOn) this.closeClimbMenu();
     if (!this.collisionOn && !this.textureOn) this.showPaintTip(null);
-    this.deps.input.style.cursor = this.sampleNow ? sampleCursor() : this.paintOn ? brushCursor(this.textureOn ? HIGHLIGHT : TYPE_COLOURS[this.collisionType]) : '';
+    this.deps.input.style.cursor = this.blockOn || this.polyOn ? 'crosshair' : this.sampleNow ? sampleCursor() : this.paintOn ? brushCursor(this.textureOn ? HIGHLIGHT : TYPE_COLOURS[this.collisionType]) : '';
   }
 
   /** The face under `n` painted the current type, with its twins; whether anything new was painted. */
@@ -1934,6 +2180,7 @@ export class GeometryEditor {
 
   /** The selection's highlight, the focused object's points and edges, and the gizmo at the selection's middle. */
   private drawSelection(): void {
+    this.syncBlockHandles();
     clearGroup(this.overlay);
     clearGroup(this.fixed);
     this.preview = null;
@@ -2205,7 +2452,7 @@ export class GeometryEditor {
     for (const id of this.sel.objects) {
       const o = this.objectById(id);
       if (!o) continue;
-      if (this.sel.mode === 'object') { out.push(objectCopy(geo, o)); continue; }
+      if (this.sel.mode === 'object') { out.push(this.copyWithHull(geo, o)); continue; }
       const faces = [...(this.sel.items.get(id) ?? [])] as number[];
       const c = faces.length ? facesCopy(geo, o, faces, `${o.name} faces`) : null;
       if (c) out.push(c);
@@ -2259,7 +2506,7 @@ export class GeometryEditor {
     const geo = this.geo;
     if (!geo || !items.length) return;
     this.edit(label, () => {
-      const made = items.map((c) => addObject(geo, inPlaceCopy(c)));
+      const made = items.map((c) => this.addCopy(geo, c));
       this.sel = emptySelection(mode);
       for (const o of made) {
         this.sel.objects.add(o.id);
@@ -2269,36 +2516,963 @@ export class GeometryEditor {
     });
   }
 
-  private addPrimitive(kind: 'box' | 'plane' | 'sphere' | 'cylinder'): void {
-    if (!this.geo) return;
-    const geo = this.geo;
-    const unit = 1 / (this.forMap?.metersPerUnit ?? 1);
-    const textureName = this.textureName;
-    const opts: PrimitiveOptions = { textureName, size: this.size, scaleTexel: this.scaleTexel() };
-    // In front of the camera: on what the middle of the view looks at, else 10 m ahead.
+  /* ---------- the block tool ---------- */
+
+  /** The block tool's shape (Hammer's Geometry Type), beside the Tool section while Block is on. */
+  /**
+   * Create's shape menu (the owner, 2026-11-17: "make the dropdown create menu a little nicer. Be nice to have a preview
+   * image and it is categorized better"; a browser adaptation, FG.R2): a button wearing the shape's picture and word; its
+   * panel the shapes by group, each a picture (`./blockShapeIcons`) -- a body-level popup, as the Select tool's settings
+   * are (the toolbar would clip it). Hovering one previews it in the viewport (`previewShape`; "when hovering over an item
+   * it shows a live preview of the shape in the viewport"); a click chooses it.
+   */
+  private blockToolUi(): HTMLButtonElement {
+    const doc = this.deps.doc;
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fx-tool fx-geo-block-shape';
+    btn.setAttribute('aria-label', 'Create shape');
+    btn.setAttribute('aria-haspopup', 'menu');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.title = 'The shape Create makes: click for the shapes (hover one to preview it)';
+    const menu = doc.createElement('div');
+    menu.className = 'fx-tool-popup fx-shape-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Create shape');
+    menu.hidden = true;
+    const items = new Map<BlockShape, HTMLButtonElement>();
+    for (const group of BLOCK_SHAPE_GROUPS) {
+      const title = doc.createElement('div');
+      title.className = 'fx-tool-popup-title';
+      title.textContent = group;
+      const grid = doc.createElement('div');
+      grid.className = 'fx-shape-grid';
+      for (const { shape, label } of BLOCK_SHAPES.filter((x) => x.group === group)) {
+        const b = doc.createElement('button');
+        b.type = 'button';
+        b.className = 'fx-shape-item';
+        b.setAttribute('role', 'menuitemradio');
+        b.dataset['shape'] = shape;
+        b.title = label;
+        b.innerHTML = `${blockShapeIcon(shape)}<span>${label}</span>`;
+        b.addEventListener('pointerenter', () => this.previewShape(shape));
+        b.addEventListener('focus', () => this.previewShape(shape));
+        b.addEventListener('click', () => { close(); this.chooseShape(shape); });
+        items.set(shape, b);
+        grid.append(b);
+      }
+      menu.append(title, grid);
+    }
+    // The settings in a panel in the viewport's lower left while Create is on (the owner, 2026-11-17: "in create mode make
+    // the settings a little window in the viewport (bottom left) similar to legend, so the user can easily adjust the
+    // settings from the viewport ... the settings change as we hover each item ... simplify the workflow"): the shape
+    // hovered in the menu's, else the chosen one's; its head the shape, a click opening the menu.
+    const panel = doc.createElement('div');
+    panel.className = 'fx-ai-legend fx-create-panel';
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', 'Create settings');
+    panel.hidden = true;
+    (this.deps.legendHost?.() ?? this.deps.statusHost).append(panel);
+    this.createPanel = panel;
+    this.drawShapeSettings = () => this.drawSettingsInto(panel);
+    menu.addEventListener('pointerleave', () => this.previewShape(null));
+    doc.body.append(menu);
+    const draw = (): void => {
+      const label = BLOCK_SHAPES.find((x) => x.shape === this.blockShape)?.label ?? 'Box';
+      btn.innerHTML = `${blockShapeIcon(this.blockShape)}<span>${label}</span><span class="fx-climb-caret">\u25be</span>`;
+      for (const [sh, b] of items) { b.classList.toggle('is-on', sh === this.blockShape); b.setAttribute('aria-checked', String(sh === this.blockShape)); }
+      this.drawShapeSettings?.();
+    };
+    const outside = (e: PointerEvent): void => { if (!menu.contains(e.target as Node) && !btn.contains(e.target as Node)) close(); };
+    const key = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); btn.focus(); } };
+    const close = (): void => {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+      this.previewShape(null);
+      doc.removeEventListener('pointerdown', outside, true);
+      doc.removeEventListener('keydown', key, true);
+    };
+    const open = (): void => {
+      draw();
+      const r = btn.getBoundingClientRect();
+      const width = doc.defaultView?.innerWidth ?? 1024;
+      menu.hidden = false;
+      menu.style.left = `${Math.max(8, Math.min(r.left, width - menu.offsetWidth - 8))}px`;
+      menu.style.top = `${r.bottom + 6}px`;
+      btn.setAttribute('aria-expanded', 'true');
+      doc.addEventListener('pointerdown', outside, true);
+      doc.addEventListener('keydown', key, true);
+    };
+    btn.addEventListener('click', () => { if (menu.hidden) open(); else close(); btn.blur(); });
+    this.toggleShapeMenu = () => { if (menu.hidden) open(); else close(); };
+    this.drawShapeButton = draw;
+    this.closeShapeMenu = close;
+    draw();
+    btn.hidden = true;
+    this.blockShapeSel = btn;
+    return btn;
+  }
+
+  /** A shape's settings now: its defaults, the user's over them. */
+  private settingsFor(shape: BlockShape): ShapeSettings {
+    if (this.liveSettings?.shape === shape) return this.liveSettings.settings;
+    return shapeSettings(shape, this.shapeSettingsStore[shape]);
+  }
+
+  /**
+   * The chosen shape's settings in `box`: a row each -- a number field (its unit beside it), a choice, or a switch -- with
+   * Reset; none for a shape without any. A change is kept (`setShapeSetting`).
+   */
+  private drawSettingsInto(box: HTMLElement): void {
+    const doc = this.deps.doc;
+    const shape = this.hoverShape ?? this.blockShape;
+    const defs = SHAPE_SETTINGS[shape];
+    const label = BLOCK_SHAPES.find((x) => x.shape === shape)?.label ?? 'Box';
+    const now = this.settingsFor(shape);
+    box.replaceChildren();
+    box.classList.toggle('is-hover', this.hoverShape !== null && this.hoverShape !== this.blockShape);
+    const head = doc.createElement('div');
+    head.className = 'fx-shape-settings-head';
+    const title = doc.createElement('button');
+    title.type = 'button';
+    title.className = 'fx-create-panel-shape';
+    title.title = 'The shape Create makes: click for the shapes';
+    title.innerHTML = `${blockShapeIcon(shape)}<span>${label}</span><span class="fx-climb-caret">\u25be</span>`;
+    title.addEventListener('click', () => { this.toggleShapeMenu?.(); title.blur(); });
+    head.append(title);
+    if (!defs.length) {
+      const none = doc.createElement('div');
+      none.className = 'fx-tool-popup-note';
+      none.textContent = shape === 'polygon' ? 'Click its points one by one, then the first again (or Enter) to close it, then pull its height' : 'No settings: its size is the drag and the pull';
+      head.classList.add('is-alone');
+      box.append(head, none);
+      return;
+    }
+    const reset = doc.createElement('button');
+    reset.type = 'button';
+    reset.className = 'fx-shape-reset';
+    reset.textContent = 'Reset';
+    reset.title = `Every ${label} setting back to where it starts`;
+    reset.addEventListener('click', () => { delete this.shapeSettingsStore[shape]; this.shapeSettingsChanged(shape); });
+    head.append(reset);
+    box.append(head);
+    for (const d of defs) box.append(this.settingRow(d, now[d.key]!, (v) => this.setShapeSetting(shape, d.key, v), (v) => this.previewSetting(shape, d.key, v)));
+  }
+
+  /** One setting's row: its word, then its field. */
+  private settingRow(d: ShapeSetting, value: number | string | boolean, set: (v: number | string | boolean) => void, live?: (v: number) => void): HTMLElement {
+    const doc = this.deps.doc;
+    const row = doc.createElement('label');
+    row.className = 'fx-tool-popup-row fx-shape-setting';
+    row.title = d.note;
+    const word = doc.createElement('span');
+    word.textContent = d.label;
+    row.append(word);
+    if (d.kind === 'number') {
+      const wrap = doc.createElement('span');
+      wrap.className = 'fx-shape-num';
+      const input = doc.createElement('input');
+      input.type = 'number';
+      input.className = 'fx-num';
+      input.min = String(d.min); input.max = String(d.max); input.step = String(d.step);
+      input.value = String(value);
+      input.setAttribute('aria-label', d.label);
+      // Each value a drag (or a typed digit) passes shown live (`live`, no edit); the release or the typed value kept.
+      input.addEventListener('input', () => { const v = Number(input.value); if (Number.isFinite(v)) live?.(v); });
+      input.addEventListener('change', () => { const v = Number(input.value); if (Number.isFinite(v)) set(v); });
+      wrap.append(input);
+      if (d.unit) { const u = doc.createElement('span'); u.className = 'fx-shape-unit'; u.textContent = d.unit === 'u' ? 'units' : d.unit; wrap.append(u); }
+      row.append(wrap);
+    } else if (d.kind === 'choice') {
+      const sel = doc.createElement('select');
+      sel.className = 'fx-select';
+      sel.setAttribute('aria-label', d.label);
+      for (const o of d.options) { const opt = doc.createElement('option'); opt.value = o.value; opt.textContent = o.label; sel.append(opt); }
+      sel.value = String(value);
+      sel.addEventListener('change', () => set(sel.value));
+      row.append(sel);
+    } else {
+      const box = doc.createElement('input');
+      box.type = 'checkbox';
+      box.checked = value === true;
+      box.setAttribute('aria-label', d.label);
+      box.addEventListener('change', () => set(box.checked));
+      row.append(box);
+    }
+    return row;
+  }
+
+  /** A shape's setting set: kept (this browser), the menu, the shape being made and its preview redrawn. */
+  private setShapeSetting(shape: BlockShape, key: string, value: number | string | boolean): void {
+    const wasLive = this.liveSettings !== null;
+    this.liveSettings = null;
+    if (wasLive && !this.block && !this.hoverShape) { this.blockPreview.visible = false; this.drawBlockSolid(null); }
+    this.shapeSettingsStore[shape] = shapeSettings(shape, { ...this.shapeSettingsStore[shape], [key]: value });
+    // The panel left as it is: its field holds the value, and a held arrow keeps stepping the same field.
+    this.shapeSettingsChanged(shape, false);
+  }
+
+  /**
+   * A shape's settings changed: kept, the menu redrawn; the shape being made or previewed with them -- and the shape
+   * Create made last, while it is that shape and selected, rebuilt with them (one edit).
+   */
+  private shapeSettingsChanged(shape: BlockShape, redraw = true): void {
+    writeShapeSettings(this.shapeSettingsStore);
+    if (redraw) this.drawShapeSettings?.();
+    if (this.block) this.drawBlock();
+    else if (this.hoverShape) { const h = this.hoverShape; this.hoverShape = null; this.previewShape(h); }
+    const lb = this.lastBlock;
+    if (lb && lb.shape === shape && this.sel.objects.size === 1 && this.sel.objects.has(lb.id)) {
+      lb.settings = this.settingsFor(shape);
+      const label = BLOCK_SHAPES.find((x) => x.shape === shape)?.label ?? 'Box';
+      this.rebuildLastBlock(`${label} settings`);
+    }
+  }
+
+  /**
+   * A setting's value shown live as it is dragged, nothing kept (`liveSettings`): the shape being made with it; else the
+   * shape Create made last, while it is that shape and selected, previewed rebuilt over itself; else the shape at the
+   * viewport's centre. The panel is left as it is (its field is the one being dragged).
+   */
+  private previewSetting(shape: BlockShape, key: string, value: number): void {
+    this.liveSettings = { shape, settings: shapeSettings(shape, { ...this.shapeSettingsStore[shape], [key]: value }) };
+    if (this.block) { this.drawBlock(); return; }
+    const lb = this.lastBlock;
+    if (lb && lb.shape === shape && this.sel.objects.size === 1 && this.sel.objects.has(lb.id)) {
+      const f = { ...lb.frame, origin: frameToWorld(lb.frame, 0, lb.y[0], 0) };
+      const a: [number, number] = [lb.x[0], lb.z[0]], b: [number, number] = [lb.x[1], lb.z[1]], h = lb.y[1] - lb.y[0];
+      const settings = this.liveSettings.settings;
+      this.drawOutline(this.outlineParts(shape, f, a, b, h, lb.run, settings));
+      this.drawBlockSolid(this.shapeMesh(shape, f, a, b, h, { textureName: lb.textureName, size: this.size, scaleTexel: this.scaleTexel() }, lb.run, settings), lb.textureName);
+      return;
+    }
+    this.showCentrePreview(shape);
+  }
+
+  /** A shape chosen in Create's menu: Create on, drawing it next (a shape half-made takes it at once). */
+  private chooseShape(shape: BlockShape): void {
+    if (shape !== this.blockShape) this.polyCancel();
+    this.blockShape = shape;
+    this.drawShapeButton?.();
+    if (!this.blockOn) this.setBlockOn(true);                  // choosing a shape is choosing to draw one
+    this.drawBlock();
+  }
+
+  /**
+   * Create's menu hovered on `shape` (null: left): that shape shown in the viewport, its outline and its faces -- over
+   * the rectangle being made; else at the viewport's centre, `BLOCK_PREVIEW_SIZE_ADAPTATION` a side.
+   */
+  private previewShape(shape: BlockShape | null): void {
+    if (this.hoverShape === shape) return;
+    this.hoverShape = shape;
+    this.drawShapeSettings?.();                                // the panel the hovered shape's settings
+    if (this.block) { this.drawBlock(); return; }
+    if (this.poly) return;                                     // an outline being drawn keeps its own preview
+    if (!shape || shape === 'polygon') { this.blockPreview.visible = false; this.drawBlockSolid(null); return; }
+    this.showCentrePreview(shape);
+  }
+
+  /** `shape` previewed at the viewport's centre, `BLOCK_PREVIEW_SIZE_ADAPTATION` a side, by its settings now. */
+  private showCentrePreview(shape: BlockShape): void {
+    // At the viewport's centre (the owner, 2026-11-17: "the hover preview should be in the center of the viewport"): on
+    // the workplane or the surface there, centred on that point, on its grid while snapping.
+    const st = this.blockStart(new Vector2(0, 0));
+    if (!st) { this.blockPreview.visible = false; this.drawBlockSolid(null); return; }
+    const l = worldToFrame(st.frame, st.at);
+    const size = Math.max(BLOCK_PREVIEW_SIZE_ADAPTATION, st.snap ?? 0);
+    const f = st.frame;
+    const a: [number, number] = [this.blockSnap(l[0] - size / 2), this.blockSnap(l[2] - size / 2)];
+    const b: [number, number] = [a[0] + size, a[1] + size];
+    const h = shape === 'quad' ? 0 : size;
+    const run = stairsRun(a, b);
+    this.drawOutline(this.outlineParts(shape, f, a, b, h, run));
+    this.drawBlockSolid(this.shapeMesh(shape, f, a, b, h, { textureName: this.textureName, size: this.size, scaleTexel: this.scaleTexel() }, run), this.textureName);
+  }
+
+  /** The preview's outline (`blockPreview`): every face's edges. */
+  private drawOutline(parts: { points: Vec3[]; rings: number[][] }): void {
+    const pos: number[] = [];
+    for (const ring of parts.rings) for (let i = 0; i < ring.length; i++) pos.push(...parts.points[ring[i]!]!, ...parts.points[ring[(i + 1) % ring.length]!]!);
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(pos), 3));
+    const old = this.blockPreview.geometry;
+    this.blockPreview.geometry = g;
+    old.dispose();
+    this.blockPreview.visible = true;
+  }
+
+  /** The block tool on (its tab lit in place of Select's, the crosshair, its shape shown) or off (Select's again); a shape half-made let go. */
+  private setBlockOn(on: boolean): void {
+    if (on && this.tool !== 'select') this.setTool('select');
+    this.polyCancel();
+    this.blockCancel();
+    const was = this.blockOn;
+    this.blockOn = on;
+    if (was && !on) this.drawSelection();                      // Select again: the selection's gizmo back
+    this.drawHover();                                          // Create on: the hover off; Select again: back under the pointer
+    if (!on) this.drawBlockStart(null);
+    this.syncBlockHandles();
+    this.paintUi();
+    if (on) this.deps.say(this.blockShape === 'polygon' ? 'Polygon: click its points one by one, then the first again (or Enter) to close it (Esc leaves the tool)'
+      : this.deps.workplaneShown?.() ? 'Create: drag a rectangle out on the workplane (Esc leaves the tool)' : 'Create: drag a rectangle out on a surface (Esc leaves the tool)');
+  }
+
+  /**
+   * The plane a press at `ndc` starts a shape on: the workplane, shown (its frame -- its grid's axes -- and the snap's
+   * step); else the face pressed on, by its normal turned to the camera, its across-axes world X (Z where the face looks
+   * along X) laid on it, no snap. Null: the pointer meets neither.
+   */
+  private blockStart(ndc: Vector2): { frame: BlockFrame; snap: number | null; at: Vec3 } | null {
+    const ray = this.rayAt(ndc, this.deps.camera());
+    const hit = this.geo && pickFace(this.geo, ray, this.index);
+    if (this.deps.workplaneShown?.() && this.deps.workplane) {
+      const w = this.deps.workplane();
+      const p = rayOnWorkplane(w, new Vector3(...ray.origin), new Vector3(...ray.dir), BLOCK_REACH);
+      const { origin, q } = workplaneFrame(w);
+      const axis = (x: number, y: number, z: number): Vec3 => new Vector3(x, y, z).applyQuaternion(q).toArray() as Vec3;
+      const wn = axis(0, 1, 0);
+      const far = (x: Vec3): number => Math.hypot(x[0] - ray.origin[0]!, x[1] - ray.origin[1]!, x[2] - ray.origin[2]!);
+      // Geometry in front of the workplane takes the press (the owner, 2026-11-17: "I want to be able to use the create
+      // brush on top of other geometry i made ... a roof ... on top of the room ... with the workplane on. it goes through
+      // the geometry"), as the Place tool's seat does (`nearerOfWorkplane`): a face nearer along the ray by more than
+      // `BLOCK_SEE_TOLERANCE` -- one lying on the workplane itself keeps the workplane.
+      const onSurface = hit && (!p || far(hit.at) < far([p.x, p.y, p.z]) - BLOCK_SEE_TOLERANCE);
+      if (!onSurface) {
+        if (!p) return null;
+        return { frame: { origin: origin.toArray() as Vec3, u: axis(1, 0, 0), n: wn, v: axis(0, 0, 1) }, snap: this.moveSnap(), at: [p.x, p.y, p.z] };
+      }
+      // A face parallel to the workplane (a room's top on a flat one): the workplane's own frame and grid lifted to it,
+      // so what is made there lines up with the grid below, snapping as on the workplane.
+      let fn = normalize(faceNormal(hit.object.mesh, hit.face));
+      if (dot(fn, ray.dir) > 0) fn = scale(fn, -1);
+      if (dot(fn, wn) > 1 - 1e-6) {
+        const lift = dot(sub(hit.at, origin.toArray() as Vec3), wn);
+        return { frame: { origin: add(origin.toArray() as Vec3, scale(wn, lift)), u: axis(1, 0, 0), n: wn, v: axis(0, 0, 1) }, snap: this.moveSnap(), at: hit.at };
+      }
+    }
+    if (!hit) return null;
+    let n = normalize(faceNormal(hit.object.mesh, hit.face));
+    if (dot(n, ray.dir) > 0) n = scale(n, -1);
+    const ref: Vec3 = Math.abs(n[0]) > 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const u = normalize(sub(ref, scale(n, dot(ref, n))));
+    // Off the workplane: unsnapped -- unless Ctrl asks for the snap.
+    return { frame: { origin: hit.at, u, n, v: cross(u, n) }, snap: this.ctrlHeld && this.snapStep > 0 ? this.snapStep : null, at: hit.at };
+  }
+
+  /** Where the pointer at `ndc` meets the shape's plane, in its frame [along u, along v] (on the snap's step); null: it does not. */
+  private blockPlaneAt(ndc: Vector2): [number, number] | null {
+    const b = this.block;
+    if (!b) return null;
+    const ray = this.rayAt(ndc, this.deps.camera());
+    const along = dot(ray.dir, b.frame.n);
+    if (Math.abs(along) < 1e-6) return null;
+    const t = dot(sub(b.frame.origin, ray.origin), b.frame.n) / along;
+    if (!(t > 0)) return null;
+    const l = worldToFrame(b.frame, add(ray.origin, scale(ray.dir, t)));
+    return [this.blockSnap(l[0]), this.blockSnap(l[2])];
+  }
+
+  /** A length on the shape's snap step (none off the workplane). */
+  private blockSnap(x: number): number {
+    const g = this.block?.snap;
+    return g ? Math.round(x / g) * g : x;
+  }
+
+  /** The height the pointer at `ndc` pulls: the nearest point of its ray to the normal through the rectangle's middle. */
+  private blockHeightAt(ndc: Vector2): number | null {
+    const b = this.block;
+    if (!b) return null;
+    const ray = this.rayAt(ndc, this.deps.camera());
+    const c = frameToWorld(b.frame, (b.a[0] + b.b[0]) / 2, 0, (b.a[1] + b.b[1]) / 2);
+    const nd = dot(b.frame.n, ray.dir), dd = dot(ray.dir, ray.dir);
+    const denom = dd - nd * nd;
+    if (denom < 1e-9) return null;                            // looking straight down the normal: no height to read
+    const w0 = sub(c, ray.origin);
+    const h = (nd * dot(ray.dir, w0) - dd * dot(b.frame.n, w0)) / denom;
+    return this.blockSnap(h);
+  }
+
+  private blockDown(ndc: Vector2, e: PointerEvent): void {
+    if (this.block?.phase === 'height') { this.blockCommit(); return; }
+    // Clicked, not dragged: this click sets the far corner (the owner, 2026-11-17: "make the create tool also start
+    // working when I click down, so that I don't have to do a drag while mouse is down").
+    if (this.block?.phase === 'base' && this.block.clicked) { this.block.pointerId = e.pointerId; this.blockBaseDone(); return; }
+    const s = this.blockStart(ndc);
+    if (!s) {
+      this.deps.say(this.deps.workplaneShown?.() ? 'Create: the pointer is off the workplane' : 'Create: press on a surface (or show the workplane)', true);
+      return;
+    }
+    const l = worldToFrame(s.frame, s.at);
+    this.drawBlockStart(null);
+    this.block = { phase: 'base', frame: s.frame, snap: s.snap, a: [0, 0], b: [0, 0], h: 0, pointerId: e.pointerId };
+    const a: [number, number] = [this.blockSnap(l[0]), this.blockSnap(l[2])];
+    this.block.a = a;
+    this.block.b = [...a];
+    try { this.deps.input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
+    this.drawBlock();
+  }
+
+  private blockMove(ndc: Vector2): void {
+    const b = this.block;
+    if (!b) return;
+    if (b.phase === 'base') { const p = this.blockPlaneAt(ndc); if (p) b.b = p; }
+    else { const h = this.blockHeightAt(ndc); if (h !== null) b.h = h; }
+    this.drawBlock();
+    const w = Math.abs(b.b[0] - b.a[0]), d = Math.abs(b.b[1] - b.a[1]);
+    const r = (x: number): number => Math.round(x * 100) / 100;
+    this.deps.say(b.phase === 'base' ? `Create: ${r(w)} x ${r(d)}` : `Create: ${r(w)} x ${r(d)} x ${r(b.h)} (click or Enter to make it, Esc cancels)`);
+  }
+
+  private blockUp(e: PointerEvent): void {
+    const b = this.block;
+    if (!b) return;
+    try { this.deps.input.releasePointerCapture(e.pointerId); } catch { /* already let go */ }
+    // A click, not a drag: the first corner set, the rectangle following the pointer until the next click.
+    if (!blockMakes('quad', b.a, b.b, 0)) {
+      if (!b.clicked) { b.clicked = true; this.deps.say('Create: move to size it, then click to set the far corner (Esc cancels)'); }
+      return;
+    }
+    this.blockBaseDone();
+  }
+
+  /** The rectangle set (a drag let go, or the second click): a quad made, else its height pulled next. */
+  private blockBaseDone(): void {
+    const b = this.block;
+    if (!b || b.phase !== 'base' || !blockMakes('quad', b.a, b.b, 0)) return;
+    if (this.blockShape === 'quad') { this.blockCommit(); return; }
+    b.phase = 'height';
+    // Looking along the plane's normal (an orthographic view): no height to pull -- made at once at the last one.
+    if (this.cannotPull(b.frame)) { b.h = this.defaultPull(b.snap); this.blockCommit(); this.saidPull(b.h); return; }
+    this.deps.say('Create: move to set its height, then click or Enter to make it (Esc cancels)');
+  }
+
+  /** Whether the view looks (nearly) along `f`'s normal -- an orthographic view facing the plane: a height cannot be pulled there. */
+  private cannotPull(f: BlockFrame): boolean {
     const cam = this.deps.camera();
-    const ray = this.rayAt(new Vector2(0, 0), cam);
-    const hit = pickFace(geo, ray, this.index);
-    // Nothing near in the middle of the view: on the workplane where the view's middle meets it (the owner, 2026-11-16),
-    // else 10 m ahead as before.
-    const wp = rayOnWorkplane(this.deps.workplane?.() ?? flatWorkplane(0), new Vector3(...ray.origin), new Vector3(...ray.dir), 200 * unit);
-    const onPlane: Vec3 | null = wp ? [wp.x, wp.y, wp.z] : null;
-    const at: Vec3 = hit && hit.t < 200 * unit ? hit.at : onPlane ?? [ray.origin[0]! + ray.dir[0]! * 10 * unit, ray.origin[1]! + ray.dir[1]! * 10 * unit, ray.origin[2]! + ray.dir[2]! * 10 * unit];
-    // Snap on: its footing on the world grid (absolute, Hammer's), across the floor; its height the surface's.
-    const g = this.gridSnap;
-    if (g) { at[0] = Math.round(at[0] / g) * g; at[2] = Math.round(at[2] / g) * g; }
-    const s = 2 * unit;
-    const mesh = kind === 'box' ? box([at[0] - s / 2, at[1], at[2] - s / 2], [at[0] + s / 2, at[1] + s, at[2] + s / 2], opts)
-      : kind === 'plane' ? plane([at[0], at[1] + 0.01 * unit, at[2]], 4 * s, 4 * s, 1, opts)
-        : kind === 'sphere' ? sphere([at[0], at[1] + s / 2, at[2]], s / 2, 16, 10, opts)
-          : cylinder(at, s / 2, s, 16, opts);
+    const look = cam.getWorldDirection(new Vector3());
+    return Math.abs(look.dot(new Vector3(...f.n))) > 0.98;
+  }
+
+  /** The height a shape made without a pull takes: the last pulled, else one snap step, else a metre. */
+  private defaultPull(snap: number | null): number {
+    return this.lastPull ?? (snap && snap > 0 ? snap : this.snapStep > 0 ? this.snapStep : BLOCK_DEFAULT_PULL_ADAPTATION);
+  }
+
+  private saidPull(h: number): void {
+    const r = Math.round(Math.abs(h) * 100) / 100;
+    this.deps.say(`Made ${r} high (${this.lastPull !== null ? 'the last height pulled' : 'one snap step'}): no height to pull in this view -- its handles resize it, or pull one in the perspective view`);
+  }
+
+  /**
+   * A shape's mesh as Create makes it on this layer: stairs on the Collision layer are their ramp (the disc's stairs
+   * collide as ramps; the owner, 2026-11-17: "a smooth collision box for it (not jagged)"), every other shape itself.
+   */
+  private shapeMesh(shape: BlockShape, f: BlockFrame, a: readonly [number, number], b: readonly [number, number], h: number,
+    opts: PrimitiveOptions, run: { alongZ: boolean; rev: boolean }, settings: ShapeSettings = this.settingsFor(shape)): EditMesh {
+    if (this.collisionOn) {
+      const own = this.shapeHull(shape, f, a, b, h, opts, run, this.collisionGround());
+      if (own) return own;
+    }
+    return blockMesh(shape, f, a, b, h, opts, run, settings);
+  }
+
+  /**
+   * The collision a shape has of its own, not its faces': stairs' the ramp (the disc's stairs collide as ramps; the owner,
+   * 2026-11-17: "a smooth collision box for it (not jagged)"), a ladder's the box of its footprint with every face a
+   * ladder -- climbable, climb flag 2, `ditype` 2 (the owner, 2026-11-17: "it should also set bit flag for the ladder";
+   * `./hullGeometry` `withCollisionType`, as the disc's ladder faces are) over the `ground` words; a Ramp's its slope
+   * walkable however steep; a railing's and a column's their box. Null for the rest: their faces' (floors up, walls else).
+   */
+  private shapeHull(shape: BlockShape, f: BlockFrame, a: readonly [number, number], b: readonly [number, number], h: number,
+    opts: PrimitiveOptions, run: { alongZ: boolean; rev: boolean }, ground: Surface): EditMesh | null {
+    // Each face's words set: a floor's where `walk` says it is stood on, a wall's else.
+    const worded = (m: EditMesh, walk: (n: Vec3) => boolean): EditMesh => {
+      const floor = floorWordsOf(ground), wall = wallWordsOf(ground);
+      for (const fc of liveFaces(m)) m.faces[fc]!.surface = [...(walk(faceNormal(m, fc)) ? floor : wall)] as Surface;
+      return m;
+    };
+    // A ramp's slope always walkable however steep (the owner, 2026-11-17: "for floors and ramps, always make the ramp
+    // area walkable"): stairs' ramp and the Ramp shape -- every face facing up at all a floor.
+    if (shape === 'stairs' || shape === 'ramp') return worded(stairsRampMesh(f, a, b, h, opts, run), (n) => n[1] > 1e-3);
+    // A railing's or a column's collision its box (the owner, 2026-11-17: "for railings collision just create a bounding
+    // box around the rail, don't have to do individual poles. you can simplify most collisions"): its top a floor.
+    if (shape === 'railing' || shape === 'column') return worded(blockMesh('block', f, a, b, h, opts, run), (n) => n[1] >= FLOOR_NORMAL_Y_MIN);
+    if (shape !== 'ladder') return null;
+    const m = blockMesh('block', f, a, b, h, opts, run);
+    const ladder = withCollisionType(ground, 'climbable', LADDER_CLIMB_FLAG);
+    for (const fc of liveFaces(m)) m.faces[fc]!.surface = [...ladder] as Surface;
+    return m;
+  }
+
+  /** The ground words a made collision starts from: the drawn geometry's commonest floor, else a plain floor. */
+  private collisionGround(): Surface {
+    const geo = this.drawGeometry;
+    return (geo?.collision ? commonGroundSurface(geo.collision) : null) ?? [3, 0, 0, 0, 0];
+  }
+
+  /**
+   * A drawn object's collision set to `mesh`: its own hull object (`hullOf`, edited: `manual`), made or replaced -- Build
+   * takes it over what its faces would make (`applyHullEdits`), and it moves with the object (`followersOf`).
+   */
+  private setShapeHull(o: GeoObject, mesh: EditMesh): void {
+    const geo = this.geo;
+    if (!geo) return;
+    const hull = this.hullGeo ?? (this.hullGeo = { objects: [], collision: null, ownerNodes: geo.ownerNodes });
+    const had = hull.objects.find((h) => h.hullOf === o.id);
+    if (had) { Object.assign(had.mesh, mesh); had.manual = true; return; }
+    hull.objects.push({ id: `hull:${o.id}`, name: o.name, kind: 'mesh', mesh, hullOf: o.id, manual: true });
+  }
+
+  /** A shape's outline as this layer makes it: stairs a ramp and a ladder a box on the Collision layer (`shapeHull`). */
+  private outlineParts(shape: BlockShape, f: BlockFrame, a: readonly [number, number], b: readonly [number, number], h: number, run: { alongZ: boolean; rev: boolean },
+    settings: ShapeSettings = this.settingsFor(shape)): { points: Vec3[]; rings: number[][] } {
+    if (this.collisionOn && (shape === 'ladder' || shape === 'railing' || shape === 'column')) return blockParts('block', f, a, b, h);
+    return blockParts(shape, f, a, b, h, settings, run, this.collisionOn && shape === 'stairs');
+  }
+
+  /** The shape made, as it is drawn; the tool stays on for the next. */
+  private blockCommit(): void {
+    const b = this.block;
+    const geo = this.geo;
+    if (!b || !geo) return;
+    const shape = this.blockShape;
+    if (!blockMakes(shape, b.a, b.b, b.h)) { this.deps.say('Create: pull it some height first', true); return; }
+    const run = stairsRun(b.a, b.b);
+    const opts = { textureName: this.textureName, size: this.size, scaleTexel: this.scaleTexel() };
+    const settings = this.settingsFor(shape);
+    if (shape !== 'quad' && Math.abs(b.h) > 1e-3 && !this.cannotPull(b.frame)) this.lastPull = Math.abs(b.h);   // the next shape's, where it cannot pull
+    const mesh = this.shapeMesh(shape, b.frame, b.a, b.b, b.h, opts, run, settings);
     const surface = this.newSolidSurface();
-    this.edit(`Create ${kind}`, () => {
-      const o = addObject(geo, { name: kind[0]!.toUpperCase() + kind.slice(1), kind, mesh, ...(surface ? { solid: surface } : {}) });
+    const label = BLOCK_SHAPES.find((x) => x.shape === shape)?.label ?? 'Box';
+    const made = { frame: b.frame, x: [Math.min(b.a[0], b.b[0]), Math.max(b.a[0], b.b[0])] as [number, number], z: [Math.min(b.a[1], b.b[1]), Math.max(b.a[1], b.b[1])] as [number, number], y: [Math.min(0, b.h), Math.max(0, b.h)] as [number, number], snap: b.snap, run };
+    this.blockCancel();
+    this.edit(`Create ${label.toLowerCase()}`, () => {
+      const o = addObject(geo, { name: label, kind: blockKind(shape), mesh, ...(surface ? { solid: surface } : {}) });
+      // Stairs or a ladder drawn: their collision the ramp, or the ladder's box -- the object's own hull taken over by it,
+      // so it goes where they go (`followersOf`) and with them when they are deleted.
+      const hullOwn = this.collisionOn || !o.solid ? null : this.shapeHull(shape, b.frame, b.a, b.b, b.h, opts, run, o.solid);
+      if (hullOwn) this.setShapeHull(o, hullOwn);
+      this.sel = emptySelection('object');
+      this.sel.objects.add(o.id);
+      this.focus = o.id;
+      this.lastBlock = { id: o.id, shape, ...made, textureName: this.textureName, verts: [...o.mesh.verts], settings: { ...settings } };
+    });
+    this.syncBlockHandles();
+  }
+
+  /**
+   * The resize handles of the shape Create made last (`lastBlock`): drawn while Create is on and it is selected alone --
+   * one at each side's middle (a quad's four edges), its top and its base -- after checking it is as made: moved whole,
+   * the frame goes with it; changed any other way (turned, scaled, edited, undone), the handles go.
+   */
+  private syncBlockHandles(): void {
+    const lb = this.lastBlock;
+    const o = lb && this.geo?.objects.find((x) => x.id === lb.id);
+    let ok = !!(lb && o && this.blockOn && !this.textureOn && this.sel.objects.size === 1 && this.sel.objects.has(lb.id));
+    if (ok && lb && o) {
+      const v = o.mesh.verts;
+      if (v.length !== lb.verts.length) ok = false;
+      else {
+        const d = [v[0]! - lb.verts[0]!, v[1]! - lb.verts[1]!, v[2]! - lb.verts[2]!];
+        for (let i = 0; i < v.length && ok; i++) if (Math.abs(v[i]! - lb.verts[i]! - d[i % 3]!) > 1e-4) ok = false;
+        if (ok && (d[0] || d[1] || d[2])) { lb.frame = { ...lb.frame, origin: add(lb.frame.origin, d) }; lb.verts = [...v]; }
+      }
+      if (!ok && (!o || v.length !== lb.verts.length || !this.handleDrag)) this.lastBlock = null;
+    }
+    if (!ok || !lb) { this.blockHandles.visible = false; this.blockHandleAt = []; return; }
+    const ext = this.handleDrag ?? lb;
+    const [x0, x1] = ext.x, [y0, y1] = ext.y, [z0, z1] = ext.z;
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+    const at: { axis: 'x' | 'y' | 'z'; end: 0 | 1; at: Vec3 }[] = [
+      { axis: 'x', end: 0, at: frameToWorld(lb.frame, x0, cy, cz) }, { axis: 'x', end: 1, at: frameToWorld(lb.frame, x1, cy, cz) },
+      { axis: 'z', end: 0, at: frameToWorld(lb.frame, cx, cy, z0) }, { axis: 'z', end: 1, at: frameToWorld(lb.frame, cx, cy, z1) },
+    ];
+    if (lb.shape !== 'quad') at.push({ axis: 'y', end: 0, at: frameToWorld(lb.frame, cx, y0, cz) }, { axis: 'y', end: 1, at: frameToWorld(lb.frame, cx, y1, cz) });
+    this.blockHandleAt = at;
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(at.flatMap((h) => h.at)), 3));
+    const old = this.blockHandles.geometry;
+    this.blockHandles.geometry = g;
+    old.dispose();
+    this.blockHandles.visible = true;
+  }
+
+  /** A press on a resize handle (within `BLOCK_HANDLE_PICK_PX` of it on screen): its drag begun. */
+  private handleDown(ndc: Vector2, e: PointerEvent): boolean {
+    const lb = this.lastBlock;
+    if (!lb || !this.blockHandles.visible || !this.blockHandleAt.length) return false;
+    const cam = this.deps.camera();
+    const r = this.deps.input.getBoundingClientRect();
+    let best = -1, bestD = BLOCK_HANDLE_PICK_PX;
+    this.blockHandleAt.forEach((h, i) => {
+      const s = new Vector3(...h.at).project(cam);
+      if (s.z > 1) return;                                     // behind the camera
+      const d = Math.hypot(((s.x - ndc.x) * r.width) / 2, ((s.y - ndc.y) * r.height) / 2);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    if (best < 0) return false;
+    const h = this.blockHandleAt[best]!;
+    this.handleDrag = { i: best, pointerId: e.pointerId, x: [...lb.x], y: [...lb.y], z: [...lb.z], grab: this.handleAlong(h, ndc) ?? 0 };
+    try { this.deps.input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
+    return true;
+  }
+
+  /** How far along handle `h`'s axis (from it) the pointer at `ndc` is: its ray's nearest point to the axis line. */
+  private handleAlong(h: { axis: 'x' | 'y' | 'z'; at: Vec3 }, ndc: Vector2): number | null {
+    const lb = this.lastBlock;
+    if (!lb) return null;
+    const dir = h.axis === 'x' ? lb.frame.u : h.axis === 'y' ? lb.frame.n : lb.frame.v;
+    const ray = this.rayAt(ndc, this.deps.camera());
+    const nd = dot(dir, ray.dir), dd = dot(ray.dir, ray.dir);
+    const denom = dd - nd * nd;
+    if (denom < 1e-9) return null;
+    const w0 = sub(h.at, ray.origin);
+    return (nd * dot(ray.dir, w0) - dd * dot(dir, w0)) / denom;
+  }
+
+  /** A handle dragged: its side moved along its axis (on the shape's snap step), never past the opposite side. */
+  private handleMove(ndc: Vector2): void {
+    const hd = this.handleDrag, lb = this.lastBlock;
+    if (!hd || !lb) return;
+    const h = this.blockHandleAt[hd.i];
+    if (!h) return;
+    // The handle's place as the drag began, its axis through it.
+    const start = { ...h, at: frameToWorld(lb.frame, ...this.handleFrameAt(h, lb)) };
+    const s = this.handleAlong(start, ndc);
+    if (s === null) return;
+    const ext = h.axis === 'x' ? lb.x : h.axis === 'y' ? lb.y : lb.z;
+    // The step it was made with, Ctrl flipping it (off when it snapped, the step when it did not).
+    const step = (lb.snap !== null) !== this.ctrlHeld ? lb.snap ?? (this.snapStep || null) : null;
+    let v = ext[h.end] + (s - hd.grab);
+    if (step) v = Math.round(v / step) * step;
+    const min = step ?? BLOCK_HANDLE_MIN;
+    v = h.end === 0 ? Math.min(v, ext[1] - min) : Math.max(v, ext[0] + min);
+    const next: [number, number] = h.end === 0 ? [v, ext[1]] : [ext[0], v];
+    if (h.axis === 'x') hd.x = next; else if (h.axis === 'y') hd.y = next; else hd.z = next;
+    // The outline as it would stand; the handles with it.
+    const f = { ...lb.frame, origin: frameToWorld(lb.frame, 0, hd.y[0], 0) };
+    const parts = this.outlineParts(lb.shape, f, [hd.x[0], hd.z[0]], [hd.x[1], hd.z[1]], hd.y[1] - hd.y[0], lb.run, lb.settings);
+    this.drawBlockSolid(this.shapeMesh(lb.shape, f, [hd.x[0], hd.z[0]], [hd.x[1], hd.z[1]], hd.y[1] - hd.y[0], { textureName: lb.textureName, size: this.size, scaleTexel: this.scaleTexel() }, lb.run, lb.settings), lb.textureName);
+    const pos: number[] = [];
+    for (const ring of parts.rings) for (let i = 0; i < ring.length; i++) pos.push(...parts.points[ring[i]!]!, ...parts.points[ring[(i + 1) % ring.length]!]!);
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(pos), 3));
+    const old = this.blockPreview.geometry;
+    this.blockPreview.geometry = g;
+    old.dispose();
+    this.blockPreview.visible = true;
+    this.syncBlockHandles();
+    const r = (x: number): number => Math.round(x * 100) / 100;
+    this.deps.say(`Create: ${r(hd.x[1] - hd.x[0])} x ${r(hd.z[1] - hd.z[0])}${lb.shape === 'quad' ? '' : ` x ${r(hd.y[1] - hd.y[0])}`}`);
+  }
+
+  /** A handle's frame coordinates in the shape as made (`lastBlock`, before the drag). */
+  private handleFrameAt(h: { axis: 'x' | 'y' | 'z'; end: 0 | 1 }, lb: NonNullable<typeof this.lastBlock>): [number, number, number] {
+    const cx = (lb.x[0] + lb.x[1]) / 2, cy = (lb.y[0] + lb.y[1]) / 2, cz = (lb.z[0] + lb.z[1]) / 2;
+    return h.axis === 'x' ? [lb.x[h.end], cy, cz] : h.axis === 'y' ? [cx, lb.y[h.end], cz] : [cx, cy, lb.z[h.end]];
+  }
+
+  /** A handle let go: the shape rebuilt at its new size, one edit (its texture as made). */
+  private handleUp(e: PointerEvent): void {
+    const hd = this.handleDrag, lb = this.lastBlock;
+    this.handleDrag = null;
+    try { this.deps.input.releasePointerCapture(e.pointerId); } catch { /* already let go */ }
+    this.blockPreview.visible = false;
+    this.drawBlockSolid(null);
+    if (!hd || !lb) { this.syncBlockHandles(); return; }
+    const same = hd.x.every((v, i) => v === lb.x[i]) && hd.y.every((v, i) => v === lb.y[i]) && hd.z.every((v, i) => v === lb.z[i]);
+    if (same) { this.syncBlockHandles(); return; }
+    const label = BLOCK_SHAPES.find((x) => x.shape === lb.shape)?.label ?? 'Box';
+    lb.x = hd.x; lb.y = hd.y; lb.z = hd.z;
+    this.rebuildLastBlock(`Resize ${label.toLowerCase()}`);
+  }
+
+  /**
+   * The shape Create made last rebuilt as it stands (`lastBlock`: its extents and its settings) -- one edit: its mesh, and
+   * its own collision with it (stairs' ramp, a ladder's box).
+   */
+  private rebuildLastBlock(label: string): void {
+    const lb = this.lastBlock;
+    const o = lb && this.geo?.objects.find((x) => x.id === lb.id);
+    if (!lb || !o) { this.syncBlockHandles(); return; }
+    const f = { ...lb.frame, origin: frameToWorld(lb.frame, 0, lb.y[0], 0) };
+    const opts = { textureName: lb.textureName, size: this.size, scaleTexel: this.scaleTexel() };
+    const a: [number, number] = [lb.x[0], lb.z[0]], b: [number, number] = [lb.x[1], lb.z[1]], h = lb.y[1] - lb.y[0];
+    const mesh = this.shapeMesh(lb.shape, f, a, b, h, opts, lb.run, lb.settings);
+    this.edit(label, () => {
+      Object.assign(o.mesh, mesh);
+      markReshaped(o);
+      const hullOwn = this.collisionOn || !o.solid ? null : this.shapeHull(lb.shape, f, a, b, h, opts, lb.run, o.solid);
+      if (hullOwn) this.setShapeHull(o, hullOwn);
+      lb.verts = [...o.mesh.verts];
+    });
+    this.syncBlockHandles();
+  }
+
+  /**
+   * The preview's faces (`blockSolid`): `m` triangulated as a fan a face, each corner its uv, wearing texture `name` (the
+   * map's own pixels, `blockTexture`), plain grey without one; null hides it.
+   */
+  private drawBlockSolid(m: EditMesh | null, name: string | null = null): void {
+    const old = this.blockSolid.geometry;
+    if (!m) { this.blockSolid.visible = false; return; }
+    const pos: number[] = [], uv: number[] = [];
+    for (const f of liveFaces(m)) {
+      const cs = m.faces[f]!.corners;
+      // Each face cut into triangles by its outline (`triangulate`, ear by ear) -- a concave face (a Polygon's L) too, which
+      // a fan from its first corner would bridge across its notch (the owner, 2026-11-17: "a weird face ... that shouldnt
+      // be connected").
+      for (const [i, j, k] of triangulate(facePoints(m, f))) {
+        for (const c of [cs[i]!, cs[j]!, cs[k]!]) {
+          const v = m.cVert[c]!;
+          pos.push(m.verts[v * 3]!, m.verts[v * 3 + 1]!, m.verts[v * 3 + 2]!);
+          uv.push(m.cUv[c * 2]!, m.cUv[c * 2 + 1]!);
+        }
+      }
+    }
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(pos), 3));
+    g.setAttribute('uv', new BufferAttribute(Float32Array.from(uv), 2));
+    this.blockSolid.geometry = g;
+    old.dispose();
+    const mat = this.blockSolid.material as MeshBasicMaterial;
+    const tex = this.blockTexture(name);
+    if (mat.map !== tex) { mat.map = tex; mat.color.setHex(tex ? 0xffffff : BLOCK_SOLID_PLAIN); mat.needsUpdate = true; }
+    this.blockSolid.visible = true;
+  }
+
+  /** Texture `name` from the map's own pixels (rows as the world draws them), repeating; kept while it is the one in use. */
+  private blockTexture(name: string | null): DataTexture | null {
+    if (!name) return null;
+    if (this.blockTex?.name === name) return this.blockTex.tex;
+    const rgba = this.forMap?.textures[name];
+    if (!rgba) return null;
+    const tex = new DataTexture(new Uint8Array(rgba.data), rgba.width, rgba.height, RGBAFormat);
+    tex.wrapS = tex.wrapT = RepeatWrapping;
+    tex.needsUpdate = true;
+    this.blockTex?.tex.dispose();
+    this.blockTex = { name, tex };
+    return tex;
+  }
+
+  /**
+   * The start marker at the corner a press at `ndc` would start on (`blockStart`, on the snap's step): a dot, and a cross
+   * along the plane's u and v a snap step long (a share of the distance off the workplane). Null, or nothing there: hidden.
+   */
+  private drawBlockStart(ndc: Vector2 | null): void {
+    const s = ndc && !this.block && !this.handleDrag && !this.poly ? this.blockStart(ndc) : null;
+    if (!s) { this.blockStartDot.visible = false; this.blockStartCross.visible = false; return; }
+    const l = worldToFrame(s.frame, s.at);
+    const snapTo = (x: number): number => (s.snap ? Math.round(x / s.snap) * s.snap : x);
+    const at = frameToWorld(s.frame, snapTo(l[0]), 0, snapTo(l[2]));
+    const cam = this.deps.camera().getWorldPosition(new Vector3());
+    const reach = s.snap ?? Math.max(1e-3, cam.distanceTo(new Vector3(...at)) * BLOCK_START_CROSS_SHARE);
+    const ends = [add(at, scale(s.frame.u, -reach)), add(at, scale(s.frame.u, reach)), add(at, scale(s.frame.v, -reach)), add(at, scale(s.frame.v, reach))];
+    const dot = new BufferGeometry();
+    dot.setAttribute('position', new BufferAttribute(Float32Array.from(at), 3));
+    const cross = new BufferGeometry();
+    cross.setAttribute('position', new BufferAttribute(Float32Array.from(ends.flat()), 3));
+    const [od, oc] = [this.blockStartDot.geometry, this.blockStartCross.geometry];
+    this.blockStartDot.geometry = dot;
+    this.blockStartCross.geometry = cross;
+    od.dispose(); oc.dispose();
+    this.blockStartDot.visible = true;
+    this.blockStartCross.visible = true;
+  }
+
+  /** The gizmo shown and one of its handles under `ndc` (the page asks, so Alt there is a copy's drag, not the orbit). */
+  gizmoHovered(ndc?: Vector2): boolean {
+    if (!this.active || !this.gizmo.object || !this.gizmo.getHelper().visible) return false;
+    if (ndc) this.drive.pointerHover({ x: ndc.x, y: ndc.y, button: 0 });
+    return this.gizmo.axis !== null;
+  }
+
+  /** The selected objects' box in the world (every point of each), for Snap by Bounds; null with nothing selected. */
+  private selectionBox(): { from: Vector3; min: Vec3; max: Vec3 } | null {
+    if (!this.geo || !this.sel.objects.size) return null;
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      if (!o) continue;
+      for (const v of selectionVerts(this.sel, o)) for (let k = 0; k < 3; k++) {
+        const x = o.mesh.verts[v * 3 + k]!;
+        if (x < min[k]!) min[k] = x;
+        if (x > max[k]!) max[k] = x;
+      }
+    }
+    if (!Number.isFinite(min[0])) return null;
+    return { from: this.pivot.position.clone(), min, max };
+  }
+
+  /** The Polygon tool's point under `ndc` on its plane, in the plane's frame, on its snap's step; null: the ray misses it. */
+  private polyPlaneAt(ndc: Vector2): [number, number] | null {
+    const p = this.poly;
+    if (!p) return null;
+    const ray = this.rayAt(ndc, this.deps.camera());
+    const along = dot(ray.dir, p.frame.n);
+    if (Math.abs(along) < 1e-6) return null;
+    const t = dot(sub(p.frame.origin, ray.origin), p.frame.n) / along;
+    if (!(t > 0)) return null;
+    const l = worldToFrame(p.frame, add(ray.origin, scale(ray.dir, t)));
+    const g = p.snap;
+    return g ? [Math.round(l[0] / g) * g, Math.round(l[2] / g) * g] : [l[0], l[2]];
+  }
+
+  /** Whether the pointer at `ndc` is on the outline's first point (within `POLY_CLOSE_PX` on screen), a close then. */
+  private polyOnFirst(ndc: Vector2): boolean {
+    const p = this.poly;
+    if (!p || p.pts.length < 3) return false;
+    const first = new Vector3(...frameToWorld(p.frame, p.pts[0]![0], 0, p.pts[0]![1])).project(this.deps.camera());
+    const r = this.deps.input.getBoundingClientRect();
+    return Math.hypot(((first.x - ndc.x) / 2) * r.width, ((first.y - ndc.y) / 2) * r.height) <= POLY_CLOSE_PX;
+  }
+
+  /** A click with the Polygon tool: the first point (its plane taken as Create takes one), the next, the close, or the make. */
+  private polyDown(n: Vector2): void {
+    const p = this.poly;
+    if (p?.phase === 'height') { this.polyCommit(); return; }
+    if (!p) {
+      const s = this.blockStart(n);
+      if (!s) { this.deps.say(this.deps.workplaneShown?.() ? 'Polygon: the pointer is off the workplane' : 'Polygon: click on a surface (or show the workplane)', true); return; }
+      const l = worldToFrame(s.frame, s.at);
+      const g = s.snap;
+      const first: [number, number] = g ? [Math.round(l[0] / g) * g, Math.round(l[2] / g) * g] : [l[0], l[2]];
+      this.drawBlockStart(null);
+      this.poly = { frame: s.frame, snap: s.snap, pts: [first], cursor: first, phase: 'points', h: 0 };
+      this.drawPoly();
+      this.deps.say('Polygon: click its next point (Backspace takes one back, Esc cancels)');
+      return;
+    }
+    if (this.polyOnFirst(n)) { this.polyClose(); return; }
+    const at = this.polyPlaneAt(n);
+    if (!at) return;
+    const last = p.pts[p.pts.length - 1]!;
+    if (Math.abs(at[0] - last[0]) < 1e-6 && Math.abs(at[1] - last[1]) < 1e-6) return;   // the same point again: nothing
+    p.pts.push(at);
+    p.cursor = at;
+    this.drawPoly();
+    this.deps.say(`Polygon: ${p.pts.length} points${p.pts.length >= 3 ? ' -- click the first again, or Enter, to close it' : ''}`);
+  }
+
+  /** The pointer moved: the outline's next side follows it, or the height follows it once the outline is closed. */
+  private polyMove(n: Vector2): void {
+    const p = this.poly;
+    if (!p) return;
+    if (p.phase === 'points') { p.cursor = this.polyOnFirst(n) ? p.pts[0]! : this.polyPlaneAt(n) ?? p.cursor; }
+    else {
+      const ray = this.rayAt(n, this.deps.camera());
+      const cx = p.pts.reduce((t, q) => t + q[0], 0) / p.pts.length, cz = p.pts.reduce((t, q) => t + q[1], 0) / p.pts.length;
+      const c = frameToWorld(p.frame, cx, 0, cz);
+      const nd = dot(p.frame.n, ray.dir), dd = dot(ray.dir, ray.dir), denom = dd - nd * nd;
+      if (denom > 1e-9) {
+        const w0 = sub(c, ray.origin);
+        const h = (nd * dot(ray.dir, w0) - dd * dot(p.frame.n, w0)) / denom;
+        p.h = p.snap ? Math.round(h / p.snap) * p.snap : h;
+      }
+      const r = (x: number): number => Math.round(x * 100) / 100;
+      this.deps.say(`Polygon: ${p.pts.length} sides x ${r(p.h)} high (click or Enter to make it; at no height, a flat face)`);
+    }
+    this.drawPoly();
+  }
+
+  /** The outline closed (three points or more, not crossing itself): its height pulled next. */
+  private polyClose(): void {
+    const p = this.poly;
+    if (!p || p.phase !== 'points') return;
+    const pts = cleanOutline(p.pts);
+    if (pts.length < 3) { this.deps.say('Polygon: it needs three points at least', true); return; }
+    if (outlineCrosses(pts)) { this.deps.say('Polygon: its sides cross -- Backspace takes points back', true); return; }
+    p.pts = pts;
+    p.phase = 'height';
+    p.h = 0;
+    if (this.cannotPull(p.frame)) { const h = this.defaultPull(p.snap); p.h = h; this.polyCommit(); this.saidPull(h); return; }
+    this.drawPoly();
+    this.deps.say('Polygon: move to set its height, then click or Enter to make it (at no height, a flat face; Esc cancels)');
+  }
+
+  /** The last point taken back; the first taken back lets the outline go. */
+  private polyBack(): void {
+    const p = this.poly;
+    if (!p) return;
+    p.pts.pop();
+    if (!p.pts.length) { this.polyCancel(); return; }
+    this.drawPoly();
+  }
+
+  private polyCancel(): void {
+    this.poly = null;
+    this.drawPoly();
+  }
+
+  /** The shape made: the outline pulled to its height (a prism), or a flat face at none -- one step, selected; the tool stays on. */
+  private polyCommit(): void {
+    const p = this.poly;
+    const geo = this.geo;
+    if (!p || !geo || p.phase !== 'height') return;
+    if (Math.abs(p.h) > 1e-3 && !this.cannotPull(p.frame)) this.lastPull = Math.abs(p.h);
+    const mesh = polygonMesh(p.frame, p.pts, p.h, { textureName: this.textureName, size: this.size, scaleTexel: this.scaleTexel() });
+    const surface = this.newSolidSurface();
+    const flat = Math.abs(p.h) <= 1e-3;
+    this.polyCancel();
+    this.edit(flat ? 'Create polygon face' : 'Create polygon', () => {
+      const o = addObject(geo, { name: 'Polygon', kind: 'mesh', mesh, ...(surface ? { solid: surface } : {}) });
       this.sel = emptySelection('object');
       this.sel.objects.add(o.id);
       this.focus = o.id;
     });
+    this.deps.say(`Polygon made${flat ? ' (a flat face)' : ''}: click the next one's first point, or Esc to leave the tool`);
+  }
+
+  /** The outline drawn: its sides (and the side to the pointer while points are clicked), then the shape as it would be made. */
+  private drawPoly(): void {
+    const p = this.poly;
+    const old = this.blockPreview.geometry;
+    if (!p) { this.blockPreview.visible = false; this.drawBlockSolid(null); return; }
+    const pos: number[] = [];
+    const at = (q: readonly [number, number], y = 0): Vec3 => frameToWorld(p.frame, q[0], y, q[1]);
+    if (p.phase === 'points') {
+      const chain = p.cursor ? [...p.pts, p.cursor] : p.pts;
+      for (let i = 0; i + 1 < chain.length; i++) pos.push(...at(chain[i]!), ...at(chain[i + 1]!));
+      // Its corners marked: a small cross at each.
+      const k = (p.snap ?? 1) * 0.25;
+      for (const q of p.pts) { pos.push(...at([q[0] - k, q[1]]), ...at([q[0] + k, q[1]]), ...at([q[0], q[1] - k]), ...at([q[0], q[1] + k])); }
+      this.drawBlockSolid(null);
+    } else {
+      const mesh = polygonMesh(p.frame, p.pts, p.h, { textureName: this.textureName, size: this.size, scaleTexel: this.scaleTexel() });
+      for (const f of liveFaces(mesh)) { const cs = facePoints(mesh, f); for (let i = 0; i < cs.length; i++) pos.push(...cs[i]!, ...cs[(i + 1) % cs.length]!); }
+      this.drawBlockSolid(mesh, this.textureName);
+    }
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(pos), 3));
+    this.blockPreview.geometry = g;
+    old.dispose();
+    this.blockPreview.visible = true;
+  }
+
+  private blockCancel(): void {
+    this.block = null;
+    this.drawBlock();
+  }
+
+  /** The shape being made, drawn as its edges over everything: the flat rectangle while dragged, the shape while pulled. */
+  private drawBlock(): void {
+    const b = this.block;
+    const old = this.blockPreview.geometry;
+    if (!b) { this.blockPreview.visible = false; this.drawBlockSolid(null); return; }
+    const pulled = b.phase === 'height' && Math.abs(b.h) > 1e-6;
+    const hovered = this.hoverShape === 'polygon' ? null : this.hoverShape;
+    const shown = pulled ? hovered ?? this.blockShape : 'quad';   // the menu's hovered shape previewed
+    const parts = this.outlineParts(shown, b.frame, b.a, b.b, pulled ? b.h : 0, stairsRun(b.a, b.b));
+    this.drawBlockSolid(blockMakes('quad', b.a, b.b, 0)
+      ? this.shapeMesh(shown, b.frame, b.a, b.b, pulled ? b.h : 0, { textureName: this.textureName, size: this.size, scaleTexel: this.scaleTexel() }, stairsRun(b.a, b.b)) : null, this.textureName);
+    const pos: number[] = [];
+    for (const ring of parts.rings) for (let i = 0; i < ring.length; i++) pos.push(...parts.points[ring[i]!]!, ...parts.points[ring[(i + 1) % ring.length]!]!);
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(pos), 3));
+    this.blockPreview.geometry = g;
+    old.dispose();
+    this.blockPreview.visible = true;
   }
 
   /**
@@ -2452,6 +3626,8 @@ export class GeometryEditor {
     if (on) {
       this.pivot.updateMatrixWorld(true);
       this.dragStart = this.pivot.matrixWorld.clone();
+      this.dragBounds = this.selectionBox();
+      this.applyDragSnaps();
       this.dragLift = this.lowestLift();
       // The live vertices first: building the view (the first edit) redraws the selection, which the preview then joins.
       this.startLive();
@@ -2461,6 +3637,7 @@ export class GeometryEditor {
     const start = this.dragStart;
     this.dragStart = null;
     this.dragLift = null;
+    this.dragBounds = null;
     this.endPreview();
     if (!start || !this.geo) return;
     this.pivot.updateMatrixWorld(true);
@@ -2472,11 +3649,18 @@ export class GeometryEditor {
     this.endLive(false);
     if (this.sel.mode === 'object') { this.transformObjects(mat, copy); return; }
     if (copy && this.sel.mode === 'face') { this.copyFacesBy(mat); return; }
+    // Bug 5: a move with the grid snap on puts each moved point on the grid, along the axes it moved (Hammer snaps vertices),
+    // not just the selection's centre by a whole step.
+    const step = this.gizmo.mode === 'translate' && this.snapBy === 'bounds' ? this.moveSnap() : null;
+    const pure = [0, 1, 2, 4, 5, 6, 8, 9, 10].every((i, j) => Math.abs(mat[i]! - (j % 4 === 0 ? 1 : 0)) < 1e-9);
+    const axes = [0, 1, 2].map((k) => Math.abs(mat[12 + k]!) > 1e-9);
     this.edit(`Transform ${modeWord(this.sel.mode, 2)}`, () => {
       for (const id of this.sel.objects) {
         const o = this.objectById(id);
         if (!o) continue;
-        transformVerts(o.mesh, selectionVerts(this.sel, o), mat, { textureLock: true, size: this.size });
+        const vs = selectionVerts(this.sel, o);
+        transformVerts(o.mesh, vs, mat, { textureLock: true, size: this.size });
+        if (step && pure) snapVerts(o.mesh, vs, step, axes, { size: this.size });
         markReshaped(o);
       }
     });
@@ -2497,8 +3681,22 @@ export class GeometryEditor {
     const hit = this.index ? this.index.pick(ray, (o) => moving.has(o.id)) : null;
     if (!hit) return;
     let [x, y, z] = hit.at;
-    const g = this.gridSnap;
-    if (g) { x = Math.round(x! / g) * g; z = Math.round(z! / g) * g; }
+    // Across the surface on the grid by Snap by (the owner, 2026-11-17: "can we make the center transform drag also follow
+    // the snap by settings?"): the pivot (Pivot), the moved box's middle (Centre) or its nearer edges (Bounds) on the grid
+    // along x and z, Ctrl's flip in; its height the surface's.
+    const g = this.moveSnap();
+    const b = this.dragBounds;
+    if (g && (this.snapBy === 'pivot' || !b || this.space !== 'world')) { x = Math.round(x! / g) * g; z = Math.round(z! / g) * g; }
+    else if (g && b) {
+      const across = (v: number, k: 0 | 2): number => {
+        const off = v - (k === 0 ? b.from.x : b.from.z);
+        const lo = b.min[k]! + off, hi = b.max[k]! + off;
+        if (this.snapBy === 'centre') { const c = (lo + hi) / 2; return v + Math.round(c / g) * g - c; }
+        const dLo = Math.round(lo / g) * g - lo, dHi = Math.round(hi / g) * g - hi;
+        return v + (Math.abs(dLo) <= Math.abs(dHi) ? dLo : dHi);
+      };
+      x = across(x!, 0); z = across(z!, 2);
+    }
     this.pivot.position.set(x!, y! + this.surface.offset + this.dragLift, z!);
     this.pivot.updateMatrixWorld(true);
   }
@@ -2517,6 +3715,7 @@ export class GeometryEditor {
 
   private onDragMove(): void {
     if (!this.dragStart) return;
+    this.boxSnapDrag();
     this.surfaceSnapDrag();
     this.pivot.updateMatrixWorld(true);
     const delta = this.pivot.matrixWorld.clone().multiply(this.dragStart.clone().invert());
@@ -2642,14 +3841,21 @@ export class GeometryEditor {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    // Alt + left drag is the camera's orbit (`../../camera`), as everywhere in the Forge: left to it.
-    if (!this.active || e.button !== 0 || e.altKey || !this.geo) return;
+    if (!this.active || e.button !== 0 || !this.geo) return;
+    // Alt + left drag is the camera's orbit (`../../camera`), as everywhere in the Forge -- but on the gizmo, a copy's drag
+    // (the owner, 2026-11-17: "make the alt+drag to copy").
+    if (e.altKey && !this.gizmoHovered(this.ndc(e))) return;
+    this.setCtrlHeld(e.ctrlKey || e.metaKey);
     e.stopImmediatePropagation();
     const n = this.ndc(e);
     const cam = this.deps.camera();
     this.gizmo.camera = cam;
     // The sampler first: its click is a face's texture, never the gizmo's drag (the face sampled is often the selection's).
     if (this.sampling) { if (this.sampleAt(n)) this.setTool(this.toolBeforeSample); return; }
+    // Create on: a resize handle of the shape just made first (`handleDown`); then the gizmo (the owner, 2026-11-17: "use
+    // the gizmos after the shape is created"); else a new shape (`blockDown`, below).
+    if (this.blockOn && !this.textureOn && this.block?.phase !== 'height' && this.handleDown(n, e)) return;
+    if (this.blockOn && !this.textureOn && this.block?.phase === 'height') { this.blockCommit(); return; }
     // Shift+click while painting: a sample, the brush kept (the owner, 2026-11-16).
     if (this.paintOn && e.shiftKey && (this.collisionOn || this.textureOn)) { this.sampleAt(n); return; }
     // Collision painting: a click starts a stroke the drag carries on (`paintFaceAt`); never the gizmo's.
@@ -2664,14 +3870,17 @@ export class GeometryEditor {
     if (this.gizmo.object && this.gizmo.getHelper().visible) {
       this.drive.pointerHover({ x: n.x, y: n.y, button: 0 });
       if (this.gizmo.axis !== null) {
-        // Ctrl-drag copies: objects whole, and faces (the owner, 2026-11-16: "allow ctrl click drag to copy meshes as well
-        // when in geometry mode"; `copyFacesBy`). A vertex or an edge has nothing of its own to copy: it moves.
-        this.dragCopy = (e.ctrlKey || e.metaKey) && (this.sel.mode === 'object' || this.sel.mode === 'face');
+        // Alt-drag copies (the owner, 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl):
+        // objects whole, and faces (`copyFacesBy`). A vertex or an edge has nothing of its own to copy: it moves.
+        this.dragCopy = e.altKey && (this.sel.mode === 'object' || this.sel.mode === 'face');
         this.drive.pointerDown({ x: n.x, y: n.y, button: 0 });
         try { this.deps.input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
         return;
       }
     }
+    // Create on, the gizmo not under the press: a new shape, never a pick.
+    if (this.polyOn && !this.textureOn) { this.polyDown(n); return; }
+    if (this.blockOn && !this.textureOn) { this.blockDown(n, e); return; }
     const ray = this.rayAt(n, cam);
     if (this.sculpting) { this.sculptAt(ray, e); return; }
     // A press: a click picks at its release; a drag past the slop paints the selection (`paintAt`).
@@ -2740,6 +3949,11 @@ export class GeometryEditor {
     this.pointer = this.ndc(e);
     this.pointerClient = { x: e.clientX, y: e.clientY };
     this.setShiftHeld(e.shiftKey);                             // Shift pressed or let go away from the keys' focus
+    this.setCtrlHeld(e.ctrlKey || e.metaKey);                  // and Ctrl, the snaps' flip
+    if (this.block) { this.blockMove(this.pointer); return; }  // a shape being dragged out or pulled up
+    if (this.poly) { this.polyMove(this.pointer); return; }    // an outline being drawn, or its height pulled
+    if (this.handleDrag && this.handleDrag.pointerId === e.pointerId) { this.handleMove(this.pointer); return; }
+    this.drawBlockStart((this.blockOn || this.polyOn) && !this.textureOn ? this.pointer : null);
     const st = this.stroke;
     if (st && st.pointerId === e.pointerId) {
       // Sampled along the way from the last event, as a drag select is, so a quick sweep skips no face.
@@ -2807,7 +4021,9 @@ export class GeometryEditor {
   private drawHover(): void {
     const at = this.hoverAt;
     const geo = this.geo;
-    const off = !this.active || !geo || !at || this.gizmo.dragging || (!this.sampling && this.gizmo.object && this.gizmo.axis !== null) || this.deps.navigating();
+    // Create on: no hover on faces, edges, vertices or objects -- its press makes a shape, it picks nothing (the owner,
+    // 2026-11-17: "when we are in create mode, it should not do the hover select").
+    const off = !this.active || !geo || !at || this.blockOn || this.polyOn || this.gizmo.dragging || (!this.sampling && this.gizmo.object && this.gizmo.axis !== null) || this.deps.navigating();
     if (off) { this.showPaintTip(null); if (this.hoverKey) { this.hoverKey = ''; this.clearHover(); } return; }
     const ray = this.rayAt(new Vector2(at.x, at.y), this.deps.camera());
     const hit = pickFace(geo, ray, this.index);
@@ -3120,6 +4336,8 @@ export class GeometryEditor {
 
   private onPointerUp(e: PointerEvent): void {
     if (!this.active) return;
+    if (this.block && this.block.phase === 'base' && this.block.pointerId === e.pointerId) { this.blockUp(e); return; }
+    if (this.handleDrag && this.handleDrag.pointerId === e.pointerId) { this.handleUp(e); return; }
     if (this.stroke && this.stroke.pointerId === e.pointerId) { this.endStroke(); return; }
     const press = this.press;
     if (press && press.pointerId === e.pointerId && e.button === 0) {
@@ -3144,6 +4362,13 @@ export class GeometryEditor {
     if (this.deps.navigating() && FLY_CODES.has(e.code)) return;
     const k = e.key.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
+    // The block tool: Esc lets a shape half-made go (then the tool itself); Enter makes the shape being pulled.
+    // Create's Polygon: Esc lets the outline go (then the tool), Enter closes it (then makes it), Backspace takes a point back.
+    if (k === 'escape' && this.poly) { this.polyCancel(); this.stop(e); return; }
+    if (k === 'escape' && (this.block || this.blockOn)) { if (this.block) this.blockCancel(); else this.setBlockOn(false); this.stop(e); return; }
+    if (k === 'enter' && this.poly) { if (this.poly.phase === 'points') this.polyClose(); else this.polyCommit(); this.stop(e); return; }
+    if (k === 'backspace' && this.poly?.phase === 'points') { this.polyBack(); this.stop(e); return; }
+    if (k === 'enter' && this.block?.phase === 'height') { this.blockCommit(); this.stop(e); return; }
     // The modes on the number keys by their place (`Digit1`..`Digit4`, as the page's tools read them), Shift or not; the
     // other number keys are nothing here, so never the page's placing tools (`../keys` `GEOMETRY_SHARED`).
     const digit = /^Digit([0-9])$/.exec(e.code);
@@ -3175,3 +4400,19 @@ export class GeometryEditor {
 }
 
 export type { Vector3 };
+
+/** Where Create's shape settings are kept in this browser (a browser adaptation, FG.R2: a viewer's own preference). */
+const SHAPE_SETTINGS_KEY = 's2u-forge-shape-settings';
+/** The kept shape settings (none where the storage is shut or the record unreadable); `shapeSettings` checks each on use. */
+function readShapeSettings(): Partial<Record<BlockShape, ShapeSettings>> {
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem(SHAPE_SETTINGS_KEY) ?? 'null') as unknown;
+    return raw && typeof raw === 'object' ? raw as Partial<Record<BlockShape, ShapeSettings>> : {};
+  } catch { return {}; }
+}
+function writeShapeSettings(all: Partial<Record<BlockShape, ShapeSettings>>): void {
+  try { globalThis.localStorage?.setItem(SHAPE_SETTINGS_KEY, JSON.stringify(all)); } catch { /* this visit's alone */ }
+}
+
+/** The own collision a copy carries (`copyWithHull`) until it is made (`addCopy`): a copy's, by the copy, gone with it. */
+const copyHulls = new WeakMap<GeoObjectCopy, EditMesh>();

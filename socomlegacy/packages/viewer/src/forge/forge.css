@@ -116,6 +116,10 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-tool { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 7px; }
 /* `display: inline-flex` beats the hidden attribute, the same way the lobby window's flex did (FG-44). */
 .fx-tool[hidden] { display: none; }
+/* A paint bar's tab or Apply hidden on a layer that does not offer it (`./paintTools` `setShown`): the tabs' own display would show it. */
+.fx-paint-tools [hidden] { display: none; }
+/* Snap by's World-only choices greyed with the Local gizmo. */
+.fx-snap-by [role="tab"]:disabled { opacity: var(--fx-disabled); cursor: not-allowed; }
 .fx-tool:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-control-edge); }
 .fx-tool.is-on { background: var(--fx-selected); border-color: var(--fx-gold); color: var(--fx-gold); }
 .fx-tool:disabled { background: transparent; border-color: transparent; }
@@ -2648,3 +2652,44 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
   color: var(--fx-edge-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: var(--fx-z-raised);
 }
 .fx-geo-status[hidden] { display: none; }
+
+/* Create's shape menu (the owner, 2026-11-17: "a preview image and it is categorized better"): its button the shape's
+   picture and word; its panel the shapes by group, a picture each, the chosen one gold. */
+.fx-geo-block-shape { display: inline-flex; align-items: center; gap: var(--s2u-space-1); }
+.fx-geo-block-shape .fx-shape-icon { width: 18px; height: 18px; flex: none; }
+.fx-shape-menu { width: auto; max-width: calc(100vw - 16px); }
+.fx-shape-grid { display: grid; grid-template-columns: repeat(5, 64px); gap: var(--s2u-space-1); }
+.fx-shape-item {
+  display: grid; justify-items: center; gap: 2px; padding: 6px 2px;
+  background: transparent; color: var(--fx-text); border: 1px solid transparent; border-radius: var(--fx-radius);
+  font: var(--fx-type-caption); cursor: pointer;
+}
+.fx-shape-item:hover, .fx-shape-item:focus-visible { background: var(--fx-hover); border-color: var(--fx-control-edge); outline: none; }
+.fx-shape-item.is-on { border-color: var(--fx-gold); color: var(--fx-gold); }
+.fx-shape-item .fx-shape-icon { width: 32px; height: 32px; }
+/* The chosen shape's settings under the shapes: a row each, its word then its field (a number with its unit, a choice, a
+   switch); Reset beside the title. */
+.fx-shape-settings { display: grid; gap: var(--s2u-space-1); padding-top: var(--s2u-space-2); border-top: 1px solid var(--fx-edge); }
+.fx-shape-settings-head { display: flex; align-items: center; justify-content: space-between; }
+.fx-shape-reset { background: transparent; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); color: var(--fx-dim); font: var(--fx-type-caption); padding: 1px 8px; cursor: pointer; }
+.fx-shape-reset:hover { color: var(--fx-text); background: var(--fx-hover); }
+.fx-shape-setting { grid-template-columns: 110px 1fr; font: var(--fx-type-caption); }
+.fx-shape-num { display: flex; align-items: center; gap: var(--s2u-space-1); }
+.fx-shape-num .fx-num { width: 80px; }
+.fx-shape-unit { color: var(--fx-dim); }
+.fx-shape-setting input[type="checkbox"] { justify-self: start; }
+/* Create's settings panel in the viewport's lower left, among the legends (the owner, 2026-11-17: "make the settings a
+   little window in the viewport (bottom left) similar to legend"): live to the pointer, its head the shape (a click opens
+   the shapes), its rows the settings; dimmed gold while it shows a shape hovered in the menu. */
+.fx-legend-stack > .fx-create-panel { position: static; }
+.fx-create-panel { pointer-events: auto; gap: var(--s2u-space-1); width: 270px; max-height: 60vh; overflow-y: auto; }
+.fx-create-panel.is-hover { border-color: var(--fx-gold); }
+.fx-create-panel .fx-shape-settings-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2u-space-2); }
+.fx-create-panel-shape {
+  display: inline-flex; align-items: center; gap: var(--s2u-space-1); padding: 2px 6px 2px 2px;
+  background: transparent; color: var(--fx-text); border: 1px solid transparent; border-radius: var(--fx-radius);
+  font: var(--fx-type-control); cursor: pointer;
+}
+.fx-create-panel-shape:hover { background: var(--fx-hover); border-color: var(--fx-control-edge); }
+.fx-create-panel-shape .fx-shape-icon { width: 22px; height: 22px; }
+.fx-create-panel .fx-shape-setting { grid-template-columns: 100px 1fr; }

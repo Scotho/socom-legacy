@@ -82,7 +82,6 @@ function padPrompts(ctx: LegendContext): LegendPrompt[] {
         return [p('cross', 'Select', 'act'), p('circle', 'Deselect', 'deselect'), hold('circle', 'move'), p('square', 'Duplicate', 'duplicate'),
           p('triangle', 'Delete', 'delete'), p('dpad-h', 'Rotate', 'turnLeft', 'turnRight'), p('r3', 'Frame', 'frame'), tool, menu];
       }
-      if (ctx.tool === 'place') return [p('cross', 'Place', 'act'), p('dpad-v', 'Prop', 'prevAsset', 'nextAsset'), tool, p('l3', 'Snap', 'snap'), fly, undo, menu];
       if (ctx.tool === 'npc') return [p('cross', 'Place', 'act'), p('dpad-v', 'Character', 'prevAsset', 'nextAsset'), tool, fly, undo, menu];
       if (MARKERS.has(ctx.tool)) return [p('cross', 'Place', 'act'), tool, fly, undo, menu];
       return [p('cross', 'Select', 'act'), hold('cross', 'add'), p('dpad-v', 'Prop', 'prevAsset', 'nextAsset'), tool, fly, p('rstick', 'Look'), undo, menu];
@@ -116,7 +115,6 @@ function keyPrompts(ctx: LegendContext): LegendPrompt[] {
       if (ctx.tool === 'select') {
         return [k('Click', 'Select'), k('Shift+click', 'Add'), k('Shift+drag', 'Box'), look, k('WASD', 'Fly'), k('F', 'Frame'), k('M', 'Menu')];
       }
-      if (ctx.tool === 'place') return [k('Click', 'Place'), k('[ ]', 'Prop'), k('Q', 'Select tool'), look, k('M', 'Menu')];
       return [k('Click', ctx.tool === 'npc' ? 'Place the NPC' : 'Place'), k('Q', 'Select tool'), look, k('M', 'Menu')];
     }
     case 'walk': return [k('WASD', 'Move'), k('Mouse', 'Look'), k('Space', 'Jump'), k('C', 'Stance'), k('X', 'Doors'), k('P / Esc', 'Build')];

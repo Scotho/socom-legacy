@@ -216,6 +216,11 @@ export interface FlyCameraOptions {
   panDepthAt?: (clientX: number, clientY: number) => number | null;
   /** World-space point under the pointer for orbit and dolly gestures. */
   pivotAt?: (clientX: number, clientY: number) => Vector3 | null;
+  /**
+   * An Alt press the page takes for itself (the owner, 2026-11-17: "make the alt+drag to copy"): a gizmo handle under the
+   * pointer -- its copy's drag -- so the Alt orbit leaves it alone.
+   */
+  orbitBlocked?: (e: PointerEvent) => boolean;
   /** Clips and slides a proposed Forge camera translation against the scene when collision navigation is enabled. */
   constrainMovement?: (from: Vector3, to: Vector3, radius: number) => { position: Vector3; normals: Vector3[] };
 }
@@ -1135,7 +1140,7 @@ export class FlyCamera {
   private readonly onPointerDown = (e: PointerEvent): void => {
     // Without this a drag across the canvas selects the panel's text and the page flashes blue.
     e.preventDefault();
-    if (this.forgeKbm && this.activeCamera === this.perspectiveCamera && e.altKey && (e.button === 0 || e.button === 2)) {
+    if (this.forgeKbm && this.activeCamera === this.perspectiveCamera && e.altKey && (e.button === 0 || e.button === 2) && !(e.button === 0 && this.options.orbitBlocked?.(e))) {
       const pivot = this.options.pivotAt?.(e.clientX, e.clientY)
         ?? this.activeCamera.position.clone().add(this.activeCamera.getWorldDirection(new Vector3()).multiplyScalar(FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION));
       this.velocity.set(0, 0, 0);

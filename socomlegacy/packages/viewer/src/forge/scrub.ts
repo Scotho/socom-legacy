@@ -19,6 +19,11 @@
  */
 export const scrubbing = (doc: Document): boolean => doc.documentElement.classList.contains('fx-scrubbing');
 
+/**
+ * How far in from a number field's right edge, in CSS pixels, the browser draws its up / down arrows (Chromium's and
+ * Firefox's are some 15 wide): a press there is the arrows' (a browser adaptation, FG.R2).
+ */
+export const SPIN_BUTTONS_PX = 18;
 /** How far a press must travel, in CSS pixels, before it is a drag and not a click. */
 export const SCRUB_THRESHOLD_PX = 3;
 /** Shift's and Ctrl's factors on the rate. */
@@ -218,6 +223,11 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
   };
   const m = e as MouseEvent;
   if (m.button !== 0 || input.disabled || input.readOnly || doc.activeElement === input) return;
+  // A press on the field's own up / down arrows is theirs (the owner, 2026-11-17: "When I click on these little spinners
+  // it is a bit buggy. It clicks and selects every other click. it should not select, just click it"): the browser steps
+  // the value -- its `input` and `change` as a typed one's -- never a scrub nor a click to type.
+  const box = input.getBoundingClientRect();
+  if (box.width > SPIN_BUTTONS_PX * 2 && m.clientX >= box.right - SPIN_BUTTONS_PX) return;
   const start = Number(input.value);
   if (input.value.trim() === '' || !Number.isFinite(start)) return;
   m.preventDefault();                                         // no focus, no caret: a press is a scrub until it is a click

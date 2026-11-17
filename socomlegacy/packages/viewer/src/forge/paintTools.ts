@@ -25,12 +25,16 @@ export class PaintToolBar {
   /** The modes' tabs, then Apply: one group for the toolbar. */
   readonly row: HTMLElement;
   readonly apply: HTMLButtonElement;
-  private readonly tabs = new Map<PaintTool, HTMLButtonElement>();
+  private readonly tabs = new Map<string, HTMLButtonElement>();
+  private readonly tabList: HTMLElement;
+  private readonly doc: Document;
 
   constructor(doc: Document, opts: PaintToolBarOptions) {
+    this.doc = doc;
     this.row = doc.createElement('div');
     this.row.className = 'fx-paint-tools';
     const tabs = doc.createElement('div');
+    this.tabList = tabs;
     tabs.className = 'fx-asset-tabs fx-geo-layer-tabs';
     tabs.setAttribute('role', 'tablist');
     tabs.setAttribute('aria-label', 'Tool');
@@ -56,8 +60,36 @@ export class PaintToolBar {
     this.row.append(tabs, this.apply);
   }
 
-  /** The tab of the mode on lit. */
-  show(t: PaintTool): void {
+  /**
+   * A tool of the caller's own as a tab beside these (Geometry mode's Block; the owner, 2026-11-17: "it should be Tool
+   * Select | Block"), after `after`'s tab; `key` its name for `show` and `setShown`.
+   */
+  addTab(key: string, label: string, title: string, after: string, onClick: () => void): HTMLButtonElement {
+    const b = this.doc.createElement('button');
+    b.type = 'button';
+    b.className = 'fx-asset-tab';
+    b.setAttribute('role', 'tab');
+    b.dataset['paintTool'] = key;
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('click', () => { onClick(); b.blur(); });
+    const prev = this.tabs.get(after);
+    if (prev) prev.after(b); else this.tabList.append(b);
+    this.tabs.set(key, b);
+    return b;
+  }
+
+  /** A tab by its key (a paint mode's, or one `addTab` made). */
+  tabOf(key: string): HTMLButtonElement | undefined { return this.tabs.get(key); }
+
+  /** A tab (by its key) or Apply shown or hidden: a layer offering only some of the tools. */
+  setShown(key: string, on: boolean): void {
+    const b = key === 'apply' ? this.apply : this.tabs.get(key);
+    if (b) b.hidden = !on;
+  }
+
+  /** The tab of the tool on lit (a paint mode's, or a caller's own `addTab`). */
+  show(t: string): void {
     for (const [k, b] of this.tabs) { const on = k === t; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
   }
 }

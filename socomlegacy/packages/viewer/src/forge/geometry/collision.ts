@@ -206,3 +206,25 @@ export function commonGroundSurface(c: CollisionMesh): Surface | null {
   for (const e of tally.values()) if (!best || e.n > best.n) best = e;
   return best ? [...best.s] as Surface : null;
 }
+
+/**
+ * A made face stands as a floor when its normal's up is at least this, else it is a wall (the owner, 2026-11-17: "when
+ * creating the collision for the shapes, can you try to properly add wall collision for walls and floor for floors"; a
+ * browser adaptation, FG.R2: the editor's own split, `../hullGeometry` `wordsOf` alike).
+ */
+export const FLOOR_NORMAL_Y_MIN = 0.7;
+
+/** `s`'s wall words: `ditype` 2 (the column probe's only: blocks, never stood on), its material and region kept, no climb, not pass-through. */
+export const wallWordsOf = (s: Surface): Surface => [2, s[1], s[2] & ~1, s[3], s[4] & ~7];
+/** `s`'s floor words: `s` itself when it is ground words, else `ditype` 3 on its material and region. */
+export const floorWordsOf = (s: Surface): Surface => ((s[0] & 1) === 1 ? [...s] as Surface : [3, s[1], s[2] & ~1, s[3], s[4] & ~7]);
+
+/** A solid object's words by each face's facing: a floor's (`floorWordsOf`) facing up, a wall's (`wallWordsOf`) else. */
+export function floorOrWall(s: Surface): (tri: readonly Vec3[]) => Surface {
+  const floor = floorWordsOf(s), wall = wallWordsOf(s);
+  return (tri) => {
+    const n = polygonNormal(tri);
+    const len = Math.hypot(n[0], n[1], n[2]) || 1;
+    return [...(n[1] / len >= FLOOR_NORMAL_Y_MIN ? floor : wall)] as Surface;
+  };
+}

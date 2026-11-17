@@ -49,3 +49,15 @@
 .fx-effect-preview-tools .fx-ico { width: 12px; height: 12px; }
 /* A row's preview icon while its card shows: pressed. */
 .fx-inspect-preview.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
+/* The preview's metadata (the owner, 2026-11-17: "under it show any meta data"): the tile's words as tags, then what
+   the preview reads of the asset -- its size, triangles, meshes, source and collision -- as label and value rows. */
+.fx-preview-meta { display: grid; gap: 6px; }
+.fx-preview-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.fx-preview-tag { padding: 1px 6px; border: 1px solid var(--fx-edge); border-radius: var(--fx-radius-pill); font: var(--fx-type-caption); color: var(--fx-text); background: var(--fx-panel-2); }
+.fx-preview-rows { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font: var(--fx-type-caption); }
+.fx-preview-rows dt { color: var(--fx-dim); }
+.fx-preview-rows dd { margin: 0; color: var(--fx-text); overflow-wrap: anywhere; }
+.fx-asset-thumbnail-host .fx-preview-meta { display: none; }
+/* A texture's picture in the preview's stage: whole, on the stage's ground, pixels kept sharp. */
+.fx-preview-picture { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; image-rendering: pixelated; background: var(--fx-panel-2); }
+.fx-preview-picture[hidden] { display: none; }

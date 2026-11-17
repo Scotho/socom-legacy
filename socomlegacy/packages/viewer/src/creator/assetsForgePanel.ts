@@ -226,6 +226,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     progress: (asset) => editor?.soundProgress?.(asset) ?? null,
     // A sound's card in the picture's stead (a Sound tile has no model).
     sound: (asset) => editor?.soundCard?.(asset) ?? null,
+    picture: (asset) => editor?.pictureCard?.(asset) ?? null,
     resolve: async asset => {
       const request = ++previewRequest;
       return stagePreview(asset, () => request === previewRequest, source => { previewSource = source; });

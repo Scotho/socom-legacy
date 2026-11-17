@@ -62,11 +62,20 @@ export function textureCatalog(lib: NonNullable<ReturnType<typeof textureLibrary
 }
 
 /**
+ * A texture's record as read (`@s2u/gs` `TextureRecord`, 36 §5 TEXTURE_PARAMS): its size in texels before any shrink for
+ * a picture, its texel bits and whether they index a palette, its alpha (the record's `transparent` and `transp1bit`
+ * flags), its bilinear filter and bump-map flags, and its levels (itself and its mips). The asset browser's tooltip
+ * shows it (the owner, 2026-11-17: "list the image width/height and any other data that makes sense to show").
+ */
+export interface TextureInfo { width: number; height: number; bpp: number; palettized: boolean; transparent: boolean; transp1bit: boolean; bilinear: boolean; bumpmap: boolean; levels: number }
+
+/**
  * Texture `name` of a map's library decoded as `loadMap` decodes it -- its levels (the mips where the record has them)
  * and its flags -- or null where the library has no such texture or it will not decode.
  */
 export function libraryTexture(lib: NonNullable<ReturnType<typeof textureLibrary>>, name: string):
-{ rgba: Rgba; mips: Rgba[] | null; flags: { bilinear: boolean; transparent: boolean; graded: boolean; opaque: boolean; gs: TextureRecord['gs'] }; library: string } | null {
+{ rgba: Rgba; mips: Rgba[] | null; flags: { bilinear: boolean; transparent: boolean; graded: boolean; opaque: boolean; gs: TextureRecord['gs'] }; library: string;
+  info: TextureInfo } | null {
   const hit = lib.keys.get(name.toLowerCase());
   const texdat = hit ? hit.zar.child(hit.key, 'texdat') : undefined;
   if (!hit || !texdat) return null;
@@ -74,7 +83,9 @@ export function libraryTexture(lib: NonNullable<ReturnType<typeof textureLibrary
     const record = parseTextureRecord(hit.key.name, hit.zar.data(texdat));
     const rgba = decodeTexture(record, lib.palettes).rgba;
     const mips = mipLevels(hit.zar, record, lib.palettes, () => undefined);
-    return { rgba, mips, flags: { bilinear: record.bilinear, transparent: record.transparent, graded: isGraded(rgba), opaque: isOpaque(rgba), gs: record.gs }, library: hit.library };
+    const info: TextureInfo = { width: record.width, height: record.height, bpp: record.bpp, palettized: record.palettized, transparent: record.transparent,
+      transp1bit: record.transp1bit, bilinear: record.bilinear, bumpmap: record.bumpmap, levels: 1 + (mips?.length ?? 0) };
+    return { rgba, mips, flags: { bilinear: record.bilinear, transparent: record.transparent, graded: isGraded(rgba), opaque: isOpaque(rgba), gs: record.gs }, library: hit.library, info };
   } catch { return null; }
 }
 

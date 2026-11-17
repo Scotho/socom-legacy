@@ -40,6 +40,11 @@ export interface AssetPreviewOptions {
    * the preview progress bar"): its name and its art (a speaker), or null -- the asset no sound, drawn as a model.
    */
   sound?(asset: string): { name: string; art: string } | null;
+  /**
+   * A flat asset's picture in the stage's stead (a texture: the owner, 2026-11-17, "do that for each asset type preview
+   * ... show any meta data"): its name and its picture's URL (null while it is read), or null -- the asset drawn as a model.
+   */
+  picture?(asset: string): { name: string; url: string | null } | null;
 }
 /** The preview's slow turn, radians a second (the panel's Rotate as it was); never while reduced motion is asked for. */
 export const PREVIEW_SPIN_RATE = .35;
@@ -145,7 +150,24 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
   const root = doc.createElement('div'); root.className = 'fx-asset-preview';
   const canvas = doc.createElement('canvas'); canvas.setAttribute('aria-hidden', 'true');
   const name = doc.createElement('p'); name.className = 'fx-preview-name';
-  const detail = doc.createElement('p'); detail.className = 'fx-preview-detail';
+  // Its metadata under the picture (the owner, 2026-11-17: "do that for each asset type preview, in the preview window,
+  // under it show any meta data"): the tile's own words as tags, then what the preview reads of the asset itself.
+  const detail = doc.createElement('div'); detail.className = 'fx-preview-detail fx-preview-meta';
+  /** The metadata drawn: `info`'s parts (the tile's words, ` \u00b7 `-joined) as tags, then `rows` as label and value. */
+  const drawMeta = (info: string | null, rows: readonly (readonly [string, string])[] = []): void => {
+    detail.replaceChildren();
+    const parts = (info ?? '').split(' \u00b7 ').map((t) => t.trim()).filter((t, i, all) => !!t && all.indexOf(t) === i);   // each once (a map and its library alike)
+    if (parts.length) {
+      const tags = doc.createElement('div'); tags.className = 'fx-preview-tags';
+      for (const t of parts) { const tag = doc.createElement('span'); tag.className = 'fx-preview-tag'; tag.textContent = t; tags.append(tag); }
+      detail.append(tags);
+    }
+    if (rows.length) {
+      const dl = doc.createElement('dl'); dl.className = 'fx-preview-rows';
+      for (const [k, v] of rows) { const dt = doc.createElement('dt'); dt.textContent = k; const dd = doc.createElement('dd'); dd.textContent = v; dl.append(dt, dd); }
+      detail.append(dl);
+    }
+  };
   const status = doc.createElement('p'); status.className = 'fx-preview-status'; status.setAttribute('role', 'status');
   // The sound's timeline (progress): a track and its fill, shown while the asset's sound plays.
   const timeline = doc.createElement('div'); timeline.className = 'fx-preview-timeline'; timeline.hidden = true;
@@ -157,7 +179,9 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
   // A sound's card (`options.sound`): its speaker where the picture stands, its timeline under it as a model's.
   const soundCard = doc.createElement('div'); soundCard.className = 'fx-preview-sound'; soundCard.hidden = true;
   soundCard.setAttribute('aria-hidden', 'true');
-  stage.append(canvas, soundCard, badgeSlot);
+  // A flat asset's picture (`options.picture`): a texture's, whole, in the stage.
+  const pictureCard = doc.createElement('img'); pictureCard.className = 'fx-preview-picture'; pictureCard.hidden = true; pictureCard.alt = '';
+  stage.append(canvas, soundCard, pictureCard, badgeSlot);
   root.append(stage, timeline, name, detail, status); host.append(root);
   const drawTimeline = (): void => {
     const f = (shown && options.progress ? options.progress(shown) : null) ?? current?.handle.progress?.() ?? null;
@@ -240,16 +264,25 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
     async show(asset: string | null, info: string | null = null, badges: readonly Node[] = []): Promise<void> {
       if (disposed || !active || asset === shown) return;
       shown = asset; const token = ++generation; clear();
-      canvas.hidden = true; soundCard.hidden = true; name.textContent = ''; detail.textContent = '';
+      canvas.hidden = true; soundCard.hidden = true; pictureCard.hidden = true; name.textContent = ''; drawMeta(null);
       badgeSlot.replaceChildren(...badges);
       if (!asset) { status.textContent = ''; return; }
+      const picture = options.picture?.(asset) ?? null;
+      if (picture) {
+        // A flat asset: its picture, its name, its words (a texture's size and format among them) -- no model to stage.
+        if (picture.url) { pictureCard.src = picture.url; pictureCard.hidden = false; }
+        name.textContent = picture.name;
+        drawMeta(info);
+        status.textContent = picture.url ? '' : 'Preparing preview\u2026';
+        return;
+      }
       const sound = options.sound?.(asset) ?? null;
       if (sound) {
         // A sound: nothing to stage -- its card, its name, its words; its timeline while it plays (`progress`).
         soundCard.innerHTML = sound.art;
         soundCard.hidden = false;
         name.textContent = sound.name;
-        detail.textContent = info ?? '';
+        drawMeta(info);
         status.textContent = '';
         return;
       }
@@ -274,7 +307,22 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
         shadow.position.set(0, -size.y / 2 + Math.max(.001, size.y * .002), 0);
         shadow.visible = true;
         name.textContent = handle.name;
-        detail.textContent = info ? `${info} · ${handle.collision}` : `${handle.source} · ${handle.collision}`;
+        // What the model itself says: its size (game units: across, deep, high), its triangles and its meshes.
+        let triangles = 0, meshes = 0;
+        view.object.traverse((o) => {
+          if (!(o instanceof Mesh) || o === shadow) return;
+          const g = o.geometry as BufferGeometry;
+          const n = g.index ? g.index.count / 3 : (g.getAttribute('position')?.count ?? 0) / 3;
+          if (n > 0) { triangles += Math.round(n); meshes++; }
+        });
+        const r1 = (v: number): string => String(Math.round(v * 10) / 10);
+        drawMeta(info ?? handle.source, [
+          ['Size', `${r1(size.x)} \u00d7 ${r1(size.z)} \u00d7 ${r1(size.y)} units`],
+          ...(triangles ? [['Triangles', triangles.toLocaleString()] as const] : []),
+          ...(meshes > 1 ? [['Meshes', String(meshes)] as const] : []),
+          ...(info ? [['Source', handle.source] as const] : []),
+          ['Collision', handle.collision],
+        ]);
         status.textContent = '';
         current = { handle, view }; pending.delete(handle); handle = null; view = null;
         canvas.hidden = false; resetView();
@@ -304,7 +352,7 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
     setActive(enabled: boolean): void {
       if (active === enabled || disposed) return;
       active = enabled; root.inert = !enabled; root.setAttribute('aria-disabled', String(!enabled));
-      if (!enabled) { generation++; shown = null; clear(); canvas.hidden = true; soundCard.hidden = true; name.textContent = ''; detail.textContent = ''; status.textContent = ''; }
+      if (!enabled) { generation++; shown = null; clear(); canvas.hidden = true; soundCard.hidden = true; pictureCard.hidden = true; name.textContent = ''; drawMeta(null); status.textContent = ''; }
     },
     dispose(): void {
       if (disposed) return;

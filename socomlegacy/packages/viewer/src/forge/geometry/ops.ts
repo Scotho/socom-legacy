@@ -48,6 +48,24 @@ export function transformVerts(m: EditMesh, verts: Iterable<number>, mat: ArrayL
   if (opts.size) refreshUvs(m, touched, opts.size);
 }
 
+/**
+ * Bug 5 (the geometry audit: "Grid snap snaps the selection's centre, not each point, so points end up off-grid. Hammer
+ * snaps vertices"): each of `verts` put on the grid of `step` along the axes `axes` says were moved ([x, y, z]), so a
+ * move along one axis never nudges the others; the faces touched lose their disc normal and take fresh uvs.
+ */
+export function snapVerts(m: EditMesh, verts: Iterable<number>, step: number, axes: readonly boolean[], opts: { size?: TextureSize } = {}): void {
+  if (!(step > 0)) return;
+  const moved = new Set(verts);
+  for (const v of moved) for (let k = 0; k < 3; k++) if (axes[k]) m.verts[v * 3 + k] = Math.round(m.verts[v * 3 + k]! / step) * step + 0;
+  const touched: number[] = [];
+  for (const f of liveFaces(m)) {
+    if (!faceVerts(m, f).some((v) => moved.has(v))) continue;
+    m.faces[f]!.normal = null;
+    touched.push(f);
+  }
+  if (opts.size) refreshUvs(m, touched, opts.size);
+}
+
 /** Deletes faces; their points stay until nothing uses them (the compile leaves an unused point out). */
 export function deleteFaces(m: EditMesh, faces: Iterable<number>): void {
   for (const f of faces) m.faces[f] = null;

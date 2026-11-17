@@ -1,7 +1,7 @@
 import type { LoadedMap, LoadedMesh } from '../../loadMap';
 import type { GroundData } from '../../mover';
 import type { CollisionOwner, GridParams } from '@s2u/scene';
-import { commonGroundSurface, hullOfMesh, importCollision, isGroundWords, packCollision, surfaceMatcher, type CollisionMesh, type HullPoly, type Surface } from './collision';
+import { commonGroundSurface, floorOrWall, hullOfMesh, importCollision, isGroundWords, packCollision, surfaceMatcher, type CollisionMesh, type HullPoly, type Surface } from './collision';
 import { addCorner, addFace, addVert, cloneMesh, compact, cornerAttrs, dot, emptyMesh, facePoints, faceVerts, polygonNormal, triangulate, vertPos, type EditMesh, type Vec3 } from './editMesh';
 import { applyMat, transformVerts } from './ops';
 import type { TextureSize } from './texturing';
@@ -222,7 +222,8 @@ export function buildHullMesh(g: WorldGeometry): CollisionMesh | null {
     }
   }
   // Each Build starts from the read layer, so a solid object's hull is made anew, never found from the last one.
-  for (const o of g.objects) if (o.solid) appendOwnedPolys(c, hullOfMesh(o.mesh, o.solid, objectFaces(o)), { modelName: GEOMETRY_OWNER_MODEL, path: `forge/${o.id}`, first: 0, count: 0 });
+  // Its faces floors facing up, walls else (`floorOrWall`; the owner, 2026-11-17: "wall collision for walls and floor for floors").
+  for (const o of g.objects) if (o.solid) appendOwnedPolys(c, hullOfMesh(o.mesh, floorOrWall(o.solid), objectFaces(o)), { modelName: GEOMETRY_OWNER_MODEL, path: `forge/${o.id}`, first: 0, count: 0 });
   return c;
 }
 

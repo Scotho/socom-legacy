@@ -1,5 +1,5 @@
 import type { GroundData } from '../../mover';
-import { commonGroundSurface, isGroundWords, packCollision, type CollisionMesh, type HullPoly, type Surface } from './collision';
+import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, isGroundWords, packCollision, wallWordsOf, type CollisionMesh, type HullPoly, type Surface } from './collision';
 import { addCorner, addFace, addVert, emptyMesh, facePoints, liveFaces, polygonNormal, type EditMesh, type Vec3 } from './editMesh';
 import { transformVerts } from './ops';
 import { appendOwnedPolys, buildHullMesh, GEOMETRY_OWNER_MODEL, type GeoObject, type WorldGeometry } from './world';
@@ -129,11 +129,11 @@ export function wordsOf(o: GeoObject, fallback: Surface | null): (f: number) => 
     return best ? best.s : null;
   };
   const ground = tally(isGroundWords) ?? fallback ?? [3, 0, 0, 0, 0];
-  const side = tally((s) => !isGroundWords(s)) ?? ground;
+  const side = tally((s) => !isGroundWords(s)) ?? wallWordsOf(ground);   // none of its own: a wall's on the ground's material
   return (f) => {
     const s = o.mesh.faces[f]!.surface;
     if (s) return [...s] as Surface;
-    return [...(polygonNormal(facePoints(o.mesh, f))[1] >= 0.7 ? ground : side)] as Surface;
+    return [...(polygonNormal(facePoints(o.mesh, f))[1] >= FLOOR_NORMAL_Y_MIN ? ground : side)] as Surface;
   };
 }
 
@@ -153,6 +153,11 @@ export function polysOfHullObject(o: GeoObject, fallback: Surface | null): (Omit
  * its faces under an owner of its own. Every other node keeps what Build made from the draws.
  */
 export function applyHullEdits(g: WorldGeometry, c: CollisionMesh, hull: WorldGeometry, fallback: Surface | null): void {
+  // A solid object's own collision goes with it (the owner, 2026-11-17: "if I delete a ladder geometry, it's collision
+  // geometry is still there in game, but I don't see it in the collision layer"): a hull object standing for an object
+  // no longer drawn as solid (deleted) is no collision -- as the Collision layer already leaves it out (`hullGeometryOf`).
+  const solidIds = new Set(g.objects.filter((o) => o.solid).map((o) => o.id));
+  hull = { ...hull, objects: hull.objects.filter((o) => o.hullOf === undefined || solidIds.has(o.hullOf)) };
   const replaced = new Set<number>(hull.clearedNodes ?? []);
   for (const o of hull.objects) if (o.manual && o.hullNode !== undefined) replaced.add(o.hullNode);
   // A solid object's collision edited (or deleted): its own owner's polygons out, its hull object's faces in.
@@ -246,6 +251,8 @@ export type CollisionType = (typeof COLLISION_TYPES)[number]['type'];
 /** The app flags' value field (bits 0-2 of the flags word, `m_appflags`): the climb (`../../climb` `CLIMBABLE`, 2 a ladder). */
 const APP_MASK = 7;
 const APP_LADDER_VALUE = 2;
+/** A ladder's climb flag (`withCollisionType`'s `climb`): the app flags' value 2, the disc's ladder faces' (MP72's two). */
+export const LADDER_CLIMB_FLAG = APP_LADDER_VALUE;
 
 /**
  * The climb flags the Climbable type sets (the owner, 2026-11-15: "a climbable tab with a dropdown to pick the flag (1 -
