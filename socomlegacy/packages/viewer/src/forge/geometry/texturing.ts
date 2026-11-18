@@ -262,8 +262,16 @@ export function align(m: EditMesh, faces: readonly number[], mode: 'world' | 'fa
   refreshUvs(m, faces, size);
 }
 
-/** A face edit sheet change: shift and scale set or nudged, a rotation (degrees) about the axes' own normal. */
-export interface MappingChange { shiftU?: number; shiftV?: number; scaleU?: number; scaleV?: number; rotate?: number; relative?: boolean }
+/**
+ * A face edit sheet change (Hammer 2's Texture State and Modify Texture): shift (texels) and scale (world units a texel)
+ * set, or nudged with `relative` (shift added, scale multiplied); `rotate` degrees about the axes' own normal, added;
+ * `rotateTo` the rotation set (`mappingRotation`); `flipU` / `flipV` the texture mirrored along that axis; `nudgeU` /
+ * `nudgeV` a shift in world units along the face (Hammer's shift buttons step by the grid), each face's own texels.
+ */
+export interface MappingChange {
+  shiftU?: number; shiftV?: number; scaleU?: number; scaleV?: number; rotate?: number; relative?: boolean;
+  rotateTo?: number; flipU?: boolean; flipV?: boolean; nudgeU?: number; nudgeV?: number;
+}
 
 function rotateAxes(map: TextureMapping, degrees: number): void {
   const n = normalize(cross(map.v, map.u));
@@ -275,6 +283,60 @@ function rotateAxes(map: TextureMapping, degrees: number): void {
   };
   map.u = rot(map.u);
   map.v = rot(map.v);
+}
+
+/**
+ * A mapping's rotation, degrees in (-180, 180]: its u axis against the u its plane would have unturned (`axesFor` of the
+ * axes' own normal) -- what Hammer's Texture State shows as Rotate. 0 for a world- or face-aligned mapping.
+ */
+export function mappingRotation(map: TextureMapping): number {
+  const n = normalize(cross(map.v, map.u));
+  const ref = axesFor(n).u;
+  const deg = (Math.atan2(dot(cross(ref, map.u), n), dot(ref, map.u)) * 180) / Math.PI;
+  const r = Math.round(deg * 1000) / 1000;
+  return r <= -180 ? r + 360 : r;
+}
+
+/** The selected faces' Texture State: each value the faces share, or null where they differ ("mixed"). */
+export interface TextureState { count: number; scaleU: number | null; scaleV: number | null; shiftU: number | null; shiftV: number | null; rotate: number | null }
+
+/**
+ * The Texture State of `faces` (Hammer 2's panel): each face's mapping (its own, else fitted to its uvs, else
+ * world-aligned at `scaleTexel` -- what an edit would start from), and the value they all share per field.
+ */
+export function textureState(m: EditMesh, faces: readonly number[], size: TextureSize, scaleTexel = 1): TextureState {
+  const maps = faces.flatMap((f) => {
+    const face = m.faces[f];
+    if (!face) return [];
+    const sz = size(m.styles[face.style]!.style.textureName);
+    return [face.mapping ?? (sz && fitMapping(m, f, sz)) ?? worldAligned(faceNormal(m, f), scaleTexel)];
+  });
+  const shared = (read: (x: TextureMapping) => number): number | null => {
+    if (!maps.length) return null;
+    const v = Math.round(read(maps[0]!) * 10000) / 10000;
+    return maps.every((x) => Math.abs(read(x) - v) < 1e-3) ? v : null;
+  };
+  return { count: maps.length, scaleU: shared((x) => x.scaleU), scaleV: shared((x) => x.scaleV), shiftU: shared((x) => x.shiftU), shiftV: shared((x) => x.shiftV), rotate: shared(mappingRotation) };
+}
+
+/**
+ * Hammer's align to view: each face's axes the camera's right and down laid into the face's plane (`right`, `up` the
+ * camera's world axes), so the texture reads upright from where you look; scale kept, shift zeroed.
+ */
+export function alignToView(m: EditMesh, faces: readonly number[], right: readonly number[], up: readonly number[], size: TextureSize, scaleTexel = 1): void {
+  for (const f of faces) {
+    const face = m.faces[f];
+    if (!face) continue;
+    const n = faceNormal(m, f);
+    const flat = (a: readonly number[]): Vec3 => { const d = dot(a, n); return [a[0]! - n[0] * d, a[1]! - n[1] * d, a[2]! - n[2] * d]; };
+    let u = flat(right);
+    if (length(u) < SNAP) u = flat(up);                       // looking straight along the face: its up instead
+    if (length(u) < SNAP) continue;
+    u = normalize(u);
+    const s = face.mapping ? face.mapping.scaleU : scaleTexel, t = face.mapping ? face.mapping.scaleV : scaleTexel;
+    face.mapping = { u, v: normalize(cross(u, n)), scaleU: s, scaleV: t, shiftU: 0, shiftV: 0 };
+  }
+  refreshUvs(m, faces, size);
 }
 
 export function adjustMapping(m: EditMesh, faces: readonly number[], change: MappingChange, size: TextureSize, scaleTexel = 1): void {
@@ -289,6 +351,13 @@ export function adjustMapping(m: EditMesh, faces: readonly number[], change: Map
     if (change.scaleU !== undefined && change.scaleU !== 0) map.scaleU = r ? map.scaleU * change.scaleU : change.scaleU;
     if (change.scaleV !== undefined && change.scaleV !== 0) map.scaleV = r ? map.scaleV * change.scaleV : change.scaleV;
     if (change.rotate) rotateAxes(map, change.rotate);
+    if (change.rotateTo !== undefined) rotateAxes(map, change.rotateTo - mappingRotation(map));
+    // A mirror: the scale's sign turned, the texel at the axis's origin kept where it was (Hammer's flip).
+    if (change.flipU) { map.scaleU = -map.scaleU; map.shiftU = -map.shiftU; }
+    if (change.flipV) { map.scaleV = -map.scaleV; map.shiftV = -map.shiftV; }
+    // A step in world units along the face: texels by this face's own scale (positive moves the texture along +u / +v).
+    if (change.nudgeU) map.shiftU -= change.nudgeU / map.scaleU;
+    if (change.nudgeV) map.shiftV -= change.nudgeV / map.scaleV;
     face.mapping = map;
   }
   refreshUvs(m, faces, size);
@@ -300,9 +369,15 @@ export type Justify = 'fit' | 'left' | 'right' | 'top' | 'bottom' | 'center';
  * Hammer's justify over `faces` together (as its "treat as one"): their extent in texels along the axes; fit scales
  * one repeat across it, the others shift its edge or middle to the texture's.
  */
-export function justify(m: EditMesh, faces: readonly number[], how: Justify, size: TextureSize, scaleTexel = 1): void {
+export function justify(
+  m: EditMesh, faces: readonly number[], how: Justify, size: TextureSize, scaleTexel = 1,
+  opts: { repeat?: readonly [number, number]; together?: boolean } = {},
+): void {
   const live = faces.filter((f) => m.faces[f]);
   if (!live.length) return;
+  // Hammer's "Treat as one" off: each face justified over its own extent.
+  if (opts.together === false && live.length > 1) { for (const f of live) justify(m, [f], how, size, scaleTexel, { ...opts, together: true }); return; }
+  const [ru, rv] = opts.repeat ?? [1, 1];
   for (const f of live) if (!m.faces[f]!.mapping) {
     const sz = size(m.styles[m.faces[f]!.style]!.style.textureName);
     m.faces[f]!.mapping = (sz && fitMapping(m, f, sz)) || worldAligned(faceNormal(m, f), scaleTexel);
@@ -317,10 +392,11 @@ export function justify(m: EditMesh, faces: readonly number[], how: Justify, siz
       minU = Math.min(minU, pu); maxU = Math.max(maxU, pu); minV = Math.min(minV, pv); maxV = Math.max(maxV, pv);
     }
     if (how === 'fit') {
-      if (maxU > minU) map.scaleU = (maxU - minU) / sz[0];
-      if (maxV > minV) map.scaleV = (maxV - minV) / sz[1];
-      map.shiftU = -minU / map.scaleU;
-      map.shiftV = -minV / map.scaleV;
+      // `ru` x `rv` repeats across the extent (Hammer's Fit X / Y), each axis's mirror kept.
+      if (maxU > minU && ru > 0) map.scaleU = (Math.sign(map.scaleU) || 1) * (maxU - minU) / (ru * sz[0]);
+      if (maxV > minV && rv > 0) map.scaleV = (Math.sign(map.scaleV) || 1) * (maxV - minV) / (rv * sz[1]);
+      map.shiftU = -(map.scaleU > 0 ? minU : maxU) / map.scaleU;
+      map.shiftV = -(map.scaleV > 0 ? minV : maxV) / map.scaleV;
     } else if (how === 'left') map.shiftU = -minU / map.scaleU;
     else if (how === 'right') map.shiftU = sz[0] - maxU / map.scaleU;
     else if (how === 'top') map.shiftV = -minV / map.scaleV;

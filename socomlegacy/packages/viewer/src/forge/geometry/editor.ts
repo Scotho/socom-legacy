@@ -16,7 +16,7 @@ import type { GroundData } from '../../mover';
 import { buildWorld, type WorldView } from '../../world';
 import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, floorWordsOf, wallWordsOf } from './collision';
 import { displacementGrid, makeDisplacement, sculpt } from './displacement';
-import { add, cloneMesh, cross, dot, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type Vec3 } from './editMesh';
+import { add, cloneMesh, cross, dot, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type TextureMapping, type Vec3 } from './editMesh';
 import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, LADDER_CLIMB_FLAG, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, twinIndexOf, withCollisionType, withTwins, wordsOf, type CollisionType } from './hullGeometry';
 import { HULL_COLOURS, type HullViewPoly } from '../hull';
 import { deleteEdges, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, snapVerts, transformVerts } from './ops';
@@ -27,7 +27,7 @@ import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFa
 import type { DrawSources } from './worldMesh';
 import type { FloorLook } from './blank';
 import type { Surface } from './collision';
-import { align, applyTexture, justify, medianTexelScale, pasteLook, refreshUvs, sampleFace, worldAligned, type FaceLook, type TextureSize } from './texturing';
+import { adjustMapping, align, alignToView, applyTexture, justify, medianTexelScale, pasteLook, refreshUvs, sampleFace, textureState, worldAligned, type FaceLook, type Justify, type MappingChange, type TextureSize, type TextureState } from './texturing';
 import {
   addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
   type GeoObjectCopy,
@@ -171,6 +171,8 @@ const BLOCK_REACH = 20000;
 const BLOCK_SEE_TOLERANCE = 0.5;
 /** How near the outline's first point (CSS pixels) a Polygon click closes it (a browser adaptation, as Hammer's snap to it). */
 const POLY_CLOSE_PX = 10;
+/** A Texture State field's live drag redraws the world at most this often, milliseconds (a browser adaptation). */
+const TEXTURE_PREVIEW_MS = 80;
 /**
  * The toolbar's Displace group (Displace, Sculpt) shown: off for now (the owner, 2026-11-17: "remove the displacement
  * geometry stuff for now we will come back to it"). Its code stays; a displaced face already made still loads and draws.
@@ -721,10 +723,8 @@ export class GeometryEditor {
       )),
       (this.textureGroup = group('Texture',
         this.textureBtn,
-        // Select, Paint, Sample and Apply are the Tool section's (`toolBar`); World, Face and Fit align what is selected.
-        this.button('world', 'World', 'World-align the selected faces\' textures', () => this.texturing('world')),
-        this.button('face', 'Face', 'Face-align the selected faces\' textures', () => this.texturing('face')),
-        this.button('fit', 'Fit', 'Fit one repeat of the texture across the selected faces', () => this.texturing('fit')),
+        // Select, Paint, Sample and Apply are the Tool section's (`toolBar`); aligning, scaling, shifting, rotating, fitting
+        // and justifying are the Inspector's Texture State and Modify Texture (`textureStateNow`, `modifyTexture`).
       )),
       (this.displaceGroup = group('Displace',
         this.button('displace', 'Displace', 'Make the selected four-sided faces displacements', () => this.displace()),
@@ -790,10 +790,12 @@ export class GeometryEditor {
     creating: boolean;
     /** Create's previews shown: the shape's faces (with the texture they wear), its start marker, its resize handles. */
     createPreview: { solid: boolean; texture: string | null; start: boolean; handles: number };
+    /** The Texture layer's selected faces' Texture State (`textureStateNow`), null off it. */
+    texture: TextureState | null;
   } {
     return {
       selection: this.selectionState(),
-      hover: this.hoverKey, creating: this.blockOn || this.polyOn,
+      hover: this.hoverKey, creating: this.blockOn || this.polyOn, texture: this.textureStateNow(),
       createPreview: { solid: this.blockSolid.visible, texture: this.blockSolid.visible && (this.blockSolid.material as MeshBasicMaterial).map ? this.blockTex?.name ?? null : null, start: this.blockStartDot.visible, handles: this.blockHandles.visible ? this.blockHandleAt.length : 0 },
       active: this.active, collision: this.collisionOn, painting: this.paintOn ? this.collisionType : null, edited: this.edited, stale: this.stale,
       builtPolys: this.built ? this.built.fields.length / 6 : null,
@@ -3616,15 +3618,111 @@ export class GeometryEditor {
   /** The last sample's look, while the texture list still shows its texture (a texture picked by hand drops it). */
   private sampled: FaceLook | null = null;
 
-  private texturing(how: 'apply' | 'world' | 'face' | 'fit'): void {
+  private texturing(_how: 'apply'): void {
     const scaleTexel = this.scaleTexel();
     const look = this.sampled && this.sampled.style.textureName === this.textureName ? this.sampled : null;
     this.edit('Texture faces', () => this.forFaces((m, faces) => {
-      if (how === 'apply' && look) pasteLook(m, faces, look, this.size, scaleTexel);
-      else if (how === 'apply') applyTexture(m, faces, this.textureName, this.size, { align: 'keep', scaleTexel });
-      else if (how === 'fit') justify(m, faces, 'fit', this.size, scaleTexel);
+      if (look) pasteLook(m, faces, look, this.size, scaleTexel);
+      else applyTexture(m, faces, this.textureName, this.size, { align: 'keep', scaleTexel });
+    }));
+  }
+
+  /* ---------- the Inspector's Texture State and Modify Texture (Hammer 2's face edit) ---------- */
+
+  /**
+   * The selected faces' Texture State (the owner, 2026-11-17: "add texturing the same way source hammer 2 does it. Align,
+   * Scale, Shift, Rotate, Fit, Justify"; a browser adaptation): what they share, null where they differ; null off the
+   * Texture layer or with nothing selected. The Inspector reads it whenever the selection or the geometry changes.
+   */
+  textureStateNow(): TextureState | null {
+    if (!this.active || !this.textureOn) return null;
+    const sets = this.selectedFaceSets();
+    if (!sets.length) return null;
+    const scaleTexel = this.scaleTexel();
+    const parts = sets.map(({ o, faces }) => textureState(o.mesh, faces, this.size, scaleTexel));
+    const pick = (k: keyof Omit<TextureState, 'count'>): number | null => {
+      const v = parts[0]![k];
+      return v !== null && parts.every((x) => x[k] !== null && Math.abs(x[k]! - v) < 1e-3) ? v : null;
+    };
+    return { count: parts.reduce((n, x) => n + x.count, 0), scaleU: pick('scaleU'), scaleV: pick('scaleV'), shiftU: pick('shiftU'), shiftV: pick('shiftV'), rotate: pick('rotate') };
+  }
+
+  /** The step the Shift buttons move a texture by (the grid's, world units) and Rotate turns it by (the turn snap's, degrees). */
+  textureSteps(): { shift: number; rotate: number } {
+    return { shift: this.snapStep > 0 ? this.snapStep : 1 / (this.forMap?.metersPerUnit ?? 1), rotate: this.turnStep > 0 ? (this.turnStep * 180) / Math.PI : 15 };
+  }
+
+  /** The selected faces' mappings changed (`MappingChange`): one edit, their UVs rewritten; `label` its undo step's name. */
+  modifyTexture(change: MappingChange, label = 'Modify texture'): void {
+    this.previewTexture(null);                                 // a field's live drag let go first: the edit starts from as it was
+    const scaleTexel = this.scaleTexel();
+    this.edit(label, () => this.forFaces((m, faces) => adjustMapping(m, faces, change, this.size, scaleTexel)));
+  }
+
+  /**
+   * A Texture State field dragged, shown live (the owner, 2026-11-17: "Live preview while scrubbing"; a browser
+   * adaptation, as the Transform rows' `previewObjectTransform`): `change` (an absolute value: scale, shift or rotation
+   * set) laid on the selected faces with no edit made, the world redrawn at most every `TEXTURE_PREVIEW_MS`; null puts
+   * every face back as it was -- its mapping and its UVs -- for Escape, or just before the release's one edit
+   * (`modifyTexture`). The history is untouched: its last step holds the faces as they were before the drag.
+   */
+  previewTexture(change: MappingChange | null): void {
+    const was = this.texturePreview;
+    if (change === null) {
+      if (!was) return;
+      this.texturePreview = null;
+      if (this.texturePreviewTimer) { clearTimeout(this.texturePreviewTimer); this.texturePreviewTimer = null; }
+      for (const { m, f, mapping, uvs } of was) {
+        const face = m.faces[f];
+        if (!face) continue;
+        if (mapping) face.mapping = { ...mapping, u: [...mapping.u] as Vec3, v: [...mapping.v] as Vec3 }; else delete face.mapping;
+        face.corners.forEach((c, k) => { const uv = uvs[k]; if (uv) { m.cUv[c * 2] = uv[0]; m.cUv[c * 2 + 1] = uv[1]; } });
+      }
+      this.redraw();
+      return;
+    }
+    const sets = this.selectedFaceSets();
+    if (!sets.length) return;
+    if (!was) {
+      // Each face as the drag found it, to put back: its mapping (or none) and its corners' UVs, by place (a corner split
+      // off a neighbour keeps its place in the face, `ownCorners`).
+      this.texturePreview = sets.flatMap(({ o, faces }) => faces.flatMap((f) => {
+        const face = o.mesh.faces[f];
+        if (!face) return [];
+        const mp = face.mapping;
+        return [{ m: o.mesh, f, mapping: mp ? { ...mp, u: [...mp.u] as Vec3, v: [...mp.v] as Vec3 } : undefined,
+          uvs: face.corners.map((c) => [o.mesh.cUv[c * 2]!, o.mesh.cUv[c * 2 + 1]!] as [number, number]) }];
+      }));
+    }
+    const scaleTexel = this.scaleTexel();
+    for (const { o, faces } of sets) adjustMapping(o.mesh, faces, change, this.size, scaleTexel);
+    // The world drawn again no more often than the preview's step: a big map's draws take a while to rebuild.
+    const wait = TEXTURE_PREVIEW_MS - (performance.now() - this.texturePreviewAt);
+    if (this.texturePreviewTimer) return;
+    const run = (): void => { this.texturePreviewTimer = null; if (!this.texturePreview) return; this.texturePreviewAt = performance.now(); this.redraw(); };
+    if (wait <= 0) run(); else this.texturePreviewTimer = setTimeout(run, wait);
+  }
+  /** The faces as a Texture State field's drag found them (`previewTexture`); null with none going on. */
+  private texturePreview: { m: EditMesh; f: number; mapping: TextureMapping | undefined; uvs: [number, number][] }[] | null = null;
+  private texturePreviewTimer: ReturnType<typeof setTimeout> | null = null;
+  private texturePreviewAt = 0;
+
+  /** Hammer's Align: to the world (the nearest axis plane), to the face's own plane, or to the view (upright as you look). */
+  alignTexture(how: 'world' | 'face' | 'view'): void {
+    const scaleTexel = this.scaleTexel();
+    const cam = this.deps.camera();
+    cam.updateMatrixWorld();
+    const right = new Vector3().setFromMatrixColumn(cam.matrixWorld, 0), up = new Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    this.edit(`Align texture to ${how}`, () => this.forFaces((m, faces) => {
+      if (how === 'view') alignToView(m, faces, right.toArray(), up.toArray(), this.size, scaleTexel);
       else align(m, faces, how, this.size, scaleTexel);
     }));
+  }
+
+  /** Hammer's Fit (`repeat` X by Y across) and Justify; `together` is "Treat as one": the selected faces one surface. */
+  justifyTexture(how: Justify, together: boolean, repeat: readonly [number, number] = [1, 1]): void {
+    const scaleTexel = this.scaleTexel();
+    this.edit(how === 'fit' ? 'Fit texture' : `Justify texture ${how}`, () => this.forFaces((m, faces) => justify(m, faces, how, this.size, scaleTexel, { repeat, together })));
   }
 
   private displace(): void {

@@ -7,7 +7,7 @@ import { edgeMap, faceNormal, facePoints, faceVerts, liveFaces, polygonNormal, t
 import { cutFace, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, mergeFaces, splitEdge, transformVerts, translation, weldVerts } from '../../src/forge/geometry/ops';
 import { box, cylinder, plane, sphere, type PrimitiveOptions } from '../../src/forge/geometry/primitives';
 import { convertSelection, emptySelection, pick, pickFace, selectionVerts } from '../../src/forge/geometry/selection';
-import { adjustMapping, applyTexture, fitMapping, justify, lockMapping, mappedUv, worldAligned } from '../../src/forge/geometry/texturing';
+import { adjustMapping, alignToView, applyTexture, fitMapping, justify, lockMapping, mappedUv, mappingRotation, textureState, worldAligned } from '../../src/forge/geometry/texturing';
 import { addObject, buildHull, compileDraws, compileGeometry, geometryOfMap, markReshaped, objectFaces, separateFaces, transformObject, type WorldGeometry } from '../../src/forge/geometry/world';
 import { compileMesh, importWorld } from '../../src/forge/geometry/worldMesh';
 
@@ -204,6 +204,59 @@ describe('texturing (as Hammer does it)', () => {
     expect(Math.min(...m.faces[0]!.corners.map((c) => m.cUv[c * 2]!))).toBeCloseTo(0.5);
     adjustMapping(m, [0], { rotate: 90 }, SIZE);
     expect(Math.abs(m.faces[0]!.mapping!.u[2])).toBeCloseTo(1);
+  });
+
+  // Hammer 2's Texture State and Modify Texture (the owner, 2026-11-17: "Align, Scale, Shift, Rotate, Fit, Justify").
+  it('Texture State: rotation read off the axes, set absolutely; shared values, null where faces differ', () => {
+    expect(mappingRotation(worldAligned([0, 1, 0], 1))).toBeCloseTo(0);
+    const m = plane([0, 0, 0], 10, 10, 2, OPTS);
+    justify(m, [0, 1, 2, 3], 'fit', SIZE);
+    adjustMapping(m, [0, 1, 2, 3], { rotateTo: 30 }, SIZE);
+    expect(mappingRotation(m.faces[0]!.mapping!)).toBeCloseTo(30);
+    adjustMapping(m, [0, 1, 2, 3], { rotateTo: -45 }, SIZE);
+    expect(mappingRotation(m.faces[0]!.mapping!)).toBeCloseTo(-45);
+    adjustMapping(m, [1], { scaleU: 3 }, SIZE);
+    const st = textureState(m, [0, 1], SIZE);
+    expect(st.count).toBe(2);
+    expect(st.scaleU).toBeNull();                              // the two differ
+    expect(st.rotate).toBeCloseTo(-45);                        // the two share it
+  });
+
+  it('flip mirrors along its axis; a shift by world units moves the texture that far', () => {
+    const m = plane([0, 0, 0], 10, 10, 1, OPTS);
+    justify(m, [0], 'fit', SIZE);
+    const u0 = m.faces[0]!.corners.map((c) => m.cUv[c * 2]!);
+    adjustMapping(m, [0], { flipU: true }, SIZE);
+    m.faces[0]!.corners.forEach((c, k) => expect(m.cUv[c * 2]!).toBeCloseTo(-u0[k]!));
+    adjustMapping(m, [0], { flipU: true }, SIZE);              // twice: as it was
+    const map = m.faces[0]!.mapping!;
+    const p = [3, 0, 3];
+    const before = mappedUv(map, p, [64, 32]);
+    adjustMapping(m, [0], { nudgeU: 2 }, SIZE);
+    const moved = [p[0]! + 2 * map.u[0], 0, p[2]! + 2 * map.u[2]];
+    expect(mappedUv(m.faces[0]!.mapping!, moved, [64, 32])[0]).toBeCloseTo(before[0]);
+  });
+
+  it('fit X by Y repeats; Treat as one off fits each face on its own', () => {
+    const m = plane([0, 0, 0], 10, 10, 2, OPTS);
+    justify(m, [0, 1, 2, 3], 'fit', SIZE, 1, { repeat: [2, 3], together: true });
+    const all = [0, 1, 2, 3].flatMap((f) => m.faces[f]!.corners.map((c) => [m.cUv[c * 2]!, m.cUv[c * 2 + 1]!]));
+    expect(Math.max(...all.map((x) => x[0]!)) - Math.min(...all.map((x) => x[0]!))).toBeCloseTo(2);
+    expect(Math.max(...all.map((x) => x[1]!)) - Math.min(...all.map((x) => x[1]!))).toBeCloseTo(3);
+    justify(m, [0, 1, 2, 3], 'fit', SIZE, 1, { together: false });
+    for (const f of [0, 1, 2, 3]) {
+      const us = m.faces[f]!.corners.map((c) => m.cUv[c * 2]!);
+      expect(Math.max(...us) - Math.min(...us)).toBeCloseTo(1);
+    }
+  });
+
+  it('align to view: the texture upright as the camera looks at a wall', () => {
+    const m = box([0, 0, 0], [8, 8, 8], OPTS);
+    const wall = liveFaces(m).find((f) => faceNormal(m, f)[2] > 0.9)!;
+    alignToView(m, [wall], [1, 0, 0], [0, 1, 0], SIZE);
+    const map = m.faces[wall]!.mapping!;
+    expect(map.u[0]).toBeCloseTo(1);                           // u along the camera's right
+    expect(map.v[1]).toBeCloseTo(-1);                          // v down the wall
   });
 
   it('texture lock: a moved face keeps its texels', () => {

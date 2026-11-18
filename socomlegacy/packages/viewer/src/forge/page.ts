@@ -173,6 +173,7 @@ import { PAD_FOCUS_INPUT } from './shell/padFocus';
 import { holdEarlyPresses } from './shell/earlyPress';
 import { agentModeOf, FORGE_REFUSALS, forgeBusyRefusal, forgeEditRefusal, forgeSurfaceState, type ForgeBusyCause, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
+import { buildTextureInspector } from './panels/textureInspector';
 import { buildScriptGraph, type FlagUse, type GraphStep, type LegendFlag, type LegendSequence, type ScriptView } from './panels/scriptGraph';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
 // FC2-7 (ours): `FOLLOWER_SIZE_REFUSAL`, `scaleWithinRecord` -- a carried piece kept within the record's size bounds.
@@ -3074,6 +3075,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   geoInspector.kind.textContent = 'Geometry';
   const geoProps = geoInspector.body.querySelector<HTMLElement>('[data-inspect-section="properties"]');
   if (geoProps) geoProps.hidden = true;
+  const geoTransform = geoInspector.body.querySelector<HTMLElement>('[data-inspect-section="transform"]');
+  /**
+   * The Texture layer's Texture State and Modify Texture (Source 2 Hammer's face edit; the owner, 2026-11-17), in the
+   * Transform's place while the layer is on: every press one edit on the selected faces (`./panels/textureInspector`).
+   */
+  const textureInspector = buildTextureInspector(doc, {
+    state: () => geometry?.textureStateNow() ?? null,
+    steps: () => geometry?.textureSteps() ?? { shift: 1, rotate: 15 },
+    change: (c, label) => { geometry?.modifyTexture(c, label); drawGeoInspector(); },
+    preview: (c) => { geometry?.previewTexture(c); if (!c) drawGeoInspector(); },
+    align: (how) => { geometry?.alignTexture(how); drawGeoInspector(); },
+    justify: (how, together, repeat) => { geometry?.justifyTexture(how, together, repeat); drawGeoInspector(); },
+  });
+  geoInspector.body.append(...textureInspector.sections);
   const geoRows = [
     ['position', [geoInspector.x, geoInspector.y, geoInspector.z]],
     ['rotation', [geoInspector.pitch, geoInspector.yaw, geoInspector.roll]],
@@ -3085,6 +3100,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     inspectorDom.body.hidden = on;
     geoInspector.body.hidden = !on;
     if (!on) return;
+    // The Texture layer: its texturing in the Transform's place (the geometry is painted there, not moved).
+    const texturing = geometry!.isTexturing();
+    if (geoTransform) geoTransform.hidden = texturing;
+    for (const sec of textureInspector.sections) sec.hidden = !texturing;
+    if (texturing) { geoInspector.name.textContent = 'Texture'; textureInspector.refresh(); return; }
     const t = geometry!.objectTransform();
     geoInspector.name.textContent = t ? (t.count > 1 ? `${t.count} objects` : t.name)
       : geometry!.isTexturing() ? 'Texture layer: the geometry is painted here, not moved' : 'Select an object (Object selection) to edit its transform';
@@ -3132,8 +3152,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     doc, scene, input, modeTools: geometryModeTools, tools: geometryTools, statusHost: viewport, legendHost: () => { if (!legendStack.isConnected) viewport.append(legendStack); return legendStack; }, camera: () => fly.viewportCamera(), say,
     navigating: () => fly.navigating(),
     onHistory: () => refreshUndo(),
-    onEdit: (label) => recordGeometryStep(label),
-    onSelect: () => noteSelectionSoon(),
+    onEdit: (label) => { recordGeometryStep(label); drawGeoInspector(); },
+    onSelect: () => { noteSelectionSoon(); drawGeoInspector(); },
     onObjects: () => { drawOutlinerSoon(); drawGeoInspector(); },
     // A disc map's base edits its world; a blank base (bug 17) an empty world over its library's textures, which opens with
     // a floor plane of its own (`defaultFloor`).
@@ -3189,7 +3209,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     },
     propsShown: (on) => setPropsShown(on),
     // A Layer turned (Geometry, Collision, Texture): the view's locks as the layer wants them (Wireframe free on Texture).
-    onLayer: () => { editModeSel.value = editModePicked(); syncViewLocks(); applyView(); },
+    onLayer: () => { editModeSel.value = editModePicked(); syncViewLocks(); applyView(); drawGeoInspector(); },
     // The Texture button (the owner, 2026-11-16): the mini asset browser on Textures, the base's own map its Source.
     browseTextures: (anchor) => openAssetPicker(null, 'texture', textureHome(), anchor,
       (asset) => (parseTextureAsset(asset) ? () => { void chooseTexture(asset); } : null)),
