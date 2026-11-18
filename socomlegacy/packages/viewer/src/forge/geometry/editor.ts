@@ -27,7 +27,7 @@ import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFa
 import type { DrawSources } from './worldMesh';
 import type { FloorLook } from './blank';
 import type { Surface } from './collision';
-import { align, applyTexture, justify, medianTexelScale, pasteLook, sampleFace, type FaceLook, type TextureSize } from './texturing';
+import { align, applyTexture, justify, medianTexelScale, pasteLook, refreshUvs, sampleFace, worldAligned, type FaceLook, type TextureSize } from './texturing';
 import {
   addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
   type GeoObjectCopy,
@@ -171,6 +171,11 @@ const BLOCK_REACH = 20000;
 const BLOCK_SEE_TOLERANCE = 0.5;
 /** How near the outline's first point (CSS pixels) a Polygon click closes it (a browser adaptation, as Hammer's snap to it). */
 const POLY_CLOSE_PX = 10;
+/**
+ * The toolbar's Displace group (Displace, Sculpt) shown: off for now (the owner, 2026-11-17: "remove the displacement
+ * geometry stuff for now we will come back to it"). Its code stays; a displaced face already made still loads and draws.
+ */
+const DISPLACE_TOOLS_SHOWN = false;
 /** The height of a shape made where none can be pulled, with no snap and none pulled before: a metre (10 game units; a browser adaptation). */
 const BLOCK_DEFAULT_PULL_ADAPTATION = 10;
 /** The resize handles' size on screen, how near a press must be to take one (CSS pixels), and the least extent a handle leaves (game units, snap off). */
@@ -700,7 +705,7 @@ export class GeometryEditor {
     // be next to the dropdown"): Select | Create on the Geometry layer; Select | Paint | Sample | Create on Collision.
     // Block beside Select (the owner, 2026-11-17: "bring back the select workflow to the geometry mode, it should be a tool
     // and turned on by default ... Tool Select | Block"), its shape beside the section while it is on.
-    this.toolBar.addTab('block', 'Create', 'Create: drag a shape out -- press and drag a rectangle on the workplane (shown; on its grid while snapping) or on the surface pressed (by its normal, unsnapped), let go, move to set its height, click or Enter to make it. Esc cancels, then back to Select', 'sample', () => this.setBlockOn(true));
+    this.toolBar.addTab('block', 'Create', 'Create: drag a shape out -- press and drag a rectangle on the workplane (shown; on its grid while snapping) or on the surface pressed (by its normal, unsnapped), let go, move to set its height, click or Enter to make it. Esc cancels, then back to Select', 'apply', () => this.setBlockOn(true));
     this.toolBar.tabOf('block')?.after(this.blockToolUi());
     // The tools on the top toolbar, first, as Object mode's (the owner, 2026-11-17: "for all the tools section in geometry
     // and ai nav mode, move it to the top toolbar like the object mode, and call it Tools ... make sure the tools are the
@@ -1932,7 +1937,7 @@ export class GeometryEditor {
     // The Texture section the Texture layer's (the Geometry layer edits shape alone; a tile dropped still textures);
     // Create, Edit and Displace never on it -- the geometry is not edited there.
     if (this.textureGroup) this.textureGroup.hidden = !this.textureOn || this.collisionOn;
-    if (this.displaceGroup) this.displaceGroup.hidden = this.collisionOn || this.textureOn;
+    if (this.displaceGroup) this.displaceGroup.hidden = !DISPLACE_TOOLS_SHOWN || this.collisionOn || this.textureOn;
     if (this.editGroup) this.editGroup.hidden = this.textureOn;
     this.applyWorldShown();
   }
@@ -2365,7 +2370,18 @@ export class GeometryEditor {
   private extrude(): void {
     if (this.sel.mode !== 'face') { this.deps.say('Extrude works on faces: select them in Face mode', true); return; }
     const unit = 1 / (this.forMap?.metersPerUnit ?? 1);
-    this.edit('Extrude', () => this.forFaces((m, faces, o) => { extrudeFaces(m, faces, unit); markReshaped(o); }));
+    // The walls world-aligned (Hammer's new faces), at the extruded face's own texel scale where it has a mapping: each
+    // wall's corners were its edge's, the same uv top and bottom, so its texture ran in stripes (the owner, 2026-11-17:
+    // "When I extrude a face, there is no created geometry on the side walls"). The gizmo's move then keeps them mapped
+    // (`transformVerts` rewrites a mapped face's uvs).
+    this.edit('Extrude', () => this.forFaces((m, faces, o) => {
+      const scaleOf = new Map(faces.map((f) => [f, m.faces[f]?.mapping?.scaleU ?? this.scaleTexel()] as const));
+      const { walls } = extrudeFaces(m, faces, unit);
+      const texel = Math.min(...scaleOf.values());
+      for (const w of walls) { const face = m.faces[w]; if (face) face.mapping = worldAligned(faceNormal(m, w), texel); }
+      refreshUvs(m, walls, this.size);
+      markReshaped(o);
+    }));
   }
 
   private separate(): void {

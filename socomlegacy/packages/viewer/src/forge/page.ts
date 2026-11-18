@@ -134,7 +134,7 @@ import { plantSite } from '../net/objective';
 import { BLANK_PRESETS, blankPresetOf, presetLayout, type PresetHostage } from './blankPresets';
 import { hostageCharactersOf, hostagesLeftNotes, hostagesPlayIn, hostageDefault, nextHostageName, withLentHostageBodies } from './hostages';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
-import { floorAiMaps } from './floorAi';
+import { floorAiMaps, withGroundHeights } from './floorAi';
 import {
   AI_LINK_COLOUR, aiGoalAt, aiMapZoneGoals, buildAiLinks, buildAiMapOverlay, buildAiRoutes,
   describeAiCellAt, drawAiMapLegend, drawAiRouteLegend, type AiRouteGoal, type AiRouteStart,
@@ -226,14 +226,14 @@ import {
 import { libraryProps, palette, type PaletteEntry } from './library';
 import { standingPose } from './figure';
 import { ASSET_DRAG_MIME } from './assetDrag';
-import { FORGE_TOOL_ORDER, forgeKeyAction, forgeLeaseExit, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from './keys';
+import { forgeKeyAction, forgeLeaseExit, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from './keys';
 import { servedTreeFallsBackToDisc } from './servedFallback';
 import {
-  blockPiece, bombMarker, disposeGhost, extractionZoneMarker, ghostIcon, ghostRing, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
+  blockPiece, bombMarker, extractionZoneMarker, ghostRing, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
 } from './pieces';
 import {
   clipOf, DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, GRID_STEP_LADDER, onLadder, pastedPlaces, placementGridOf, stepLabel, TURN_STEP_LADDER,
-  mountOnWall, objectBox, placeClickKind, restingPoint, seatOn, snapYawRadians, WALL_NORMAL_Y_MAX, surfaceYs, type PlacePoint,
+  mountOnWall, objectBox, restingPoint, seatOn, snapYawRadians, WALL_NORMAL_Y_MAX, surfaceYs, type PlacePoint,
 } from './placement';
 
 /**
@@ -290,15 +290,6 @@ const FORGE_BLOCK_SOURCE: object = Object.freeze({ source: 'forge-block' });
  * R3-B: a ghost's materials -- translucent as the pad's ghost, and tinted while the placement is refused. Each material's
  * own colour is kept on it (`userData.forgeGhostBase`), so a ghost that turns admitted again shows its own colour.
  */
-/** A ghost's draw order seated on the workplane (Snap to Workplane): after the workplane's grid (`./mapGrid`'s 1, its upright axis 2). */
-const GHOST_RENDER_ORDER = 3;
-/**
- * A ghost drawn over the workplane's grid while it is seated on it (`on`: Snap to Workplane in effect; the owner,
- * 2026-11-16: "props get drawn under the workplane"), else in the scene's order, its depth deciding (`paintGhost`).
- */
-function ghostOverWorkplane(root: Object3D, on: boolean): void {
-  root.traverse((o) => { if (o instanceof Mesh) o.renderOrder = on ? GHOST_RENDER_ORDER : 0; });
-}
 function paintGhost(root: Object3D, admitted: boolean): void {
   root.traverse((o) => {
     if (!(o instanceof Mesh)) return;
@@ -321,19 +312,12 @@ function paintGhost(root: Object3D, admitted: boolean): void {
   root.userData['forgeGhost'] = admitted ? 'admitted' : 'refused';
 }
 
-/**
- * The objects whose ghost wears their billboard's icon (`./pieces` `ghostIcon`): those drawn by their billboard alone --
- * the bomb's start and its sites, a tactical point -- and a hostage, whose faint cell is hard to see.
- */
-const GHOST_ICON_KINDS: Partial<Record<string, string>> = {
-  bomb: 'userBombStart', siteSeal: 'userSiteSeal', siteTerrorist: 'userSiteTerrorist', point: 'userTacPoints', hostage: 'userEscortees',
-};
 
 /** The object pickers' two headed sections (an At, an Object, a linked Prop: the owner, 2026-11-14). */
 const OWN_OBJECTS_GROUP = 'Your objects';
 const MAP_OBJECTS_GROUP = 'Map objects';
 
-/** The asset browser's tabs (`objectTab`): the props, then the objects the Place tool places, in the toolbar's order. */
+/** The asset browser's tabs (`objectTab`): the props, then the objects that spawn, in the toolbar's order. */
 /**
  * The steps of the block a `while` / `endWhile` / `if` / `end` step opens or closes (an if's else ifs and else with it):
  * what a Remove takes out together, so a script always reads back.
@@ -441,6 +425,8 @@ const SWITCH_LOOK_SOURCE = 'LOOK';
 const SWITCH_LOOK_TILES: readonly (readonly [SwitchLookId, string])[] = [['lever', "Lever panel (Death Trap's)"], ['radio', "Radio (Sujo's)"]];
 
 type Mode = 'select' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'ladder' | 'gate' | 'barrier' | 'flare' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'switch' | 'ambient';
+/** An object of the objects' row (and the asset browser's object tiles) that spawns (`spawnAtCentre`). */
+type SpawnKind = Exclude<Mode, 'select'>;
 
 /**
  * The placing tools a game type alone plays (a browser adaptation, FG.R2; the owner, 2026-11-06): the bomb's start and
@@ -963,7 +949,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     respawnA: tool('spawn', 'Respawn SEAL', "Place a team A respawn point (SEALs): where the SEALs respawn, beside the map's own", 'fx-team-a'),
     respawnB: tool('spawn', 'Respawn Terrorist', "Place a team B respawn point (Terrorists): where the Terrorists respawn, beside the map's own", 'fx-team-b'),
     npc: tool('npc', 'NPC', 'Place an NPC: the character chosen under Characters'),
-    door: tool('npc', 'Door', "Place a door: a copy of a disc map's own (the palette's, or Frostfire's), its hinge at the click"),
+    door: tool('npc', 'Door', "Place a door: a copy of a disc map's own (the palette's, or Frostfire's), its hinge at the view's centre"),
     gate: tool('npc', 'Gate', "Place a gate: a copy of a disc map's own (Death Trap's or Enowapi's), its lever prompt at the gate; it slides on its lever and C4 wrecks it"),
     barrier: tool('npc', 'Damage trigger', "Place a damage trigger: a copy of a disc map's own destructible whose death runs its program -- a C4 barrier (C4 or an RPG wrecks it) or a hit trigger (health 0: any hit sets it off, never C4; Fish Hook's planks)"),
     switch: tool('npc', 'Switch', "Place a gate's switch: a copy of its gate's own disc lever panel (Death Trap's or Enowapi's), a SWITCH context action that slides that gate -- the gate itself has no prompt, as on the disc; the Inspector's Gate links it"),
@@ -1324,7 +1310,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * The asset browser's object tabs (the owner, 2026-11-10: "in the assets browser, add all the objects types for each
    * map. Add an internal tab system to switch between all the object types. From Door -- Flare"): Props, then each
-   * object the Place tool places, in the toolbar's order -- each tab the chosen map's own of that kind (`drawObjects`).
+   * object that spawns, in the toolbar's order -- each tab the chosen map's own of that kind (`drawObjects`).
    */
   const objectTabsRow = el(doc, 'div', 'fx-asset-tabs');
   objectTabsRow.setAttribute('role', 'tablist');
@@ -2891,7 +2877,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let layoutEntities: Pick<Layout, 'zones' | 'markers' | 'spawners'> = {};
   let layoutRules: ForgeRulesDraft | null = null;
   /** FCW-32 step 4 (FUI.R23 D4): the rules entity the next click on the world (or Cross) places, or null. */
-  let entityTool: RulesEntityKind | null = null;
   /** FCW-32 step 4 (D4): the rules entity picked from its Outliner row (`zone:<id>`, the planner's reference), or null. */
   let entityPicked: string | null = null;
   /** FCW-32 step 4: who hears that the layout's rules, its entities or the place mode changed (the Rules panel). */
@@ -3160,7 +3145,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     baseWorldShown: (on) => { for (const o of baseView?.worldObjects ?? []) o.visible = on; if (base?.kind === 'blank') floor.visible = on; },
     onActive: (on) => {
       if (on && navOn) setNavigation(false);                   // Geometry mode taken up (an Outliner row): navigation left
-      setMode('select');
       if (on) select(null);
       toolsRow.classList.toggle('is-geometry', on);
       placeGroup.hidden = on;
@@ -3305,7 +3289,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // Its overlays off on entering, as Geometry mode's (the owner, 2026-11-17: "allow overlays in geometry and ai nav
     // mode, but have it off by default"): the Overlays menu free to turn them on; Object mode's put back on leaving.
     if (on) enterOverlaysOffView(); else leaveModellingView();
-    setMode('select');
     select(null);
     toolsRow.classList.toggle('is-navigation', on);
     navTools.hidden = !on;
@@ -3361,7 +3344,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * Surface snapping (the owner, 2026-11-11, as Unreal's: "this only works when using the transform gizmo's centre
    * cube"; a browser adaptation, FG.R2): while the move gizmo's centre handle (`XYZ`) drags one placement, it is seated on
    * whatever surface is under the pointer -- the world, a placement, the floor; never itself or what rides on it -- as
-   * the Place tool seats a new one (`placeAt`: grid snap on x/z, then the surface's height; `seatOn`: its foot on it),
+   * a spawn seats a new one (`placeAt`: grid snap on x/z, then the surface's height; `seatOn`: its foot on it),
    * raised by the offset. An axis handle moves as before. A group, a map prop or a locked one is left to the gizmo.
    */
   let surfaceSnap = true;
@@ -3395,7 +3378,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let workplaneView: ForgeViewportView = 'perspective';
   /**
    * Snap to Workplane (Surface snapping's setting; the owner, 2026-11-16: "add a snap to workplane settings in the surface
-   * snapping settings, but have it default to off"): the Place tool and the move gizmo's centre seat what they move on the
+   * snapping settings, but have it default to off"): a spawn and the move gizmo's centre seat what they move on the
    * workplane under the pointer, not on the surface there -- tilted to it with Snap to Surface Normal.
    */
   let workplaneSnap = false;
@@ -3430,7 +3413,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * One snap for every gizmo drag (the owner, 2026-11-12: "Unify them all. If a user wants to move it off the ground they
    * can use the other axes"): while the move gizmo's centre handle (`XYZ`) drags, what it drags is seated on the surface
    * under the pointer -- one placement on its box's foot (`seatOn`), a switch mounted on the wall it is over and a ladder
-   * stood against it (`dragWallPose`, as the Place tool does), several by their lowest member, a moved map data object or
+   * stood against it (`dragWallPose`, as a spawn is), several by their lowest member, a moved map data object or
    * a rules entity by its place (a hostage's start its lift over it). An axis handle moves freely.
    */
   const surfaceSnapDrag = (): void => {
@@ -3637,7 +3620,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let groupDragLow: number | null = null;
   /**
    * A dragged switch on the wall under the pointer (mounted, its back on it) or a ladder piece against it (stood, its
-   * climbing side out), as the Place tool puts them (`wallPose`); false over a floor, or for anything else.
+   * climbing side out); false over a floor, or for anything else.
    */
   const dragWallPose = (r: Object3D, hit: Intersection): boolean => {
     const asset = r.userData['forgePiece'] as string | undefined;
@@ -4365,7 +4348,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * read off the base's hull less its hidden props when the marks are drawn (`drawMapBillboards`), kept for the Outliner.
    */
   let mapLadders: Ladder[] = [];
-  let mode: Mode = 'select';
   let chosen: string | null = null;
   let entriesOfPalette: PaletteEntry[] = [];
   let favs = readFavourites();
@@ -4413,7 +4395,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawAssets();
   };
   /**
-   * The object the Place tool places of each kind, as its tile chose it (`chooseObject`): a door's, turret's, gate's,
+   * The object a spawn of each kind makes, as its tile chose it (`chooseObject`): a door's, turret's, gate's,
    * damage trigger's or flare's disc source and name, a ladder prop's asset, a switch's look. Absent, the kind's own
    * default (`defaultDoor` and the others: the palette's first, else the disc's named one).
    */
@@ -4444,16 +4426,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** FG-49: the snap's grid (game units) and turn (degrees). Snap off leaves a drag free; the steps stay for the pad. */
   let gridStep = DEFAULT_GRID_STEP;
   let turnStep = DEFAULT_TURN_STEP;
-  /**
-   * FUI-22 (D4, the owner 2026-10-27: "please make mouse wheel spin assets in forge too" ... "when you have an item queued
-   * to place"; a browser adaptation): the queued prop's own turn, degrees, a turn step a wheel notch, on top of the
-   * placement's facing; back to none when the queue is cancelled.
-   */
-  let queuedTurn = 0;
-  /** The objects the wheel turns: all but a zone (square on the AI grid), a point and a view (the camera's own). */
-  const wheelTurns = (m: string): boolean => m !== 'select' && m !== 'zone' && m !== 'point' && m !== 'view';
-  /** FUI-22 (D4): the wheel's travel toward its next notch (a trackpad's small deltas add up to one). */
-  let wheelTravel = 0;
   /** FUI-22 (D1): the asset list's tooltip preview, on unless the asset browser's view setting turns it off. */
   let assetTips = true;
   /** The asset browser's Sound on hover (`hoverAmbientSound`): on unless the view kept it off. */
@@ -5479,7 +5451,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       b.dataset['forgeModeOff'] = off ? 'true' : '';
       if (off && !b.dataset['forgeTitle']) b.dataset['forgeTitle'] = b.title;
       b.title = off ? `${b.dataset['forgeTitle']} · ${modeToolWhy(types)}` : b.dataset['forgeTitle'] ?? b.title;
-      if (off && mode === m) setMode('select');
     }
     for (const sec of toolsRow.querySelectorAll<HTMLElement>('.fx-mode-section')) {
       const tools = [...sec.querySelectorAll<HTMLButtonElement>('.fx-tool')];
@@ -6414,10 +6385,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const flareEyeAt: [number, number, number] = [0, 0, 0];
   const flareAt: [number, number, number] = [0, 0, 0];
   function turnPlacedFlares(eye: Vector3): void {
-    // The Place tool's flare ghost too (`ghostFacade`): its glow faces the camera as the placed one will.
-    // A flare dragged from the asset browser too (`stagedLive`: its object keeps its flare's data).
-    for (const r of [...roots, ...(ghost && ghost.userData['ghostFacade'] ? [ghost] : []), ...[...stagedLive].map((x) => x.object)]) {
-      const facade = r === ghost ? ghost.userData['ghostFacade'] as number : (r.userData['forgeFlare'] as { facade?: number } | undefined)?.facade;
+    // A flare dragged from a feature panel too (`stagedLive`: its object keeps its flare's data); one being spawned is a root.
+    for (const r of [...roots, ...[...stagedLive].map((x) => x.object)]) {
+      const facade = (r.userData['forgeFlare'] as { facade?: number } | undefined)?.facade;
       if (!facade) continue;
       r.updateMatrixWorld();
       r.traverse((o) => {
@@ -10690,7 +10660,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     treeRoots.push(sectionRow('user', 'User Objects', userCount, picks.size > 0 || entityPicked !== null || madeGeo.some((o) => o.selected) || madeCol.some((o) => o.selected)));
     if (!foldedSections.has('user')) {
       const empty = indented(el(doc, 'li', 'fx-empty',
-        q ? 'No matches' : roots.length ? 'Nothing the Filter shows' : 'Nothing placed yet: choose a prop, then click the world'));
+        q ? 'No matches' : roots.length ? 'Nothing the Filter shows' : 'Nothing placed yet: click an asset or an object button to spawn it'));
       empty.dataset['userEmpty'] = '';                         // an asset tile dropped here is placed (`dropAssetInOutline`)
       treeRoots.push(...(userRows.length ? userRows : [empty]));
     }
@@ -10773,37 +10743,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // FUI-3 (PAD-5, FUI.R6; OT.R68): the hint line is retired for the legend strip (`./shell/legend`): one function of what
   // the pad (or, without one, the keyboard and mouse) is doing here, drawn as the system's prompts at the status bar.
   const padConnected = (): boolean => [...(globalThis.navigator?.getGamepads?.() ?? [])].some((g) => g?.connected === true);
-  /** What a marker tool places, said before the prompts (the hint's words before FUI-3). */
-  const TOOL_NOTES: Partial<Record<Mode, string>> = {
-    ambient: 'An emitter: the map\'s fire, smoke, water or weather (or a sound or an effect), playing from the round\'s start',
-    spawnA: 'A team A spawn: it faces the way you look',
-    spawnB: 'A team B spawn: it faces the way you look',
-    hostage: 'A hostage, beside the map\'s own: Escort and Extraction play them',
-    zone: 'An extraction zone (Safety, Safety2...), beside the map\'s own: Extraction plays them',
-    door: "A door: a copy of a disc map's own (its swing, its reach), its hinge at the click; the rotate gizmo turns it",
-    turret: "A turret: a copy of a disc map's own (its definition, weapon and limits), facing the way you look",
-    ladder: "A ladder: a disc map's own ladder prop, its foot at the click, facing the way you look; climbable in Play",
-    flare: "A flare: one of a disc map's glows (its facade node alone), turned to the camera; the Inspector's Map and Flare change it",
-    gate: "A gate: a copy of a disc map's own, its lever prompt at the gate; the lever slides it, C4 or an RPG wrecks it",
-    barrier: "A damage trigger: a copy of a disc map's own destructible -- a C4 barrier (C4 or an RPG) or a hit trigger (any hit, never C4)",
-    switch: "A gate's switch: a copy of its gate's own disc lever panel; pulling it slides the gate (the Inspector's Gate links it)",
-    point: 'A tactical point (Charlie, Delta...): kind 1 a nav point the compass marks by its first letter',
-    view: 'A spectator view: a click takes the camera\'s own place and look (the spectator steps through them)',
-    bomb: 'The bomb\'s start: one start, and placing again replaces it',
-    siteSeal: 'The site the SEALs plant at: one a team',
-    siteTerrorist: 'The site the Terrorists plant at: one a team',
-    respawnA: "A SEAL respawn point: where the SEALs respawn, beside the map's own; facing the way you look",
-    respawnB: "A Terrorist respawn point: where the Terrorists respawn, beside the map's own; facing the way you look",
-  };
   /** The legend's context; FUI-3: set in full once the menu and the match exist (below), the editor's tool until then. */
-  let legendNow = (): LegendContext => ({ kind: 'build', tool: mode, selection: 0 });
+  let legendNow = (): LegendContext => ({ kind: 'build', selection: 0 });
   let legendStamp = '';
   /** The legend redrawn when what it says changed (each frame and each tool change ask; a stamp keeps the DOM still). */
   const drawLegendNow = (): void => {
     const pad = padConnected();
     const ctx = legendNow();
-    const note = ctx.kind !== 'build' ? undefined : entityTool ? `Click the world, or Cross at the centre, to place the ${entityTool}; Esc cancels`
-      : mode === 'npc' && !npcChoice ? 'Choose a character under Characters first' : TOOL_NOTES[mode];
+    const note = undefined;
     const prompts = legendFor(ctx, pad ? 'pad' : 'keys');
     const stamp = JSON.stringify([pad, note, prompts.map((pr) => [pr.glyph, pr.key, pr.label])]);
     if (stamp === legendStamp) return;
@@ -10816,8 +10763,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const refreshHint = (): void => {
     drawLegendNow();
     statusChips.update();                                     // FUI-4: Build / Walk / Play
-    sMode.textContent = playing ? 'PLAY' : entityTool ? `PLACE ${entityTool.toUpperCase()}`
-      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'EMITTER' } as const)[mode];
+    sMode.textContent = playing ? 'PLAY' : 'SELECT';
   };
   /**
    * The selection drawn (FG-47): the single selection's `selected` / `baseSelected` derived, the gizmo on the one
@@ -11014,24 +10960,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const spec of dataPicks.values()) bounds.union(new Box3().setFromCenterAndSize(new Vector3(...spec.at), new Vector3(20, 20, 20).addScalar(spec.reach ?? 0)));
     focusOnBounds(bounds);
   };
-  const setMode = (m: Mode): void => {
-    // A tool the layout's game type does not play (`refreshModeTools`): its key or the pad's row refused, and said.
-    if (modeBtns[m].disabled && modeBtns[m].dataset['forgeModeOff'] === 'true') {
-      const types = MODE_TOOL_TYPES[m];
-      notifier.refused(types ? modeToolWhy(types) : 'This tool is off for this game type');
-      return;
-    }
-    // Another object chosen: the wheel's turn belongs to the one it turned.
-    if (m !== mode) { queuedTurn = 0; wheelTravel = 0; }
-    if (entityTool !== null) { entityTool = null; rulesChanged(); }   // FCW-32 step 4: another tool ends the entity's place mode
-    mode = m;
-    // The tool's own button lit; in Geometry mode its button is the one lit (`geometry`'s own toggle).
-    const geo = geometry?.isActive() ?? false;
-    for (const [k, b] of Object.entries(modeBtns)) b.classList.toggle('is-on', !geo && k === m);
-    input.classList.toggle('is-placing', m !== 'select');
-    refreshHint();
-    syncGhost();
-  };
   /** The viewport's transform controls handed to the geometry mode's gizmo too: one set for both (`./geometry/editor`). */
   /** The move snap's step as it stands (Ctrl's flip in), or null; the turn snap's, radians. */
   const objectMoveSnap = (): number | null => (snap !== ctrlSnapFlip ? gridStep : null);
@@ -11077,8 +11005,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const setSnaps = (grid: boolean, turn: boolean = turnSnap): void => {
     snap = grid;
     turnSnap = turn;
-    // FUI-22 review F1: with the turn snap on the queued prop's carried turn stays on the turn step's grid (a changed step re-rounds it).
-    if (turn && queuedTurn !== 0 && turnStep > 0) { queuedTurn = (((Math.round(queuedTurn / turnStep) * turnStep) % 360) + 360) % 360; moveGhost(lastNdc); }
     pushGizmo();                                               // the gizmos' snaps (`applyObjectSnaps`, the editor's)
     drawPlacement();
     writeView();
@@ -11309,120 +11235,272 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** R6 (the palette seam): the page's NPC tool on character `c` -- the Characters list's click and the seam's `chooseCharacter`. */
   const chooseCharacterRow = (c: { side: 'seal' | 'terrorist'; type: number }): void => {
-    npcChoice = c; setMode('npc'); drawAssets(); say(`placing NPCs: ${charLabel(c.side, c.type)}`);
+    npcChoice = c; spawnAtCentre({ kind: 'npc' });              // spawned at the view's centre, as every tile's object
   };
   /**
-   * A drag from the asset browser over the viewport (the owner, 2026-11-14: "when I click an asset the place tool works
-   * smoothly, but when I do a drag and drop, it is super janky ... the drag and drop is just an interaction
-   * abstraction"; a browser adaptation, FG.R2): the asset picked as its tile's click picks it -- the Place tool, its own
-   * ghost -- with no list redrawn (the dragged tile must stay, or the browser loses the drag), and the tool put back as it
-   * was when the drag leaves or drops (a drag never changes your tool). False: not this way (the characters' tiles,
-   * Play, a held layout) -- the staged ghost instead.
+   * The one way anything is spawned (the owner, 2026-11-17: "everything should go through a single unified code path ...
+   * click to spawn object/asset in viewport ... it should not do the ghost stuff anymore or have any of the left over place
+   * tool code"; a browser adaptation, FG.R2): a prop of the assets or an object of the objects' row (a spawn, a door, an
+   * emitter...). The real object is made, selected and seated by the centre handle's own seat (`seatPiece`, begun by
+   * `beginSeat`) wherever the pointer goes -- a click (a button's, a tile's, a key's) at the view's centre and kept at once,
+   * a drag into the viewport following the pointer and kept where it is let go (one edit), Escape or the drag's leaving
+   * taking it out. No tool is ever left armed and nothing previews: what you see is the object itself.
    */
-  let dragPlaceKept: { mode: Mode; chosen: string | null; choice: typeof objectChoice } | null = null;
-  /**
-   * A prop brought in from the asset browser (the owner, 2026-11-17: "remove the place tool ... just drag asset in and use
-   * the move tool"): the real piece, made as the drag reaches the viewport (or at once for a tile's click), selected, and
-   * moved by the centre handle's own seat (`seatPiece`, its drag begun by `beginSeat`) wherever the pointer goes; the
-   * release keeps it (one Place step), Escape or the drag's leaving takes it out. `done`: the drag ended before the piece
-   * was made -- kept or taken out when it is.
-   */
-  type PropDrop = { asset: string; r: Object3D | null; before: string[]; ndc: Vector2; done: 'keep' | 'drop' | null };
-  let propDrop: PropDrop | null = null;
-  /** The prop's drop moved to `ndc`: seated on what is under it, past itself. */
+  type SpawnWhat = { prop: string } | { kind: SpawnKind };
+  /** A spawn made: its object and its record -- the person's edit (`record`, `payload`) and what is said once it is kept. */
+  type Spawned = {
+    r: Object3D; record: string; payload: Record<string, unknown>; said: () => string;
+    /** Its seat on what is under the pointer, when not the centre handle's (`seatPiece`): a bomb marker on the drawn top. */
+    seat?: (r: Object3D, hit: Intersection | null) => void;
+    /** Never moved by the pointer: a spectator view stands at the camera, looking as it looks. */
+    fixed?: true;
+    /** What keeping it also does: the bomb's earlier markers replaced, a switch linked to the gate nearest it. */
+    commit?: () => void;
+  };
+  type Drop = { what: SpawnWhat; s: Spawned | null; before: string[]; ndc: Vector2; seated: boolean; done: 'keep' | 'drop' | null };
+  let spawnDrop: Drop | null = null;
+  /** The objects that start square to the world (a plant site's outline lies square, `./siteOutlines`); the rest face the way you look. */
+  const SQUARE_SPAWNS: ReadonlySet<SpawnKind> = new Set(['door', 'gate', 'barrier', 'zone', 'point', 'flare', 'siteSeal', 'siteTerrorist']);
+  /** A spawn's first turn: the camera's facing (or square), on the turn step with the turn snap on. */
+  const spawnYaw = (kind: SpawnKind | null): number => {
+    const own = kind && SQUARE_SPAWNS.has(kind) ? 0 : facing();
+    return turnSnap ? snapYawRadians(own, turnStep) : own;
+  };
+  /** The object `what` stands for, made (not yet in the scene), or null -- refused, and said. */
+  const makeSpawn = async (what: SpawnWhat): Promise<Spawned | null> => {
+    const yawed = (r: Object3D, kind: SpawnKind | null): Object3D => { r.rotation.y = spawnYaw(kind); return r; };
+    if ('prop' in what) {
+      const asset = what.prop;
+      const r = await newPiece(asset);
+      if (!r) { say(`${asset} has no geometry to place`, true); return null; }
+      return { r: yawed(r, null), record: 'piece.place', payload: { asset }, said: () => `placed ${asset}`, commit: () => noteRecentProp(asset) };
+    }
+    const kind = what.kind;
+    switch (kind) {
+      case 'spawnA': case 'spawnB': {
+        const team = kind === 'spawnA' ? 'A' : 'B';
+        const r = yawed(spawnMarker(team), kind);
+        return { r, record: 'spawn.place', payload: { team }, said: () => `spawn ${r.userData['forgeSpawn'] as string} placed` };
+      }
+      case 'respawnA': case 'respawnB': {
+        const team = kind === 'respawnA' ? 'A' : 'B';
+        return { r: yawed(respawnMarker(team), kind), record: 'respawn.place', payload: { team }, said: () => `respawn point ${team} placed` };
+      }
+      case 'npc': {
+        if (!npcChoice) { showChars = true; drawAssets(); notifier.refused('choose a character under Characters first'); return null; }
+        const who = npcChoice;
+        return { r: yawed(newNpc(who.side, who.type), kind), record: 'npc.place', payload: { side: who.side, type: who.type }, said: () => `NPC placed: ${charLabel(who.side, who.type)}` };
+      }
+      case 'door': {
+        // A copy of a disc door (any game type): the palette's archive's first door, else Frostfire's bdoor_4 (`DEFAULT_DOOR`).
+        const which = await defaultDoor();
+        if (!which) { notifier.refused("No door to copy: the palette's archive has none, nor Frostfire (MP2) on this disc"); return null; }
+        const r = yawed(await newDoor(which.source, which.name), kind);
+        return { r, record: 'door.place', payload: {}, said: () => `${doorLabel(r)} placed: a copy of the disc's door` };
+      }
+      case 'switch': {
+        // A gate's switch, linked to the gate nearest where it is kept (the Inspector's Gate changes it): the disc's gates
+        // open only by their lever panels (research 174 s5). With no gate placed it runs nothing until the Inspector's Runs
+        // names a map action (or a gate placed later).
+        const look = objectChoice.switch;                      // the asset browser's tile (`chooseObject`)
+        const r = yawed(await newSwitch(null, null, look && look !== 'lever' ? { look } : {}), kind);
+        let near: Object3D | null = null, gates: Object3D[] = [];
+        return {
+          r, record: 'switch.place', payload: {},
+          commit: () => {
+            gates = gateRootsNow();
+            near = gates.length ? gates.reduce((a, b) => (a.position.distanceTo(r.position) <= b.position.distanceTo(r.position) ? a : b)) : null;
+            switchGate.set(r, near);
+          },
+          said: () => (near ? `Switch placed: it slides ${accessLabel(near)} (Gate ${gates.indexOf(near) + 1}); the Inspector's Runs changes it`
+            : "Switch placed: choose what it runs in the Inspector's Runs (a gate, or one of the map's own actions)"),
+        };
+      }
+      case 'gate': case 'barrier': {
+        // A copy of a disc map's access object (any game type): the palette archive's first of its kind, else Death Trap's
+        // or Vigilance's access1 (`DEFAULT_GATE`, `DEFAULT_BARRIER`).
+        const which = await defaultAccess(kind);
+        if (!which) { notifier.refused(kind === 'gate' ? 'No gate to copy: neither Death Trap (MP11) nor Enowapi (MP62) is on this disc' : "No C4 barrier to copy: the palette's archive has none, nor Vigilance (MP51) on this disc"); return null; }
+        const r = yawed(await newAccess(kind, which.source, which.name), kind);
+        return { r, record: kind === 'gate' ? 'gate.place' : 'barrier.place', payload: {},
+          said: () => `${accessLabel(r)} placed${kind === 'gate' ? ': C4 or an RPG wrecks it; place a Switch (Objects) to slide it' : ': C4 or an RPG wrecks it'}` };
+      }
+      case 'flare': {
+        // A copy of a disc glow (any game type): the palette's archive's first, else the base map's own (`defaultFlare`).
+        const which = await defaultFlare();
+        if (!which) { notifier.refused("No flare to copy: neither the palette's archive nor this base has a facade node"); return null; }
+        return { r: yawed(await newFlare(which.source, which.name), kind), record: 'flare.place', payload: { source: which.source, name: which.name },
+          said: () => `Flare ${which.name} placed: a copy of the disc's glow, turned to the camera` };
+      }
+      case 'ladder': {
+        // A disc ladder prop (any game type): the palette's archive's first, else Sandstorm's ladder35 (`DEFAULT_LADDER`);
+        // its climbing side read first, so the seat stands it against a wall (`dragWallPose`).
+        const asset = await defaultLadder();
+        if (!asset) { notifier.refused("No ladder to place: the palette's archive has no ladder prop, nor Sandstorm (MP73) on this disc"); return null; }
+        await ladderFrontOf(asset);
+        const r = await newPiece(asset);
+        if (!r) { say(`${asset} has no geometry to place`, true); return null; }
+        return { r: yawed(r, kind), record: 'piece.place', payload: { asset }, said: () => `Ladder ${parseAssetId(asset)?.model ?? asset} placed: a disc ladder prop, climbable in Play` };
+      }
+      case 'turret': {
+        // A copy of a disc turret (any game type): the palette's own archive's first, else Crossroads' RMG (`DEFAULT_TURRET`).
+        const which = await defaultTurret();
+        if (!which) { notifier.refused("No turret to copy: the palette's archive has none, nor Crossroads (MP72) on this disc"); return null; }
+        const r = yawed(await newTurret(which.source, which.name), kind);
+        return { r, record: 'turret.place', payload: {}, said: () => `${turretLabel(r)} placed: a copy of the disc's turret` };
+      }
+      case 'ambient': {
+        // An emitter (`./forgeObjects`): the chosen one -- a map's own program, or a sound or an effect.
+        const a = await defaultAmbient();
+        if (!a) { notifier.refused('No emitter to place: choose a map in the assets (Emitters tab) that has one'); return null; }
+        const r = yawed(newForgeObject({ kind, ...a }), kind);
+        return { r, record: 'object.place', payload: { kind }, said: () => `${objectLabel(r)} placed` };
+      }
+      case 'point': {
+        const r = yawed(newPoint(nextNavName(pointNamesTaken('point')), 1), kind);
+        return { r, record: 'point.place', payload: {}, said: () => `${pointNameOf(r)} placed: a tactical point, beside the map's own` };
+      }
+      case 'view': {
+        // A spectator view at the camera itself, looking as it looks (any game type).
+        const pose = fly.pose();
+        const r = newView(nextViewName(pointNamesTaken('view')), pose.yaw, pose.pitch);
+        r.position.set(pose.x, pose.y, pose.z);
+        return { r, record: 'view.place', payload: {}, fixed: true, said: () => `${pointNameOf(r)} placed: a spectator view, beside the map's own` };
+      }
+      case 'zone': {
+        // Placed extraction zones play in Escort and Extraction only (the owner, 2026-11-05): another type, the player is told.
+        if (authoredType !== 3 && authoredType !== 4) { notifier.refused('Safety zones play in Escort or Extraction: set the game type first (Map tab, Map Settings)'); return null; }
+        const r = yawed(newZone(nextSafetyName(zoneNamesTaken()), EXTRACTION_ZONE_SIZE, EXTRACTION_ZONE_SIZE), kind);
+        return { r, record: 'extraction.place', payload: {}, said: () => `${zoneNameOf(r)} placed: ${authoredType === 3 ? 'an escort' : 'an extraction'} zone, beside the map's own` };
+      }
+      case 'hostage': {
+        // Placed hostages play in Escort and Extraction only (the owner, 2026-11-05): another type, the player is told.
+        if (!hostagesPlayIn(authoredType ?? undefined)) { notifier.refused('Hostages play in Escort or Extraction: set the game type first (Map tab, Map Settings)'); return null; }
+        const r = yawed(hostageMarker(), kind);
+        // The disc's pattern, Hostage1...; on a base with no hostage of its own, the default character lent (`hostageDefault`).
+        const homeChars = ((baseMap ?? charMap)?.escortees ?? []).map((e) => e.character);
+        r.userData['forgeHostage'] = { name: nextHostageName(hostageNamesTaken()), ...hostageDefault(homeChars, (stem) => absent.has(stem)) };
+        return { r, record: 'hostage.place', payload: {}, said: () => `${hostageOf(r).name ?? 'Hostage'} placed, beside the map's own` };
+      }
+      case 'bomb': case 'siteSeal': case 'siteTerrorist': {
+        const bk: BombMarkerKind = kind === 'bomb' ? 'start' : kind === 'siteSeal' ? 'seal' : 'terrorist';
+        // The bomb and its sites play in Demolition, the start and the SEALs' site in Breach too (the owner, 2026-11-05/06;
+        // `./objectives` `bombMarkerPlaysIn`, the agent's `bomb.place` alike): another type, the player is told to change it.
+        if (!bombMarkerPlaysIn(bk, authoredType)) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return null; }
+        // One start, and one site a planting team: keeping a new one replaces every marker of its kind (a file may name two).
+        // A lock means "don't change this" (the merge controller's call, 2026-10-22): never a silent removal.
+        if (roots.some((x) => bombKindOf(x) === bk && lockedOf(x))) { notifier.refused(`the locked ${bk === 'start' ? 'start' : 'site'} stays: unlock it first`); return null; }
+        const r = yawed(bombMarker(bk), kind);
+        addSiteGuide(r);
+        let replaced = 0;
+        return {
+          r, record: 'bomb.place', payload: { kind: bk },
+          seat: (o, hit) => { seatOn(o, onDrawnTop(placeAt(hit), hit)); },
+          commit: () => { const prevs = roots.filter((x) => x !== r && bombKindOf(x) === bk); replaced = prevs.length; for (const x of prevs) removeRoot(x); },
+          said: () => `${bombLabel(bk)} placed${replaced > 1 ? ` · the ${replaced} earlier ones replaced` : ''}`,
+        };
+      }
+    }
+  };
+  /** The spawn's drop moved to `ndc`: seated on what is under it, past itself (the sky: in front of the camera, once). */
   const dropMove = (ndc: Vector2): void => {
-    const d = propDrop;
+    const d = spawnDrop;
     if (!d) return;
     d.ndc.copy(ndc);
-    if (!d.r) return;
-    const hit = dragSurface(ndc, [d.r]);
-    if (!hit) return;
-    seatPiece(d.r, hit);
+    const s = d.s;
+    if (!s || s.fixed) return;
+    const hit = dragSurface(ndc, [s.r]);
+    if (!hit) {
+      if (!d.seated) { seatOn(s.r, placeAt(null)); d.seated = true; refreshBox(); }
+      return;
+    }
+    if (s.seat) s.seat(s.r, hit); else seatPiece(s.r, hit);
+    d.seated = true;
     refreshBox();
   };
-  /** A prop's drop begun at `ndc` (its piece made, then seated there); false: refused (Play, a held layout). */
-  const dropStart = (asset: string, ndc: Vector2): boolean => {
-    if (propDrop || playing || editsLocked() || refuseEdit()) return false;
-    const d: PropDrop = { asset, r: null, before: selectionIds(), ndc: ndc.clone(), done: null };
-    propDrop = d;
-    setMode('select');
-    void newPiece(asset).then((r) => {
-      if (!r) { say(`${asset} has no geometry to place`, true); if (propDrop === d) propDrop = null; return; }
-      if (d.done === 'drop' || (propDrop !== d && d.done === null)) { if (r.userData['dispose']) (r.userData['dispose'] as () => void)(); return; }
-      r.rotation.y = placementYaw();
-      addRoot(r);
-      select(r);
-      d.r = r;
-      beginSeat(r);
-      const ndcNow = d.ndc.clone();
-      propDrop = d;
-      dropMove(ndcNow);
-      if (d.done === 'keep') { propDrop = d; dropEnd(true); }
-    }, (e: unknown) => { say(String(e), true); if (propDrop === d) propDrop = null; });
+  /** A spawn begun at `ndc` (its object made, then seated there); false: refused (Play, a held layout, a tool its game type does not play). */
+  const dropStart = (what: SpawnWhat, ndc: Vector2): boolean => {
+    if (spawnDrop || playing || editsLocked() || refuseEdit()) return false;
+    if ('kind' in what) {
+      // An object its game type does not play (`refreshModeTools`): refused, and said.
+      const b = modeBtns[what.kind];
+      if (b.disabled && b.dataset['forgeModeOff'] === 'true') {
+        const types = MODE_TOOL_TYPES[what.kind];
+        notifier.refused(types ? modeToolWhy(types) : 'This object is off for this game type');
+        return false;
+      }
+    }
+    const d: Drop = { what, s: null, before: selectionIds(), ndc: ndc.clone(), seated: false, done: null };
+    spawnDrop = d;
+    void makeSpawn(what).then((s) => {
+      if (!s) { if (spawnDrop === d) spawnDrop = null; return; }
+      if (d.done === 'drop' || (spawnDrop !== d && d.done === null)) { if (s.r.userData['dispose']) (s.r.userData['dispose'] as () => void)(); return; }
+      addRoot(s.r);
+      select(s.r);
+      d.s = s;
+      beginSeat(s.r);
+      spawnDrop = d;
+      dropMove(d.ndc.clone());
+      if (d.done === 'keep') dropEnd(true);
+    }, (e: unknown) => { say(String(e), true); if (spawnDrop === d) spawnDrop = null; });
     return true;
   };
-  /** The prop's drop ended: kept (`keep`: one Place step, it selected) or taken out. */
+  /** The spawn's drop ended: kept (`keep`: one edit, it selected) or taken out. */
   const dropEnd = (keep: boolean): void => {
-    const d = propDrop;
-    propDrop = null;
+    const d = spawnDrop;
+    spawnDrop = null;
     if (!d) return;
-    if (!d.r) { d.done = keep ? 'keep' : 'drop'; return; }   // still being made: settled when it is
-    const r = d.r;
+    if (!d.s) { d.done = keep ? 'keep' : 'drop'; return; }   // still being made: settled when it is
+    const { r } = d.s, s = d.s;
     endSeat(r);
     if (!keep) { removeRoot(r); select(null); refreshBox(); return; }
-    const kept = personEdit('piece.place', { asset: d.asset }, (step) => {
-      noteRecentProp(d.asset);
+    const kept = personEdit(s.record, s.payload, (step) => {
+      s.commit?.();
       select(r);
-      say(`placed ${d.asset}`);
+      say(s.said());
       edit(d.before, step);
     }, true);
     if (!kept) { removeRoot(r); select(null); refreshBox(); }
   };
-  /** A tile's click (the pad's pick, the agent's choose): the prop placed on the surface at the view's centre, selected. */
-  const placePropAtCentre = (asset: string): void => {
-    if (dropStart(asset, new Vector2(0, 0))) dropEnd(true);
+  /** Spawned at the view's centre and kept at once: a tile's click, a button's, a key's. */
+  const spawnAtCentre = (what: SpawnWhat): void => {
+    if (dropStart(what, new Vector2(0, 0))) dropEnd(true);
   };
-  const dragPlaceEnter = (asset: string): boolean => {
-    if (playing || editsLocked() || showChars) return false;
+  /** A prop tile's click (the pad's pick, the agent's choose): the prop spawned at the view's centre, selected. */
+  const placePropAtCentre = (asset: string): void => spawnAtCentre({ prop: asset });
+  /** An asset's object (or a prop) as a spawn: an object tile's choice taken up (`objectChoice`), the ladders' tab's prop a ladder. */
+  const spawnOfAsset = (asset: string): SpawnWhat => {
     const o = parseObjectAsset(asset);
-    if (!o && objectTab !== 'ladder') return dropStart(asset, lastNdc);   // a prop: the real piece, moved as the centre handle moves it
-    const kept = dragPlaceKept ?? { mode, chosen, choice: { ...objectChoice } };
     if (o) {
       if (o.kind === 'switch') objectChoice.switch = o.name as SwitchLookId;
       else objectChoice[o.kind] = { source: o.source, name: o.name };
-      setMode(o.kind);
-    } else { objectChoice.ladder = asset; setMode('ladder'); }
-    if (mode === 'select') return false;                     // the tool refused (its game type's off)
-    dragPlaceKept = kept;
-    return true;
+      return { kind: o.kind };
+    }
+    if (objectTab === 'ladder') { objectChoice.ladder = asset; return { kind: 'ladder' }; }
+    return { prop: asset };
   };
-  /** A drag over the viewport moved to `ndc`: the prop's drop, else the object tool's ghost. */
-  const dragPlaceOver = (ndc: Vector2): void => { lastNdc = ndc; if (propDrop) dropMove(ndc); else moveGhost(ndc); };
-  /** A drag let go over the viewport at `ndc`: the prop kept, else the object tool's click; false: nothing was placing. */
+  /** A drag from the asset browser reaching the viewport: its spawn begun at the pointer. False: not here (Play, a held layout, the characters). */
+  const dragPlaceEnter = (asset: string): boolean => {
+    if (playing || editsLocked() || showChars) return false;
+    return dropStart(spawnOfAsset(asset), lastNdc);
+  };
+  /** A drag over the viewport moved to `ndc`: the spawn moved with it. */
+  const dragPlaceOver = (ndc: Vector2): void => { lastNdc = ndc; dropMove(ndc); };
+  /** A drag let go over the viewport at `ndc`: the spawn kept there; false: nothing was being spawned. */
   const dragPlaceDrop = (ndc: Vector2): boolean => {
     lastNdc = ndc;
-    if (propDrop) { dropMove(ndc); dropEnd(true); return true; }
-    const was = mode;
-    if (was !== 'select') act(ndc);
-    dragPlaceLeave();
-    return was !== 'select';
+    if (!spawnDrop) return false;
+    dropMove(ndc);
+    dropEnd(true);
+    return true;
   };
-  const dragPlaceLeave = (): void => {
-    if (propDrop) dropEnd(false);                               // a prop's drop taken out (left, or Escape)
-    const k = dragPlaceKept;
-    if (!k) return;
-    dragPlaceKept = null;
-    for (const key of Object.keys(objectChoice) as (keyof typeof objectChoice)[]) delete objectChoice[key];
-    Object.assign(objectChoice, k.choice);
-    chosen = k.chosen;
-    setMode(k.mode);
-  };
+  /** A drag that left the viewport (or Escape): its spawn taken out. */
+  const dragPlaceLeave = (): void => { if (spawnDrop) dropEnd(false); };
   /**
    * The asset tiles' own drag (the owner, 2026-11-14: "drag and drop still feels janky and slow"; a browser adaptation,
    * FG.R2): the pointer's, never the browser's -- a native drag runs in the system's drag loop (Windows': its frames and
-   * its events throttled), so a tile is dragged by its pointer moves as the Place tool's ghost follows any move. Over the
-   * viewport the asset is the Place tool's (`dragPlaceEnter`: its ghost, moved by the viewport's own pointermove) and a
-   * release places as a click does; over an Outliner row or an Inspector row with a drop, a release drops it there
+   * its events throttled), so a tile is dragged by its pointer moves. Over the viewport the asset spawns at once
+   * (`dragPlaceEnter`: the object itself, moved by the pointer as the centre handle moves it) and a release keeps it; over an Outliner row or an Inspector row with a drop, a release drops it there
    * (`tileDragAsset`); anywhere else, or Escape, nothing. The Characters' tiles keep the browser's drag.
    */
   let tileDrag: { asset: string; pointerId: number; x: number; y: number; started: boolean; overView: boolean } | null = null;
@@ -11430,7 +11508,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const TILE_DRAG_PX = 6;
   /** The asset a tile's drag carries now (started), or null. */
   const tileDragAsset = (): string | null => (tileDrag?.started ? tileDrag.asset : null);
-  /** Its chip by the pointer (the asset's name) while it is off the viewport (over it, the Place tool's ghost shows). */
+  /** Its chip by the pointer (the asset's name) while it is off the viewport (over it, the spawned object itself shows). */
   const tileDragChip = el(doc, 'div', 'fx-tile-drag-chip');
   tileDragChip.hidden = true;
   tileDragChip.setAttribute('aria-hidden', 'true');
@@ -11483,7 +11561,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       tileDragChip.textContent = d.asset.slice(d.asset.indexOf(':') + 1).replace(/^=(sound|effect):/, '');
     }
     const over = overViewport(e.target);
-    // A texture: no Place tool, the chip by the pointer the whole way (the face it lands on lit by the editor's hover).
+    // A texture: nothing spawns, the chip by the pointer the whole way (the face it lands on lit by the editor's hover).
     if (parseTextureAsset(d.asset)) {
       // Over a prop or a placed object, the chip says the drop is refused (the owner, 2026-11-16: "let the user know
       // this cannot be done"); over the geometry, or off the viewport, the texture's name.
@@ -11498,8 +11576,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (over) { lastNdc = ndcAtClient(e.clientX, e.clientY); d.overView = dragPlaceEnter(d.asset); }
       else { d.overView = false; dragPlaceLeave(); }
     }
-    if (d.overView && propDrop) dropMove(ndcAtClient(e.clientX, e.clientY));   // a prop: moved as the centre handle moves it
-    // The chip off the viewport (the ghost on it); the viewport's own pointermove moves the ghost.
+    if (d.overView) dropMove(ndcAtClient(e.clientX, e.clientY));   // the spawn moved as the centre handle moves it
+    // The chip off the viewport (the spawn itself on it).
     tileDragChip.hidden = d.overView;
     if (!d.overView) { tileDragChip.style.left = `${e.clientX + 14}px`; tileDragChip.style.top = `${e.clientY + 10}px`; }
   }, true);
@@ -11521,7 +11599,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     endTileDrag();
   }, true);
   /**
-   * A tile's drag let go on the Outliner: placed at the view's centre as the Place tool places there, then put before,
+   * A tile's drag let go on the Outliner: spawned at the view's centre as a click spawns it, then put before,
    * after or inside `target` (null: left at the top's end) once it is in.
    */
   const dropTileInOutline = (asset: string, target: Object3D | null, where: 'before' | 'after' | 'inside' | 'top'): void => {
@@ -11544,13 +11622,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const r = input.getBoundingClientRect();
     return new Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
   };
-  /** FUI-22 review F1 (all routes): a newly chosen asset arrives unturned (the wheel's turn belongs to the prop it turned); the same asset keeps it. */
-  const newAssetChosen = (asset: string): void => {
-    if (chosen !== asset) { queuedTurn = 0; wheelTravel = 0; }
-  };
   /** R6: a prop tile's click (the assets list's): the prop placed at the view's centre, selected (`placePropAtCentre`). */
   const choosePaletteRow = (asset: string): void => {
-    newAssetChosen(asset);
     // FUI-22 review F2: the list is redrawn, so a pick made from a tile's button hands focus to the redrawn one.
     const refocus = !!doc.activeElement && list.contains(doc.activeElement) && !!doc.activeElement.closest('.fx-asset-pick');
     chosen = asset; drawAssets(); placePropAtCentre(asset);
@@ -11558,24 +11631,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       for (const li of Array.from(list.children) as HTMLElement[]) if (li.dataset['asset'] === asset) li.querySelector<HTMLElement>('.fx-asset-pick')?.focus();
     }
     assetTiles?.activate(asset);                                 // FUI-22 (D1): the picked asset's tooltip at once
-  };
-  /** FUI-22 (D4): Escape with a prop queued -- the queue cancelled (the Select tool, nothing chosen), the selection kept. */
-  const cancelQueued = (): void => {
-    if (entityTool !== null) { const kind = entityTool; endEntityPlace(); say(`${kind}: placement cancelled`); return; }   // FCW-32 step 4
-    // An object's placing ended.
-    const was = mode === 'select' ? null : TOOL_NAMES[mode];
-    queuedTurn = 0; wheelTravel = 0;
-    assetTiles?.tooltip.hide();
-    setMode('select');
-    drawAssets();
-    say(was ? `${was}: placement cancelled` : 'placement cancelled');
-  };
-  /** FUI-22 (D4): the queued prop turned by `deg` (a wheel notch is one turn step), the ghost with it, the turn said. */
-  const turnQueued = (deg: number): void => {
-    queuedTurn = (((queuedTurn + deg) % 360) + 360) % 360;
-    moveGhost(lastNdc);
-    const shown = queuedTurn > 180 ? queuedTurn - 360 : queuedTurn;
-    say(`placing ${TOOL_NAMES[mode]} · turned ${shown}° · the wheel turns it ${turnStep}°`);
   };
   /**
    * An ambient effect's sounds previewed (the owner, 2026-11-10: "allow me to play them in the asset browser"; `./previewAssets`):
@@ -12012,7 +12067,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!got) return null;
     return got.map(([name, label]) => ({ id: kind === 'ladder' ? assetId(stem, name) : objectAssetId(kind, stem, name), name: name.trim(), meta: label.split(' \u00b7 ').slice(1).join(' \u00b7 ') || stem }));
   };
-  /** An object tile's click: that object the Place tool's (`objectChoice`), the tool on its kind. */
+  /** An object tile's click: that object chosen (`objectChoice`) and spawned at the view's centre (`spawnAtCentre`). */
   const chooseObject = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): void => {
     if (kind === 'texture') { void chooseTexture(id); return; }
     if (kind === 'ladder') objectChoice.ladder = id;
@@ -12022,21 +12077,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (o.kind === 'switch') objectChoice.switch = o.name as SwitchLookId;
       else objectChoice[o.kind] = { source: o.source, name: o.name };
     }
-    queuedTurn = 0; wheelTravel = 0;
-    setMode(kind === 'sound' || kind === 'effect' ? 'ambient' : kind);   // a sound or an effect is placed as an effect object (`scriptObjectData`)
-    syncGhost();
-    drawAssets();
+    // Spawned at the view's centre, as a prop's tile spawns its prop (`spawnAtCentre`); a sound or an effect is placed as
+    // an effect object (`scriptObjectData`).
+    spawnAtCentre({ kind: kind === 'sound' || kind === 'effect' ? 'ambient' : kind });
     assetTiles?.activate(id);
-    say(`placing ${OBJECT_TABS.find(([k]) => k === kind)?.[1] ?? kind}: ${id.slice(id.indexOf(':') + 1)}`);
   };
-  /** Whether an object tile is the one the Place tool places now. */
+  /** Whether an object tile is lit as chosen: a texture, the one Geometry mode lays (an object spawns at once, nothing stays chosen). */
   const objectChosen = (kind: Exclude<ObjectTab, 'props' | 'characters'>, id: string): boolean => {
     if (kind === 'texture') { const t = parseTextureAsset(id); return !!t && !!geometry?.isActive() && geometry.currentTexture() === t.name.toLowerCase(); }
-    if (mode !== (kind === 'sound' || kind === 'effect' ? 'ambient' : kind)) return false;
-    if (kind === 'ladder') return objectChoice.ladder === id;
-    const o = parseObjectAsset(id);
-    const c = o ? (o.kind === 'switch' ? objectChoice.switch ?? 'lever' : objectChoice[o.kind]) : undefined;
-    return !!o && (typeof c === 'string' ? c === o.name : !!c && c.source === o.source && c.name === o.name);
+    return false;
   };
   /**
    * The texture a Textures tile names, for Geometry mode's Texture (Apply, a new shape): the base map's own where it holds
@@ -13581,6 +13630,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         return { polys: polys.length, skipped: polys.filter((p) => (p.cameratype & 1) === 1).length, climb: polys.filter((p) => (p.appflags ?? 0) !== 0).length, tops };
       },
       base: () => base?.kind ?? null,
+      /** The match's hostage starts as Play composes them, each with the AI cell height under it (a test's: where they stand). */
+      escortees: async () => {
+        const r = await composeForMatch(false);
+        const m = r?.map;
+        if (!m) return null;
+        const ai = (m as { ai?: AiMaps }).ai;
+        return ((m as { escortees?: { name: string; at: number[]; loc: AiLoc }[] }).escortees ?? []).map((e) => {
+          const sub = ai?.maps[e.loc.map];
+          const i = sub ? aiCellIndex(sub, e.loc.x, e.loc.z) : -1;
+          return { name: e.name, at: e.at, cellY: sub && i >= 0 ? aiCellY(sub, sub.cells[i]!) : null };
+        });
+      },
       /** AI Navigation mode: on, its brush, the cells the layout paints, the overlay's counts by kind. */
       nav: () => ({ on: navOn, painting: aiPaint.painting(), painted: aiSoil.size, counts: Object.fromEntries(aiMapOverlay?.counts ?? []), aimap: view.aimap }),
       /** The AI cell under page point (x, y) on the viewport, as the brush finds it, with its soil as the layout has it. */
@@ -13843,134 +13904,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     ladderFronts.set(asset, front);
     return front;
   };
-  /**
-   * `o` mounted on the wall under the cursor when the tool places on walls -- a prop (Place, and a prop re-placed), a
-   * switch, a ladder -- and the cursor is on one: turned as the wall faces (its front out: +Z, a ladder its climbing
-   * side), its back on the wall; a ladder standing on the floor below, the rest at the cursor's height. False (nothing
-   * moved) on a floor, where placing is as before. The wheel's turn and snap are the floor's; a wall sets the turn.
-   */
-  const wallPose = (o: Object3D, hit: Intersection | null, asset?: string): boolean => {
-    const onWalls = mode === 'switch' || mode === 'ladder';
-    const w = onWalls ? wallOf(hit) : null;
-    if (!w) return false;
-    const ladder = asset ? ladderFronts.get(asset) ?? null : null;
-    const probe = (x: number, z: number): number[] => (placementGrid ? surfaceYs(placementGrid, x, z) : []);
-    mountOnWall(o, w.point, w.normal, ladder ?? [0, 1], ladder || mode === 'ladder' ? 'stand' : 'mount',
-      (x, z, y) => restingPoint({ x, y, z }, probe, null).y);
-    return true;
-  };
   /** The cursor's last place, in normalized device coordinates: a paste lands there. The centre until the pointer moves. */
   let lastNdc = new Vector2(0, 0);
-  let ghost: Object3D | null = null;
-  let ghostAsset: string | null = null;
-  let ghostToken = 0;
-  const clearGhost = (): void => {
-    if (ghost) { scene.remove(ghost); disposeGhost(ghost); ghost = null; }
-    ghostAsset = null;
-    delete input.dataset['ghost'];
-  };
-  const moveGhost = (ndc: Vector2): void => {
-    if (!ghost) return;
-    const struck = placePick(ndc);
-    const at = mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist' ? onDrawnTop(placeAt(struck), struck) : placeAt(struck);
-    const ghostPiece = mode === 'ladder' && ghostAsset?.startsWith('ladder:') ? ghostAsset.slice(7) : undefined;
-    if (!wallPose(ghost, struck, ghostPiece)) {
-      ghost.rotation.y = ghostYaw();
-      seatOn(ghost, at);
-    }
-    ghost.visible = true;
-    paintGhost(ghost, shellState().canPlace);                     // R3-B: a staged drop's ghost takes the same tint
-    ghostOverWorkplane(ghost, struck?.object === mapGrid.group);   // seated on the workplane: over its grid; else depth decides
-  };
-  /**
-   * Every placing tool but Select (the owner, 2026-11-06): a click places, a drag moves the selection's gizmo, as the
-   * Place tool's; and it previews what it places under the cursor (`syncGhost`).
-   */
-  function placingTool(): boolean { return mode !== 'select'; }
-  /** The ghost's turn: the Place tool's wheel; the tools that face the camera's way, that; a door, a zone, a point none. */
-  function ghostYaw(): number {
-    // A plant site starts square (the owner, 2026-11-06): its outline then lies square to the world (`./siteOutlines`).
-    const own = mode === 'door' || mode === 'gate' || mode === 'barrier' || mode === 'zone' || mode === 'point' || mode === 'flare'
-      || mode === 'siteSeal' || mode === 'siteTerrorist' ? 0 : facing();
-    // The Place settings, a prop's alike (`placementYaw`): the turn on the turn step with the turn snap on, the wheel's on top.
-    return (turnSnap ? snapYawRadians(own, turnStep) : own) + (wheelTurns(mode) ? (queuedTurn * Math.PI) / 180 : 0);
-  }
-  /**
-   * What a placing tool other than Place would place, built as it builds it (its marker, or its disc model), and the key
-   * it is known by -- the ghost rebuilt only when that changes; null for a tool with nothing to preview (a view: placed
-   * at the camera).
-   */
-  async function toolGhostSource(): Promise<{ key: string; source: Object3D } | null> {
-    switch (mode) {
-      case 'spawnA': case 'spawnB': return { key: mode, source: spawnMarker(mode === 'spawnA' ? 'A' : 'B') };
-      case 'respawnA': case 'respawnB': return { key: mode, source: respawnMarker(mode === 'respawnA' ? 'A' : 'B') };
-      case 'npc': return npcChoice ? { key: `npc:${npcChoice.side}:${npcChoice.type}`, source: newNpc(npcChoice.side, npcChoice.type) } : null;
-      case 'hostage': return { key: 'hostage', source: hostageMarker() };
-      case 'zone': return { key: 'zone', source: newZone('Safety', EXTRACTION_ZONE_SIZE, EXTRACTION_ZONE_SIZE) };
-      case 'point': return { key: 'point', source: newPoint('Point', 1) };
-      case 'ambient': { const a = await defaultAmbient(); return a ? { key: `ambient:${a.source}:${a.name}`, source: newForgeObject({ kind: 'ambient', ...a }) } : null; }
-      case 'bomb': case 'siteSeal': case 'siteTerrorist':
-        return { key: mode, source: bombMarker(mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist') };
-      case 'door': { const d = await defaultDoor(); return d ? { key: `door:${d.source}:${d.name}`, source: await newDoor(d.source, d.name) } : null; }
-      case 'turret': { const t = await defaultTurret(); return t ? { key: `turret:${t.source}:${t.name}`, source: await newTurret(t.source, t.name) } : null; }
-      case 'switch': { const look = objectChoice.switch; return { key: `switch:${look ?? 'lever'}`, source: await newSwitch(null, null, look && look !== 'lever' ? { look } : {}) }; }
-      case 'gate': case 'barrier': { const k = mode; const a = await defaultAccess(k); return a ? { key: `${k}:${a.source}:${a.name}`, source: await newAccess(k, a.source, a.name) } : null; }
-      case 'ladder': { const a = await defaultLadder(); if (a) await ladderFrontOf(a); const r = a ? await newPiece(a) : null; return a && r ? { key: `ladder:${a}`, source: r } : null; }
-      case 'flare': { const f = await defaultFlare(); return f ? { key: `flare:${f.source}:${f.name}`, source: await newFlare(f.source, f.name) } : null; }
-      default: return null;
-    }
-  }
-  /** FG-5: the chosen prop, translucent, on the hull under the cursor; every other placing tool's placement alike. */
-  const syncGhost = (): void => {
-    const token = ++ghostToken;
-    if (mode !== 'select' && !playing) {
-      const was = mode;
-      void toolGhostSource().then((made) => {
-        if (token !== ghostToken || mode !== was) return;
-        if (!made) { clearGhost(); return; }
-        if (ghost && ghostAsset === made.key) { moveGhost(lastNdc); input.dataset['ghost'] = mode; return; }
-        if (ghost) { scene.remove(ghost); disposeGhost(ghost); }
-        ghost = ghostOf(made.source);
-        // A flare's glow turned to the camera (`turnPlacedFlares`); a marker drawn by its billboard alone, that icon.
-        const facade = (made.source.userData['forgeFlare'] as { facade?: number } | undefined)?.facade;
-        if (facade) ghost.userData['ghostFacade'] = facade;
-        const iconKind = GHOST_ICON_KINDS[mode];
-        if (iconKind && MAP_DATA_MARKS[iconKind]) ghost.add(ghostIcon(MAP_DATA_MARKS[iconKind]!));
-        ghostAsset = made.key;
-        scene.add(ghost);
-        moveGhost(lastNdc);
-        input.dataset['ghost'] = mode;
-      }, () => { if (token === ghostToken) clearGhost(); });
-      return;
-    }
-    clearGhost();
-  };
   /** Turned to face away from the camera, so a piece or a marker is placed as the builder looks. */
   const facing = (): number => { const d = fly.viewportCamera().getWorldDirection(new Vector3()); return Math.atan2(-d.x, -d.z); };
   /** The placement's turn as the pad's ghost takes it: the facing, on the turn step when snap is on (R3-B: a drop's too). */
   const placementYaw = (): number => (turnSnap ? snapYawRadians(facing(), turnStep) : facing());
   /**
-   * FCW-32 step 4 (FUI.R23 D4; a browser adaptation): the place mode for a rules entity (the Rules panel's Place rows, the
-   * START menu's) -- the Select tool's next click on the world, or Cross at the centre, places it there as the planner's
-   * `zone.place` / `marker.place` / `spawner.place` through the person's facade, its id the first `<kind><n>` free.
+   * FCW-32 step 4 (FUI.R23 D4; a browser adaptation): a rules entity spawned (the Rules panel's Place rows, the START
+   * menu's) at the view's centre as the planner's `zone.place` / `marker.place` / `spawner.place` through the person's
+   * facade, its id the first `<kind><n>` free.
    */
   const startEntityPlace = (kind: RulesEntityKind): void => {
     if (refuseEdit()) return;
-    setMode('select');
-    entityTool = kind;
-    input.classList.add('is-placing');
-    refreshHint();
-    rulesChanged();
-    say(`placing a ${kind}: click the world, or Cross at the centre · Esc cancels`);
-  };
-  const endEntityPlace = (): void => {
-    entityTool = null;
-    input.classList.toggle('is-placing', mode !== 'select');
-    refreshHint();
-    rulesChanged();
+    // Spawned at once on what is at the view's centre, as every object is (`spawnAtCentre`): no place mode.
+    placeEntity(kind, placeAt(placePick(new Vector2(0, 0))));
   };
   const placeEntity = (kind: RulesEntityKind, p: Vector3): void => {
-    endEntityPlace();
     const l = layoutNow(false);
     const used = l ? [...l.pieces.map((x) => x.id), ...l.spawns.map((x) => x.id), ...(l.npcs ?? []).map((x) => x.id), l.ids?.bomb, ...(l.ids?.sites ?? []),
       ...rulesEntityRefs().map((e) => e.ref.slice(e.ref.indexOf(':') + 1))].filter((x): x is string => typeof x === 'string') : [];
@@ -14098,262 +14048,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const act = (ndc: Vector2, how: SelectOp | boolean = 'only'): void => {
     // A click's way with the selection (the owner, 2026-11-16): alone, Shift's added, Ctrl's in or out (`true`: Ctrl's).
     const op: SelectOp = how === true ? 'toggle' : how === false ? 'only' : how;
-    const toggle = op !== 'only';
     if (busy) return;
     const surfaceHit = pick(ndc);
-    agentPointHook?.(surfaceHit ? [surfaceHit.point.x, surfaceHit.point.y, surfaceHit.point.z] : null);
-    // What a placement is seated on (Snap to Workplane: the workplane; `placePick`).
-    const hit = workplaneSnapOn() && mode !== 'select' ? placePick(ndc) : surfaceHit;   // AX-13: the agent's forge.focus reads this pick
-    if (entityTool !== null && !toggle) { placeEntity(entityTool, placeAt(hit)); return; }   // FCW-32 step 4 (D4)
-    if (mode === 'select' || toggle) {
-      // What is under the click (`selectTargetAt`), taken as `op` says; nothing there, a plain click lets the selection go.
-      const t = selectTargetAt(ndc);
-      if (!t) { if (op === 'only') select(null); return; }
-      applySelect(t, op);
-      return;
-    }
-    if (refuseEdit()) return;                                 // FG-26: placing is an edit
-    const at = placeAt(hit);
-    if (mode === 'spawnA' || mode === 'spawnB') {
-      const team = mode === 'spawnA' ? 'A' : 'B';
-      personEdit('spawn.place', { team }, () => {
-        const before = selectionIds();
-        const r = spawnMarker(team);
-        r.rotation.y = ghostYaw();
-        seatOn(r, at);
-        addRoot(r);
-        select(r);
-        say(`spawn ${r.userData['forgeSpawn'] as string} placed`);
-        edit(before);
-      }, true);
-      return;
-    }
-    if (mode === 'respawnA' || mode === 'respawnB') {
-      const team = mode === 'respawnA' ? 'A' : 'B';
-      personEdit('respawn.place', { team }, () => {
-        const before = selectionIds();
-        const r = respawnMarker(team);
-        r.rotation.y = ghostYaw();
-        seatOn(r, at);
-        addRoot(r);
-        select(r);
-        say(`respawn point ${team} placed`);
-        edit(before);
-      }, true);
-      return;
-    }
-    if (mode === 'npc') {
-      if (!npcChoice) { showChars = true; drawAssets(); notifier.refused('choose a character under Characters first'); return; }
-      const who = npcChoice;
-      personEdit('npc.place', { side: who.side, type: who.type }, () => {
-        const before = selectionIds();
-        const r = newNpc(who.side, who.type);
-        r.rotation.y = ghostYaw();
-        seatOn(r, at);
-        addRoot(r);
-        select(r);
-        say(`NPC placed: ${charLabel(who.side, who.type)}`);
-        edit(before);
-      }, true);
-      return;
-    }
-    if (mode === 'door') {
-      // A copy of a disc door, its hinge at the click, in its own turn (any game type): the palette's archive's first
-      // door, else Frostfire's bdoor_4 (`DEFAULT_DOOR`); the Inspector's Model changes it, the rotate gizmo turns it.
-      const yaw = ghostYaw();
-      void defaultDoor().then((which) => {
-        if (!which) { notifier.refused("No door to copy: the palette's archive has none, nor Frostfire (MP2) on this disc"); return; }
-        personEdit('door.place', {}, (step) => void newDoor(which.source, which.name).then((r) => {
-          const before = selectionIds();
-          r.rotation.y = yaw;
-          seatOn(r, at);
-          addRoot(r);
-          select(r);
-          say(`${doorLabel(r)} placed: a copy of the disc's door`);
-          edit(before, step);
-        }), true);
-      });
-      return;
-    }
-    if (mode === 'switch') {
-      // A gate's switch at the click, linked to the nearest placed gate (the Inspector's Gate changes it): the disc's
-      // gates open only by their lever panels (research 174 s5), so a switch needs a gate to drive.
-      // With no gate placed it runs nothing until the Inspector's Runs names a map action (or a gate placed later).
-      const gates = gateRootsNow();
-      const near = gates.length ? gates.reduce((a, b) => (a.position.distanceTo(at) <= b.position.distanceTo(at) ? a : b)) : null;
-      const yaw = ghostYaw();
-      const look = objectChoice.switch;                        // the asset browser's tile (`chooseObject`)
-      personEdit('switch.place', {}, (step) => void newSwitch(near, null, look && look !== 'lever' ? { look } : {}).then((r) => {
-        const before = selectionIds();
-        if (!wallPose(r, hit)) { r.rotation.y = yaw; seatOn(r, at); }   // on a wall, as the wall faces
-        addRoot(r);
-        select(r);
-        say(near ? `Switch placed: it slides ${accessLabel(near)} (Gate ${gates.indexOf(near) + 1}); the Inspector's Runs changes it`
-          : "Switch placed: choose what it runs in the Inspector's Runs (a gate, or one of the map's own actions)");
-        edit(before, step);
-      }), true);
-      return;
-    }
-    if (mode === 'gate' || mode === 'barrier') {
-      // A copy of a disc map's access object at the click (any game type): the palette archive's first of its kind, else
-      // Death Trap's or Vigilance's access1 (`DEFAULT_GATE`, `DEFAULT_BARRIER`); the Inspector's Map changes it.
-      const kind = mode;
-      const yaw = ghostYaw();
-      void defaultAccess(kind).then((which) => {
-        if (!which) { notifier.refused(kind === 'gate' ? 'No gate to copy: neither Death Trap (MP11) nor Enowapi (MP62) is on this disc' : "No C4 barrier to copy: the palette's archive has none, nor Vigilance (MP51) on this disc"); return; }
-        personEdit(kind === 'gate' ? 'gate.place' : 'barrier.place', {}, (step) => void newAccess(kind, which.source, which.name).then((r) => {
-          const before = selectionIds();
-          r.rotation.y = yaw;
-          seatOn(r, at);
-          addRoot(r);
-          select(r);
-          say(`${accessLabel(r)} placed${kind === 'gate' ? ': C4 or an RPG wrecks it; place a Switch (Objects) to slide it' : ': C4 or an RPG wrecks it'}`);
-          edit(before, step);
-        }), true);
-      });
-      return;
-    }
-    if (mode === 'flare') {
-      // A copy of a disc glow at the click (any game type): the palette's archive's first, else the base map's own
-      // (`defaultFlare`); the Inspector's Map and Flare change it.
-      void defaultFlare().then((which) => {
-        if (!which) { notifier.refused("No flare to copy: neither the palette's archive nor this base has a facade node"); return; }
-        personEdit('flare.place', { source: which.source, name: which.name }, (step) => void newFlare(which.source, which.name).then((r) => {
-          const before = selectionIds();
-          seatOn(r, at);
-          addRoot(r);
-          select(r);
-          say(`Flare ${which.name} placed: a copy of the disc's glow, turned to the camera`);
-          edit(before, step);
-        }), true);
-      });
-      return;
-    }
-    if (mode === 'ladder') {
-      // A disc ladder prop at the click, facing the way the camera looks (any game type): the palette's archive's first
-      // ladder prop, else Sandstorm's ladder35 (`DEFAULT_LADDER`); the Inspector's Map and Ladder change it.
-      const yaw = ghostYaw();
-      void defaultLadder().then((asset) => {
-        if (!asset) { notifier.refused("No ladder to place: the palette's archive has no ladder prop, nor Sandstorm (MP73) on this disc"); return; }
-        const before = selectionIds();
-        personEdit('piece.place', { asset }, (step) => void ladderFrontOf(asset).then(() => newPiece(asset)).then((r) => {
-          if (!r) { say(`${asset} has no geometry to place`, true); return; }
-          if (!wallPose(r, hit, asset)) { r.rotation.y = yaw; seatOn(r, at); }   // on a wall: its climbing side out, on the floor
-          addRoot(r);
-          select(r);
-          say(`Ladder ${parseAssetId(asset)?.model ?? asset} placed: a disc ladder prop, climbable in Play`);
-          edit(before, step);
-        }), true);
-      });
-      return;
-    }
-    if (mode === 'turret') {
-      // A copy of a disc turret at the click, facing the way the camera looks (any game type): the palette's own
-      // archive's first turret, else Crossroads' RMG (`DEFAULT_TURRET`); the Inspector's Model changes it.
-      const yaw = ghostYaw();
-      void defaultTurret().then((which) => {
-        if (!which) { notifier.refused("No turret to copy: the palette's archive has none, nor Crossroads (MP72) on this disc"); return; }
-        personEdit('turret.place', {}, (step) => void newTurret(which.source, which.name).then((r) => {
-          const before = selectionIds();
-          r.rotation.y = yaw;
-          seatOn(r, at);
-          addRoot(r);
-          select(r);
-          say(`${turretLabel(r)} placed: a copy of the disc's turret`);
-          edit(before, step);
-        }), true);
-      });
-      return;
-    }
-    if (mode === 'ambient') {
-      // A Forge object at the click (`./forgeObjects`): the chosen ambient effect.
-      const kind = mode;
-      const yaw = ghostYaw();
-      void defaultAmbient().then((a) => {
-        if (!a) { notifier.refused('No ambient effect to place: choose a map in the assets (Ambient tab) that has one'); return; }
-        personEdit('object.place', { kind }, () => {
-          const before = selectionIds();
-          const r = newForgeObject({ kind, ...a });
-          r.rotation.y = yaw;
-          seatOn(r, at);
-          addRoot(r);
-          select(r);
-          say(`${objectLabel(r)} placed`);
-          edit(before);
-        }, true);
-      });
-      return;
-    }
-    if (mode === 'point' || mode === 'view') {
-      // A tactical point at the click; a spectator view at the camera itself, looking as it looks (any game type).
-      const isView = mode === 'view';
-      personEdit(isView ? 'view.place' : 'point.place', {}, () => {
-        const before = selectionIds();
-        const pose = fly.pose();
-        const r = isView ? newView(nextViewName(pointNamesTaken('view')), pose.yaw, pose.pitch) : newPoint(nextNavName(pointNamesTaken('point')), 1);
-        if (isView) r.position.set(pose.x, pose.y, pose.z); else seatOn(r, at);
-        addRoot(r);
-        select(r);
-        say(`${pointNameOf(r)} placed: a ${isView ? 'spectator view' : 'tactical point'}, beside the map's own`);
-        edit(before);
-      }, true);
-      return;
-    }
-    if (mode === 'zone') {
-      // Placed extraction zones play in Extraction only (the owner, 2026-11-05): another type, the player is told.
-      if (authoredType !== 3 && authoredType !== 4) { notifier.refused('Safety zones play in Escort or Extraction: set the game type first (Map tab, Map Settings)'); return; }
-      personEdit('extraction.place', {}, () => {
-        const before = selectionIds();
-        const r = newZone(nextSafetyName(zoneNamesTaken()), EXTRACTION_ZONE_SIZE, EXTRACTION_ZONE_SIZE);
-        seatOn(r, at);
-        addRoot(r);
-        select(r);
-        say(`${zoneNameOf(r)} placed: ${authoredType === 3 ? 'an escort' : 'an extraction'} zone, beside the map's own`);
-        edit(before);
-      }, true);
-      return;
-    }
-    if (mode === 'hostage') {
-      // Placed hostages play in Escort and Extraction only (the owner, 2026-11-05): another type, the player is told.
-      if (!hostagesPlayIn(authoredType ?? undefined)) { notifier.refused('Hostages play in Escort or Extraction: set the game type first (Map tab, Map Settings)'); return; }
-      personEdit('hostage.place', {}, () => {
-        const before = selectionIds();
-        const r = hostageMarker();
-        // The disc's pattern, Hostage1...; on a base with no hostage of its own, the default character lent (`hostageDefault`).
-        const homeChars = ((baseMap ?? charMap)?.escortees ?? []).map((e) => e.character);
-        r.userData['forgeHostage'] = { name: nextHostageName(hostageNamesTaken()), ...hostageDefault(homeChars, (stem) => absent.has(stem)) };
-        r.rotation.y = ghostYaw();
-        seatOn(r, at);
-        addRoot(r);
-        select(r);
-        say(`${hostageOf(r).name ?? 'Hostage'} placed, beside the map's own`);
-        edit(before);
-      }, true);
-      return;
-    }
-    if (mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist') {
-      const kind: BombMarkerKind = mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist';
-      // The bomb and its sites play in Demolition, the start and the SEALs' site in Breach too (the owner, 2026-11-05/06;
-      // `./objectives` `bombMarkerPlaysIn`, the agent's `bomb.place` alike): another type, the player is told to change it.
-      if (!bombMarkerPlaysIn(kind, authoredType)) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return; }
-      // One start, and one site a planting team: a new one replaces every marker of its kind (a file may name two).
-      const prevs = roots.filter((r) => bombKindOf(r) === kind);
-      // A lock means "don't change this" (the merge controller's call, 2026-10-22): never a silent removal.
-      if (prevs.some(lockedOf)) { notifier.refused(`the locked ${kind === 'start' ? 'start' : 'site'} stays: unlock it first`); return; }
-      personEdit('bomb.place', { kind }, () => {
-        const before = selectionIds();
-        for (const p of prevs) removeRoot(p);
-        const r = bombMarker(kind);
-        addSiteGuide(r);
-        r.rotation.y = ghostYaw();
-        seatOn(r, onDrawnTop(at.clone(), hit));
-        addRoot(r);
-        select(r);
-        say(`${bombLabel(kind)} placed${prevs.length > 1 ? ` · the ${prevs.length} earlier ones replaced` : ''}`);
-        edit(before);
-      }, true);
-      return;
-    }
+    agentPointHook?.(surfaceHit ? [surfaceHit.point.x, surfaceHit.point.y, surfaceHit.point.z] : null);   // AX-13: the agent's forge.focus reads this pick
+    // What is under the click (`selectTargetAt`), taken as `op` says; nothing there, a plain click lets the selection go.
+    const t = selectTargetAt(ndc);
+    if (!t) { if (op === 'only') select(null); return; }
+    applySelect(t, op);
   };
 
   /* ---------- the input ---------- */
@@ -14365,7 +14066,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // A double-click on a geometry object in Object mode (the owner, 2026-11-16: "double clicking geo to go geo mode is
   // good"): Geometry mode on, that object selected in it -- as its Outliner row's double-click.
   input.addEventListener('dblclick', (e) => {
-    if (mode !== 'select' || busy || playing || e.button !== 0 || e.altKey || !geometry || geometry.isActive()) return;
+    if (busy || playing || e.button !== 0 || e.altKey || !geometry || geometry.isActive()) return;
     const n = ndcOf(e as unknown as PointerEvent);
     const id = geoAt(n, pick(n));
     if (!id) return;
@@ -14375,23 +14076,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   });
   /** The pointer's last place: Play stands under it when the camera has no floor (FG-50). */
   let pointerClient: { x: number; y: number } | null = null;
-  /**
-   * FG-5: Place mode, a press that begins on the gizmo. The gizmo would take the click (the new piece is selected, so
-   * its gizmo sits under the cursor). A click still places; a drag past the slop is handed to the gizmo (`./placement`
-   * `placeClickKind`). Capture runs before the gizmo's own pointerdown, which does not stop the event.
-   */
-  type GizmoPointer = { x: number; y: number; button: number };
-  const gizmoPointer = gizmo as TransformControls & {
-    pointerHover(p: GizmoPointer): void;
-    pointerDown(p: GizmoPointer): void;
-    pointerMove(p: GizmoPointer): void;
-    pointerUp(p: GizmoPointer): void;
-  };
-  let placeHold: { x: number; y: number; pointerId: number; nx: number; ny: number; drag: boolean } | null = null;
-  const ndcToPointer = (e: PointerEvent, button: number): GizmoPointer => {
-    const n = ndcOf(e);
-    return { x: n.x, y: n.y, button };
-  };
   input.addEventListener('pointerdown', (e) => {
     // Alt-drag copies (the owner, 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl).
     duplicateModifierOnPointerDown = e.button === 0 && e.altKey;
@@ -14401,27 +14085,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   doc.addEventListener('keydown', (e) => { if (e.key === 'Control' || e.key === 'Meta') setCtrlSnapFlip(true); }, true);
   doc.addEventListener('keyup', (e) => { if (e.key === 'Control' || e.key === 'Meta') setCtrlSnapFlip(false); }, true);
   input.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || !placingTool() || playing || gizmo.dragging || gizmo.axis === null) return;
-    const focused = doc.activeElement;
-    if (focused instanceof HTMLElement) focused.blur();
-    const n = ndcOf(e);
-    lastNdc = n;
-    placeHold = { x: e.clientX, y: e.clientY, pointerId: e.pointerId, nx: n.x, ny: n.y, drag: false };
-    try { input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
-    e.stopImmediatePropagation();
-  }, true);
-  input.addEventListener('pointerdown', (e) => {
     pointerClient = { x: e.clientX, y: e.clientY };
     const focused = doc.activeElement;
     if (focused instanceof HTMLElement) focused.blur();             // the keys go to the camera again
     // The captured mouse's look: the editor's in every build (OT.R68; OT.R38 a development build's elsewhere).
     if (e.button === 2) { if (import.meta.env.DEV) mouseSite('s2u-mouse-pointer-lock'); lockMouse(canvas); return; }   // OT.R68
     if (e.button !== 0 || gizmo.dragging) return;
-    if (!placingTool() && gizmo.axis !== null) return;   // Select: the gizmo's own drag. A placing tool: a click places.
+    if (gizmo.axis !== null) return;                     // the gizmo's own drag
     lastNdc = ndcOf(e);
     // A pointer's modifiers, read off the click (no key listener): Ctrl (Cmd) toggles, Shift adds (the owner, 2026-11-16).
     const clickOp: SelectOp = e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'add' : 'only';
-    if (mode === 'select' && !busy) {
+    if (!busy) {
       // FG-47: on a placement, at once as before (Shift / Ctrl adds or takes out); on none, a box if the pointer drags,
       // else a click at its release (a map prop, or nothing: deselect).
       const ndc = ndcOf(e);
@@ -14429,9 +14103,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // FG-47 (the review's F3): the pointer captured, so the release ends the box wherever it lands (a dock, the lobby's
       // window), not only over the viewport -- the gizmo's own capture is off while a lobby locks the edits.
       try { input.setPointerCapture(e.pointerId); } catch { /* a pointer the page cannot capture: the box ends at its own pointerup */ }
-      return;
     }
-    act(lastNdc);
   });
   /**
    * A press of the Select tool (the owner, 2026-11-16: "remove box select mode in the normal object mode"; earlier, "just
@@ -14447,20 +14119,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const PAINT_SELECT_SAMPLES = 12;
   input.addEventListener('pointermove', (e) => {
     pointerClient = { x: e.clientX, y: e.clientY };
-    if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
-      lastNdc = ndcOf(e);
-      if (placingTool() && !playing && !placeHold?.drag) moveGhost(lastNdc);
-    }
-    const h = placeHold;
-    if (h && h.pointerId === e.pointerId) {
-      if (!h.drag && placeClickKind(Math.hypot(e.clientX - h.x, e.clientY - h.y), true) === 'gizmo') {
-        h.drag = true;
-        const start = { x: h.nx, y: h.ny, button: 0 };
-        gizmoPointer.pointerHover(start);
-        gizmoPointer.pointerDown(start);
-      }
-      if (h.drag) gizmoPointer.pointerMove(ndcToPointer(e, -1));
-    }
+    if (e.pointerType === 'mouse' || e.pointerType === 'pen') lastNdc = ndcOf(e);
     const d = selDrag;
     if (!d) return;
     // A drag's paint: a plain one starts afresh and adds, Shift's adds, Ctrl's takes out.
@@ -14489,12 +14148,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return !!t && applySelect(t, op, true);
   };
   input.addEventListener('pointerup', (e) => {
-    const h = placeHold;
-    if (h && h.pointerId === e.pointerId && e.button === 0) {
-      placeHold = null;
-      if (h.drag) { if (gizmo.dragging) gizmoPointer.pointerUp(ndcToPointer(e, 0)); }
-      else act(new Vector2(h.nx, h.ny));
-    }
     const d = selDrag;
     selDrag = null;
     if (!d || e.button !== 0) return;
@@ -14505,25 +14158,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     say(n ? `${n} selected` : 'Nothing selected');
   });
   input.addEventListener('pointercancel', (e) => {
-    if (placeHold && placeHold.pointerId === e.pointerId) {
-      if (placeHold.drag && gizmo.dragging) gizmoPointer.pointerUp({ x: placeHold.nx, y: placeHold.ny, button: 0 });
-      placeHold = null;
-    }
     selDrag = null;
   });
   input.addEventListener('wheel', (e) => {
     e.preventDefault();
-    // FUI-22 (D4, a browser adaptation): a prop queued to place, the wheel turns it -- one turn step a notch, up to the
-    // left as the pad's turn -- and the camera keeps its speed; with nothing queued the wheel is the camera's as before.
-    // Every object Place places alike (a prop once one is chosen, or one re-placed): its ghost a turn step a notch.
-    if (wheelTurns(mode) && !playing) {
-      wheelTravel += e.deltaMode === 0 ? e.deltaY : e.deltaY * WHEEL_LINE_PX;
-      if (Math.abs(wheelTravel) < WHEEL_NOTCH_PX) return;
-      const up = wheelTravel < 0;
-      wheelTravel = 0;
-      turnQueued(up ? turnStep : -turnStep);
-      return;
-    }
     canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: e.deltaY, deltaMode: e.deltaMode, cancelable: true }));
   }, { passive: false });
   // The keys (OT.R68, the owner 2026-10-21: keyboard and mouse for everything in the forge's creation UI, not once its
@@ -14536,8 +14174,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     geometry: geometry?.isActive() ?? false,                   // Geometry mode's own keys are its (`./keys` `GEOMETRY_SHARED`)
     pointerLocked: !!doc.pointerLockElement,                      // the review's F2: no pointer lock API is no lock
     leased: leases.holder() !== null,                             // FUI-2: a panel holding the focus reads its own keys
-    // FUI-22 (D4): Escape cancels the queue first (FCW-32: an entity's too; a re-placed prop's too)
-    queued: mode !== 'select' || entityTool !== null,
     navigating: fly.navigating(),                                 // RMB fly, a pan, an orbit, a dolly: W / E / R are the camera's
   });
   /** R3-A: set at teardown -- a torn-down page's keys answer nothing (a second mount in one document, a test's). */
@@ -14564,9 +14200,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (a === null) return;
     e.preventDefault();
     // The arrows and Space: the menu's, not the camera's. FUI-3: M closes it at any depth (Esc goes back a sub-screen).
-    // A tool's key (`./keys` `FORGE_TOOL_ORDER`): Q the Select tool, the number keys the placing tools (a tool the game
-    // type greys is refused by `setMode`, and said).
-    if (typeof a === 'object' && 'tool' in a) { setMode(a.tool); return; }
+    // A tool's key (`./keys` `FORGE_TOOL_ORDER`): the Select tool's, else the number keys spawn their objects as their buttons do (one the game
+    // type greys is refused, and said: `dropStart`).
+    if (typeof a === 'object' && 'tool' in a) { if (a.tool !== 'select') spawnAtCentre({ kind: a.tool }); return; }   // as its button: spawned, never armed
     if (typeof a === 'object') { padMenu.input(a.menu === 'back' && e.code === 'KeyM' ? 'close' : a.menu); e.stopImmediatePropagation(); return; }
     switch (a) {
       case 'closeCard': if (!help.hidden) setHelp(false); else cards.back(); break;   // FUI-2: the top card's way back
@@ -14602,8 +14238,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // queue and keeps the selection, and the next Escape deselects.
       // Escape (the owner, 2026-11-06): any tool back to Select and the selection let go; a queued placement cancelled
       // first, an open Check sheet closed instead.
-      case 'deselect': assetTiles?.escape(); if (!closeCheckSheet()) { setMode('select'); select(null); } break;
-      case 'cancelPlace': assetTiles?.escape(); if (!closeCheckSheet()) { cancelQueued(); setMode('select'); select(null); } break;
+      case 'deselect': assetTiles?.escape(); if (!closeCheckSheet()) select(null); break;
       // The pad's actions that had no key (the merge controller's call (c)): the pad's own path, the menu's cursor included.
       case 'prevAsset': case 'nextAsset': case 'turnLeft': case 'turnRight': padAction(a); break;
       // M (the review's F3): as the pad's START, the lobby's window is hidden first -- the menu never under it.
@@ -14748,7 +14383,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       showSelection();
       edit(before, step);
       say(`pasted ${added.length}`);
-      moveGhost(lastNdc);
     }), true);
   };
 
@@ -15093,7 +14727,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const r of roots) if (isMarker(r)) r.visible = !on;
     body?.view.setVisible(on);
     refreshHint();
-    syncGhost();
   };
   /** FG-50: the camera, and the cursor's x, z when the pointer is over the world. */
   const viewForStand = (): { camera: [number, number, number]; yaw: number; cursor: [number, number] | null } => {
@@ -15113,10 +14746,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * FG-50: the editor's place, put back when Play ends. The match has its own camera; this one, the selection and the
    * tool are the maker's, and leaving must find them as they were.
    */
-  let editPlace: { pose: ReturnType<FlyCamera['pose']>; mode: Mode; placed: Object3D[]; base: BaseProp[] } | null = null;
+  let editPlace: { pose: ReturnType<FlyCamera['pose']>; placed: Object3D[]; base: BaseProp[] } | null = null;
   const rememberPlace = (): void => {
     fly.halt();                                              // the glide stops on this pose, before it is kept
-    editPlace = { pose: fly.pose(), mode, placed: [...picks.items], base: [...basePicks.items] };
+    editPlace = { pose: fly.pose(), placed: [...picks.items], base: [...basePicks.items] };
   };
   const restorePlace = (): void => {
     const saved = editPlace;
@@ -15124,7 +14757,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     editPlace = null;
     fly.setPose(saved.pose);
     fly.halt();
-    setMode(saved.mode);
     picks.clear();
     for (const r of saved.placed) if (roots.includes(r)) picks.add(r);
     basePicks.clear();
@@ -15284,7 +14916,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // None of the library's map data or game type (`./objectives` `blankFloorOf`): its places are that map's, off the floor.
       // The floor's own open AI map (`./floorAi`), so placed hostages and extraction zones have cells there.
       // Its edited geometry in place of the floor's mesh (bug 17: the floor plane and what is made on it).
-      ? { ...blankFloorOf({ ...c.groundMap, world: geometry?.editedBlank()?.world ?? [floorMesh(FLOOR_SIZE)], lines: null, props: [] } as LoadedMap), ai: paintedAiNow() ?? floorAiMaps(FLOOR_SIZE) } as LoadedMap
+      ? { ...blankFloorOf({ ...c.groundMap, world: geometry?.editedBlank()?.world ?? [floorMesh(FLOOR_SIZE)], lines: null, props: [] } as LoadedMap), ai: withGroundHeights(paintedAiNow() ?? floorAiMaps(FLOOR_SIZE), c.ground) } as LoadedMap
       : (() => {
         const hiddenNow = placementsOf(c.groundMap, hiddenKeys);
         // FG-36: the hidden placements' line strips out of the match's map too (`./hide` `linesWithout`).
@@ -16144,7 +15776,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     shell.refresh();
   };
   docksBtn.addEventListener('click', () => setDocks(doc.body.classList.contains('fx-docks-off')));
-  for (const [k, b] of Object.entries(modeBtns)) b.addEventListener('click', () => { geometry?.setActive(false); setMode(k as Mode); });
+  // A button of the objects' row spawns its object at the view's centre, selected (`spawnAtCentre`): no tool left armed.
+  for (const [k, b] of Object.entries(modeBtns)) b.addEventListener('click', () => { geometry?.setActive(false); if (k !== 'select') spawnAtCentre({ kind: k as SpawnKind }); });
   /* The Select tool's settings: the gear (a click on it also takes the Select tool, as the button would) or the
      button's context menu opens them under the button; a press elsewhere or Escape closes them. */
   const placeSelectSettings = (): void => {
@@ -16164,7 +15797,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     selectMapPropsIn.focus();
   };
   selectGear.addEventListener('click', () => setSelectSettingsOpen(selectSettings.hidden));
-  modeBtns.select.addEventListener('contextmenu', (e) => { e.preventDefault(); setMode('select'); setSelectSettingsOpen(true); });
+  modeBtns.select.addEventListener('contextmenu', (e) => { e.preventDefault(); setSelectSettingsOpen(true); });
   doc.addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
     if (!selectSettings.hidden && !selectSettings.contains(t) && !selectGear.contains(t)) setSelectSettingsOpen(false);
@@ -16712,7 +16345,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       .catch((e: unknown) => say(e instanceof Error ? e.message : String(e), true));
   });
 
-  setMode('select');
   setGizmo('translate');
   setGizmoSpace(gizmoSpace);
   setSnaps(snap, turnSnap);
@@ -16774,7 +16406,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     propsTab = PROPS_TABS[(at + by + PROPS_TABS.length) % PROPS_TABS.length]![0];
   };
   const chooseProp = (asset: string): void => {
-    newAssetChosen(asset);
     chosen = asset;
     showChars = false;
     drawAssets();
@@ -16868,8 +16499,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         { id: 'props', label: 'Props', value: chosen ? parseAssetId(chosen)?.model ?? chosen : 'Choose',
           note: 'Every prop as a grid: L1 / R1 a page, the filter as tabs, the recent ones', grid: PROPS_COLUMNS, page: propsScreen },
         { id: 'npc', label: 'NPC character', value: npcChoice ? charLabel(npcChoice.side, npcChoice.type) : characters().length ? 'Choose' : 'None on this base',
-          note: '← → another character · ✕ the NPC tool: place it as a foe in Play', disabled: characters().length === 0, keepOpen: true,
-          left: () => stepCharacter(-1), right: () => stepCharacter(1), act: () => { if (!npcChoice) stepCharacter(1); else setMode('npc'); } },
+          note: '← → another character · ✕ spawns it at the centre: a foe in Play', disabled: characters().length === 0, keepOpen: true,
+          left: () => stepCharacter(-1), right: () => stepCharacter(1), act: () => { if (!npcChoice) stepCharacter(1); else spawnAtCentre({ kind: 'npc' }); } },
         { id: 'palette', label: 'Palette', value: optionLabel(paletteSel), note: 'Whose props the d-pad steps through', keepOpen: true, left: () => cycleSelect(paletteSel, -1), right: () => cycleSelect(paletteSel, 1), act: () => cycleSelect(paletteSel, 1) },
         { id: 'filter', label: 'Props shown', value: filter === 'all' ? 'All' : 'Favourites', keepOpen: true,
           act: () => { filter = filter === 'all' ? 'favs' : 'all'; drawAssets(); }, left: () => { filter = 'all'; drawAssets(); }, right: () => { filter = 'favs'; drawAssets(); } },
@@ -16918,7 +16549,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (playing) return { kind: 'walk' };
     if (lobby?.popup && lobby.shown) return { kind: 'lobby' };
     if (leases.holder() !== null) return { kind: 'panel' };
-    return { kind: 'build', tool: mode, selection: picks.size + basePicks.size };
+    return { kind: 'build', selection: picks.size + basePicks.size };
   };
   legendPress = (a) => padAction(a);
   /** LATER 230: the menu opened by the toolbar's button (its hint names a pointer's ways), not by START. */
@@ -17062,8 +16693,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
 
   /* ================= the controller (FG-12, `./pad`) ================= */
   const forgePad = new ForgePad();
-  /** The tools L1 / R1 step through: every tool, in the tools row's order (`./keys` `FORGE_TOOL_ORDER`), Select first. */
-  const TOOLS: Mode[] = ['select', ...FORGE_TOOL_ORDER];
   /** A pad seen once: said once, with where its menu is. */
   let padGreeted = false;
   /** When a pad last moved or pressed anything: while recent, the centre's reticle shows (the pad acts there). */
@@ -17075,30 +16704,28 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const g of pads) if (g?.connected && (!best || (g.mapping === 'standard' && best.mapping !== 'standard'))) best = g;
     return best;
   };
-  /** The next or previous asset of the list as shown, chosen, the tool Place. */
-  /** FG-21: the next or previous character, chosen, the tool NPC, the dock on its Characters. */
+  /** FG-21: the next or previous character chosen (the NPC an NPC spawn makes), the dock on its Characters. */
   const stepCharacter = (by: number): void => {
     const all = characters();
     if (all.length === 0) { notifier.refused('this base carries no player models'); return; }
     const at = all.findIndex((c) => c.side === npcChoice?.side && c.type === npcChoice.type);
     npcChoice = all[(at < 0 ? (by > 0 ? 0 : all.length - 1) : (at + by + all.length) % all.length)]!;
     showChars = true;
-    setMode('npc');
     drawAssets();
     list.querySelector('li.is-on')?.scrollIntoView({ block: 'nearest' });
-    say(`placing NPCs: ${charLabel(npcChoice.side, npcChoice.type)}`);
+    say(`NPC character: ${charLabel(npcChoice.side, npcChoice.type)}`);
   };
+  /** The next or previous asset of the list as shown, chosen (its tile's click spawns it). */
   const stepAsset = (by: number): void => {
-    if (mode === 'npc' || showChars) { stepCharacter(by); return; }
+    if (showChars) { stepCharacter(by); return; }
     const shown = assetsShown(entriesOfPalette, favs, filter, search.value);
     if (shown.length === 0) return;
     const at = shown.findIndex((a) => a.asset === chosen);
     const next = shown[(at < 0 ? (by > 0 ? 0 : shown.length - 1) : (at + by + shown.length) % shown.length)]!;
-    newAssetChosen(next.asset);
     chosen = next.asset;
     drawAssets();
     list.querySelector('li.is-on')?.scrollIntoView({ block: 'nearest' });
-    say(`${next.asset}: Cross places it`);
+    say(`${next.asset} chosen`);
     assetTiles?.activate(next.asset);                             // FUI-22 (D1): the pad's pick, its tooltip at once
   };
   const turnSelected = (deg: number): void => {
@@ -17178,22 +16805,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       case 'deselect': select(null); break;
       case 'duplicate': duplicate(); break;
       case 'delete': remove(); break;
-      case 'prevTool': case 'nextTool': {
-        // The next tool the game type plays: a greyed one (`refreshModeTools`) is stepped over, never stopped on.
-        const step = a === 'nextTool' ? 1 : TOOLS.length - 1;
-        let at = TOOLS.indexOf(mode);
-        for (let n = 0; n < TOOLS.length; n++) {
-          at = (at + step) % TOOLS.length;
-          if (!modeBtns[TOOLS[at]!].disabled) break;
-        }
-        const next = TOOLS[at]!;
-        setMode(next);
-        pop(TOOL_NAMES[next]);                                  // the pad has no button under the eye: say the tool
-        break;
-      }
       case 'prevAsset': stepAsset(-1); break;
       case 'nextAsset': stepAsset(1); break;
-      // A re-placed prop turns as it follows the cursor (no edit until it is put down), as the wheel turns it.
       case 'turnLeft': turnSelected(turnStep); break;
       case 'turnRight': turnSelected(-turnStep); break;
       case 'undo': undo(); break;
@@ -17409,7 +17022,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     characters, charLabel, absent: () => absent, paletteArchive: () => paletteStem(), chosen: () => chosen, npcChoice: () => npcChoice,
     favourites: () => favs, filter: () => filter, showChars: () => showChars, query: () => search.value, hiddenKeys: () => hiddenKeys,
     baseMap: () => baseMap, charMap: () => charMap, view: () => view, snap: () => snap, gridStep: () => gridStep, turnStep: () => turnStep,
-    tool: () => mode, gizmoMode: () => gizmo.mode, camera: cameraNow, named: () => named, namedAt: () => namedAt, history,
+    tool: () => 'select', gizmoMode: () => gizmo.mode, camera: cameraNow, named: () => named, namedAt: () => namedAt, history,
     inMatch: () => !!match, matchOfLobby: () => matchOfLobby, playing: () => playing, statusText: () => status.textContent ?? '',
     clipboard: () => clipboard,
     queryAssets: (query, cursor) => creatorCatalogue.queryCreatorAssets(query, cursor),
@@ -17445,10 +17058,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     setCameraPose: (pose) => { fly.setPose(pose); }, lookFrom: (from, to) => { fly.lookFrom(from, to); }, focusOn,
     setQuery: (query) => { search.value = query; drawAssets(); },
     setPaletteFilter: (chars, only) => { showChars = chars; filter = only; drawAssets(); },
-    choose: (asset) => { newAssetChosen(asset); chosen = asset; drawAssets(); },
+    choose: (asset) => { chosen = asset; drawAssets(); },
     setFavourite: (asset, on) => { if (on) favs.add(asset); else favs.delete(asset); writeFavourites(favs); drawAssets(); },
     setSnap: (grid, turn, on) => { gridStep = grid; turnStep = turn; setSnap(on); },
-    setTool: (tool, gizmoMode) => { setMode(tool === 'place' ? 'select' : tool); if (gizmoMode) setGizmo(gizmoMode); },
+    setTool: (_tool, gizmoMode) => { if (gizmoMode) setGizmo(gizmoMode); },
     stopPlay, endMatch,
     // R3-B: the lists read again from the store (another writer's); the card and the agent told once they are.
     rereadLists: () => { void savesOpen().then(() => forgeSaves.reread()).then(listsReread); },
@@ -17753,7 +17366,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const rulesForgePanel = rulesPanel({
     state: () => ({ rules: layoutRules, mode: layoutMode, entities: layoutEntities, name: layoutName }),
     layout: () => layoutNow(false), installed: () => installedRules(), playRefusal: () => playTimeWhy(layoutNow(false)),
-    place: (kind) => startEntityPlace(kind), placing: () => entityTool,
+    place: (kind) => startEntityPlace(kind), placing: () => null,
     subscribe: (fn) => { rulesListeners.add(fn); return () => { rulesListeners.delete(fn); }; },
   });
   shell.register(asPerson(rulesForgePanel));
@@ -18117,7 +17730,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawAssets();
     refreshPlacementGround();
     applyView();
-    setMode('select');
     history.reset(layoutText());
     resetGeoHistory();
     baseKept = new Map();

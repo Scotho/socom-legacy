@@ -125,6 +125,22 @@ describe('tools', () => {
     for (const w of r.walls) expect(Math.abs(faceNormal(m, w)[1])).toBeLessThan(1e-9);
   });
 
+  it("an extrude's walls and a cut's half are in the face's own object (its node's group): selectable, and in its hull", () => {
+    // A map's world is one mesh, its objects its faces' groups: a face with none is in no object (the owner, 2026-11-17:
+    // "the side walls don't have any geometry I can select and they don't have any collision").
+    const m = box([0, 0, 0], [2, 2, 2], OPTS);
+    for (const f of liveFaces(m)) { m.faces[f]!.group = 7; m.faces[f]!.surface = [3, 1, 0, 0, 0]; }
+    const top = liveFaces(m).find((f) => faceNormal(m, f)[1] > 0.9)!;
+    const { walls } = extrudeFaces(m, [top], 2);
+    for (const w of walls) {
+      expect(m.faces[w]!.group).toBe(7);
+      expect(m.faces[w]!.surface).toBeUndefined();   // a wall's words by its slope (`wordsOf`), not the floor's it came off
+    }
+    const cut = cutFace(m, top, 0, 2)!;
+    expect(m.faces[cut[1]]!.group).toBe(7);
+    expect(m.faces[cut[1]]!.surface).toEqual([3, 1, 0, 0, 0]);
+  });
+
   it('split an edge, cut a face, merge it back', () => {
     const m = plane([0, 0, 0], 2, 2, 1, OPTS);
     const [a, b] = [m.cVert[m.faces[0]!.corners[0]!]!, m.cVert[m.faces[0]!.corners[1]!]!];

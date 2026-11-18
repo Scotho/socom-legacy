@@ -71,7 +71,9 @@ export function withPlacedHostages<T extends { ai?: AiMaps; escortees?: Escortee
   const added = fit.map(({ h, cell }, i): EscorteeStart => ({
     // Its own name and character where it names them (`HostageMarker`); else the match's name and the lent character.
     name: h.name ?? `forge_hostage_${i + 1}`, character: h.character ?? model.character, loc: cell.loc,
-    at: [h.p[0], cell.y + HOSTAGE_START_LIFT_READING, h.p[2]], yaw: HOSTAGE_FACING_READING, team: model.team,
+    // At its own placed height, not its cell's (the owner, 2026-11-17: placed on built or moved geometry it started at the
+    // AI map's floor, inside or under what it stood on); the cell only locates it on the grid it walks.
+    at: [h.p[0], h.p[1] + HOSTAGE_START_LIFT_READING, h.p[2]], yaw: HOSTAGE_FACING_READING, team: model.team,
   }));
   return { map: { ...map, escortees: [...(map.escortees ?? []), ...added] }, unplaced: offGrid + pastBound, offGrid, pastBound };
 }

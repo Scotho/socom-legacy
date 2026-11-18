@@ -993,7 +993,6 @@ body.fx-docks-off .fx-viewport, body.is-playing .fx-viewport { left: 0; right: 0
 }
 .fx-canvas, .fx-input { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .fx-input { touch-action: none; }
-.fx-input.is-placing { cursor: crosshair; }
 body.is-playing .fx-input { display: none; }
 .fx-viewport-left-controls {
   position: absolute;
@@ -2609,7 +2608,20 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 /* The top bar's labels (Mode, Select, Layer): the second toolbar's section label look, centred on the row. */
 .fx-bar-label { align-self: center; padding-left: 2px; }
 /* Layer after the selection modes: a gap and a rule between them. */
-.fx-geo-layer-label { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--fx-line, rgba(255,255,255,0.12)); }
+/* Every section of both bars set apart (the owner, 2026-11-17: "give spacing between each section of buttons ... too
+   squished and it is very hard to read ... add dividers and spacing for each"): on the top bar, a caption after other
+   controls opens its section with a full-height rule and room either side; on the second toolbar the sections' boxes
+   stand further apart, their captions clear of their buttons. */
+.fx-top .fx-bar-label:not(:first-child) {
+  align-self: stretch; display: flex; align-items: center;
+  margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--fx-edge);
+}
+.fx-top .fx-bar-label { padding-right: 4px; }
+.fx-top > .fx-group--edit-mode, .fx-top > .fx-group--modes { padding: 0 10px; }
+.fx-tools-row { gap: 14px; }
+.fx-tools-row .fx-mode-section { padding: 0 6px 0 10px; }
+.fx-tools-row .fx-mode-section__label { padding-right: 8px; }
+.fx-tools-row .fx-mode-section > .fx-group + .fx-group { margin-left: 2px; }
 /* A collision type tab's colour: the collision view's own for that type. */
 .fx-type-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
 .fx-geo-layer-tabs[hidden] { display: none; }

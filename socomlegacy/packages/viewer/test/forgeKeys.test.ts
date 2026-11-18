@@ -86,15 +86,14 @@ describe('OT.R68: the forge editor\'s keys', () => {
     expect(press('Escape', {}, { pointerLocked: true })).toBeNull();
   });
 
-  it('FUI-22 (D4, the owner 2026-10-27: "Esc to cancel selection" ... "when you have an item queued to place"): Escape cancels the queued placement first, then deselects', () => {
-    expect(press('Escape', {}, { queued: true })).toBe('cancelPlace');
-    expect(press('Escape', {}, { queued: false })).toBe('deselect');
+  it('Escape deselects: nothing is ever queued to place (the owner, 2026-11-17: an object spawns at once, no placing tool)', () => {
+    expect(press('Escape', {}, {})).toBe('deselect');
     // The pointer lock and the card keep their Escape; walking and the menu keep theirs.
-    expect(press('Escape', {}, { queued: true, pointerLocked: true })).toBeNull();
-    expect(press('Escape', {}, { queued: true, card: true })).toBe('closeCard');
-    expect(press('Escape', {}, { queued: true, playing: true })).toBe('stopWalk');
-    expect(press('Escape', {}, { queued: true, menu: true })).toEqual({ menu: 'back' });
-    expect(press('Escape', {}, { queued: true, leased: true })).toBeNull();
+    expect(press('Escape', {}, { pointerLocked: true })).toBeNull();
+    expect(press('Escape', {}, { card: true })).toBe('closeCard');
+    expect(press('Escape', {}, { playing: true })).toBe('stopWalk');
+    expect(press('Escape', {}, { menu: true })).toEqual({ menu: 'back' });
+    expect(press('Escape', {}, { leased: true })).toBeNull();
   });
 
   it('the forge menu open: the arrows move it, Enter or Space runs, Escape or M closes; nothing else', () => {

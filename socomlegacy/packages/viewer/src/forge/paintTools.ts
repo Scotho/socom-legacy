@@ -27,6 +27,8 @@ export class PaintToolBar {
   readonly apply: HTMLButtonElement;
   private readonly tabs = new Map<string, HTMLButtonElement>();
   private readonly tabList: HTMLElement;
+  /** The tabs placed after Apply (`addTab`'s `after` 'apply'), made when the first is. */
+  private tailList: HTMLElement | null = null;
   private readonly doc: Document;
 
   constructor(doc: Document, opts: PaintToolBarOptions) {
@@ -73,8 +75,21 @@ export class PaintToolBar {
     b.textContent = label;
     b.title = title;
     b.addEventListener('click', () => { onClick(); b.blur(); });
-    const prev = this.tabs.get(after);
-    if (prev) prev.after(b); else this.tabList.append(b);
+    // After Apply (the owner, 2026-11-17: "in collision layer mode, move the apply button to the left of the create
+    // button ... consistent with the texture layer"): a tab group of its own past Apply, so Apply stays with the modes it applies.
+    if (after === 'apply') {
+      if (!this.tailList) {
+        this.tailList = this.doc.createElement('div');
+        this.tailList.className = this.tabList.className;
+        this.tailList.setAttribute('role', 'tablist');
+        this.tailList.setAttribute('aria-label', 'Tool');
+        this.apply.after(this.tailList);
+      }
+      this.tailList.append(b);
+    } else {
+      const prev = this.tabs.get(after);
+      if (prev) prev.after(b); else this.tabList.append(b);
+    }
     this.tabs.set(key, b);
     return b;
   }

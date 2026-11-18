@@ -175,7 +175,9 @@ export function surfaceMatcher(polys: readonly HullPoly[], fallbackGround: Surfa
   });
   const any = commonest(polys, () => true);
   const ground = commonest(polys, isGroundWords) ?? fallbackGround ?? any;
-  const side = commonest(polys, (s) => !isGroundWords(s)) ?? any ?? ground;
+  // A node of floors alone (a terrain section) has no wall words: a wall on its ground's material, as `../hullGeometry`
+  // `wordsOf` and `floorOrWall` make one -- not a floor's (the owner, 2026-11-17: an extrude's sides read "Floor").
+  const side = commonest(polys, (s) => !isGroundWords(s)) ?? (ground ? wallWordsOf(ground) : any);
   return (tri) => {
     const n = polygonNormal(tri);
     const c: Vec3 = [(tri[0]![0] + tri[1]![0] + tri[2]![0]) / 3, (tri[0]![1] + tri[1]![1] + tri[2]![1]) / 3, (tri[0]![2] + tri[1]![2] + tri[2]![2]) / 3];

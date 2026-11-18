@@ -71,8 +71,7 @@ describe('saved Forge day/night adaptation', () => {
     expect(settingsMenuSection(hooks).find((i) => i.id === 'setting-timeOfDay')!.disabled).toBe(true);
   });
   it('the legend always assigns look to a right drag', () => {
-    const words = (tool = 'select') => legendFor({ kind: 'build', tool, selection: 0 }, 'keys').map((p) => [p.key, p.label]);
+    const words = () => legendFor({ kind: 'build', selection: 0 }, 'keys').map((p) => [p.key, p.label]);
     expect(words()).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Shift+drag', 'Box'], ['Right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
-    expect(words('place')).toContainEqual(['Right-drag', 'Look']);
   });
 });

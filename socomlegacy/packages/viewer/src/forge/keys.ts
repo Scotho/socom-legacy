@@ -44,11 +44,6 @@ export interface ForgeKeyState {
    */
   leased?: boolean;
   /**
-   * FUI-22 (D4, the owner 2026-10-27: "Esc to cancel selection" ... "when you have an item queued to place"): a prop is
-   * queued to place (the Place tool with a prop chosen). Escape cancels it first (`cancelPlace`), then deselects.
-   */
-  queued?: boolean;
-  /**
    * The camera navigates (`../camera` `FlyCamera.navigating`: RMB held to fly, a pan, an orbit, a dolly): its fly
    * letters (`FLY_LETTERS`) are the camera's then, never the editor's -- W / E / R would change the gizmo's mode mid-flight.
    */
@@ -123,7 +118,7 @@ function toolOfKey(e: ForgeKeyEvent): ForgeToolKey | null {
 export type ForgeKeyAction =
   | 'undo' | 'redo' | 'copy' | 'paste' | 'cut' | 'openLayout' | 'saves' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
   | { tool: ForgeToolKey } | 'translate' | 'rotate' | 'scale' | 'snap'
-  | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'cancelPlace' | 'space' | 'group' | 'ungroup'
+  | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'space' | 'group' | 'ungroup'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
   | { menu: MenuInput };
 
@@ -182,7 +177,7 @@ function pageKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyAction | nul
     if (e.code === 'Escape') return s.pointerLocked ? null : 'stopWalk';
     return e.code === 'KeyX' && !e.repeat ? 'door' : null;          // the test room's action key (a door)
   }
-  if (e.code === 'Escape') return s.pointerLocked ? null : s.queued ? 'cancelPlace' : 'deselect';   // FUI-22 (D4): the queue first
+  if (e.code === 'Escape') return s.pointerLocked ? null : 'deselect';
   const tool = toolOfKey(e);
   if (tool) return { tool };
   // G groups, Shift+G ungroups (the owner, 2026-11-12): the selected folders (or the selection's own) taken out.

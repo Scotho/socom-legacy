@@ -138,6 +138,11 @@ export function extrudeFaces(m: EditMesh, faces: readonly number[], distance: nu
       addCorner(m, e.a, A), addCorner(m, e.b, B), addCorner(m, copy.get(e.b)!, B), addCorner(m, copy.get(e.a)!, A),
     ];
     const w = addFace(m, corners, style);
+    // In the face's own object: a map's world is one mesh, its objects its faces' groups, so a wall with none would be in
+    // no object -- drawn, but never picked and never in its hull (the owner, 2026-11-17). Its collision words are left
+    // to its slope (`hullGeometry` `wordsOf`), a wall's, not the floor's it was pulled off.
+    const group = m.faces[e.face]!.group;
+    if (group !== undefined) m.faces[w]!.group = group;
     const wn = faceNormal(m, w);
     for (const c of corners) for (let k = 0; k < 3; k++) m.cNormal[c * 3 + k] = wn[k]!;
     walls.push(w);
@@ -184,6 +189,9 @@ export function cutFace(m: EditMesh, f: number, i: number, j: number): [number, 
   face.normal = null;
   const g = addFace(m, second.map((c) => cloneCorner(m, c)), face.style);
   if (face.mapping) m.faces[g]!.mapping = { ...face.mapping };
+  // The half in the face's object (its group) and of its collision type (its words); its owner its own (a new polygon).
+  if (face.group !== undefined) m.faces[g]!.group = face.group;
+  if (face.surface) m.faces[g]!.surface = [...face.surface];
   return [f, g];
 }
 

@@ -35,6 +35,12 @@ describe("a rebuilt node hull's surfaces", () => {
   it('gives an unmatched wall the walls words', () => {
     expect(match([[5, 0, 5], [5, 5, 5], [5, 5, 8]])).toEqual(WALL);             // a wall across the room
   });
+
+  it("gives a floors-only node's unmatched wall wall words on its ground's material, not a floor's", () => {
+    // A terrain section has no walls of its own; an extrude's side there read "Floor" (the owner, 2026-11-17).
+    const terrain = surfaceMatcher([disc[0]!]);
+    expect(terrain([[5, 0, 5], [5, 5, 5], [5, 5, 8]])).toEqual([2, 19, 0, 0, 0]);
+  });
 });
 
 describe("a moved piece's centroids (bug 16)", () => {
