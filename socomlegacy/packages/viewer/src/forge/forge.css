@@ -2718,3 +2718,8 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-texture-repeat-field { display: inline-flex; align-items: center; gap: 4px; font: var(--fx-type-caption); color: var(--fx-dim); }
 .fx-texture-repeat { width: 54px; height: 26px; }
 .fx-texture-treat-row { margin-top: 2px; }
+/* Texture State's Units and its warning (`./panels/textureInspector`): on the field rows' columns, the warning a quiet line. */
+.fx-texture-units-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; align-items: center; margin: 0 0 6px; }
+.fx-texture-units { height: 26px; max-width: 140px; }
+.fx-texture-warn { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font: var(--fx-type-caption); color: var(--fx-gold); }
+.fx-texture-warn[hidden] { display: none; }

@@ -124,9 +124,10 @@ class DrawBuild {
  */
 /**
  * Where each vertex of a compiled draw came from (the geometry editor's live drag, `./editor`): the point it stands on,
- * by the draw's vertex order, or -1 for one a displacement's grid made (its place depends on the whole grid).
+ * by the draw's vertex order, or -1 for one a displacement's grid made (its place depends on the whole grid); and the
+ * corner it is (its uv's), -1 alike -- so the drag can lay a partly moved face's texture live as the release will.
  */
-export type DrawSources = Map<LoadedMesh, { mesh: EditMesh; verts: Int32Array }>;
+export type DrawSources = Map<LoadedMesh, { mesh: EditMesh; verts: Int32Array; corners: Int32Array }>;
 
 export function compileMesh(m: EditMesh, skip?: (face: Face) => boolean, sources?: DrawSources, grid?: GridParams): LoadedMesh[] {
   const byStyle = new Map<number, number[]>();
@@ -146,10 +147,11 @@ export function compileMesh(m: EditMesh, skip?: (face: Face) => boolean, sources
     for (const f of faces) if (!m.faces[f]!.disp) for (const c of m.faces[f]!.corners) used.add(c);
     for (const c of slot.unused ?? []) used.add(c);
     const local = new Map<number, number>();
-    const fromVert: number[] = [];
+    const fromVert: number[] = [], fromCorner: number[] = [];
     for (const c of [...used].sort((a, b) => a - b)) {
       const v = m.cVert[c]!;
       fromVert.push(v);
+      fromCorner.push(c);
       local.set(c, build.vertex(
         [m.verts[v * 3]!, m.verts[v * 3 + 1]!, m.verts[v * 3 + 2]!], [m.cUv[c * 2]!, m.cUv[c * 2 + 1]!],
         [m.cColor[c * 4]!, m.cColor[c * 4 + 1]!, m.cColor[c * 4 + 2]!, m.cColor[c * 4 + 3]!],
@@ -161,7 +163,7 @@ export function compileMesh(m: EditMesh, skip?: (face: Face) => boolean, sources
       if (f.disp) {
         const g = displacementGrid(m, fi);
         const base = build.positions.length / 3;
-        g.points.forEach((p, i) => { build.vertex(p, g.uvs[i]!, g.colors[i]!, g.normals[i]!, g.centroid); fromVert.push(-1); });
+        g.points.forEach((p, i) => { build.vertex(p, g.uvs[i]!, g.colors[i]!, g.normals[i]!, g.centroid); fromVert.push(-1); fromCorner.push(-1); });
         g.triangles.forEach(([a, b, c], t) => {
           build.indices.push(base + a, base + b, base + c);
           build.faceNormals.push(...g.triangleNormals[t]!);
@@ -192,7 +194,7 @@ export function compileMesh(m: EditMesh, skip?: (face: Face) => boolean, sources
       const cells = refiledCells(slot.style.cells, build.positions, build.indices, grid, slot.covered);
       if (cells) draw.cells = cells;
     }
-    sources?.set(draw, { mesh: m, verts: Int32Array.from(fromVert) });
+    sources?.set(draw, { mesh: m, verts: Int32Array.from(fromVert), corners: Int32Array.from(fromCorner) });
     out.push(draw);
   }
   return out;

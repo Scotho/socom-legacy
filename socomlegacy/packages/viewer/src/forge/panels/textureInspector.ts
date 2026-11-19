@@ -1,7 +1,8 @@
 import { pageSettings } from '../../pageStore';
 import { scrubNumber, type ScrubDetail } from '../scrub';
 import { forgeEl } from '../shell/panel';
-import type { Justify, MappingChange, TextureState } from '../geometry/texturing';
+import type { DetailChange, Justify, MappingChange } from '../geometry/texturing';
+import type { TextureStateView } from '../geometry/editor';
 
 /**
  * Geometry mode's texturing in the Inspector, as Source 2 Hammer's face edit panel lays it out (the owner, 2026-11-17:
@@ -13,14 +14,30 @@ import type { Justify, MappingChange, TextureState } from '../geometry/texturing
  *   (a turn step each way, 90 degrees each way, flip U, flip V), Fit (X by Y repeats across), Justify (left, right, top,
  *   bottom, centre), and "Treat as one" (Fit and Justify over the selection together, else each face alone).
  * Every press is one edit (one undo step), on the faces the Select tool has (a face selection, or whole objects).
+ *
+ * The assists for someone new to texturing (the owner, 2026-11-17: "easy ... for noobs ... but also stay standard") are
+ * the same numbers shown or set another way, never a state of their own: Units (Texels, Hammer's; or Metres -- Scale as
+ * the size of one copy of the texture, Shift as a part of one copy), Reset (world-aligned at the texture's natural size,
+ * as the map's own makers laid it), and a warning when the texture is stretched or far off that size, with Fix (Reset).
+ *
+ * Texture State's Detail (the owner, 2026-11-18: per mesh, as the original holds it): whether the texture's detail pass
+ * (its manifest `detail` record) is drawn over the faces -- the visual's `vparams` bit 14 -- and its Distance, the
+ * visual's own gate range (`detail_buff`, kept squared; shown as the distance, in world units or metres). Both are the
+ * engine's per-visual words (`../geometry/texturing` `DetailChange`): set on faces sharing a draw, they split them into
+ * their own, as retexturing does. A texture with no detail record has nothing to set.
  */
 export interface TextureInspectorHooks {
-  state(): TextureState | null;
+  state(): TextureStateView | null;
+  /** Reset: world-aligned at each face's texture's natural size. */
+  reset(): void;
   steps(): { shift: number; rotate: number };
   change(change: MappingChange, label: string): void;
   /** A field's drag shown live, no edit (`change` an absolute value); null puts the faces back (Escape, or before the release's edit). */
   preview(change: MappingChange | null): void;
   align(how: 'world' | 'face' | 'view'): void;
+  /** The detail pass on the faces set (one edit), and its Distance field's drag shown live (null puts them back). */
+  detail(change: DetailChange, label: string): void;
+  previewDetail(change: DetailChange | null): void;
   justify(how: Justify, together: boolean, repeat: readonly [number, number]): void;
 }
 
@@ -32,6 +49,10 @@ export interface TextureInspector {
 }
 
 const TREAT_AS_ONE_KEY = 'forge.texture.treatAsOne';
+const UNITS_KEY = 'forge.texture.units';
+/** A texture stretched past this ratio of its two scales, or this far off its natural size either way, is warned of. */
+const STRETCH_WARN = 1.25;
+const NATURAL_WARN = 2;
 
 export function buildTextureInspector(doc: Document, hooks: TextureInspectorHooks): TextureInspector {
   const section = (id: string, title: string, ...content: HTMLElement[]): HTMLDetailsElement => {
@@ -45,42 +66,138 @@ export function buildTextureInspector(doc: Document, hooks: TextureInspectorHook
   };
 
   /* ---------- Texture State ---------- */
+  let last: TextureStateView | null = null;
+  const unitsSel = forgeEl(doc, 'select', 'fx-select fx-texture-units') as HTMLSelectElement;
+  for (const [v, w] of [['texels', 'Texels'], ['metres', 'Metres']] as const) { const o = forgeEl(doc, 'option', '', w) as HTMLOptionElement; o.value = v; unitsSel.append(o); }
+  unitsSel.value = pageSettings.get(UNITS_KEY) === 'metres' ? 'metres' : 'texels';
+  unitsSel.title = 'Texels: Scale in world units a texel and Shift in texels (Hammer\'s). Metres: Scale as the size of one copy of the texture, Shift as a part of one copy';
+  unitsSel.setAttribute('aria-label', 'Units');
+  const metres = (): boolean => unitsSel.value === 'metres';
+  /** A texture's width (axis 0) or height (1) in metres a copy needs its size; null where the faces' textures differ. */
+  const texel = (axis: 0 | 1): number | null => last?.texSize?.[axis] ?? null;
+  // The field's shown value from the mapping's, and back: Scale as metres a copy, Shift as a percentage of a copy.
+  const shownScale = (v: number, axis: 0 | 1): number | null => (metres() ? (texel(axis) ? v * texel(axis)! * (last?.metresPerUnit ?? 0.1) : null) : v);
+  const storedScale = (v: number, axis: 0 | 1): number | null => (metres() ? (texel(axis) ? v / (texel(axis)! * (last?.metresPerUnit ?? 0.1)) : null) : v);
+  const shownShift = (v: number, axis: 0 | 1): number | null => (metres() ? (texel(axis) ? (v / texel(axis)!) * 100 : null) : v);
+  const storedShift = (v: number, axis: 0 | 1): number | null => (metres() ? (texel(axis) ? (v / 100) * texel(axis)! : null) : v);
   const fields = forgeEl(doc, 'div', 'fx-fields');
-  const field = (chip: string, aria: string, rate: number, digits: number, axis: 'x' | 'y' | 'z', set: (v: number) => void, live: (v: number) => MappingChange | null): HTMLInputElement => {
+  /** Each field's scrub, let go before it is set again for other units (`dress`). */
+  const scrubs = new Map<HTMLInputElement, () => void>();
+  const field = (chip: string, axis: 'x' | 'y' | 'z', make: (v: number) => MappingChange | null, label: string): HTMLInputElement => {
     const i = forgeEl(doc, 'input', 'fx-num fx-stepper');
     i.type = 'number';
-    i.step = String(10 ** -digits);
-    i.setAttribute('aria-label', aria);
-    i.title = `${aria} · drag to change, click to type; blank: the selected faces differ`;
-    scrubNumber(i, { rate, digits });
+    scrubs.set(i, scrubNumber(i, { rate: 1, digits: 2 }));
     // Its drag (`../scrub`) shown live on the faces, no edit; the release's `change` the one edit, Escape puts them back.
     i.addEventListener('fx-scrub', (e) => {
       const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
       if (cancelled) { hooks.preview(null); return; }
-      const c = Number.isFinite(value) ? live(value) : null;
+      const c = Number.isFinite(value) ? make(value) : null;
       if (c) hooks.preview(c);
     });
-    i.addEventListener('change', () => { const v = Number(i.value); if (i.value !== '' && Number.isFinite(v)) set(v); else hooks.preview(null); });
+    i.addEventListener('change', () => {
+      const v = Number(i.value);
+      const c = i.value !== '' && Number.isFinite(v) ? make(v) : null;
+      if (c) hooks.change(c, label); else hooks.preview(null);
+    });
     i.addEventListener('keydown', (k) => { if (k.key === 'Enter') i.blur(); });
-    const label = forgeEl(doc, 'label', `fx-field fx-field--${axis}`);
-    label.append(forgeEl(doc, 'span', '', chip), i);
-    return Object.assign(i, { fieldLabel: label });
+    const l = forgeEl(doc, 'label', `fx-field fx-field--${axis}`);
+    l.append(forgeEl(doc, 'span', '', chip), i);
+    return Object.assign(i, { fieldLabel: l });
   };
-  const row = (caption: string, ...inputs: HTMLInputElement[]): void => {
+  const captions: Record<string, HTMLElement> = {};
+  const row = (key: string, caption: string, ...inputs: HTMLInputElement[]): void => {
     const r = forgeEl(doc, 'div', 'fx-field-row');
-    r.append(forgeEl(doc, 'div', 'fx-field-caption', caption), ...inputs.map((i) => (i as HTMLInputElement & { fieldLabel: HTMLElement }).fieldLabel));
+    captions[key] = forgeEl(doc, 'div', 'fx-field-caption', caption);
+    r.append(captions[key]!, ...inputs.map((i) => (i as HTMLInputElement & { fieldLabel: HTMLElement }).fieldLabel));
     fields.append(r);
   };
-  const scaleU = field('X', 'Scale X (world units a texel)', 0.005, 4, 'x', (v) => { if (v !== 0) hooks.change({ scaleU: v }, 'Texture scale'); else hooks.preview(null); }, (v) => (v !== 0 ? { scaleU: v } : null));
-  const scaleV = field('Y', 'Scale Y (world units a texel)', 0.005, 4, 'y', (v) => { if (v !== 0) hooks.change({ scaleV: v }, 'Texture scale'); else hooks.preview(null); }, (v) => (v !== 0 ? { scaleV: v } : null));
-  const shiftU = field('X', 'Shift X (texels)', 1, 2, 'x', (v) => hooks.change({ shiftU: v }, 'Texture shift'), (v) => ({ shiftU: v }));
-  const shiftV = field('Y', 'Shift Y (texels)', 1, 2, 'y', (v) => hooks.change({ shiftV: v }, 'Texture shift'), (v) => ({ shiftV: v }));
-  const rotate = field('°', 'Rotate (degrees)', 1, 2, 'z', (v) => hooks.change({ rotateTo: v }, 'Texture rotate'), (v) => ({ rotateTo: v }));
-  row('Scale', scaleU, scaleV);
-  row('Shift', shiftU, shiftV);
-  row('Rotate', rotate);
+  const nonZero = (v: number | null): number | null => (v === null || v === 0 || !Number.isFinite(v) ? null : v);
+  const scaleU = field('X', 'x', (v) => { const s2 = nonZero(storedScale(v, 0)); return s2 === null ? null : { scaleU: s2 }; }, 'Texture scale');
+  const scaleV = field('Y', 'y', (v) => { const s2 = nonZero(storedScale(v, 1)); return s2 === null ? null : { scaleV: s2 }; }, 'Texture scale');
+  const shiftU = field('X', 'x', (v) => { const s2 = storedShift(v, 0); return s2 === null ? null : { shiftU: s2 }; }, 'Texture shift');
+  const shiftV = field('Y', 'y', (v) => { const s2 = storedShift(v, 1); return s2 === null ? null : { shiftV: s2 }; }, 'Texture shift');
+  const rotate = field('°', 'z', (v) => ({ rotateTo: v }), 'Texture rotate');
+  row('scale', 'Scale', scaleU, scaleV);
+  row('shift', 'Shift', shiftU, shiftV);
+  row('rotate', 'Rotate', rotate);
+  /** Each field's words, step and scrub rate for the units chosen. */
+  const dress = (): void => {
+    const m = metres();
+    captions['scale']!.textContent = m ? 'Tile size' : 'Scale';
+    captions['shift']!.textContent = m ? 'Offset' : 'Shift';
+    const set = (i: HTMLInputElement, aria: string, step: number, rate: number, digits: number): void => {
+      i.step = String(step);
+      i.setAttribute('aria-label', aria);
+      i.title = `${aria} · drag to change, click to type; blank: the selected faces differ`;
+      scrubs.get(i)?.();
+      scrubs.set(i, scrubNumber(i, { rate, digits }));
+    };
+    set(scaleU, m ? 'Tile width (metres)' : 'Scale X (world units a texel)', m ? 0.1 : 0.01, m ? 0.01 : 0.005, m ? 3 : 4);
+    set(scaleV, m ? 'Tile height (metres)' : 'Scale Y (world units a texel)', m ? 0.1 : 0.01, m ? 0.01 : 0.005, m ? 3 : 4);
+    set(shiftU, m ? 'Offset X (% of a tile)' : 'Shift X (texels)', 1, 1, m ? 1 : 2);
+    set(shiftV, m ? 'Offset Y (% of a tile)' : 'Shift Y (texels)', 1, 1, m ? 1 : 2);
+    set(rotate, 'Rotate (degrees)', 1, 1, 2);
+  };
+  dress();
+  unitsSel.addEventListener('change', () => { pageSettings.set(UNITS_KEY, unitsSel.value); dress(); refresh(); });
+  const unitsRow = forgeEl(doc, 'label', 'fx-texture-units-row');
+  unitsRow.append(forgeEl(doc, 'span', 'fx-field-caption', 'Units'), unitsSel);
+  // The warning: stretched, or far off the texture's natural size; Fix is Reset.
+  const warn = forgeEl(doc, 'div', 'fx-texture-warn');
+  const warnText = forgeEl(doc, 'span', '');
+  const fix = forgeEl(doc, 'button', 'fx-tool fx-texture-btn', 'Fix') as HTMLButtonElement;
+  fix.type = 'button';
+  fix.title = 'Reset: the texture at its natural size, world-aligned';
+  fix.addEventListener('click', () => { hooks.reset(); fix.blur(); });
+  warn.append(warnText, fix);
+  warn.hidden = true;
+  // Detail: the pass drawn or not, and its distance (the gate range's square root; metres under Metres).
+  const unit = (): number => (metres() ? last?.metresPerUnit ?? 0.1 : 1);
+  const detailBox = forgeEl(doc, 'input', 'fx-texture-detail') as HTMLInputElement;
+  detailBox.type = 'checkbox';
+  detailBox.setAttribute('aria-label', 'Detail texture');
+  detailBox.addEventListener('change', () => { hooks.detail({ on: detailBox.checked }, detailBox.checked ? 'Detail texture on' : 'Detail texture off'); detailBox.blur(); });
+  const detailToggle = forgeEl(doc, 'label', 'fx-toggle fx-texture-detail-toggle');
+  detailToggle.append(detailBox, forgeEl(doc, 'span', '', 'Draw'));
+  const detailRow = forgeEl(doc, 'div', 'fx-field-row');
+  detailRow.append(forgeEl(doc, 'div', 'fx-field-caption', 'Detail'), detailToggle);
+  const distance = forgeEl(doc, 'input', 'fx-num fx-stepper') as HTMLInputElement;
+  distance.type = 'number';
+  distance.min = '0';
+  let distanceScrub = scrubNumber(distance, { rate: 1, digits: 1 });
+  const rangeOf = (v: number): number | null => (Number.isFinite(v) && v > 0 ? (v / unit()) ** 2 : null);
+  distance.addEventListener('fx-scrub', (e) => {
+    const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
+    if (cancelled) { hooks.previewDetail(null); return; }
+    const r = rangeOf(value);
+    if (r !== null) hooks.previewDetail({ range: r });
+  });
+  distance.addEventListener('change', () => {
+    const r = distance.value !== '' ? rangeOf(Number(distance.value)) : null;
+    if (r !== null) hooks.detail({ range: r }, 'Detail distance'); else hooks.previewDetail(null);
+  });
+  distance.addEventListener('keydown', (k) => { if (k.key === 'Enter') distance.blur(); });
+  const distanceChip = forgeEl(doc, 'span', '', 'u');
+  const distanceLabel = forgeEl(doc, 'label', 'fx-field fx-field--z');
+  distanceLabel.append(distanceChip, distance);
+  const distanceRow = forgeEl(doc, 'div', 'fx-field-row');
+  distanceRow.append(forgeEl(doc, 'div', 'fx-field-caption', 'Distance'), distanceLabel);
+  const dressDistance = (): void => {
+    const m = metres();
+    distanceChip.textContent = m ? 'm' : 'u';
+    const aria = m ? 'Detail distance (metres)' : 'Detail distance (world units)';
+    distance.step = m ? '1' : '10';
+    distance.setAttribute('aria-label', aria);
+    distance.title = `${aria}: the detail texture is drawn while the face's centre is this near the camera (the original's per-mesh range; View's Detail distance multiplies it outside the PS2 picture) · drag to change, click to type`;
+    distanceScrub();
+    distanceScrub = scrubNumber(distance, { rate: m ? 0.1 : 1, digits: 1 });
+  };
+  dressDistance();
+  unitsSel.addEventListener('change', dressDistance);
+  const detailFields = forgeEl(doc, 'div', 'fx-fields fx-texture-detail');
+  detailFields.append(detailRow, distanceRow);
   const count = forgeEl(doc, 'div', 'fx-texture-count');
-  const stateSection = section('textureState', 'Texture State', count, fields);
+  const stateSection = section('textureState', 'Texture State', count, unitsRow, fields, detailFields, warn);
 
   /* ---------- Modify Texture ---------- */
   const modify = forgeEl(doc, 'div', 'fx-texture-modify');
@@ -121,7 +238,8 @@ export function buildTextureInspector(doc: Document, hooks: TextureInspectorHook
   line('Align',
     btn('World', 'Align to the world: the axis plane nearest each face (Hammer\'s default)', () => hooks.align('world')),
     btn('Face', 'Align to the face: the axes in each face\'s own plane', () => hooks.align('face')),
-    btn('View', 'Align to the view: upright as the camera looks at it', () => hooks.align('view')));
+    btn('View', 'Align to the view: upright as the camera looks at it', () => hooks.align('view')),
+    btn('Reset', 'Reset: world-aligned at the texture\'s natural size (as the map\'s own makers laid it), shift and rotation zeroed', () => hooks.reset()));
   line('Scale',
     btn('X −', 'Scale X down: the texture half as wide (twice as many repeats)', () => hooks.change({ scaleU: 0.5, relative: true }, 'Texture scale')),
     btn('X +', 'Scale X up: the texture twice as wide', () => hooks.change({ scaleU: 2, relative: true }, 'Texture scale')),
@@ -155,20 +273,51 @@ export function buildTextureInspector(doc: Document, hooks: TextureInspectorHook
   modify.append(treatRow);
   const modifySection = section('modifyTexture', 'Modify Texture', modify);
 
-  const show = (i: HTMLInputElement, v: number | null | undefined, digits: number): void => {
+  const show = (i: HTMLInputElement, v: number | null | undefined, digits: number, mixed = 'mixed'): void => {
     if (doc.activeElement === i) return;                       // never under the typing
     i.value = v === null || v === undefined ? '' : String(Math.round(v * 10 ** digits) / 10 ** digits);
-    i.placeholder = v === null ? 'mixed' : '';
+    i.placeholder = v === null ? mixed : '';
   };
-  const refresh = (): void => {
-    const s = hooks.state();
-    const none = !s || s.count === 0;
-    count.textContent = none ? 'Select faces (Face selection), or objects, to texture them' : `${s.count} face${s.count === 1 ? '' : 's'}`;
-    for (const i of [scaleU, scaleV, shiftU, shiftV, rotate]) i.disabled = none;
+  function refresh(): void {
+    const s2 = hooks.state();
+    last = s2;
+    const none = !s2 || s2.count === 0;
+    count.textContent = none ? 'Select faces (Face selection), or objects, to texture them' : `${s2.count} face${s2.count === 1 ? '' : 's'}${s2.texture ? ` · ${s2.texture}` : ''}`;
+    const m = metres();
+    // In Metres a size is needed: faces wearing different textures show blank and take no value.
+    const sized = !m || !!s2?.texSize;
+    for (const i of [scaleU, scaleV, shiftU, shiftV]) i.disabled = none || !sized;
+    rotate.disabled = none;
     for (const b of buttons) b.disabled = none;
-    show(scaleU, s?.scaleU, 4); show(scaleV, s?.scaleV, 4);
-    show(shiftU, s?.shiftU, 2); show(shiftV, s?.shiftV, 2);
-    show(rotate, s?.rotate, 2);
-  };
+    const mixed = sized ? 'mixed' : 'textures differ';
+    const conv = (v: number | null | undefined, f: (x: number, a: 0 | 1) => number | null, a: 0 | 1): number | null | undefined => (v === null || v === undefined ? v : f(v, a));
+    show(scaleU, conv(s2?.scaleU, shownScale, 0), m ? 3 : 4, mixed); show(scaleV, conv(s2?.scaleV, shownScale, 1), m ? 3 : 4, mixed);
+    show(shiftU, conv(s2?.shiftU, shownShift, 0), m ? 1 : 2, mixed); show(shiftV, conv(s2?.shiftV, shownShift, 1), m ? 1 : 2, mixed);
+    show(rotate, s2?.rotate, 2);
+    // Detail: only faces whose texture binds a detail pass have one to set.
+    const d = s2?.detail;
+    const bound = !none && !!d && d.faces > 0;
+    detailBox.disabled = !bound;
+    detailBox.checked = bound && d.on !== false;
+    detailBox.indeterminate = bound && d.on === null;
+    distance.disabled = !bound || d.on === false;
+    show(distance, bound ? (d.range === null ? null : Math.sqrt(d.range) * unit()) : undefined, 1);
+    detailToggle.title = none ? '' : bound
+      ? `Draw the texture's detail texture over the selected faces${d.faces < s2.count ? ` (${d.faces} of ${s2.count}: the others' textures have none)` : ''}`
+      : 'The selected faces’ texture has no detail texture';
+    // Stretched (its two scales apart), or far off the texture's natural size.
+    let why = '';
+    if (!none && s2.scaleU !== null && s2.scaleV !== null) {
+      const ratio = Math.abs(s2.scaleU / s2.scaleV);
+      if (ratio > STRETCH_WARN || ratio < 1 / STRETCH_WARN) why = `Stretched ${Math.round((ratio >= 1 ? ratio : 1 / ratio) * 100) / 100} : 1`;
+      else if (s2.natural) {
+        const k = Math.abs(s2.scaleU) / s2.natural;
+        if (k > NATURAL_WARN) why = `${Math.round(k * 10) / 10}× its natural size`;
+        else if (k < 1 / NATURAL_WARN) why = `${Math.round((1 / k) * 10) / 10}× smaller than its natural size`;
+      }
+    }
+    warnText.textContent = why;
+    warn.hidden = !why;
+  }
   return { sections: [stateSection, modifySection], refresh };
 }

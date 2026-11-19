@@ -27,7 +27,7 @@ import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFa
 import type { DrawSources } from './worldMesh';
 import type { FloorLook } from './blank';
 import type { Surface } from './collision';
-import { adjustMapping, align, alignToView, applyTexture, justify, medianTexelScale, pasteLook, refreshUvs, sampleFace, textureState, worldAligned, type FaceLook, type Justify, type MappingChange, type TextureSize, type TextureState } from './texturing';
+import { adjustMapping, align, alignToView, applyTexture, fitMapping, justify, mappedUv, medianTexelScale, pasteLook, refreshUvs, resetMapping, sampleFace, setDetail, textureState, textureTexelScales, worldAligned, type DetailChange, type FaceLook, type Justify, type MappingChange, type TextureSize, type TextureState } from './texturing';
 import {
   addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
   type GeoObjectCopy,
@@ -173,6 +173,29 @@ const BLOCK_SEE_TOLERANCE = 0.5;
 const POLY_CLOSE_PX = 10;
 /** A Texture State field's live drag redraws the world at most this often, milliseconds (a browser adaptation). */
 const TEXTURE_PREVIEW_MS = 80;
+/** Select floors / walls / ceilings: a face is a floor with its normal's up at least this, a ceiling at most minus it (as collision's `FLOOR_NORMAL_Y_MIN`). */
+const FACING_UP_MIN = 0.7;
+/** Select coplanar: within these of a selected face's plane -- its normal's dot, and its distance in world units. */
+const COPLANAR_DOT = 0.999;
+const COPLANAR_DIST = 0.5;
+/** The Texture grid (browser adaptations): at most this many faces drawn, this many lines across one, this far off it, this colour. */
+const TEXTURE_GRID_FACES = 400;
+const TEXTURE_GRID_LINES = 64;
+const TEXTURE_GRID_LIFT = 0.05;
+const TEXTURE_GRID_COLOR = 0xffc94a;
+
+/** A face as it stood before a preview: what `restoreFaces` puts back. */
+interface FaceSnapshot { m: EditMesh; f: number; style: number; mapping: TextureMapping | undefined; uvs: [number, number][]; styles: number }
+/** The Inspector's Texture State: the faces' shared mapping values, and the texture they wear with its size and natural size. */
+export interface TextureStateView extends TextureState {
+  texture: string | null; texSize: [number, number] | null; natural: number | null; metresPerUnit: number;
+  /**
+   * The detail pass over the faces whose texture binds one (the map's manifest `detail` record): how many such faces;
+   * whether it is drawn over them (`vparams` bit 14, `LoadedMesh.detailOn`); its gate range, squared world units (the
+   * face's draw's own, else the record's). Null where those faces differ.
+   */
+  detail: { faces: number; on: boolean | null; range: number | null };
+}
 /**
  * The toolbar's Displace group (Displace, Sculpt) shown: off for now (the owner, 2026-11-17: "remove the displacement
  * geometry stuff for now we will come back to it"). Its code stays; a displaced face already made still loads and draws.
@@ -484,6 +507,14 @@ export class GeometryEditor {
    * with where it stood, written each move into the buffers the view already has. Nothing is rebuilt until the release.
    */
   private live: { attr: BufferAttribute | InterleavedBufferAttribute; mesh: Mesh; at: number[]; base: number[] }[] = [];
+  /**
+   * The live drag's texture (the owner, 2026-11-17: "the live preview should always show the correct texture"): each
+   * drawn vertex of a face partly moved that carries a mapping -- its uv attribute and index, the mapping, its texture's
+   * size, the point it stands on (as read) and whether that point moves, and its uv as drawn (put back on Escape). Each
+   * drag step lays its uv from the mapping at where the point now is, as the release's `transformVerts` will (a face
+   * moved whole keeps its uvs under texture lock, so it needs none).
+   */
+  private liveUv: { attr: BufferAttribute | InterleavedBufferAttribute; i: number; map: TextureMapping; size: readonly [number, number]; at: Vec3; moves: boolean; uv: [number, number] }[] = [];
   /** The viewport's World / Local (`syncGizmo`): Local turns the pivot onto the selection's own axes (`localFrame`). */
   private space: 'world' | 'local' = 'world';
   /** The handle clouds drawn, each resized every frame to a fixed size on screen (`frameHandles`). */
@@ -2198,6 +2229,7 @@ export class GeometryEditor {
     // The hover drawn again over what changed (an edit, a new mode, a selection), where the pointer is now.
     this.hoverKey = '';
     this.drawHover();
+    this.drawTextureGrid();
     this.drawBar();
     this.deps.onObjects?.();
     this.deps.onSelect?.();                                    // a selection step, when it changed (the page compares)
@@ -3634,7 +3666,7 @@ export class GeometryEditor {
    * Scale, Shift, Rotate, Fit, Justify"; a browser adaptation): what they share, null where they differ; null off the
    * Texture layer or with nothing selected. The Inspector reads it whenever the selection or the geometry changes.
    */
-  textureStateNow(): TextureState | null {
+  textureStateNow(): TextureStateView | null {
     if (!this.active || !this.textureOn) return null;
     const sets = this.selectedFaceSets();
     if (!sets.length) return null;
@@ -3644,7 +3676,202 @@ export class GeometryEditor {
       const v = parts[0]![k];
       return v !== null && parts.every((x) => x[k] !== null && Math.abs(x[k]! - v) < 1e-3) ? v : null;
     };
-    return { count: parts.reduce((n, x) => n + x.count, 0), scaleU: pick('scaleU'), scaleV: pick('scaleV'), shiftU: pick('shiftU'), shiftV: pick('shiftV'), rotate: pick('rotate') };
+    // The texture they wear (one shared, else null): its size in texels and its natural size (`naturalScale`).
+    const names = new Set(sets.flatMap(({ o, faces }) => faces.flatMap((f) => { const face = o.mesh.faces[f]; return face ? [o.mesh.styles[face.style]!.style.textureName] : []; })));
+    const name = names.size === 1 ? [...names][0]! : null;
+    const size = name ? this.size(name) : null;
+    // The detail pass's words over the faces whose texture binds one.
+    const records = this.forMap?.detail ?? {};
+    let faces = 0, on: boolean | null | undefined, range: number | null | undefined;
+    for (const { o, faces: fs } of sets) for (const f of fs) {
+      const face = o.mesh.faces[f];
+      const style = face && o.mesh.styles[face.style]!.style;
+      const record = style?.textureName ? records[style.textureName] : undefined;
+      if (!style || !record) continue;
+      faces++;
+      const fOn = style.detailOn !== false, fRange = style.detailRange ?? record.range;
+      on = on === undefined ? fOn : on === fOn ? on : null;
+      range = range === undefined ? fRange : range !== null && Math.abs(range - fRange) < 1e-6 ? range : null;
+    }
+    return {
+      count: parts.reduce((n, x) => n + x.count, 0), scaleU: pick('scaleU'), scaleV: pick('scaleV'), shiftU: pick('shiftU'), shiftV: pick('shiftV'), rotate: pick('rotate'),
+      texture: name, texSize: size ? [size[0], size[1]] : null, natural: name ? this.naturalScale(name) : null, metresPerUnit: this.forMap?.metersPerUnit ?? 0.1,
+      detail: { faces, on: on ?? null, range: range ?? null },
+    };
+  }
+
+  /** Each texture's natural size off the map's own faces (`textureTexelScales`), read once a map; null until asked. */
+  private naturalScales: Map<string, number> | null = null;
+  /** A texture's natural size, world units a texel: as the map's makers laid it, else the map's median (`scaleTexel`). */
+  naturalScale(name: string | null): number {
+    if (!this.naturalScales) {
+      const world = this.geo?.objects.find((o) => o.kind === 'world');
+      this.naturalScales = world ? textureTexelScales(this.geo?.original ?? world.mesh, this.size) : new Map();
+    }
+    return (name && this.naturalScales.get(name.toLowerCase())) || this.scaleTexel();
+  }
+
+  /** Reset (Hammer's): the selected faces world-aligned at their texture's natural size, shift and rotation zeroed. */
+  resetTexture(): void {
+    this.edit('Reset texture', () => this.forFaces((m, faces) => resetMapping(m, faces, this.size, (n) => this.naturalScale(n))));
+  }
+
+  /**
+   * The Edit menu's face selections (the owner, 2026-11-17; the standard "select similar" of modelling tools): the
+   * faces that lie in the plane of a selected face (coplanar), that wear a selected face's texture, or that face up
+   * (floors), sideways (walls) or down (ceilings) -- coplanar and same texture over every visible object, by facing over
+   * the selected objects (every visible object with none selected). Face selection after; the count said.
+   */
+  selectSimilar(how: 'coplanar' | 'texture' | 'floors' | 'walls' | 'ceilings'): void {
+    if (!this.geo || !this.active) return;
+    const visible = this.geo.objects.filter((o) => !o.hidden);
+    const seeds = this.selectedFaceSets();
+    let pool = visible;
+    if (how === 'floors' || how === 'walls' || how === 'ceilings') { if (seeds.length) pool = seeds.map((x) => x.o); }
+    else if (!seeds.length) { this.deps.say('Select a face first', true); return; }
+    const planes = seeds.flatMap(({ o, faces }) => faces.map((f) => { const n = faceNormal(o.mesh, f); return { n, d: dot(n, facePoints(o.mesh, f)[0]!) }; }));
+    const textures = new Set(seeds.flatMap(({ o, faces }) => faces.map((f) => (o.mesh.styles[o.mesh.faces[f]!.style]!.style.textureName ?? '').toLowerCase())));
+    const take = (o: GeoObject, f: number): boolean => {
+      const n = faceNormal(o.mesh, f);
+      if (how === 'floors') return n[1] >= FACING_UP_MIN;
+      if (how === 'ceilings') return n[1] <= -FACING_UP_MIN;
+      if (how === 'walls') return Math.abs(n[1]) < FACING_UP_MIN;
+      if (how === 'texture') return textures.has((o.mesh.styles[o.mesh.faces[f]!.style]!.style.textureName ?? '').toLowerCase());
+      const p = facePoints(o.mesh, f)[0]!;
+      return planes.some((q) => dot(q.n, n) > COPLANAR_DOT && Math.abs(dot(q.n, p) - q.d) < COPLANAR_DIST);
+    };
+    const sel = emptySelection('face');
+    let n = 0;
+    for (const o of pool) {
+      const faces = objectFaces(o).filter((f) => take(o, f));
+      if (!faces.length) continue;
+      sel.objects.add(o.id);
+      sel.items.set(o.id, new Set(faces));
+      n += faces.length;
+    }
+    if (!n) { this.deps.say('No faces match', true); return; }
+    this.sel = sel;
+    this.drawSelection();
+    this.deps.say(`${n} face${n === 1 ? '' : 's'} selected`);
+  }
+
+  /** The Overlays menu's Texture grid: the selected faces' texture repeats drawn over them, on the Texture layer. */
+  setTextureGrid(on: boolean): void {
+    if (this.textureGridOn === on) return;
+    this.textureGridOn = on;
+    if (this.active) this.drawSelection();
+  }
+  private textureGridOn = false;
+
+  /**
+   * The Texture grid (an overlay, as a modelling tool's UV checker): over each selected face (the first
+   * `TEXTURE_GRID_FACES`) a line wherever one copy of its texture ends and the next begins, along both axes, just off the
+   * face. Drawn into the selection's fixed layer, so it follows every selection and edit.
+   */
+  private drawTextureGrid(): void {
+    if (!this.textureGridOn || !this.active || !this.textureOn) return;
+    const pts: number[] = [];
+    let faces = 0;
+    for (const { o, faces: fs } of this.selectedFaceSets()) for (const f of fs) {
+      if (faces++ >= TEXTURE_GRID_FACES) break;
+      const m = o.mesh, face = m.faces[f];
+      if (!face) continue;
+      const sz = this.size(m.styles[face.style]!.style.textureName);
+      if (!sz) continue;
+      const map = face.mapping ?? fitMapping(m, f, sz);
+      if (!map) continue;
+      const n = faceNormal(m, f);
+      const ps = facePoints(m, f).map((p) => [p[0] + n[0] * TEXTURE_GRID_LIFT, p[1] + n[1] * TEXTURE_GRID_LIFT, p[2] + n[2] * TEXTURE_GRID_LIFT] as Vec3);
+      const uv = ps.map((p) => mappedUv(map, p, sz));
+      for (const [a, b, c] of triangulate(ps)) for (const axis of [0, 1] as const) {
+        const t = [uv[a]![axis], uv[b]![axis], uv[c]![axis]];
+        const lo = Math.ceil(Math.min(...t)), hi = Math.floor(Math.max(...t));
+        if (hi - lo > TEXTURE_GRID_LINES) continue;              // so many copies a line each would be noise
+        const tri = [ps[a]!, ps[b]!, ps[c]!];
+        for (let k = lo; k <= hi; k++) {
+          const cut: Vec3[] = [];
+          for (let e = 0; e < 3; e++) {
+            const t0 = t[e]!, t1 = t[(e + 1) % 3]!;
+            if ((t0 - k) * (t1 - k) > 0 || t0 === t1) continue;
+            const s0 = (k - t0) / (t1 - t0);
+            const p0 = tri[e]!, p1 = tri[(e + 1) % 3]!;
+            cut.push([p0[0] + (p1[0] - p0[0]) * s0, p0[1] + (p1[1] - p0[1]) * s0, p0[2] + (p1[2] - p0[2]) * s0]);
+          }
+          if (cut.length >= 2) pts.push(...cut[0]!, ...cut[1]!);
+        }
+      }
+    }
+    if (!pts.length) return;
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(Float32Array.from(pts), 3));
+    const lines = new LineSegments(g, new LineBasicMaterial({ color: TEXTURE_GRID_COLOR, transparent: true, opacity: 0.85 }));
+    lines.renderOrder = 11;
+    this.fixed.add(lines);
+  }
+
+  /**
+   * A texture tile hovered in the asset browser (try before you apply, as modelling tools preview a material): `name`
+   * shown on the selected faces, their mapping kept, no edit; null puts them back as they were.
+   */
+  previewTextureName(name: string | null): void {
+    if (name === null) {
+      if (!this.hoverPreview) return;
+      this.restoreFaces(this.hoverPreview);
+      this.hoverPreview = null;
+      this.redraw();
+      return;
+    }
+    if (!this.active || !this.textureOn || this.texturePreview) return;
+    const sets = this.selectedFaceSets();
+    if (!sets.length) return;
+    if (this.hoverPreview) this.restoreFaces(this.hoverPreview); else this.hoverPreview = this.snapshotFaces(sets);
+    const scaleTexel = this.scaleTexel();
+    for (const { o, faces } of sets) applyTexture(o.mesh, faces, name, this.size, { align: 'keep', scaleTexel });
+    this.redraw();
+  }
+  private hoverPreview: FaceSnapshot[] | null = null;
+
+  /** How many faces of the map's world wear each texture, by lowercase name (the asset browser's sort by use). */
+  textureUses(): Map<string, number> {
+    const out = new Map<string, number>();
+    const seen = new Set<EditMesh>();
+    for (const o of this.geo?.objects ?? []) {
+      if (seen.has(o.mesh)) continue;
+      seen.add(o.mesh);
+      for (const f of liveFaces(o.mesh)) {
+        const name = o.mesh.styles[o.mesh.faces[f]!.style]!.style.textureName;
+        if (name) out.set(name.toLowerCase(), (out.get(name.toLowerCase()) ?? 0) + 1);
+      }
+    }
+    return out;
+  }
+
+  /** Each face of `sets` as it is: its draw style, its mapping (or none) and its corners' UVs by place, to put back. */
+  private snapshotFaces(sets: { o: GeoObject; faces: number[] }[]): FaceSnapshot[] {
+    return sets.flatMap(({ o, faces }) => faces.flatMap((f) => {
+      const face = o.mesh.faces[f];
+      if (!face) return [];
+      const mp = face.mapping;
+      return [{ m: o.mesh, f, style: face.style, mapping: mp ? { ...mp, u: [...mp.u] as Vec3, v: [...mp.v] as Vec3 } : undefined,
+        uvs: face.corners.map((c) => [o.mesh.cUv[c * 2]!, o.mesh.cUv[c * 2 + 1]!] as [number, number]), styles: o.mesh.styles.length }];
+    }));
+  }
+  private restoreFaces(snap: readonly FaceSnapshot[]): void {
+    for (const { m, f, style, mapping, uvs } of snap) {
+      const face = m.faces[f];
+      if (!face) continue;
+      face.style = style;
+      if (mapping) face.mapping = { ...mapping, u: [...mapping.u] as Vec3, v: [...mapping.v] as Vec3 }; else delete face.mapping;
+      face.corners.forEach((c, k) => { const uv = uvs[k]; if (uv) { m.cUv[c * 2] = uv[0]; m.cUv[c * 2 + 1] = uv[1]; } });
+    }
+    // The draw styles the preview made and no face now wears (a scrubbed distance makes one a value): dropped.
+    const before = new Map<EditMesh, number>();
+    for (const { m, styles } of snap) before.set(m, Math.min(before.get(m) ?? Infinity, styles));
+    for (const [m, n] of before) {
+      let worn = -1;
+      for (const f of liveFaces(m)) worn = Math.max(worn, m.faces[f]!.style);
+      if (m.styles.length > n) m.styles.length = Math.max(n, worn + 1);
+    }
   }
 
   /** The step the Shift buttons move a texture by (the grid's, world units) and Rotate turns it by (the turn snap's, degrees). */
@@ -3667,35 +3894,40 @@ export class GeometryEditor {
    * (`modifyTexture`). The history is untouched: its last step holds the faces as they were before the drag.
    */
   previewTexture(change: MappingChange | null): void {
+    const scaleTexel = this.scaleTexel();
+    this.previewFaces(change && ((m, faces) => adjustMapping(m, faces, change, this.size, scaleTexel)));
+  }
+
+  /**
+   * The selected faces' detail pass set (`DetailChange`, `./texturing` `setDetail`): one edit; faces sharing a draw with
+   * others are split into their own, as retexturing does.
+   */
+  setTextureDetail(change: DetailChange, label = 'Detail texture'): void {
+    this.previewFaces(null);
+    this.edit(label, () => this.forFaces((m, faces) => setDetail(m, faces, change)));
+  }
+
+  /** The detail distance field dragged, shown live as `previewTexture` shows a mapping field; null puts the faces back. */
+  previewDetail(change: DetailChange | null): void {
+    this.previewFaces(change && ((m, faces) => setDetail(m, faces, change)));
+  }
+
+  /** A Texture State field's live drag: `apply` laid on the selected faces from as the drag found them, no edit; null ends it. */
+  private previewFaces(apply: ((m: EditMesh, faces: number[]) => void) | null): void {
     const was = this.texturePreview;
-    if (change === null) {
+    if (apply === null) {
       if (!was) return;
       this.texturePreview = null;
       if (this.texturePreviewTimer) { clearTimeout(this.texturePreviewTimer); this.texturePreviewTimer = null; }
-      for (const { m, f, mapping, uvs } of was) {
-        const face = m.faces[f];
-        if (!face) continue;
-        if (mapping) face.mapping = { ...mapping, u: [...mapping.u] as Vec3, v: [...mapping.v] as Vec3 }; else delete face.mapping;
-        face.corners.forEach((c, k) => { const uv = uvs[k]; if (uv) { m.cUv[c * 2] = uv[0]; m.cUv[c * 2 + 1] = uv[1]; } });
-      }
+      this.restoreFaces(was);
       this.redraw();
       return;
     }
     const sets = this.selectedFaceSets();
     if (!sets.length) return;
-    if (!was) {
-      // Each face as the drag found it, to put back: its mapping (or none) and its corners' UVs, by place (a corner split
-      // off a neighbour keeps its place in the face, `ownCorners`).
-      this.texturePreview = sets.flatMap(({ o, faces }) => faces.flatMap((f) => {
-        const face = o.mesh.faces[f];
-        if (!face) return [];
-        const mp = face.mapping;
-        return [{ m: o.mesh, f, mapping: mp ? { ...mp, u: [...mp.u] as Vec3, v: [...mp.v] as Vec3 } : undefined,
-          uvs: face.corners.map((c) => [o.mesh.cUv[c * 2]!, o.mesh.cUv[c * 2 + 1]!] as [number, number]) }];
-      }));
-    }
-    const scaleTexel = this.scaleTexel();
-    for (const { o, faces } of sets) adjustMapping(o.mesh, faces, change, this.size, scaleTexel);
+    // From the faces as the drag found them each time, so a relative change (a turn) is the drag's whole, not summed.
+    if (was) this.restoreFaces(was); else this.texturePreview = this.snapshotFaces(sets);
+    for (const { o, faces } of sets) apply(o.mesh, faces);
     // The world drawn again no more often than the preview's step: a big map's draws take a while to rebuild.
     const wait = TEXTURE_PREVIEW_MS - (performance.now() - this.texturePreviewAt);
     if (this.texturePreviewTimer) return;
@@ -3703,7 +3935,7 @@ export class GeometryEditor {
     if (wait <= 0) run(); else this.texturePreviewTimer = setTimeout(run, wait);
   }
   /** The faces as a Texture State field's drag found them (`previewTexture`); null with none going on. */
-  private texturePreview: { m: EditMesh; f: number; mapping: TextureMapping | undefined; uvs: [number, number][] }[] | null = null;
+  private texturePreview: FaceSnapshot[] | null = null;
   private texturePreviewTimer: ReturnType<typeof setTimeout> | null = null;
   private texturePreviewAt = 0;
 
@@ -3871,6 +4103,36 @@ export class GeometryEditor {
       moving.set(o.mesh, set);
     }
     if (!moving.size) return;
+    // The faces only partly moved that carry a mapping: their corners, each with its face's mapping and texture size.
+    const partial = new Map<EditMesh, Map<number, { map: TextureMapping; size: readonly [number, number] }>>();
+    for (const [m, set] of moving) {
+      const corners = new Map<number, { map: TextureMapping; size: readonly [number, number] }>();
+      for (const f of liveFaces(m)) {
+        const face = m.faces[f]!;
+        if (!face.mapping || face.disp) continue;
+        const vs = faceVerts(m, f);
+        const n = vs.filter((v) => set.has(v)).length;
+        if (n === 0 || n === vs.length) continue;
+        const size = this.size(m.styles[face.style]!.style.textureName);
+        if (!size) continue;
+        for (const c of face.corners) corners.set(c, { map: face.mapping, size });
+      }
+      if (corners.size) partial.set(m, corners);
+    }
+    this.liveUv = [];
+    const takeUv = (mesh: Mesh, src: { mesh: EditMesh; corners: Int32Array }): void => {
+      const corners = partial.get(src.mesh);
+      const attr = mesh.geometry.getAttribute('uv') as BufferAttribute | InterleavedBufferAttribute | undefined;
+      if (!corners || !attr) return;
+      const set = moving.get(src.mesh)!;
+      for (let i = 0; i < src.corners.length; i++) {
+        const c = src.corners[i]!;
+        const hit = c >= 0 ? corners.get(c) : undefined;
+        if (!hit) continue;
+        const v = src.mesh.cVert[c]!;
+        this.liveUv.push({ attr, i, map: hit.map, size: hit.size, at: vertPos(src.mesh, v), moves: set.has(v), uv: [attr.getX(i), attr.getY(i)] });
+      }
+    };
     const take = (mesh: Mesh, attr: BufferAttribute | InterleavedBufferAttribute, verts: ArrayLike<number>, meshOf: (i: number) => EditMesh | null): void => {
       const at: number[] = [], base: number[] = [];
       for (let i = 0; i < verts.length; i++) {
@@ -3888,6 +4150,7 @@ export class GeometryEditor {
       const src = part ? this.sources.get(part) : undefined;
       if (!src || !(o instanceof Mesh)) return;
       take(o, o.geometry.getAttribute('position') as BufferAttribute | InterleavedBufferAttribute, src.verts, () => src.mesh);
+      takeUv(o, src);
     });
     // The faces' edges (the Wireframe) bend with them.
     const lines = this.edges.children[0] as Mesh | undefined;
@@ -3898,6 +4161,18 @@ export class GeometryEditor {
   /** The live drag's vertices put where the gizmo's move takes them. */
   private moveLive(delta: Matrix4): void {
     const v = new Vector3();
+    const touched = new Set<BufferAttribute | InterleavedBufferAttribute>();
+    for (const u of this.liveUv) {
+      v.set(u.at[0], u.at[1], u.at[2]);
+      if (u.moves) v.applyMatrix4(delta);
+      const [x, y] = mappedUv(u.map, [v.x, v.y, v.z], u.size);
+      u.attr.setXY(u.i, x, y);
+      touched.add(u.attr);
+    }
+    for (const a of touched) {
+      if ('data' in a && a.data) (a.data as { needsUpdate: boolean }).needsUpdate = true;
+      else (a as BufferAttribute).needsUpdate = true;
+    }
     for (const l of this.live) {
       for (let k = 0; k < l.at.length; k++) {
         v.set(l.base[k * 3]!, l.base[k * 3 + 1]!, l.base[k * 3 + 2]!).applyMatrix4(delta);
@@ -3910,8 +4185,17 @@ export class GeometryEditor {
 
   /** The live drag ends: `restore` puts its vertices back (no move made); else the release's rebuild replaces them. */
   private endLive(restore: boolean): void {
-    if (restore) this.moveLive(new Matrix4());
+    if (restore) {
+      this.moveLive(new Matrix4());
+      // The texture as it was drawn (not as the mapping would lay it at rest: a disc uv a mapping only approximates).
+      for (const u of this.liveUv) u.attr.setXY(u.i, u.uv[0], u.uv[1]);
+      for (const a of new Set(this.liveUv.map((u) => u.attr))) {
+        if ('data' in a && a.data) (a.data as { needsUpdate: boolean }).needsUpdate = true;
+        else (a as BufferAttribute).needsUpdate = true;
+      }
+    }
     this.live = [];
+    this.liveUv = [];
   }
 
   /**

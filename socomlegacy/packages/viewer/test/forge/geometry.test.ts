@@ -7,7 +7,7 @@ import { edgeMap, faceNormal, facePoints, faceVerts, liveFaces, polygonNormal, t
 import { cutFace, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, mergeFaces, splitEdge, transformVerts, translation, weldVerts } from '../../src/forge/geometry/ops';
 import { box, cylinder, plane, sphere, type PrimitiveOptions } from '../../src/forge/geometry/primitives';
 import { convertSelection, emptySelection, pick, pickFace, selectionVerts } from '../../src/forge/geometry/selection';
-import { adjustMapping, alignToView, applyTexture, fitMapping, justify, lockMapping, mappedUv, mappingRotation, textureState, worldAligned } from '../../src/forge/geometry/texturing';
+import { adjustMapping, alignToView, applyTexture, fitMapping, justify, lockMapping, mappedUv, mappingRotation, resetMapping, textureState, textureTexelScales, worldAligned } from '../../src/forge/geometry/texturing';
 import { addObject, buildHull, compileDraws, compileGeometry, geometryOfMap, markReshaped, objectFaces, separateFaces, transformObject, type WorldGeometry } from '../../src/forge/geometry/world';
 import { compileMesh, importWorld } from '../../src/forge/geometry/worldMesh';
 
@@ -257,6 +257,18 @@ describe('texturing (as Hammer does it)', () => {
     const map = m.faces[wall]!.mapping!;
     expect(map.u[0]).toBeCloseTo(1);                           // u along the camera's right
     expect(map.v[1]).toBeCloseTo(-1);                          // v down the wall
+  });
+
+  it('natural size: read off the faces that wear a texture; Reset lays it back world-aligned at that size', () => {
+    const m = plane([0, 0, 0], 10, 10, 2, OPTS);               // 'brick' at 0.5 world units a texel
+    const natural = textureTexelScales(m, SIZE);
+    expect(natural.get('brick')).toBeCloseTo(0.5);
+    adjustMapping(m, [0, 1, 2, 3], { scaleU: 3, rotateTo: 30, shiftU: 7 }, SIZE);
+    resetMapping(m, [0, 1, 2, 3], SIZE, (n) => natural.get((n ?? '').toLowerCase()) ?? 1);
+    const st = textureState(m, [0, 1, 2, 3], SIZE);
+    expect(st.scaleU).toBeCloseTo(0.5);
+    expect(st.rotate).toBeCloseTo(0);
+    expect(st.shiftU).toBeCloseTo(0);
   });
 
   it('texture lock: a moved face keeps its texels', () => {

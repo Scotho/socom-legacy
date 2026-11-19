@@ -476,6 +476,9 @@ const VIEW_TOGGLES = [
   { id: 'spawns', label: 'Gizmos', group: 'Overlays', on: true },
   // The map's AI grid (`./aiMapOverlay`; the owner, 2026-11-12): every walkable cell, coloured by its soil.
   { id: 'aimap', label: 'AI Navigation', group: 'Overlays', on: false },
+  // The selected faces' texture repeats drawn over them on Geometry mode's Texture layer (the owner, 2026-11-17; a UV
+  // checker's overlay, `GeometryEditor.setTextureGrid`).
+  { id: 'texgrid', label: 'Texture grid', group: 'Draw', on: false },
   { id: 'fog', label: 'Fog', group: 'World', on: true },
   { id: 'shadows', label: 'Drop shadows', group: 'World', on: true },
   { id: 'detail', label: 'Detail textures', group: 'World', on: true },
@@ -1303,6 +1306,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   assetVolumeLabel.title = 'How loud previewed sounds play (the game itself unchanged)';
   assetVolumeLabel.append(el(doc, 'span', '', 'Preview volume'), assetVolumeSlider, assetVolumeValue);
   assetViewPopup.append(assetVolumeLabel);
+  // Textures sorted by name, or by how much the map uses them (the owner, 2026-11-17: texturing easy to start, kept
+  // standard -- an asset browser's sort): kept in this browser.
+  const TEXTURE_SORT_KEY = 's2u-forge-texture-sort';
+  const textureSortLabel = el(doc, 'label', 'fx-asset-preview-toggle fx-asset-sort');
+  const textureSortSel = el(doc, 'select', 'fx-select') as HTMLSelectElement;
+  for (const [v, w] of [['name', 'Name'], ['used', 'Most used on this map']] as const) { const o = el(doc, 'option', '', w) as HTMLOptionElement; o.value = v; textureSortSel.append(o); }
+  textureSortSel.value = readKey(TEXTURE_SORT_KEY) === 'used' ? 'used' : 'name';
+  textureSortSel.setAttribute('aria-label', 'Sort textures');
+  textureSortLabel.title = 'The Textures tab\'s order: by name, or the textures the map uses most first';
+  textureSortLabel.append(el(doc, 'span', '', 'Sort textures'), textureSortSel);
+  textureSortSel.addEventListener('change', () => { writeKey(TEXTURE_SORT_KEY, textureSortSel.value); drawAssets(); });
+  assetViewPopup.append(textureSortLabel);
   chipChars.hidden = true;                                     // a tab now (the owner, 2026-11-13): Characters
   chips.append(chipFav, chipChars, assetViewPopupButton, assetViewPopup);
   filters.append(search, chips);
@@ -1668,6 +1683,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   addViewportToggle('collision', 'Collision hull');
   addViewportToggle('grid', 'Workplane');
   addViewportToggle('aimap', 'AI Navigation');                       // the map's AI grid (`./aiMapOverlay`; the owner, 2026-11-12)
+  addViewportToggle('texgrid', 'Texture grid');                      // the selected faces' texture repeats, on the Texture layer (2026-11-17)
   modeGroup('World');
   addViewportToggle('fog', 'Fog');
   addViewportToggle('shadows', 'Drop shadows');
@@ -3085,8 +3101,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     steps: () => geometry?.textureSteps() ?? { shift: 1, rotate: 15 },
     change: (c, label) => { geometry?.modifyTexture(c, label); drawGeoInspector(); },
     preview: (c) => { geometry?.previewTexture(c); if (!c) drawGeoInspector(); },
+    reset: () => { geometry?.resetTexture(); drawGeoInspector(); },
     align: (how) => { geometry?.alignTexture(how); drawGeoInspector(); },
     justify: (how, together, repeat) => { geometry?.justifyTexture(how, together, repeat); drawGeoInspector(); },
+    detail: (c, label) => { geometry?.setTextureDetail(c, label); drawGeoInspector(); },
+    previewDetail: (c) => { geometry?.previewDetail(c); if (!c) drawGeoInspector(); },
   });
   geoInspector.body.append(...textureInspector.sections);
   const geoRows = [
@@ -4961,6 +4980,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const applyView = (): void => {
     for (const v of [baseView, ...pieces.views(), geometry?.view() ?? null]) if (v) applyWorld(v);
     geometry?.setWireframe(view.wireframe);
+    geometry?.setTextureGrid(view.texgrid);
     geometry?.applyProps();                                    // Geometry mode's View > Props over what the switches drew
     mapGrid.setVisible(view.grid);
     applyGuides();
@@ -11550,6 +11570,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   };
   const overViewport = (t: EventTarget | null): boolean => t instanceof Node && (t === input || input.contains(t));
+  /**
+   * A Textures tile hovered on Geometry mode's Texture layer (the owner, 2026-11-17: try before you apply, as modelling
+   * tools preview a material): its texture shown on the selected faces, no edit (`GeometryEditor.previewTextureName`);
+   * the pointer leaving the tile, or pressing it (a click applies, a drag drops), puts them back first.
+   */
+  let hoverTex: string | null = null;
+  const endHoverTexture = (): void => { if (hoverTex === null) return; hoverTex = null; geometry?.previewTextureName(null); };
+  list.addEventListener('pointerover', (e) => {
+    const tile = (e.target as Element | null)?.closest<HTMLElement>('[data-asset]');
+    const id = tile && list.contains(tile) ? tile.dataset['asset'] ?? '' : '';
+    if (!id || !parseTextureAsset(id) || !geometry?.isTexturing() || tileDrag?.started) { endHoverTexture(); return; }
+    if (hoverTex === id) return;
+    hoverTex = id;
+    void lendTexture(id).then((name) => { if (hoverTex === id && name) geometry?.previewTextureName(name); });
+  });
+  list.addEventListener('pointerleave', endHoverTexture);
+  list.addEventListener('pointerdown', endHoverTexture, true);
   // No browser drag from a tile (the Characters' aside): the pointer's own instead.
   list.addEventListener('dragstart', (e) => { if (!showChars) { e.preventDefault(); e.stopPropagation(); } }, true);
   // An asset taken (a click to place it, or a drag) in Modelling mode goes back to Object mode first (the owner,
@@ -12032,7 +12069,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * The shared and the guns' read from the base's own map where it holds them (the texture it already draws). Null
    * until the maps they need are read.
    */
+  /** How many faces (triangles off Geometry mode) of the map wear each texture, by lowercase name. */
+  const textureUseCounts = (): Map<string, number> => {
+    if (geometry?.isActive()) return geometry.textureUses();
+    const out = new Map<string, number>();
+    for (const d of baseMap?.world ?? []) if (d.textureName) out.set(d.textureName.toLowerCase(), (out.get(d.textureName.toLowerCase()) ?? 0) + d.indices.length / 3);
+    return out;
+  };
   const textureTiles = (): { id: string; name: string; meta: string }[] | null => {
+    const got = textureTilesByName();
+    if (!got || textureSortSel.value !== 'used') return got;
+    const uses = textureUseCounts();
+    const n = (t: { name: string }): number => uses.get(t.name.toLowerCase()) ?? 0;
+    return got.map((t) => (n(t) ? { ...t, meta: `${t.meta} \u00b7 used ${n(t)}\u00d7` } : t)).sort((a, b) => n(b) - n(a) || a.name.localeCompare(b.name));
+  };
+  const textureTilesByName = (): { id: string; name: string; meta: string }[] | null => {
     const stem = paletteStem();
     const home = textureHome();
     const tile = (m: string, e: TextureCatalogEntry, meta: string) => ({ id: textureAssetId(m, e.name), name: e.name, meta });
@@ -13790,6 +13841,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           for (let i = 0; a && i + 1 < a.count; i += 2) n += Math.hypot(a.getX(i + 1) - a.getX(i), a.getY(i + 1) - a.getY(i), a.getZ(i + 1) - a.getZ(i));
         });
         return n;
+      },
+      /**
+       * The drawn world's detail passes (`../world` `addDetail`; the base view's, or Geometry mode's own view of the
+       * edited world): each one's base draw, and the triangles it covers.
+       */
+      detailPasses: (): { name: string; tris: number }[] => {
+        const out: { name: string; tris: number }[] = [];
+        scene.traverseVisible((o) => {
+          if (!(o instanceof Mesh) || !o.name.endsWith('(detail)')) return;
+          const ix = o.geometry.getIndex();
+          out.push({ name: o.name, tris: (ix ? ix.count : o.geometry.getAttribute('position')?.count ?? 0) / 3 });
+        });
+        return out;
       },
     };
   }
@@ -15948,7 +16012,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const next = await layoutForSelect(chosen, paletteStem() || entries[0]?.stem || BLANK_LIBRARY).catch((e: unknown) => { say(String(e), true); return null; });
     if (!next) return;
     if (!(await saveFirstOrStay())) return;
+    // A new map opens with the world drawn as the game draws it (the owner, 2026-11-18: "on by default ... when creating
+    // new maps (even with base map)" -- the detail textures, then the fog, the drop shadows, the flare glows and the graded
+    // alpha blend "just like the detail texture"): each turned off by hand is turned on again here, off only by hand.
+    view.fog = true;
+    view.shadows = true;
+    view.detail = true;
+    view.blendgraded = true;
+    flareGlows = true;
+    drawBillboardSwitches();
     await openLayout(next, 'player').then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; say(String(e), true); });
+    applyView();
+    writeView();
   })(); });
   /**
    * Before the open layout is dropped -- New, a save opened, another base (the owner, 2026-11-06: New over an edited
@@ -16311,6 +16386,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       'rule',
       { label: 'Duplicate', icon: icon('duplicate'), keys: 'Ctrl+D', act: () => (geoEdits() ? geometry!.command('duplicate') : duplicate()), enabled: () => (geoEdits() ? geometry!.canCommand('duplicate') : !dupBtn.disabled) },
       { label: 'Delete', icon: icon('trash'), keys: 'Del', act: () => (geoEdits() ? geometry!.command('delete') : remove()), enabled: () => (geoEdits() ? geometry!.canCommand('delete') : !delBtn.disabled) },
+      'rule',
+      // Select similar faces (the owner, 2026-11-17; modelling tools' "select similar"): Geometry mode's, any layer.
+      { label: 'Select Coplanar Faces', act: () => geometry?.selectSimilar('coplanar'), enabled: geoEdits },
+      { label: 'Select Faces With Same Texture', act: () => geometry?.selectSimilar('texture'), enabled: geoEdits },
+      { label: 'Select Floors', act: () => geometry?.selectSimilar('floors'), enabled: geoEdits },
+      { label: 'Select Walls', act: () => geometry?.selectSimilar('walls'), enabled: geoEdits },
+      { label: 'Select Ceilings', act: () => geometry?.selectSimilar('ceilings'), enabled: geoEdits },
     ]);
     // The AI Navigation menu is gone (the owner, 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
     // settings"): its layer switches are AI Navigation mode's View (`navToggle`); the map's switch the Overlays menu's.

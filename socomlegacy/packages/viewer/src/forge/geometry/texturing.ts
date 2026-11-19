@@ -194,19 +194,57 @@ export function sampleFace(m: EditMesh, f: number, size: TextureSize): FaceLook 
   return { style, mapping };
 }
 
-const sameLook = (a: StyleSlot['style'], look: FaceLook['style']): boolean =>
-  (Object.keys(look) as (keyof FaceLook['style'])[]).every((k) => JSON.stringify(a[k]) === JSON.stringify(look[k]));
+/**
+ * Two draw styles alike in everything but their place in the order: every key either holds, a key one lacks read as
+ * absent (undefined) -- so a style with a flag of its own (a `detailRange`) is not taken for one without it.
+ */
+const sameStyle = (a: StyleSlot['style'], b: StyleSlot['style']): boolean => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.delete('order'); keys.delete('orderEnd');
+  const ra = a as unknown as Record<string, unknown>, rb = b as unknown as Record<string, unknown>;
+  return [...keys].every((k) => JSON.stringify(ra[k]) === JSON.stringify(rb[k]));
+};
 
-/** The style slot of `style`'s draw with the material `look`: its own when it matches, else a copy of its source made once. */
+/**
+ * The style slot of `style`'s draw with the material `look`: its own when it matches, else a copy of its source made once.
+ * The style wanted is the source's with `look` (a whole material, `sampleFace`'s) over it.
+ */
 export function styleWithLook(m: EditMesh, style: number, look: FaceLook['style']): number {
   const slot = m.styles[style]!;
-  if (sameLook(slot.style, look)) return style;
   const base = slot.base ?? style;
-  const found = m.styles.findIndex((s, i) => (s.base ?? i) === base && sameLook(s.style, look));
-  if (found >= 0) return found;
   const baseSlot = m.styles[base]!;
-  m.styles.push({ ...baseSlot, style: { ...baseSlot.style, ...look }, rank: baseSlot.rank + 0.5, base });
+  const want = { ...baseSlot.style, ...look };
+  if (sameStyle(slot.style, want)) return style;
+  const found = m.styles.findIndex((s, i) => (s.base ?? i) === base && sameStyle(s.style, want));
+  if (found >= 0) return found;
+  m.styles.push({ ...baseSlot, style: want, rank: baseSlot.rank + 0.5, base });
   return m.styles.length - 1;
+}
+
+/**
+ * The detail pass's two per-visual words on faces' draws (PF-30, as the original holds them per visual, not per
+ * texture): `on`, the visual's `vparams` word 0 bit 14 (`DETAIL_BIT14_READING`, `FUN_003b6e10` D:L308392: without it
+ * the texture's detail pass is not drawn over the visual); `range`, the visual's gate range, squared world units (its
+ * `detail_buff`, `DETAIL_RANGE_SOURCE_READING`; the pass drawn while the visual's centroid is that near,
+ * `FUN_003374c0` D:L235405-235418). `LoadedMesh.detailOn` and `detailRange` carry them: absent, on and the texture's
+ * manifest record's range.
+ */
+export interface DetailChange { on?: boolean; range?: number }
+
+/**
+ * `faces` given `change` (the owner, 2026-11-18: per mesh, a Detail checkbox and distance): each face's draw with the
+ * words set (`styleWithLook`), so faces sharing a draw with others are split into their own -- as retexturing does.
+ */
+export function setDetail(m: EditMesh, faces: readonly number[], change: DetailChange): void {
+  for (const f of faces) {
+    const face = m.faces[f];
+    if (!face) continue;
+    // The face's whole material as it is (its texture and every flag), the words changed over it.
+    const { order: _o, orderEnd: _e, ...look } = m.styles[face.style]!.style;
+    if (change.on !== undefined) look.detailOn = change.on ? undefined : false;
+    if (change.range !== undefined) look.detailRange = change.range;
+    face.style = styleWithLook(m, face.style, look);
+  }
 }
 
 /**
@@ -438,3 +476,37 @@ export function lockMapping(map: TextureMapping, mat: ArrayLike<number>): Textur
   return { u: u.axis, v: v.axis, scaleU: u.s, scaleV: v.s, shiftU: u.h, shiftV: v.h };
 }
 
+
+/**
+ * Each texture's natural size (the owner, 2026-11-17: texturing "easy ... for noobs", kept standard): the median world
+ * units a texel over the faces of `m` that wear it, as the map's own makers laid it (at most `sample` faces a texture,
+ * read off their uvs as `medianTexelScale` reads the map's), by lowercase name. What Reset puts a face back to.
+ */
+export function textureTexelScales(m: EditMesh, size: TextureSize, sample = 200): Map<string, number> {
+  const byName = new Map<string, number[]>();
+  for (const f of liveFaces(m)) {
+    const name = m.styles[m.faces[f]!.style]!.style.textureName;
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const l = byName.get(key) ?? [];
+    if (l.length >= sample * 2) continue;
+    const sz = size(name);
+    const map = sz ? fitMapping(m, f, sz) : null;
+    if (!map) continue;
+    l.push(Math.abs(map.scaleU), Math.abs(map.scaleV));
+    byName.set(key, l);
+  }
+  const out = new Map<string, number>();
+  for (const [k, l] of byName) { l.sort((a, b) => a - b); const mid = l[l.length >> 1]; if (mid && Number.isFinite(mid)) out.set(k, mid); }
+  return out;
+}
+
+/** Hammer's reset: `faces` world-aligned again at their texture's natural size (`scaleOf`), shift and rotation zeroed. */
+export function resetMapping(m: EditMesh, faces: readonly number[], size: TextureSize, scaleOf: (textureName: string | null) => number): void {
+  for (const f of faces) {
+    const face = m.faces[f];
+    if (!face) continue;
+    face.mapping = worldAligned(faceNormal(m, f), scaleOf(m.styles[face.style]!.style.textureName));
+  }
+  refreshUvs(m, faces, size);
+}
