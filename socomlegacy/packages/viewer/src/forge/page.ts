@@ -229,6 +229,8 @@ import { libraryProps, palette, type PaletteEntry } from './library';
 import { standingPose } from './figure';
 import { ASSET_DRAG_MIME } from './assetDrag';
 import { forgeKeyAction, forgeLeaseExit, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from './keys';
+import { isShortcut, keyLabel, keysLabel, keysOf, keysPaused, loadKeyboardLayout, onShortcutsChange, SHORTCUT_COMMANDS } from './shortcuts';
+import { openShortcutEditor } from './shortcutEditor';
 import { servedTreeFallsBackToDisc } from './servedFallback';
 import {
   blockPiece, bombMarker, extractionZoneMarker, ghostRing, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
@@ -631,6 +633,8 @@ const lockMouse = (el: HTMLCanvasElement): void => {
 };
 /** A key's name in a tooltip (OT.R68: the forge's editor reads the keyboard in every build). */
 const key = (k: string): string => ` · ${k}`;
+/** A command's key in a tooltip, from the shortcut list (`./shortcuts`), or nothing where it has none. */
+const keyOf = (id: string): string => { const k = keyLabel(id); return k ? key(k) : ''; };
 const icon = (name: string): string => `<svg class="fx-ico" viewBox="0 0 24 24" aria-hidden="true">${ICON[name] ?? ''}</svg>`;
 /**
  * A kind's billboard as an icon (`./mapDataBillboards` `MAP_DATA_MARKS`): its letter on its colour, round for the map's
@@ -971,8 +975,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The Forge objects (`../forge/forgeObjects`), under Other's More...: a disc map's ambient effect.
     ambient: tool('place', 'Emitter', "Place an emitter: one of a disc map's own -- its fire, smoke, waterfall, torch, rain, bugs, with its sound and light -- or a sound or effect, playing from the round's start where it stands"),
   };
+  /** Tooltips that name a key: set again whenever the shortcuts change (`./shortcuts` `onShortcutsChange`). */
+  const keyTitles: (() => void)[] = [];
+  const keyTitled = (b: HTMLElement, title: () => string): void => { const set = (): void => { b.title = title(); }; set(); keyTitles.push(set); };
+  onShortcutsChange(() => { for (const set of keyTitles) set(); });
+  loadKeyboardLayout(doc.defaultView?.navigator as Parameters<typeof loadKeyboardLayout>[0]);
   // Each tool's key in its tooltip (`./keys` `forgeToolKeyLabel`: Q, then the number keys in the tools row's order).
-  for (const [m, b] of Object.entries(modeBtns)) { const k = forgeToolKeyLabel(m); if (k) b.title += key(k); }
+  for (const [m, b] of Object.entries(modeBtns)) { if (m === 'select') continue; const base = b.title; keyTitled(b, () => { const k = forgeToolKeyLabel(m); return k ? base + key(k) : base; }); }
   // The tools that place a spawn or a bomb marker wear that placement's billboard (`markBadge`), as its mark and its row do.
   for (const [mode, kind] of [['spawnA', 'userSpawnA'], ['spawnB', 'userSpawnB'], ['respawnA', 'userRespawnA'], ['respawnB', 'userRespawnB'], ['npc', 'userNpcs'], ['hostage', 'userEscortees'], ['zone', 'userTacZones'], ['turret', 'userTurrets'], ['door', 'userDoors'], ['ladder', 'userLadders'], ['flare', 'userFlares'], ['gate', 'userGates'], ['barrier', 'userBarriers'], ['switch', 'userSwitches'], ['point', 'userTacPoints'], ['view', 'userScenicViews'], ['bomb', 'userBombStart'], ['siteSeal', 'userSiteSeal'],
     ['siteTerrorist', 'userSiteTerrorist'], ['ambient', 'userEmitters']] as const) {
@@ -989,7 +998,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   selectGear.title = 'Select settings';
   selectGear.setAttribute('aria-hidden', 'true');
   modeBtns.select.append(selectGear);
-  modeBtns.select.title = `Select${key(forgeToolKeyLabel('select') ?? '')} · the gear (or a right-click): its settings`;
+  keyTitled(modeBtns.select, () => { const k = forgeToolKeyLabel('select'); return `Select${k ? key(k) : ''} · the gear (or a right-click): its settings`; });
   const selectSettings = el(doc, 'div', 'fx-tool-popup');
   selectSettings.id = 'fx-select-settings';
   selectSettings.setAttribute('role', 'dialog');
@@ -1017,19 +1026,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     'A kind whose billboards are switched off in the Overlays dropdown can still be clicked or boxed: a door, turret or prop by its model, a spawn or zone where its mark would be. Off, a hidden kind is passed over');
   selectSettings.append(el(doc, 'div', 'fx-tool-popup-note',
     'Off, a click looks through them to what is behind. With Select hidden overlays off, a kind switched off in the Overlays dropdown is passed over too; props always follow the first two. The Outliner selects any.'));
-  const moveBtn = tool('move', 'Move', `Move with the gizmo${key('W')}`);
-  const turnBtn = tool('turn', 'Rotate', `Rotate with the gizmo${key('E')}`);
-  const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo${key('R')}`);   // FX-9: a piece's scale, an axis or whole
+  const moveBtn = tool('move', 'Move', '');
+  const turnBtn = tool('turn', 'Rotate', '');
+  const scaleBtn = tool('scale', 'Scale', '');   // FX-9: a piece's scale, an axis or whole
+  keyTitled(moveBtn, () => `Move with the gizmo${keyOf('app.translate')}`);
+  keyTitled(turnBtn, () => `Rotate with the gizmo${keyOf('app.rotate')}`);
   scaleBtn.hidden = FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION;    // FC-1 (main): a stub, hidden (`./transformStubs`)
   // The snaps are the viewport's grid and rotation pills (`snapPill`, `drawPlacement`); G and the pad's L3 turn both on and off.
-  const dupBtn = tool('copy', '', `Duplicate · pad □${key('Ctrl+D')}`);
-  const delBtn = tool('trash', '', `Delete · pad △${key('Del')}`);
-  const docksBtn = iconOnly(tool('dock', 'Docks', `Show or hide the docks${key('H')}`), 'Docks');
+  const delBtn = tool('trash', '', '');
+  keyTitled(delBtn, () => `Delete · pad △${keyOf('forge.delete')}`);
+  const docksBtn = iconOnly(tool('dock', 'Docks', ''), 'Docks');
+  keyTitled(docksBtn, () => `Show or hide the docks${keyOf('app.docks')}`);
   const resetLayoutBtn = iconOnly(tool('reset', 'Reset layout', 'Restore the default dock layout and panel sizes'), 'Reset layout');
   resetLayoutBtn.dataset['forge'] = 'reset-layout';
   // The pad's buttons as `./pad` maps them: SELECT tapped undoes, held redoes (L2 / R2 are the fly's down / up).
-  const undoBtn = tool('undo', '', `Undo · pad SELECT${key('Ctrl+Z')}`);
-  const redoBtn = tool('redo', '', `Redo · pad hold SELECT${key('Ctrl+Y')}`);
+  const undoBtn = tool('undo', '', `Undo · pad SELECT${keyOf('app.undo')}`);
+  const redoBtn = tool('redo', '', `Redo · pad hold SELECT${keyOf('app.redo')}`);
   undoBtn.dataset['forge'] = 'undo';                         // FUI-6: a stable hook; the titles name the step (`refreshUndo`)
   redoBtn.dataset['forge'] = 'redo';
   const helpBtn = iconOnly(tool('help', 'Controls', 'Controls'), 'Controls');
@@ -1047,7 +1059,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const playBtn = el(doc, 'button', 'fx-play');
   playBtn.type = 'button';
   // FUI-3 (PAD-5): START opens the menu, whose first row is Play; the title no longer sends a pad to START.
-  playBtn.title = `Play the layout: an offline match${key('P')} · the gear (or a right-click): its settings`;
+  keyTitled(playBtn, () => `Play the layout: an offline match${keyOf('app.play')} · the gear (or a right-click): its settings`);
   /**
    * The Play settings (a browser adaptation, FG.R2; no original -- the game's own rounds stand a player on a slot): a gear
    * inside the Play button, a popup under it, as the Select tool's. Where round 1 stands the player -- the floor under
@@ -1384,6 +1396,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     pitch: fpitch, roll: froll, sx: fsx, sy: fsy, sz: fsz, resetPosition, resetRotation, resetScale } = inspectorDom;
   const outlinerDom = buildOutliner(doc);
   const { list: outliner, search: outlinerSearch, filter: outlinerFilter, filterSummary: outlinerFilterSummary, filterList: outlinerFilterList } = outlinerDom;
+  /**
+   * The Outliner's rename key (the owner, 2026-11-20: "make f2 rename"; the shortcut list's `outliner.rename`): the list
+   * takes the focus when clicked; F2 renames the selected row -- a folder in its row, anything else in the Inspector's
+   * Name field. (Its arrow keys were taken out again: "remove the arrows keys from the outliner, they are broken".)
+   */
+  outliner.tabIndex = 0;
+  outliner.addEventListener('keydown', (e) => {
+    if (typingTarget(e.target) || !isShortcut('outliner.rename', e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const target = [...outliner.querySelectorAll<HTMLLIElement>('li.is-on')].find((li) => li.offsetParent !== null);
+    const words = target?.querySelector<HTMLElement>(':scope > .fx-row-label');
+    if (target?.classList.contains('fx-folder-row') && !target.classList.contains('fx-map-kind') && words) { words.click(); words.click(); return; }   // a folder: its row's rename (two clicks)
+    const name = inspectorDom.body.querySelector<HTMLInputElement>('input[aria-label="Name"]');
+    if (name && !name.disabled) { name.focus(); name.select(); return; }
+    say('Rename: this has no name to change (folders, zones, hostages, points and views do)', true);
+  });
   // PF.R60 (`../detailDistance`, a browser adaptation over PF-30's gate): the detail distance -- the page's one stored factor,
   // the front end's launcher Options' too -- beside the PS2 picture switch; the PS2 picture draws the original's (1).
   const detailDistance = detailDistanceKeeper();
@@ -2432,14 +2461,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ['&#x25a1; Square', 'Action (doors)'], ['START', 'Back to the editor'],
       ['In the match', 'The game&#x2019;s own controls'], ['Hold SELECT + START', 'Back to the forge from the match'],
     ])}${keyRows('Keyboard and mouse', [
-      ['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump'], ['C', 'Stance'], ['X', 'Doors'], ['V, P or Esc', 'Back to the editor'],
+      ['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump'], ['C', 'Stance'], ['X', 'Doors'], ['Esc', 'Back to the editor'],
       ['In the match', 'The controller (the keyboard is not the match&#x2019;s)'],
     ])}</div><div class="fx-help-cols" data-help="editor" role="tabpanel">${
     keyRows('Controller', [
       ['Left stick', 'Fly'], ['Right stick', 'Look'], ['L2 / R2', 'Down / up'],
       ['&#x2715; Cross', 'Select or place at the centre'], ['Hold &#x2715;', 'Add to or take out of the selection'], ['L1 / R1', 'Previous / next tool (every tool, as the tools row)'], ['D-pad &#x2191; &#x2193;', 'Previous / next prop (a character with the NPC tool)'],
       ['D-pad &#x2190; &#x2192;', 'Turn the selection by the turn step'], ['Hold &#x25cb; + sticks', 'Move the selection (right stick: height)'],
-      ['&#x25cb; Circle', 'Deselect'], ['&#x25a1; Square', 'Duplicate'], ['&#x25b3; Triangle', 'Delete'], ['SELECT', 'Undo'], ['Hold SELECT', 'Redo'],
+      ['&#x25cb; Circle', 'Deselect'], ['&#x25b3; Triangle', 'Delete'], ['SELECT', 'Undo'], ['Hold SELECT', 'Redo'],
       ['L3', 'Snap on / off'], ['R3', 'Frame the selection'], ['START', 'The forge menu: Play, Walk, base, palette, view, save'], ['Stick at its rim', 'Fly faster'],
     ])}${keyRows('Pointer', [
       ['Click', 'Select, or place in Place / Spawn'], ['Shift or Ctrl + click', 'Add to or take out of the selection (the outliner too)'],
@@ -2450,14 +2479,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ['Double-click a row', 'Frame it (outliner)'],
     ])}${keyRows('Keyboard and mouse', [
       ['Right-click', 'Hold to look / fly; release to stop &#xb7; wheel changes speed while held'],
-      ['W A S D &#xb7; Q / E', 'Fly / move down or up while holding RMB'], ['Shift / Ctrl', 'Move 2x faster / stop while flying'],
-      ['R / F', 'Move up / down in camera space while holding RMB'],
-      ['Z / C', 'Widen / narrow the view while holding RMB'], ['Esc', 'Release the mouse lock'],
-      ...forgeToolKeyHelp((t) => TOOL_NAMES[t]),                // FP-1b (main): the keys' real order, never a literal list
-      FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION ? ['W / E', 'Move / rotate'] : ['W / E / R', 'Move / rotate / scale'], ['Q', 'Gizmo World / Local'],
-      ['G / Shift+G', 'Group the selection into a folder / ungroup it (outliner)'], ['Ctrl+D / Del', 'Duplicate / delete (a selected folder with everything in it)'], ['[ / ]', 'Previous / next prop (a character with the NPC tool)'], [', / .', 'Turn the selection by the turn step'],
-      ['M', 'The forge menu (arrows, Enter, Esc)'], ['Ctrl+X / Ctrl+C / Ctrl+V', 'Cut / copy / paste the selection at the cursor'], ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+O / Ctrl+S', 'Open a file / saves'], ['F / H / P / V', 'Frame / docks / play / walk'],
-    ])}</div><footer><button type="button" class="fx-tool" data-help-menu>Forge menu (M)</button><button type="button" class="fx-tool fx-primary">Close</button></footer>`;
+      ['Shift / Ctrl', 'Move 2x faster / stop while flying'], ['Esc', 'Release the mouse lock'],
+      // Every command with a key, from the shortcut list (`./shortcuts`): the keys as set in Edit > Preferences.
+      ...forgeToolKeyHelp((t) => TOOL_NAMES[t]),
+      ...SHORTCUT_COMMANDS.filter((c) => /^(app|forge\.(?!tool)|fly|walk)\./.test(c.id) && keysLabel(c.id)).map((c): [string, string] => [keysLabel(c.id), c.label]),
+    ])}</div><footer><button type="button" class="fx-tool" data-help-menu>Forge menu</button><button type="button" class="fx-tool fx-primary">Close</button></footer>`;
   help.append(helpCard);
   /** The card's switch: Editor or Walk / Play, its columns shown, its tab pressed. */
   const showHelpTab = (tab: 'editor' | 'play'): void => {
@@ -2520,7 +2546,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * after the await, so it cannot be wired early). Nothing changes once wired.
    */
   const earlyPresses = holdEarlyPresses(top, [helpBtn, resetLayoutBtn]);
-  const untilWired: HTMLElement[] = [toolsRow, viewport, openBtn, modeBtns.select, dupBtn, delBtn, undoBtn, redoBtn, walkBtn, checkBtn, lobbyBtn, saveMapBtn, playBtn];
+  const untilWired: HTMLElement[] = [toolsRow, viewport, openBtn, modeBtns.select, delBtn, undoBtn, redoBtn, walkBtn, checkBtn, lobbyBtn, saveMapBtn, playBtn];
   for (const c of untilWired) c.toggleAttribute('inert', true);
   // The wrapped toolbar's height, so the docks and the viewport (top: var(--fx-top)) follow it.
   const fitToolbar = (): void => {
@@ -2805,6 +2831,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }, 1000);
     },
   });
+  // The camera's fly keys from the shortcut list (`./shortcuts`, Edit > Preferences): each key pressed read as the
+  // camera's own code for that command (`FlyCamera.setForgeFlyKeys`), again whenever the keys change.
+  {
+    const FLY_CODES: Readonly<Record<string, string>> = {
+      'fly.forward': 'keyw', 'fly.back': 'keys', 'fly.left': 'keya', 'fly.right': 'keyd', 'fly.up': 'keye', 'fly.down': 'keyq',
+      'fly.rise': 'keyr', 'fly.sink': 'keyf', 'fly.zoomOut': 'keyz', 'fly.zoomIn': 'keyc',
+    };
+    const applyFlyKeys = (): void => {
+      const map = new Map<string, string>();
+      for (const [id, code] of Object.entries(FLY_CODES)) for (const chord of keysOf(id)) map.set(chord.split('+').pop()!.toLowerCase(), code);
+      fly.setForgeFlyKeys(map);
+    };
+    applyFlyKeys();
+    onShortcutsChange(applyFlyKeys);
+    fly.setKeysHeldOff(keysPaused);
+  }
   sSpeed.textContent = 'speed ×1.00';
   cameraSpeedInput.addEventListener('input', () => fly.setSpeedMultiplier(Number(cameraSpeedInput.value)));
   cameraFovInput.addEventListener('input', () => fly.setFov(Number(cameraFovInput.value)));
@@ -3200,7 +3242,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       fitToolbar();
       // The viewport's Scale shows for the geometry, which scales; leaving it, the placements' stub hides again.
       scaleBtn.hidden = !on && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION;
-      scaleBtn.title = `Scale with the gizmo${on ? '' : ' (not wired yet)'}${key('R')}`;
+      scaleBtn.title = `Scale with the gizmo${on ? '' : ' (not wired yet)'}${keyOf('app.scale')}`;
       if (!on && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION && gizmo.mode === 'scale') setGizmo('translate');
       pushGizmo();
       applyView();                                             // the Wireframe: the faces' edges in the mode, the triangles out of it
@@ -6099,8 +6141,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const redoWords = (): string => { const m = redoMeta(history); return m ? `Redo: ${historyCaption(m)}` : 'Redo'; };
   const refreshUndo = (): void => {
     undoBtn.disabled = !history.canUndo(); redoBtn.disabled = !history.canRedo();
-    undoBtn.title = `${undoWords()} · pad SELECT${key('Ctrl+Z')}`;
-    redoBtn.title = `${redoWords()} · pad hold SELECT${key('Ctrl+Y')}`;
+    undoBtn.title = `${undoWords()} · pad SELECT${keyOf('app.undo')}`;
+    redoBtn.title = `${redoWords()} · pad hold SELECT${keyOf('app.redo')}`;
   };
   /**
    * FUI-6 (the review's principle 5; a browser adaptation, FG.R2): the one command layer (`./shell/operations`). Every
@@ -10866,7 +10908,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       gizmo.showX = tilts || gizmo.mode !== 'rotate';
       gizmo.showZ = tilts || gizmo.mode !== 'rotate';
     } else gizmo.detach();
-    dupBtn.disabled = picks.size === 0 && geoPicks.size === 0;   // geometry objects picked in Object mode duplicate too
     // A locked placement is never deleted: Delete greyed while only locked ones are picked.
     delBtn.disabled = picks.items.filter((r) => !lockedOf(r)).length + basePicks.size + dataPicks.size + folderPicks.size + geoPicks.size === 0 && entityPicked === null && !(mapDataSelected && hiddenDataKeyOf(mapDataSelected));   // FCW-32 step 4: an entity's row too
     const unlocking = picks.size === 0 && lockHeld.length > 0;
@@ -10891,6 +10932,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const lockedOf = (r: Object3D): boolean => r.userData['forgeLock'] === true;
   // A locked placement is selectable (the owner, 2026-11-11: "selectable, but not deletable or editable"): its Inspector
   // shows it, every edit of it refused (no gizmo, its fields greyed, Delete and Cut pass it over).
+  /**
+   * Select All / Invert Selection in the Forge editor (the owner, 2026-11-20: "we probably need it to work with normal
+   * non geometry objects, for like props, doors, etc"): every placement of the layout that is shown (its User Objects:
+   * props, doors, spawns, objectives...) -- or, inverted, those of them not selected now. The map's own props and data
+   * stay out, as a box leaves them out by default. Every other selection let go first, as a click's.
+   */
+  const selectAllPlaced = (invert: boolean): void => {
+    const all = roots.filter((r) => r.visible);
+    const next = invert ? all.filter((r) => !picks.has(r)) : all;
+    select(null);
+    picks.addAll(next);
+    showSelection();
+    say(`${invert ? 'Inverted' : 'Selected all'}: ${next.length} placement${next.length === 1 ? '' : 's'}`);
+  };
   const select = (o: Object3D | null): void => {
     if (o === null) lockHeld = [];                            // a deselect lets the just-locked go
     if (o === null && mapDataSelected) { mapDataSelected = null; mapBillboards.highlight(null); }   // and a map data item
@@ -11029,7 +11084,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     spaceBtn.innerHTML = `${icon(space)}<span>${space === 'world' ? 'World' : 'Local'}</span>`;
     spaceBtn.setAttribute('aria-pressed', String(space === 'local'));
     spaceBtn.title = space === 'world' ? "The gizmo on the world's axes; press for the selection's own (Local)" : "The gizmo on the selection's own axes; press for the world's (World)";
-    spaceBtn.title += key('Q');
+    spaceBtn.title += keyOf('app.space');
     writeView();
   };
   const setGizmo = (m: 'translate' | 'rotate' | 'scale'): void => {
@@ -14261,7 +14316,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const keyState = (): ForgeKeyState => ({
     typing: false /* the listeners return on a field first */, match: match !== null, menu: padMenu.isOpen(), card: !modal.hidden || !help.hidden, playing,
     geometry: geometry?.isActive() ?? false,                   // Geometry mode's own keys are its (`./keys` `GEOMETRY_SHARED`)
-    knife: geometry?.knifeActive() ?? false,                   // the Knife's V (loop mode), not Walk
+    outliner: doc.activeElement === outliner,
+    geometryScopes: geometry?.shortcutScopes() ?? [],          // its own keys in its mode and tool come first (`./keys`)
     pointerLocked: !!doc.pointerLockElement,                      // the review's F2: no pointer lock API is no lock
     leased: leases.holder() !== null,                             // FUI-2: a panel holding the focus reads its own keys
     navigating: fly.navigating(),                                 // RMB fly, a pan, an orbit, a dolly: W / E / R are the camera's
@@ -14293,7 +14349,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // A tool's key (`./keys` `FORGE_TOOL_ORDER`): the Select tool's, else the number keys spawn their objects as their buttons do (one the game
     // type greys is refused, and said: `dropStart`).
     if (typeof a === 'object' && 'tool' in a) { if (a.tool !== 'select') spawnAtCentre({ kind: a.tool }); return; }   // as its button: spawned, never armed
-    if (typeof a === 'object') { padMenu.input(a.menu === 'back' && e.code === 'KeyM' ? 'close' : a.menu); e.stopImmediatePropagation(); return; }
+    if (typeof a === 'object') { padMenu.input(a.menu); e.stopImmediatePropagation(); return; }
     switch (a) {
       case 'closeCard': if (!help.hidden) setHelp(false); else cards.back(); break;   // FUI-2: the top card's way back
       case 'undo': undo(); break;
@@ -14320,9 +14376,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // Q (the owner, 2026-11-12): the gizmo's World / Local, as its button.
       case 'space': setGizmoSpace(gizmoSpace === 'world' ? 'local' : 'world'); say(gizmoSpace === 'world' ? 'Gizmo: World' : 'Gizmo: Local'); break;
       // G / Shift+G (the owner, 2026-11-12): the selection grouped into a new folder, or its folders taken out.
+      case 'selectAll': if (!playing) selectAllPlaced(false); break;
+      case 'invert': if (!playing) selectAllPlaced(true); break;
       case 'group': if (!playing) groupSelection(); break;
       case 'ungroup': if (!playing) ungroupSelection(); break;
-      case 'duplicate': duplicate(); break;
       case 'delete': remove(); break;
       // FUI-2: the check's sheet first. FUI-22 (D1, D4): Escape lets the tooltip go; with a prop queued it cancels the
       // queue and keeps the selection, and the next Escape deselects.
@@ -14582,46 +14639,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       showSelection();
       edit(before, step);
     }), true);
-  };
-  const duplicate = (): void => {
-    // The geometry objects picked in Object mode (the owner, 2026-11-16): copied in place and picked instead; then the
-    // placements picked with them, as a group's are (`duplicateGroup`: their copies picked, the geometry's kept).
-    if (geoPicks.size && geometry) {
-      if (refuseEdit()) return;
-      const made = geometry.duplicateObjects([...geoPicks]);
-      geoPicks.clear();
-      for (const id of made) geoPicks.add(id);
-      if (picks.size) duplicateGroup(); else showSelection();
-      if (made.length && !picks.size) say(`Duplicated ${made.length} geometry object${made.length === 1 ? '' : 's'} in place: drag it off with the gizmo`);
-      return;
-    }
-    if (isGroup()) { duplicateGroup(); return; }
-    const s = selected;
-    if (!s || refuseEdit()) return;
-    const before = selectionIds();
-    const asset = s.userData['forgePiece'] as string | undefined;
-    const team = s.userData['forgeSpawn'] as 'A' | 'B' | undefined;
-    const npc = npcOf(s);
-    if (bombKindOf(s)) { say('one of each bomb marker: move the one placed'); return; }
-    personEdit('selection.duplicate', {}, (step) => {
-      const place = (r: Object3D): void => {
-        r.position.copy(s.position).add(new Vector3(gridStep * 2, 0, 0));
-        r.quaternion.copy(s.quaternion);
-        r.scale.copy(s.scale);
-        yawOnly(r);                                              // FC2 (ours; FC2-6): a copied marker's turn re-derives `rotation` in XYZ: its yaw saved as shown
-        freshName(r);
-        addPlacement(r);
-        select(r);
-        edit(before, step);
-      };
-      const cloned = markerClone(s);
-      if (cloned) place(cloned);
-      else if (s.userData['forgeRespawn']) place(respawnMarker(s.userData['forgeRespawn'] as 'A' | 'B'));
-      else if (team) place(spawnMarker(team));
-      else if (npc) place(newNpc(npc.side, npc.type));
-      else if (asset && s.userData['forgeMissing']) place(contentOf(missingPiece(asset), s.userData['forgeContent']));
-      else if (asset) void newPiece(asset, s.userData['forgeContent']).then((r) => { if (r) place(contentOf(r, s.userData['forgeContent'])); });
-    }, true);
   };
   /**
    * The map props among `keys` (their placement keys) whose collision hiding them cannot take out (`./hide`
@@ -15942,7 +15959,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       say('locked');
     });
   });
-  dupBtn.addEventListener('click', duplicate);
   delBtn.addEventListener('click', remove);
   search.addEventListener('input', drawAssets);
   // The Source's counts (`drawPaletteCounts`): asked for the first time it is opened, by the pointer or the keys.
@@ -16378,20 +16394,26 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const geoEdits = (): boolean => geometry?.isActive() === true;
     topMenu('File', () => [
       { label: 'New…', icon: icon('file'), act: () => newBtn.click() },
-      { label: 'Open…', icon: icon('open'), keys: 'Ctrl+O', act: () => openBtn.click() },
-      { label: 'Saves…', icon: icon('save'), keys: 'Ctrl+S', act: () => saveBtn.click() },
+      { label: 'Open…', icon: icon('open'), keys: keyLabel('app.open'), act: () => openBtn.click() },
+      { label: 'Saves…', icon: icon('save'), keys: keyLabel('app.saves'), act: () => saveBtn.click() },
     ]);
     topMenu('Edit', () => [
-      { label: 'Undo', icon: icon('undo'), keys: 'Ctrl+Z', act: undo, enabled: () => !undoBtn.disabled },
-      { label: 'Redo', icon: icon('redo'), keys: 'Ctrl+Y', act: redo, enabled: () => !redoBtn.disabled },
+      { label: 'Undo', icon: icon('undo'), keys: keyLabel('app.undo'), act: undo, enabled: () => !undoBtn.disabled },
+      { label: 'Redo', icon: icon('redo'), keys: keyLabel('app.redo'), act: redo, enabled: () => !redoBtn.disabled },
       'rule',
       // Geometry mode (the owner, 2026-11-16): the rows are the geometry's own (`GeometryEditor.command`), as their keys are.
-      { label: 'Cut', icon: icon('cut'), keys: 'Ctrl+X', act: () => (geoEdits() ? geometry!.command('cut') : cutSelection()), enabled: () => (geoEdits() ? geometry!.canCommand('cut') : unlocked()) },
-      { label: 'Copy', icon: icon('copy'), keys: 'Ctrl+C', act: () => (geoEdits() ? geometry!.command('copy') : copySelection()), enabled: () => (geoEdits() ? geometry!.canCommand('copy') : unlocked()) },
-      { label: 'Paste', icon: icon('paste'), keys: 'Ctrl+V', act: () => (geoEdits() ? geometry!.command('paste') : pasteClipboard()), enabled: () => (geoEdits() ? geometry!.canCommand('paste') : clipboard.length > 0 || !!geometry?.hasClip()) },
+      { label: 'Cut', icon: icon('cut'), keys: keyLabel('app.cut'), act: () => (geoEdits() ? geometry!.command('cut') : cutSelection()), enabled: () => (geoEdits() ? geometry!.canCommand('cut') : unlocked()) },
+      { label: 'Copy', icon: icon('copy'), keys: keyLabel('app.copy'), act: () => (geoEdits() ? geometry!.command('copy') : copySelection()), enabled: () => (geoEdits() ? geometry!.canCommand('copy') : unlocked()) },
+      { label: 'Paste', icon: icon('paste'), keys: keyLabel('app.paste'), act: () => (geoEdits() ? geometry!.command('paste') : pasteClipboard()), enabled: () => (geoEdits() ? geometry!.canCommand('paste') : clipboard.length > 0 || !!geometry?.hasClip()) },
       'rule',
-      { label: 'Duplicate', icon: icon('duplicate'), keys: 'Ctrl+D', act: () => (geoEdits() ? geometry!.command('duplicate') : duplicate()), enabled: () => (geoEdits() ? geometry!.canCommand('duplicate') : !dupBtn.disabled) },
-      { label: 'Delete', icon: icon('trash'), keys: 'Del', act: () => (geoEdits() ? geometry!.command('delete') : remove()), enabled: () => (geoEdits() ? geometry!.canCommand('delete') : !delBtn.disabled) },
+      { label: 'Delete', icon: icon('trash'), keys: keyLabel(geoEdits() ? 'geo.delete' : 'forge.delete'), act: () => (geoEdits() ? geometry!.command('delete') : remove()), enabled: () => (geoEdits() ? geometry!.canCommand('delete') : !delBtn.disabled) },
+      'rule',
+      // Select All and Invert (the owner, 2026-11-20): Geometry mode's own there, the placements' elsewhere.
+      { label: 'Select All', keys: keyLabel(geoEdits() ? 'geo.selectAll' : 'forge.selectAll'), act: () => (geoEdits() ? geometry!.selectAll(false) : selectAllPlaced(false)), enabled: () => !playing },
+      { label: 'Invert Selection', keys: keyLabel(geoEdits() ? 'geo.invert' : 'forge.invert'), act: () => (geoEdits() ? geometry!.selectAll(true) : selectAllPlaced(true)), enabled: () => !playing },
+      'rule',
+      // Edit > Preferences (the owner, 2026-11-20): the shortcut editor (`./shortcutEditor`).
+      { label: 'Preferences…', icon: icon('gear'), act: () => openShortcutEditor(doc) },
     ]);
     // The AI Navigation menu is gone (the owner, 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
     // settings"): its layer switches are AI Navigation mode's View (`navToggle`); the map's switch the Overlays menu's.
@@ -16904,7 +16926,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       case 'act': act(new Vector2(0, 0)); break;
       case 'pick': act(new Vector2(0, 0), true); break;     // FG-47: Cross held: add or take out what is at the centre
       case 'deselect': select(null); break;
-      case 'duplicate': duplicate(); break;
       case 'delete': remove(); break;
       case 'prevAsset': stepAsset(-1); break;
       case 'nextAsset': stepAsset(1); break;

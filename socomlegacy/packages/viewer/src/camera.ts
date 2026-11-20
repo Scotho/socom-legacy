@@ -175,6 +175,8 @@ const OWNED = new Set([
 
 /** The letters the Forge's camera flies on while RMB is held (`update`'s `keyboardMove`): taken from the editor then. */
 const FORGE_FLY_KEYS = new Set(['keyw', 'keya', 'keys', 'keyd', 'keyq', 'keye', 'keyr', 'keyf']);
+/** The codes the Forge's camera flies by, Space and the field of view's Z / C with them (`setForgeFlyKeys`). */
+const FORGE_FLY_DEFAULT_CODES = new Set(['keyw', 'keya', 'keys', 'keyd', 'keyq', 'keye', 'keyr', 'keyf', 'keyz', 'keyc', 'space']);
 
 export interface FlyCameraOptions {
   /** Called when the wheel changes the speed multiplier, so the page can show it. */
@@ -1392,6 +1394,24 @@ export class FlyCamera {
   }
 
   /** `code`, not `key`: WASD stays where it is on an AZERTY keyboard, and shift does not rename letters. */
+  /**
+   * The Forge's own fly keys (the shortcut list's Camera commands, `./forge/shortcuts`; the owner, 2026-11-20: every
+   * command's keys editable): a pressed key's code (lowercase) to the code the camera flies by (`keyw` forward, `keye`
+   * up ...). A key the list moved off a fly command is nothing to the camera. Null: the keys as they are. Only in the
+   * Forge's navigation, never while walking (the walk's keys are the game's).
+   */
+  private forgeFlyKeys: ReadonlyMap<string, string> | null = null;
+  setForgeFlyKeys(map: ReadonlyMap<string, string> | null): void { this.forgeFlyKeys = map; this.keys.clear(); }
+  /** Keys held from the camera while true (the Forge's shortcut editor reads every key: `./forge/shortcuts` `keysPaused`). */
+  private keysHeldOff: () => boolean = () => false;
+  setKeysHeldOff(f: () => boolean): void { this.keysHeldOff = f; }
+  private flyCode(e: KeyboardEvent): string {
+    const code = e.code.toLowerCase();
+    const map = this.forgeFlyKeys;
+    if (!map || !this.forgeKbm || this.walking) return code;
+    return map.get(code) ?? (FORGE_FLY_DEFAULT_CODES.has(code) ? `unbound-${code}` : code);
+  }
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     // A browser adaptation with no original (the console has no pointer lock): Escape while this canvas holds the lock
     // asks the document to drop it, since a browser's own Escape is not sure to (headless Chrome), and the key goes no
@@ -1402,9 +1422,10 @@ export class FlyCamera {
       return;
     }
     if (this.suspended) return;                     // a menu holds the input (`setInputSuspended`)
+    if (this.keysHeldOff()) return;                 // the Forge's shortcut editor has the keys
     if (!import.meta.env.DEV && !this.kbmNow()) return;   // RB-8 (OT.R114): a `kbm` page's opt-in, asked at each key
     if (e.target instanceof HTMLElement && (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT')) return;
-    const code = e.code.toLowerCase();
+    const code = this.flyCode(e);
     // While the Forge navigates -- RMB held to fly, or any other navigation drag (`forgeNavigating`) -- its fly keys are
     // the camera's alone, so the editor's W / E / R (the gizmo's modes) and the rest of the letters it flies on never
     // reach the page's own keys then.
@@ -1431,7 +1452,7 @@ export class FlyCamera {
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
-    const code = e.code.toLowerCase();
+    const code = this.flyCode(e);
     if (code === 'keyw') this.sprinting_ = false;
     this.keys.delete(code);
   };

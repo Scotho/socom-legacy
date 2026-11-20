@@ -8,6 +8,7 @@ import {
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { tightenGizmo } from '../gizmoPick';
+import { chordOf, commandsOn, isShortcut, keyLabel, keysLabel, keysPaused, onShortcutsChange, shortcutCommand, type ShortcutScope } from '../shortcuts';
 import { vec4 } from 'three/tsl';
 import { Line2NodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu';
 import { LineSegments2 } from 'three/examples/jsm/lines/webgpu/LineSegments2.js';
@@ -260,14 +261,26 @@ interface Cage { edges: Float32Array; points: Float32Array; verts: number[]; edg
 const EDIT_TOOL_MODES: Readonly<Record<string, readonly SelectMode[]>> = {
   fill: ['edge'], thicken: ['face'], mergemeshes: ['object'], clip: ['object', 'face'], mirror: ['object', 'face'], merge: ['point', 'edge'], grow: ['point', 'edge', 'face'], shrink: ['point', 'edge', 'face'], loop: ['edge'], ring: ['edge'], ribs: ['edge'], connect: ['edge', 'point'], collapse: ['edge', 'face'], extend: ['edge'], loopcut: ['edge'], bevel: ['edge', 'face'], extrude: ['face'], inset: ['face'], subdivide: ['face', 'edge'],
   knife: ['point', 'edge', 'face'], bridge: ['face', 'edge'], separate: ['face'], flip: ['face', 'object'],
+  selectall: ['object', 'point', 'edge', 'face'], invert: ['object', 'point', 'edge', 'face'],
   snapgrid: ['point', 'edge', 'face'], snapvert: ['point'], snapedge: ['edge'],
   dissolve: ['point', 'edge', 'face'], delete: ['object', 'point', 'edge', 'face'],
 };
 
 /** The Edit menu's commands on the geometry (`GeometryEditor.command`): Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D and Delete. */
-export type GeometryCommand = 'copy' | 'cut' | 'paste' | 'duplicate' | 'delete';
+export type GeometryCommand = 'copy' | 'cut' | 'paste' | 'delete';
 /** The Ctrl chords of `GeometryCommand`, by key code (the page's own, `../keys`). */
-const CHORD_COMMANDS: Readonly<Record<string, GeometryCommand>> = { KeyC: 'copy', KeyX: 'cut', KeyV: 'paste', KeyD: 'duplicate' };
+/** Copy, Cut and Paste by their commands in the shortcut list (`../shortcuts`). */
+const GEO_COMMANDS: readonly [string, GeometryCommand][] = [['app.copy', 'copy'], ['app.cut', 'cut'], ['app.paste', 'paste']];
+/** The edit tools' commands (`../shortcuts`), each the button it presses -- in the modes its command applies in. */
+const GEO_TOOL_KEYS: readonly [string, string][] = [
+  ['geo.grow', 'grow'], ['geo.shrink', 'shrink'], ['geo.knife', 'knife'], ['geo.loop', 'loop'], ['geo.ring', 'ring'], ['geo.ribs', 'ribs'],
+  ['geo.thicken', 'thicken'], ['geo.snapVertex', 'snapvert'], ['geo.bridgeEdges', 'bridge'], ['geo.bridge', 'bridge'], ['geo.snapEdges', 'snapedge'],
+  ['geo.collapse', 'collapse'], ['geo.clip', 'clip'], ['geo.mirror', 'mirror'], ['geo.extend', 'extend'], ['geo.bevel', 'bevel'], ['geo.quickBevel', 'bevel'],
+  ['geo.inset', 'inset'], ['geo.separate', 'separate'], ['geo.connect', 'connect'], ['geo.merge', 'merge'], ['geo.mergeMeshes', 'mergemeshes'],
+  ['geo.fill', 'fill'], ['geo.quadSlice', 'subdivide'], ['geo.flip', 'flip'], ['geo.snapGrid', 'snapgrid'],
+];
+/** Each Edit tool button's command, for its tooltip's key (`drawBar`). */
+const TOOL_COMMAND: Readonly<Record<string, string>> = { ...Object.fromEntries([...GEO_TOOL_KEYS].reverse().map(([id, tool]) => [tool, id])), selectall: 'geo.selectAll', invert: 'geo.invert' };
 
 export interface GeometrySelectionState { mode: SelectMode; objects: string[]; items: [string, (number | string)[]][] }
 
@@ -304,6 +317,21 @@ const LINE_TOOL_REACH_ADAPTATION = 512;
 /** Clip's Keep choices, by the setting's index. */
 const CLIP_KEEPS = ['front', 'back', 'both'] as const;
 
+/** A tooltip's own key in brackets taken out ("Knife (C): ..." -> "Knife: ..."): its keys come from the shortcut list. */
+function stripKey(title: string): string {
+  return title.replace(/\s\((?:(?:Ctrl|Alt|Shift)\+)*(?:[A-Z0-9]|F\d{1,2}|Numpad [+\-\u2212]|Backspace|Delete|Del|Enter|Esc)\)/, '');
+}
+/** A tooltip with command `id`'s keys after it (`../shortcuts`), as the page's toolbar shows them. */
+function withKeys(title: string, id: string): string {
+  const k = keysLabel(id);
+  return k ? `${title} \u00b7 ${k}` : title;
+}
+/** "; Enter cuts, Del takes a point back": each command's first key and what it does, for a status line ('' with none). */
+function keyWords(pairs: readonly (readonly [string, string])[]): string {
+  const parts = pairs.flatMap(([id, words]) => { const k = keyLabel(id); return k ? [`${k} ${words}`] : []; });
+  return parts.length ? `; ${parts.join(', ')}` : '';
+}
+
 /** A burst of edits settles this long before the collision is rebuilt (`buildSoon`): one rebuild for a run of keys. */
 const BUILD_SETTLE_MS = 100;
 /** Each collision type's colour, as the collision view draws it (`../hull` `HULL_COLOURS`): its tab, the brush's hover and cursor. */
@@ -312,7 +340,6 @@ const TYPE_COLOURS: Record<CollisionType, number> = { floor: HULL_COLOURS.floor,
 const PREVIEW_MS = 60;
 const IDENTITY4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
-const FLY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyZ', 'KeyC']);
 
 export class GeometryEditor {
   /** The geometry the tools work on: the drawn geometry, or the hull objects while collision editing is on. */
@@ -730,9 +757,9 @@ export class GeometryEditor {
         this.button('thicken', 'Thicken', 'Thicken Faces (G): the selected faces given a back a grid step behind them and walls round their border -- a sheet, such as a plane, whose border is all open', () => this.thicken()),
         this.button('bridge', 'Bridge', 'Bridge (B): join two selected faces with new faces between them (the two removed), or two open edges (or two runs of open edges, as many in each) with faces', () => this.bridge()),
         this.button('fill', 'Fill Hole', 'Fill Hole: each hole a selected open edge lies on (a loop of edges with a face on one side only) capped with one face', () => this.fillSelection()),
-        this.button('clip', 'Clip', 'Clipping tool (Shift+X): drag a line on a surface (on the grid while snapping; Ctrl flips it) -- the selected objects or faces cut by the plane through it, square to the surface. Keep Front, Back or Both (Shift+X cycles), Cap fills the cut; Enter applies, Space applies and stays, Esc cancels', () => this.setLineTool(this.lineTool === 'clip' ? null : 'clip')),
-        this.button('mirror', 'Mirror', 'Mirror tool: drag a line on a surface -- a mirrored copy of the selected objects made across the plane through it, square to the surface. Enter applies, Space applies and stays, Esc cancels', () => this.setLineTool(this.lineTool === 'mirror' ? null : 'mirror')),
-        this.button('knife', 'Knife', 'Knife (C): click points on vertices, edges or across faces -- on the grid while snapping (Ctrl flips it; Shift: only in line with the last point; V: loop mode, a click cuts the loop through an edge); Enter cuts straight across the faces between them, Backspace takes a point back, Esc leaves', () => this.setKnife(!this.knifeOn)),
+        this.button('clip', 'Clip', 'Clipping tool: drag a line on a surface (on the grid while snapping; Ctrl flips it) -- the selected objects or faces cut by the plane through it, square to the surface. Keep Front, Back or Both; Cap fills the cut', () => this.setLineTool(this.lineTool === 'clip' ? null : 'clip')),
+        this.button('mirror', 'Mirror', 'Mirror tool: drag a line on a surface -- a mirrored copy of the selected objects made across the plane through it, square to the surface', () => this.setLineTool(this.lineTool === 'mirror' ? null : 'mirror')),
+        this.button('knife', 'Knife', 'Knife: click points on vertices, edges or across faces -- on the grid while snapping (Ctrl flips it; Shift: only in line with the last point); its loop mode cuts the loop through an edge with one click. Its keys (cut, take a point back, loop mode, leave): Edit > Preferences, Running tools', () => this.setKnife(!this.knifeOn)),
         this.button('loopcut', 'Loop Cut', 'Loop Cut: a new edge loop through the middle of the selected edges\u2019 rings (across the four-sided faces beside them)', () => this.loopCutSelection()),
         this.button('connect', 'Connect', 'Connect: the selected edges split at their middles and joined across the faces they share (select a ring, then Connect: a loop cut); in Point mode, the selected points joined in the order picked, straight across the faces between', () => this.connectSelection()),
         this.button('subdivide', 'Subdivide', 'Subdivide (Quad Slice): each selected four-cornered face cut in four through its sides\' middles (a face without four corners is left whole); each selected edge split at its middle', () => this.subdivide()),
@@ -748,6 +775,8 @@ export class GeometryEditor {
         this.button('delete', 'Delete', 'Delete the selection and the faces it is part of, leaving a hole (Delete)', () => this.deleteSelection()),
       )),
       (this.selectGroup = group('Select',
+        this.button('selectall', 'Select All', 'Select All: every object (Object mode), or every point, edge or face of the objects you have something selected in', () => this.selectAll(false)),
+        this.button('invert', 'Invert Selection', 'Invert Selection: what is selected let go, and everything else (in the same objects) selected', () => this.selectAll(true)),
         this.button('grow', 'Grow Selection', 'Grow Selection (Numpad +): the points, edges or faces touching the selection added', () => this.growSelection('grow')),
         this.button('shrink', 'Shrink Selection', 'Shrink Selection (Numpad −): the selection’s border taken off', () => this.growSelection('shrink')),
         this.button('loop', 'Select Edge Loop', 'Select Edge Loop (L): the selected edges’ loops added (a double-click on an edge selects its loop)', () => this.selectEdges('loop')),
@@ -868,6 +897,7 @@ export class GeometryEditor {
     const tick = (): void => { if (this.clouds.size) this.frameHandles(); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
     doc.addEventListener('keydown', (e) => this.onKey(e), true);
+    onShortcutsChange(() => this.drawBar());                  // the tooltips' keys as set in Edit > Preferences
     // Shift held while painting: the sampler's cursor (a Shift+click samples); let go, or the window left, the brush's.
     doc.addEventListener('keydown', (e) => { if (e.key === 'Shift') this.setShiftHeld(true); if (e.key === 'Control' || e.key === 'Meta') this.setCtrlHeld(true); }, true);
     doc.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.setShiftHeld(false); if (e.key === 'Control' || e.key === 'Meta') this.setCtrlHeld(false); }, true);
@@ -2437,8 +2467,8 @@ export class GeometryEditor {
       // disable the select mode"): choosing one leaves the tool (`setMode`).
       const busy = this.blockOn;
       b.disabled = busy;
-      if (!b.dataset['title']) b.dataset['title'] = b.title;
-      b.title = busy ? `${b.dataset['title']} -- not while Create is on (Esc leaves it)` : b.dataset['title'];
+      const keyed = withKeys(b.dataset['title'] ?? b.title, `geo.mode.${m.mode}`);
+      b.title = busy ? `${keyed} -- not while Create is on` : keyed;
     }
     this.buttons.get('knife')?.classList.toggle('is-on', this.knifeOn);
     this.buttons.get('clip')?.classList.toggle('is-on', this.lineTool === 'clip');
@@ -2451,7 +2481,7 @@ export class GeometryEditor {
     if (dissolveButton) {
       const face = this.sel.mode === 'face';
       dissolveButton.textContent = face ? 'Combine Faces' : 'Dissolve';
-      dissolveButton.dataset['title'] = face ? COMBINE_TITLE : DISSOLVE_TITLE;
+      dissolveButton.dataset['title'] = stripKey(face ? COMBINE_TITLE : DISSOLVE_TITLE);
     }
     for (const [id, modes] of Object.entries(EDIT_TOOL_MODES)) {
       const b = this.buttons.get(id);
@@ -2461,7 +2491,9 @@ export class GeometryEditor {
       b.hidden = !shown;
       const why = shown ? this.toolBlocked(id) : null;
       b.disabled = !shown || why !== null;
-      b.title = why === null ? b.dataset['title'] : `${b.dataset['title']} -- ${why}`;
+      const cmd = id === 'dissolve' ? 'geo.dissolve' : id === 'delete' ? 'geo.delete' : TOOL_COMMAND[id];
+      const keyed = cmd ? withKeys(b.dataset['title'] ?? '', cmd) : (b.dataset['title'] ?? '');
+      b.title = why === null ? keyed : `${keyed} -- ${why}`;
     }
     // A section with no tool the mode has: hidden whole, its name with it.
     for (const sec of [this.editGroup, this.selectGroup]) {
@@ -2488,7 +2520,8 @@ export class GeometryEditor {
     b.type = 'button';
     b.className = 'fx-tool';
     b.textContent = label;
-    b.title = title;
+    b.title = stripKey(title);
+    b.dataset['title'] = b.title;                              // its words; its keys added from the shortcut list (`drawBar`)
     b.addEventListener('click', () => run());
     this.buttons.set(id, b);
     return b;
@@ -2510,6 +2543,8 @@ export class GeometryEditor {
   /** Why an Edit tool can do nothing with the selection, in the mode it works in; null when it can. */
   private toolBlocked(id: string): string | null {
     if (id === 'knife') return null;                           // a tool clicked on the mesh: no selection needed
+    // Select All and Invert in Object mode need no selection: every object on the layer is theirs.
+    if ((id === 'selectall' || id === 'invert') && this.sel.mode === 'object') return this.geo?.objects.some((o) => !o.hidden) ? null : 'nothing on this layer';
     const picked: { o: GeoObject; item: number | string }[] = [];
     for (const oid of this.sel.objects) {
       const o = this.objectById(oid);
@@ -3338,9 +3373,10 @@ export class GeometryEditor {
       this.detachGizmo();
       this.hoverKey = '';
       clearGroup(this.hover);
+      const keys = keyWords([...(kind === 'clip' ? [['clip.cycle', 'Keep Front / Back / Both'] as [string, string]] : []), ['line.apply', 'applies'], ['line.applyStay', 'applies and stays'], ['line.cancel', 'cancels']]);
       this.deps.say(kind === 'clip'
-        ? 'Clip: drag a line on a surface; the plane through it, square to the surface, cuts the selection (Shift+X: keep Front / Back / Both). Enter applies, Space applies and stays, Esc cancels'
-        : 'Mirror: drag a line on a surface; the selection is copied across the plane through it, square to the surface. Enter applies, Space applies and stays, Esc cancels');
+        ? `Clip: drag a line on a surface; the plane through it, square to the surface, cuts the selection${keys}`
+        : `Mirror: drag a line on a surface; the selection is copied across the plane through it, square to the surface${keys}`);
     } else this.drawSelection();
     this.drawLineTool();
     this.drawLinePanel();
@@ -3627,8 +3663,6 @@ export class GeometryEditor {
    * edge shows the loop through it -- across four-sided faces, at that place along each edge -- and a click cuts it.
    */
   private knifeLoop = false;
-  /** The Knife is on (the page leaves it V, its loop mode's: `../keys`). */
-  knifeActive(): boolean { return this.active && this.knifeOn; }
   private knifeLoopLines: { key: string; lines: number[] } | null = null;
   private readonly knifeLayer = new Group();
 
@@ -3648,7 +3682,7 @@ export class GeometryEditor {
       this.detachGizmo();
       this.hoverKey = '';
       clearGroup(this.hover);
-      this.deps.say('Knife: click points on vertices, edges or across faces of one object (start on an edge or a vertex); Enter cuts, Backspace takes a point back, Esc leaves');
+      this.deps.say(`Knife: click points on vertices, edges or across faces of one object (start on an edge or a vertex)${keyWords([['knife.apply', 'cuts'], ['knife.back', 'takes a point back'], ['knife.loop', 'loop mode'], ['knife.cancel', 'leaves']])}`);
     } else this.drawSelection();
     this.drawKnife();
     this.drawBar();
@@ -4193,7 +4227,6 @@ export class GeometryEditor {
    * - Cut: Copy, then Delete -- one step.
    * - Paste: a new object made of each copied set, in place -- exactly where it was copied, so it moves off in the old
    *   one's plane -- and selected, so the gizmo moves it on.
-   * - Duplicate: a copy in place, selected (a level editor's way: then drag it off).
    * A face set pasted or duplicated is an object of its own (a level editor's paste makes a new mesh): the faces it came from
    * stay as they were, and nothing is welded. The clipboard keeps its layer: Geometry faces paste on the Geometry layer,
    * Collision faces on the Collision layer. The Texture layer edits no shape.
@@ -4216,8 +4249,6 @@ export class GeometryEditor {
       this.deps.say(`${c === 'cut' ? 'Cut' : 'Copied'} ${n}`);
       return;
     }
-    this.placeCopies(copies, this.sel.mode, 'Duplicate geometry');
-    this.deps.say(`Duplicated ${this.clipCount(copies, this.sel.mode)} in place: drag it off with the gizmo`);
   }
 
   /** Whether `c` has anything to act on now (the Edit menu's rows). */
@@ -6577,71 +6608,72 @@ export class GeometryEditor {
     this.drive.pointerUp({ x: n.x, y: n.y, button: 0 });
   }
 
+  /**
+   * The shortcut list's scopes in force here (`../shortcuts`): the selection mode's, and a running tool's. The page reads
+   * them (`../keys` `ForgeKeyState.geometryScopes`) so a key Geometry mode has a command on is never a General one.
+   */
+  shortcutScopes(): ShortcutScope[] {
+    if (!this.active) return [];
+    const out: ShortcutScope[] = [`geo:${this.sel.mode}` as ShortcutScope];
+    if (this.knifeOn) out.push('tool:knife');
+    if (this.lineTool) out.push('tool:line');
+    if (this.lineTool === 'clip') out.push('tool:clip');
+    if (this.poly || this.polyOn) out.push('tool:polygon');
+    else if (this.block || this.blockOn) out.push('tool:create');
+    if (this.tool !== 'select') out.push('tool:paint');
+    return out;
+  }
+
+  /** Whether key event `e` is command `id`'s (`../shortcuts`). */
+  private is(id: string, e: KeyboardEvent): boolean { return isShortcut(id, e); }
+
   private onKey(e: KeyboardEvent): void {
-    if (!this.active || scrubbing(this.deps.doc)) return;     // a Transform field's drag: its keys are its own (`../scrub`)
+    if (!this.active || scrubbing(this.deps.doc) || keysPaused()) return;   // the shortcut editor's keys are its own     // a Transform field's drag: its keys are its own (`../scrub`)
     // A field being typed in keeps its keys; a box or a button (the mode's own Props, its tools) does not.
     const t = e.target as HTMLElement | null;
     const typing = !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable
       || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'range'].includes((t as HTMLInputElement).type)));
     if (typing) return;
-    // As the page's own keys (`../keys` `FLY_LETTERS`): while the camera navigates, W A S D Q E R F Z C fly it.
-    if (this.deps.navigating() && FLY_CODES.has(e.code)) return;
-    const k = e.key.toLowerCase();
-    const mod = e.ctrlKey || e.metaKey;
-    // The block tool: Esc lets a shape half-made go (then the tool itself); Enter makes the shape being pulled.
-    // Create's Polygon: Esc lets the outline go (then the tool), Enter closes it (then makes it), Backspace takes a point back.
-    if (this.knifeOn && k === 'v' && !mod && !e.altKey && !e.shiftKey) {
-      this.knifeLoop = !this.knifeLoop;
-      this.deps.say(this.knifeLoop ? 'Knife loop mode: point at an edge to see the loop through it, click to cut it (V: back to points)' : 'Knife: points mode (V: loop mode)');
-      this.drawKnife(); this.stop(e); return;
+    // While the camera navigates, its fly keys are its (the shortcut list's Camera commands).
+    const plain = chordOf({ code: e.code, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false });
+    if (this.deps.navigating() && !e.ctrlKey && !e.metaKey && !e.altKey && plain && commandsOn(plain, ['fly']).length) return;
+    // A running tool's keys first (the shortcut list's Running tools).
+    if (this.knifeOn) {
+      if (this.is('knife.loop', e)) {
+        this.knifeLoop = !this.knifeLoop;
+        const key = keyLabel('knife.loop');
+        this.deps.say(this.knifeLoop ? `Knife loop mode: point at an edge to see the loop through it, click to cut it${key ? ` (${key}: back to points)` : ''}` : `Knife: points mode${key ? ` (${key}: loop mode)` : ''}`);
+        this.drawKnife(); this.stop(e); return;
+      }
+      if (this.is('knife.apply', e)) { this.knifeApply(); this.stop(e); return; }
+      if (this.is('knife.back', e)) { this.knifePts.pop(); this.drawKnife(); this.stop(e); return; }
+      if (this.is('knife.cancel', e)) { if (this.knifePts.length) { this.knifePts = []; this.drawKnife(); } else this.setKnife(false); this.stop(e); return; }
     }
     if (this.lineTool) {
-      if (k === 'enter') { this.lineApply(false); this.stop(e); return; }
-      if (e.code === 'Space' && !mod) { this.lineApply(true); this.stop(e); return; }
-      if (k === 'escape') { if (this.line) { this.line = null; this.lineCache = null; this.drawLineTool(); } else this.setLineTool(null); this.stop(e); return; }
-      if (this.lineTool === 'clip' && e.code === 'KeyX' && e.shiftKey && !mod && !e.altKey) { this.setClipKeep((this.clipKeep() + 1) % 3); this.stop(e); return; }
+      if (this.is('line.apply', e)) { this.lineApply(false); this.stop(e); return; }
+      if (this.is('line.applyStay', e)) { this.lineApply(true); this.stop(e); return; }
+      if (this.is('line.cancel', e)) { if (this.line) { this.line = null; this.lineCache = null; this.drawLineTool(); } else this.setLineTool(null); this.stop(e); return; }
+      if (this.lineTool === 'clip' && this.is('clip.cycle', e)) { this.setClipKeep((this.clipKeep() + 1) % 3); this.stop(e); return; }
     }
-    if (this.knifeOn && k === 'enter') { this.knifeApply(); this.stop(e); return; }
-    if (this.knifeOn && k === 'backspace') { this.knifePts.pop(); this.drawKnife(); this.stop(e); return; }
-    if (this.knifeOn && k === 'escape') { if (this.knifePts.length) { this.knifePts = []; this.drawKnife(); } else this.setKnife(false); this.stop(e); return; }
-    if (k === 'escape' && this.poly) { this.polyCancel(); this.stop(e); return; }
-    if (k === 'escape' && (this.block || this.blockOn)) { if (this.block) this.blockCancel(); else this.setBlockOn(false); this.stop(e); return; }
-    if (k === 'enter' && this.poly) { if (this.poly.phase === 'points') this.polyClose(); else this.polyCommit(); this.stop(e); return; }
-    if (k === 'backspace' && this.poly?.phase === 'points') { this.polyBack(); this.stop(e); return; }
-    if (k === 'enter' && this.block?.phase === 'height') { this.blockCommit(); this.stop(e); return; }
-    // The modes on the number keys by their place (`Digit1`..`Digit4`, as the page's tools read them), Shift or not; the
-    // other number keys are nothing here, so never the page's placing tools (`../keys` `GEOMETRY_SHARED`).
-    const digit = /^Digit([0-9])$/.exec(e.code);
-    if (digit && !mod && !e.altKey) {
-      const mode = MODES.find((m) => m.key === digit[1]);
-      if (mode && !e.shiftKey) this.setMode(mode.mode);
-      this.stop(e);
-      return;
+    if (this.poly) {
+      if (this.is('polygon.cancel', e)) { this.polyCancel(); this.stop(e); return; }
+      if (this.is('polygon.close', e)) { if (this.poly.phase === 'points') this.polyClose(); else this.polyCommit(); this.stop(e); return; }
+      if (this.is('polygon.back', e) && this.poly.phase === 'points') { this.polyBack(); this.stop(e); return; }
     }
-    // Copy, Cut, Paste and Duplicate (Ctrl+C / X / V / D): the geometry's own in this mode (`command`); the page leaves
-    // them to it (`../keys` `GEOMETRY_SHARED`), so none does two things.
-    const chord = mod && !e.altKey && !e.shiftKey ? CHORD_COMMANDS[e.code] : undefined;
-    if (chord) { if (!e.repeat) this.command(chord); this.stop(e); return; }
-    // Ctrl+G: Select Ribs, the reference editor's, in Edge mode.
-    if (mod && e.code === 'KeyG' && !e.altKey && !e.shiftKey && !this.textureOn && this.sel.mode === 'edge') {
-      if (!e.repeat) this.selectRibs();
-      this.stop(e);
-      return;
-    }
-    // Ctrl+B: Snap to Grid, the reference editor's, in Point, Edge and Face mode.
-    if (mod && e.code === 'KeyB' && !e.altKey && !e.shiftKey && !this.textureOn) {
-      if (!e.repeat && this.sel.mode !== 'object') { const why = this.toolBlocked('snapgrid'); if (why) this.deps.say(`Snap to Grid: ${why}`, true); else this.snapToGrid(); }
-      this.stop(e);
-      return;
-    }
-    // Ctrl+Z and Ctrl+Y are the page's: its one history holds the geometry's steps too (bug 20).
-    if (mod) return;
-    // The tools' own keys, as the reference editor binds them (the owner, 2026-11-19), where the page has no use for the
-    // key: C the Knife, L loop and G ring select and B Bridge in Edge mode, Alt+F Bevel, Shift+I Inset, Alt+N Separate,
-    // Alt+B Bridge. (F, V, P, M and H stay the page's: frame, walk, play, menu, docks.)
+    if ((this.block || this.blockOn) && this.is('create.cancel', e)) { if (this.block) this.blockCancel(); else this.setBlockOn(false); this.stop(e); return; }
+    if (this.block?.phase === 'height' && this.is('create.make', e)) { this.blockCommit(); this.stop(e); return; }
+    if (this.tool !== 'select' && this.is('paint.back', e)) { this.setTool('select'); this.stop(e); return; }   // Paint or Sample: back to Select
+    // The selection modes.
+    for (const m of MODES) if (this.is(`geo.mode.${m.mode}`, e)) { this.setMode(m.mode); this.stop(e); return; }
+    // Copy, Cut and Paste: the geometry's own in this mode (`command`).
+    for (const [id, c] of GEO_COMMANDS) if (this.is(id, e)) { if (!e.repeat) this.command(c); this.stop(e); return; }
+    if (this.is('geo.selectAll', e)) { this.selectAll(false); this.stop(e); return; }
+    if (this.is('geo.invert', e)) { this.selectAll(true); this.stop(e); return; }
+    // The edit tools, in the mode they apply in (the reference editor's keys by default).
     if (!this.textureOn && !e.repeat) {
       const tool = this.toolKey(e);
       if (tool) {
+        if (tool === 'ribs') { this.selectRibs(); this.stop(e); return; }
         const why = EDIT_TOOL_MODES[tool]?.includes(this.sel.mode) ? this.toolBlocked(tool) : `not in ${modeWord(this.sel.mode)} mode`;
         if (why !== null && tool !== 'knife') this.deps.say(`${this.buttons.get(tool)?.dataset['title']?.split(':')[0] ?? tool}: ${why}`, true);
         else this.buttons.get(tool)?.click();
@@ -6649,42 +6681,61 @@ export class GeometryEditor {
         return;
       }
     }
-    // W / E / R and Q are the page's (its gizmo's mode and space), which it hands on here (`syncGizmo`).
-    // A level editor's keys: Delete removes (a hole where faces went), Backspace dissolves (the faces round it merge).
-    if ((k === 'delete' || k === 'backspace') && this.textureOn) { this.stop(e); }   // the Texture layer edits no shape
-    else if (k === 'delete') { this.deleteSelection(); this.stop(e); }
-    else if (k === 'backspace') { this.dissolveSelection(); this.stop(e); }
-    else if (k === 'escape' && this.tool !== 'select') { this.setTool('select'); this.stop(e); }   // Paint or Sample: back to Select
-    else if (k === 'escape' && !this.deps.doc.pointerLockElement) {
-      // Esc steps back one thing at a time: a tool (above), then the selection, then -- nothing selected, no tool -- out of
-      // Point, Edge or Face mode to Object mode (the owner, 2026-11-19: "nothing is selected and no tool is selected,
-      // pressing esc should make us go to geometry object mode").
-      const empty = [...this.sel.items.values()].every((s) => s.size === 0) && (this.sel.mode !== 'object' || this.sel.objects.size === 0);
+    // Delete removes (a hole where faces went), Dissolve merges the faces round it.
+    const del = this.is('geo.delete', e), dissolve = this.is('geo.dissolve', e) && this.sel.mode !== 'object';
+    if ((del || dissolve) && this.textureOn) { this.stop(e); return; }   // the Texture layer edits no shape
+    if (del) { this.deleteSelection(); this.stop(e); return; }
+    if (dissolve) { this.dissolveSelection(); this.stop(e); return; }
+    if (this.is('geo.back', e) && !(e.code === 'Escape' && this.deps.doc.pointerLockElement)) {
+      // Back steps out one thing at a time: the selection, then -- nothing selected, no tool -- out of Point, Edge or Face
+      // mode to Object mode (the owner, 2026-11-19: "nothing is selected and no tool is selected, pressing esc should
+      // make us go to geometry object mode").
+      const empty = [...this.sel.items.values()].every((x) => x.size === 0) && (this.sel.mode !== 'object' || this.sel.objects.size === 0);
       if (empty && this.sel.mode !== 'object') this.setMode('object');
       else { this.sel = emptySelection(this.sel.mode); this.drawSelection(); }
       this.stop(e);
     }
   }
 
-  /** The Edit tool a key chooses in the current mode (`onKey`), or null. */
+  /** The Edit tool a key chooses in the current mode (`onKey`; the shortcut list's Geometry commands), or null. */
   private toolKey(e: KeyboardEvent): string | null {
-    const m = this.sel.mode, c = e.code, alt = e.altKey, shift = e.shiftKey;
-    if (c === 'NumpadAdd' && !alt && !shift && m !== 'object') return 'grow';
-    if (c === 'NumpadSubtract' && !alt && !shift && m !== 'object') return 'shrink';
-    if (c === 'KeyC' && !alt && !shift && m !== 'object') return 'knife';
-    if (c === 'KeyL' && !alt && !shift && m === 'edge') return 'loop';
-    if (c === 'KeyG' && !alt && !shift && m === 'edge') return 'ring';
-    if (c === 'KeyG' && !alt && !shift && m === 'face') return 'thicken';
-    if (c === 'KeyB' && !shift && !alt && m === 'point') return 'snapvert';
-    if (c === 'KeyB' && !shift && (m === 'edge' || (alt && m === 'face'))) return 'bridge';
-    if (c === 'KeyI' && !shift && !alt && m === 'edge') return 'snapedge';
-    if (c === 'KeyO' && shift && !alt && (m === 'edge' || m === 'face')) return 'collapse';
-    if (c === 'KeyX' && shift && !alt && (m === 'object' || m === 'face')) return 'clip';
-    if (c === 'KeyN' && !shift && !alt && m === 'edge') return 'extend';
-    if (c === 'KeyF' && alt && !shift && m === 'edge') return 'bevel';
-    if (c === 'KeyI' && shift && !alt && m === 'face') return 'inset';
-    if (c === 'KeyN' && alt && !shift && m === 'face') return 'separate';
+    const scope = `geo:${this.sel.mode}` as ShortcutScope;
+    for (const [id, tool] of GEO_TOOL_KEYS) {
+      if (shortcutCommand(id)?.scopes.includes(scope) && this.is(id, e)) return tool;
+    }
     return null;
+  }
+
+  /**
+   * Select All / Invert Selection (the reference editor's Ctrl+A and Ctrl+I; the owner, 2026-11-20: buttons in the
+   * Select section and rows in the Edit menu too). Object mode: every object on the layer that is shown -- or, inverted,
+   * those not selected now. Point, Edge and Face mode: every point, edge or face of the objects the selection is in, or
+   * those of them not selected now.
+   */
+  selectAll(invert: boolean): void {
+    if (!this.geo || !this.active) return;
+    const mode = this.sel.mode;
+    if (mode === 'object') {
+      const all = this.geo.objects.filter((o) => !o.hidden).map((o) => o.id);
+      const next = invert ? all.filter((id) => !this.sel.objects.has(id)) : all;
+      this.sel = emptySelection('object');
+      for (const id of next) this.sel.objects.add(id);
+      this.drawSelection();
+      this.deps.say(`${invert ? 'Inverted' : 'Selected all'}: ${next.length} object${next.length === 1 ? '' : 's'}`);
+      return;
+    }
+    if (!this.sel.objects.size) { this.deps.say(`${invert ? 'Invert' : 'Select all'}: select something in an object first`, true); return; }
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      if (!o) continue;
+      const faces = objectFaces(o);
+      const all: (number | string)[] = mode === 'face' ? faces
+        : mode === 'edge' ? [...edgeMap(o.mesh, faces).keys()]
+        : [...new Set(faces.flatMap((f) => faceVerts(o.mesh, f)))];
+      const now = this.sel.items.get(id) ?? new Set();
+      this.sel.items.set(id, new Set(invert ? all.filter((x) => !now.has(x)) : all));
+    }
+    this.drawSelection();
   }
 
   private stop(e: KeyboardEvent): void {

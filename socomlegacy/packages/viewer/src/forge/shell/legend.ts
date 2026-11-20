@@ -78,7 +78,7 @@ function padPrompts(ctx: LegendContext): LegendPrompt[] {
       const menu = p('start', 'Menu', 'menu'), undo = p('select', 'Undo', 'undo');
       const fly = p('lstick', 'Fly');
       if (ctx.selection > 0) {
-        return [p('cross', 'Select', 'act'), p('circle', 'Deselect', 'deselect'), hold('circle', 'move'), p('square', 'Duplicate', 'duplicate'),
+        return [p('cross', 'Select', 'act'), p('circle', 'Deselect', 'deselect'), hold('circle', 'move'),
           p('triangle', 'Delete', 'delete'), p('dpad-h', 'Rotate', 'turnLeft', 'turnRight'), p('r3', 'Frame', 'frame'), menu];
       }
       return [p('cross', 'Select', 'act'), hold('cross', 'add'), p('dpad-v', 'Prop', 'prevAsset', 'nextAsset'), fly, p('rstick', 'Look'), undo, menu];

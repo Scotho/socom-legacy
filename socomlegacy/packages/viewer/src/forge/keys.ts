@@ -1,12 +1,12 @@
 /**
  * The forge editor's keys (OT.R68, the owner 2026-10-21: keyboard and mouse for everything in the forge's creation UI,
  * not once its matches have started), pure: a key and the page's state in, the editor's action out. A browser
- * adaptation with no original; the page (`./page`) wires it in every build. Development builds read the same map (it was
- * their shortcuts since FG.R9); the pad's actions that had no key take one (`[` `]` the prop, `,` `.` the turn by the
- * step, M the forge menu -- the merge controller's call (c)). The fly camera's and the walk's own keys (WASD, Space,
- * Shift, Q, E, C) are theirs (`../camera`, `../walk`).
+ * adaptation with no original; the page (`./page`) wires it in every build. Which key does what is the shortcut list's
+ * (`./shortcuts`; the owner, 2026-11-20: every command's keys editable in Edit > Preferences), never written here.
+ * The fly camera's and the walk's own keys are theirs (`../camera`, `../walk`).
  */
 import type { MenuInput } from './padMenu';
+import { chordOf, isShortcut, keyLabel, keysPaused, commandsOn, SHORTCUT_COMMANDS, type ShortcutScope } from './shortcuts';
 
 /** The parts of a `KeyboardEvent` the map reads. */
 export interface ForgeKeyEvent {
@@ -23,12 +23,17 @@ export interface ForgeKeyState {
   /** A field has the keyboard (FG.R23: the lobby chat's typing, the docks' fields). */
   typing: boolean;
   /**
-   * Geometry mode is on (`./geometry/editor`): its own keys (the number keys its modes, Delete and Backspace, Escape) are
-   * its, and the page keeps only the keys every mode shares (`GEOMETRY_SHARED`). Absent: off.
+   * Geometry mode is on (`./geometry/editor`): its own keys are its, and the page keeps only the commands every mode
+   * shares (the shortcut list's General commands). Absent: off.
    */
   geometry?: boolean;
-  /** Geometry mode's Knife is on: V is its loop mode's (the reference editor's), not Walk. Absent: off. */
-  knife?: boolean;
+  /**
+   * Geometry mode's scopes in force (its selection mode, a running tool): a key one of its own commands has there is
+   * the mode's, never a General command's (the owner, 2026-11-20: "give them to geometry modes"). Absent: none.
+   */
+  geometryScopes?: readonly ShortcutScope[];
+  /** The Outliner has the focus: its keys (the shortcut list's Outliner commands) are its. Absent: no. */
+  outliner?: boolean;
   /** A match runs (the Play match or a lobby's): keyless (OT.R68). */
   match: boolean;
   /** The forge menu (`./padMenu`) is open. */
@@ -41,149 +46,115 @@ export interface ForgeKeyState {
   pointerLocked: boolean;
   /**
    * FUI-2: a panel holds the focus lease (`./shell/context` `ForgeFocus`): the editor's keys are none of the editor's
-   * (the panel reads its own); a card over it still closes on Escape. R3-A: Escape and M are its way out
-   * (`forgeLeaseExit`).
+   * (the panel reads its own); a card over it still closes on Escape. R3-A: Escape (and the menu's key, where it has
+   * one) is its way out (`forgeLeaseExit`).
    */
   leased?: boolean;
   /**
-   * The camera navigates (`../camera` `FlyCamera.navigating`: RMB held to fly, a pan, an orbit, a dolly): its fly
-   * letters (`FLY_LETTERS`) are the camera's then, never the editor's -- W / E / R would change the gizmo's mode mid-flight.
+   * The camera navigates (`../camera` `FlyCamera.navigating`: RMB held to fly, a pan, an orbit, a dolly): its fly keys
+   * (the shortcut list's Camera commands) are the camera's then, never the editor's.
    */
   navigating?: boolean;
 }
 
-/** The letters the Forge's camera flies on (and its RMB C / Z field of view): the camera's alone while it navigates. */
-const FLY_LETTERS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyZ', 'KeyC']);
-
-/** R3-A: what a key does to a held focus lease -- `release` lets it go; `menu` lets it go, then opens the menu as M does. */
+/** R3-A: what a key does to a held focus lease -- `release` lets it go; `menu` lets it go, then opens the menu. */
 export type ForgeLeaseExit = 'release' | 'menu';
 
 /**
  * R3-A (the FUI-2 review's finding 5; a browser adaptation): the focus lease's keyboard exit. While a panel holds the
  * lease every editor key is the panel's (`forgeKeyAction` answers null), so Escape lets the lease go -- as the pad's
- * Circle does when the panel does not take it -- and M, the menu key, lets it go and then opens the menu. The page reads
- * this after the holding panel's own handlers (the bubble phase): a key the panel took (`defaultPrevented`) stays the
- * panel's. Null for any other key, or when no lease is held or a field, a match, the menu or a card has the keys.
+ * Circle does when the panel does not take it -- and the menu's key (none by default) lets it go and then opens the
+ * menu. Null for any other key, or when no lease is held or a field, a match, the menu or a card has the keys.
  */
 export function forgeLeaseExit(e: ForgeKeyEvent, s: ForgeKeyState): ForgeLeaseExit | null {
+  if (keysPaused()) return null;
   if (!s.leased || s.typing || s.match || s.menu || s.card) return null;
-  if (e.ctrlKey || e.metaKey || e.altKey) return null;
-  return e.code === 'Escape' ? 'release' : e.code === 'KeyM' ? 'menu' : null;
+  if (e.code === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey) return 'release';
+  return isShortcut('app.menu', e) ? 'menu' : null;
 }
 
-/**
- * The tools' keys (the owner, 2026-11-06; 2026-11-12: "make 1/2 shortcuts for select and place tool"; a browser
- * adaptation, FG.R2): 1 the Select tool, 2 the Place tool, then the placing tools in the tools row's order (`./page`
- * `modeSection`: Spawn, Objects, Demolition, Escort and Extraction, Info, Other) -- 3 to 9 then 0 the first eight, Shift
- * with 1 to 0 the next ten; the last has none.
- */
+/** The placing tools, in the tools row's order (`./page` `modeSection`): their keys the shortcut list's `forge.tool.*`. */
 export const FORGE_TOOL_ORDER = [
   'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate', 'flare',
   'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc',
 ] as const;
 export type ForgeToolKey = 'select' | (typeof FORGE_TOOL_ORDER)[number];
 
-/** The keyed tools in key order: Select, then the placing tools (`FORGE_TOOL_ORDER`); no Place tool (the owner, 2026-11-17: a prop is dragged in, then moved by the gizmo). */
+/** The keyed tools: Select, then the placing tools (`FORGE_TOOL_ORDER`). */
 const KEYED_TOOLS: readonly ForgeToolKey[] = ['select', ...FORGE_TOOL_ORDER];
 
-const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'] as const;
-
-/** A tool's key as its tooltip shows it (`1`, `3`, `Shift+2`), or null for one with none. */
+/** A tool's key as its tooltip shows it (`1`, `Shift+2`), or null for one with none. */
 export function forgeToolKeyLabel(tool: string): string | null {
-  const i = (KEYED_TOOLS as readonly string[]).indexOf(tool);
-  if (i < 0 || i >= DIGITS.length * 2) return null;
-  const digit = DIGITS[i % DIGITS.length]!.slice(5);
-  return i < DIGITS.length ? digit : `Shift+${digit}`;
+  return keyLabel(`forge.tool.${tool}`) || null;
 }
 
-/**
- * The help card's tool rows (FP-1b; a browser adaptation, FG.R2): the plain number keys' tools and the Shift ones', each
- * named by `nameOf` beside its key -- read from `KEYED_TOOLS` and `forgeToolKeyLabel`, so the card says what the keys do,
- * never a list written beside them.
- */
+/** The help card's tool row: each keyed tool's key beside its name (`nameOf`), read from the shortcut list. */
 export function forgeToolKeyHelp(nameOf: (tool: ForgeToolKey) => string): [string, string][] {
-  const keyed = KEYED_TOOLS.flatMap((t) => { const k = forgeToolKeyLabel(t); return k ? [{ t, k }] : []; });
-  const rows: [string, string][] = [];
-  for (const group of [keyed.filter((x) => !x.k.startsWith('Shift+')), keyed.filter((x) => x.k.startsWith('Shift+'))]) {
-    if (group.length) rows.push([`${group[0]!.k} … ${group[group.length - 1]!.k}`, `Tools: ${group.map((x) => `${x.k} ${nameOf(x.t)}`).join(', ')}`]);
-  }
-  return rows;
-}
-
-/** The tool a key chooses (`forgeToolKeyLabel`'s inverse), or null. */
-function toolOfKey(e: ForgeKeyEvent): ForgeToolKey | null {
-  const d = (DIGITS as readonly string[]).indexOf(e.code);
-  if (d < 0) return null;
-  return KEYED_TOOLS[d + (e.shiftKey ? DIGITS.length : 0)] ?? null;
+  const keyed = KEYED_TOOLS.flatMap((t) => { const k = forgeToolKeyLabel(t); return k ? [`${k} ${nameOf(t)}`] : []; });
+  return keyed.length ? [['Tools', keyed.join(', ')]] : [];
 }
 
 export type ForgeKeyAction =
   | 'undo' | 'redo' | 'copy' | 'paste' | 'cut' | 'openLayout' | 'saves' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
   | { tool: ForgeToolKey } | 'translate' | 'rotate' | 'scale' | 'snap'
-  | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'space' | 'group' | 'ungroup'
+  | 'delete' | 'frame' | 'docks' | 'deselect' | 'space' | 'group' | 'ungroup' | 'selectAll' | 'invert'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
   | { menu: MenuInput };
 
+/** The forge menu's own keys (fixed: its cursor, as the pad's d-pad, cross and circle). */
 const MENU_KEYS: Readonly<Record<string, MenuInput>> = {
-  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'select', Space: 'select', Escape: 'back', KeyM: 'back',
+  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'select', Space: 'select', Escape: 'back',
 };
 
-const EDITOR_KEYS: Readonly<Record<string, ForgeKeyAction>> = {
-  KeyH: 'docks', KeyF: 'frame',
-  // The tools' keys are `toolOfKey`'s (the number keys, `KEYED_TOOLS`). Q the gizmo's World / Local (the owner,
-  // 2026-11-12); G groups the selection into a folder, Shift+G ungroups (`forgeKeyAction`). The snap has no key now
-  // (its button, the menu's row, the pad's L3).
-  // The gizmo's modes on W, E, R, as an engine editor's: the fly camera's W and E (and its R) move it only while RMB is
-  // held, and the camera keeps them from the editor then (`../camera` `onKeyDown`).
-  KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyQ: 'space', Delete: 'delete', Backspace: 'delete',
-  BracketLeft: 'prevAsset', BracketRight: 'nextAsset', Comma: 'turnLeft', Period: 'turnRight', KeyM: 'menu',
-};
+/** Whether `e` is one of the camera's fly keys (the shortcut list's Camera commands), with Shift or none. */
+function flyKey(e: ForgeKeyEvent): boolean {
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;       // Ctrl+Z is undo while flying; Shift flies faster
+  const plain = chordOf({ ...e, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false });
+  return !!plain && commandsOn(plain, ['fly']).length > 0;
+}
 
-/**
- * The page's actions that Geometry mode leaves to the page (the owner, 2026-11-15: no shortcut may do two things): the
- * undo and redo (the geometry's steps there), the files, Walk and Play, the docks, the frame, the menu, the cards, and
- * the gizmo's mode and space (one set of transform controls, handed to the geometry's gizmo). Every other action --
- * the placing tools' number keys, delete, duplicate, copy and paste, group, the assets' keys, Escape -- is the mode's.
- */
-const GEOMETRY_SHARED: ReadonlySet<ForgeKeyAction> = new Set<ForgeKeyAction>([
-  'undo', 'redo', 'openLayout', 'saves', 'walk', 'play', 'stopWalk', 'door', 'closeCard', 'docks', 'frame', 'menu',
-  'translate', 'rotate', 'scale', 'space',
-]);
+/** The General commands' actions, in the list's order (each tried where it applies, Geometry mode too). */
+const GENERAL: readonly [string, ForgeKeyAction][] = [
+  ['app.undo', 'undo'], ['app.redo', 'redo'], ['app.open', 'openLayout'], ['app.saves', 'saves'],
+  ['app.docks', 'docks'], ['app.translate', 'translate'], ['app.rotate', 'rotate'], ['app.scale', 'scale'], ['app.space', 'space'],
+  ['app.menu', 'menu'],
+];
+/** The Forge editor's own (outside Geometry mode). */
+const FORGE: readonly [string, ForgeKeyAction][] = [
+  ['app.cut', 'cut'], ['app.copy', 'copy'], ['app.paste', 'paste'],
+  ['forge.selectAll', 'selectAll'], ['forge.invert', 'invert'], ['forge.frame', 'frame'], ['forge.group', 'group'], ['forge.ungroup', 'ungroup'], ['forge.delete', 'delete'],
+  ['forge.prevAsset', 'prevAsset'], ['forge.nextAsset', 'nextAsset'], ['forge.turnLeft', 'turnLeft'], ['forge.turnRight', 'turnRight'],
+];
 
 /** The editor's action for a key, or null (the key is someone else's, or nothing's). */
 export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyAction | null {
-  if (s.geometry && s.knife && e.code === 'KeyV' && !e.ctrlKey && !e.metaKey && !e.altKey) return null;
-  const a = pageKeyAction(e, s);
-  if (!s.geometry || a === null || typeof a === 'object' && 'menu' in a) return a;
-  return typeof a === 'string' && GEOMETRY_SHARED.has(a) ? a : null;
-}
-
-function pageKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyAction | null {
-  if (s.typing || s.match) return null;
-  if (s.menu) return e.ctrlKey || e.metaKey || e.altKey ? null : (MENU_KEYS[e.code] ? { menu: MENU_KEYS[e.code]! } : null);
+  if (s.typing || s.match || keysPaused()) return null;   // the shortcut editor reads every key while it is open
+  if (s.menu) {
+    if (isShortcut('app.menu', e)) return { menu: 'close' };
+    return e.ctrlKey || e.metaKey || e.altKey ? null : (MENU_KEYS[e.code] ? { menu: MENU_KEYS[e.code]! } : null);
+  }
   if (s.card) return e.code === 'Escape' ? 'closeCard' : null;    // FUI-2: the top card's way back (`./shell/cards`)
   if (s.leased) return null;
-  const chord = e.ctrlKey || e.metaKey;
-  if (chord && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) return e.code === 'KeyY' || e.shiftKey ? 'redo' : 'undo';
-  if (chord && !e.altKey && !e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyV')) return e.code === 'KeyC' ? 'copy' : 'paste';
-  // Cut (the owner, 2026-11-11: the Edit menu's): a copy, then the selection deleted.
-  if (chord && !e.altKey && !e.shiftKey && e.code === 'KeyX') return 'cut';
-  // Duplicate on Ctrl+D (the owner, 2026-11-11; was C alone): the browser's bookmark key taken while the editor has it.
-  if (chord && !e.altKey && !e.shiftKey && e.code === 'KeyD') return 'duplicate';
-  // The File menu's (the owner, 2026-11-11): Open Ctrl+O, Saves Ctrl+S. New has no key: the browser keeps Ctrl+N.
-  if (chord && !e.altKey && !e.shiftKey && (e.code === 'KeyO' || e.code === 'KeyS')) return e.code === 'KeyO' ? 'openLayout' : 'saves';
-  if (chord || e.altKey) return null;
-  if (s.navigating && FLY_LETTERS.has(e.code)) return null;   // the camera's while it navigates
-  if (e.code === 'KeyV') return s.playing ? 'stopWalk' : 'walk';     // FG-50: Walk and Edit, the camera kept
-  if (e.code === 'KeyP') return s.playing ? 'stopWalk' : 'play';
+  // Geometry mode first: a key one of its own commands has in its scopes now is its (Hammer's V, P, M and F there).
+  const chord = chordOf(e);
+  if (s.outliner && chord && commandsOn(chord, ['outliner']).length) return null;   // the focused Outliner's own
+  if (s.geometry && isShortcut('geo.frame', e)) return 'frame';           // Geometry mode's Frame: the page frames
+  if (s.geometry && chord && s.geometryScopes && commandsOn(chord, s.geometryScopes).some((c) => !c.scopes.includes('forge'))) return null;
+  if (s.navigating && flyKey(e)) return null;                    // the camera's while it navigates
+  // Walk and Play: their keys (none by default) start them and stop them.
+  if (isShortcut('app.walk', e)) return s.playing ? 'stopWalk' : 'walk';
+  if (isShortcut('app.play', e)) return s.playing ? 'stopWalk' : 'play';
   if (s.playing) {
-    if (e.code === 'Escape') return s.pointerLocked ? null : 'stopWalk';
-    return e.code === 'KeyX' && !e.repeat ? 'door' : null;          // the test room's action key (a door)
+    if (isShortcut('walk.stop', e)) return s.pointerLocked && e.code === 'Escape' ? null : 'stopWalk';
+    return isShortcut('walk.use', e) && !e.repeat ? 'door' : null;          // the test room's action key (a door)
   }
-  if (e.code === 'Escape') return s.pointerLocked ? null : 'deselect';
-  const tool = toolOfKey(e);
-  if (tool) return { tool };
-  // G groups, Shift+G ungroups (the owner, 2026-11-12): the selected folders (or the selection's own) taken out.
-  if (e.code === 'KeyG') return e.shiftKey ? 'ungroup' : 'group';
-  return EDITOR_KEYS[e.code] ?? null;
+  for (const [id, a] of GENERAL) if (isShortcut(id, e)) return a;
+  if (s.geometry) return null;                                   // the rest is Geometry mode's own
+  if (isShortcut('forge.deselect', e)) return s.pointerLocked && e.code === 'Escape' ? null : 'deselect';
+  for (const t of KEYED_TOOLS) if (isShortcut(`forge.tool.${t}`, e)) return { tool: t };
+  for (const [id, a] of FORGE) if (isShortcut(id, e)) return a;
+  return null;
 }
+
+/** Every command id the page answers (the shortcut list's General, Forge editor, Forge tools and Walk commands). */
+export const PAGE_COMMAND_IDS: readonly string[] = SHORTCUT_COMMANDS.filter((c) => /^(app|forge|walk)\./.test(c.id)).map((c) => c.id);
