@@ -15,7 +15,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import type { LoadedMap, LoadedMesh } from '../../loadMap';
 import type { GroundData } from '../../mover';
 import { buildWorld, type WorldView } from '../../world';
-import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, floorWordsOf, wallWordsOf } from './collision';
+import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, floorOrWall, floorWordsOf, wallWordsOf } from './collision';
 import { displacementGrid, makeDisplacement, sculpt } from './displacement';
 import { add, cloneMesh, cross, dot, edgeKey, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, length, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type TextureMapping, type Vec3 } from './editMesh';
 import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, LADDER_CLIMB_FLAG, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, twinIndexOf, withCollisionType, withTwins, wordsOf, type CollisionType } from './hullGeometry';
@@ -23,7 +23,7 @@ import { HULL_COLOURS, type HullViewPoly } from '../hull';
 import { lastRefusal } from './topology';
 /** Why the last tool was undone (`./topology` `transact`), as a message's tail; empty when it was not. */
 const refusedWhy = (): string => (lastRefusal ? ` (refused: ${lastRefusal} -- the mesh is as it was)` : '');
-import { BRIDGE_OPEN_ONLY, fillHoles, thickenFaces, THICKEN_NOT_OPEN, mergeVerts, mergeGroups, edgeMergeGroups, onFrameGrid, placeVerts, collapseEdgeGroups, collapseFaces, extendEdges, EXTEND_NOT_OPEN, loopCutAt, splitEdge, bevelEdges, bridgeEdgeRuns, bridgeEdges, bridgeEdgesBlocked, bridgeFaces, bridgeRunsBlocked, connectEdges, edgeFaceCount, extrudeClosedEdges, extrudeOrExtendVerts, isBent, joinFlatPairs, splitBentFaces, deleteEdges, extrudeEdges, extrudeFacesBy, insetFaces, knifeCut, loopCut, orientPulled, subdivideEdges, subdivideFaces, type KnifePoint, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, snapVerts, transformVerts } from './ops';
+import { BRIDGE_OPEN_ONLY, fillHoles, thickenFaces, THICKEN_NOT_OPEN, mergeVerts, mergeGroups, edgeMergeGroups, onFrameGrid, placeVerts, clipFaces, mirrorMatrix, collapseEdgeGroups, collapseFaces, extendEdges, EXTEND_NOT_OPEN, loopCutAt, splitEdge, bevelEdges, bridgeEdgeRuns, bridgeEdges, bridgeEdgesBlocked, bridgeFaces, bridgeRunsBlocked, connectEdges, edgeFaceCount, extrudeClosedEdges, extrudeOrExtendVerts, isBent, joinFlatPairs, splitBentFaces, deleteEdges, extrudeEdges, extrudeFacesBy, insetFaces, knifeCut, loopCut, orientPulled, subdivideEdges, subdivideFaces, type KnifePoint, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, snapVerts, transformVerts } from './ops';
 import { box, cylinder, plane, sphere, UNTEXTURED_FLOOR_COLOR_ADAPTATION, type PrimitiveOptions } from './primitives';
 import { flatWorkplane, rayOnWorkplane, workplaneFrame, type Workplane } from '../mapGrid';
 import { knifeSnapped, type KnifeFrame, type KnifePrev } from './knifeSnap';
@@ -34,7 +34,7 @@ import type { FloorLook } from './blank';
 import type { Surface } from './collision';
 import { adjustMapping, align, alignToView, applyTexture, fitMapping, justify, mappedUv, medianTexelScale, pasteLook, refreshUvs, resetMapping, sampleFace, setDetail, textureState, textureTexelScales, worldAligned, type DetailChange, type FaceLook, type Justify, type MappingChange, type TextureSize, type TextureState } from './texturing';
 import {
-  addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mergeObjects, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
+  addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mergeObjects, mul4, objectCopy, objectFaces, objectVerts, removeObject, separateFaces, transformObject, worldSectionsOf,
   type GeoObjectCopy,
   type GeoObject, type WorldGeometry,
 } from './world';
@@ -258,7 +258,7 @@ interface Cage { edges: Float32Array; points: Float32Array; verts: number[]; edg
  * clicked on the mesh, no selection needed) in every mode but Object; Dissolve on points, edges or faces (an object has nothing round it to merge into); Delete on all.
  */
 const EDIT_TOOL_MODES: Readonly<Record<string, readonly SelectMode[]>> = {
-  fill: ['edge'], thicken: ['face'], mergemeshes: ['object'], merge: ['point', 'edge'], grow: ['point', 'edge', 'face'], shrink: ['point', 'edge', 'face'], loop: ['edge'], ring: ['edge'], ribs: ['edge'], connect: ['edge', 'point'], collapse: ['edge', 'face'], extend: ['edge'], loopcut: ['edge'], bevel: ['edge', 'face'], extrude: ['face'], inset: ['face'], subdivide: ['face', 'edge'],
+  fill: ['edge'], thicken: ['face'], mergemeshes: ['object'], clip: ['object', 'face'], mirror: ['object', 'face'], merge: ['point', 'edge'], grow: ['point', 'edge', 'face'], shrink: ['point', 'edge', 'face'], loop: ['edge'], ring: ['edge'], ribs: ['edge'], connect: ['edge', 'point'], collapse: ['edge', 'face'], extend: ['edge'], loopcut: ['edge'], bevel: ['edge', 'face'], extrude: ['face'], inset: ['face'], subdivide: ['face', 'edge'],
   knife: ['point', 'edge', 'face'], bridge: ['face', 'edge'], separate: ['face'], flip: ['face', 'object'],
   snapgrid: ['point', 'edge', 'face'], snapvert: ['point'], snapedge: ['edge'],
   dissolve: ['point', 'edge', 'face'], delete: ['object', 'point', 'edge', 'face'],
@@ -295,6 +295,14 @@ function meshSaver(): { save(m: EditMesh): void; restore(): void } {
 /** Dissolve's title in Point and Edge mode, and Combine Faces' in Face mode (the same button, the reference editor's names). */
 const DISSOLVE_TITLE = 'Dissolve (Backspace): the selected points or edges go and the faces round them merge, no hole';
 const COMBINE_TITLE = 'Combine Faces (Backspace): the edges between selected faces that lie flat together taken away, so they make one face (faces at an angle stay apart)';
+
+/** A Shift-drag extrude's new face during the drag (`GeometryEditor.liveMade`). */
+interface LiveMadeFace { at: Vec3[]; moves: boolean[]; texel: number; size: readonly [number, number]; slots: { attr: BufferAttribute | InterleavedBufferAttribute; i: number; k: number; uv: [number, number] }[] }
+
+/** Clip / Mirror with nothing under the pointer: the line drawn on a plane facing the view this far along the pointer's ray (game units; the reference editor's 512, its own units -- a browser adaptation). */
+const LINE_TOOL_REACH_ADAPTATION = 512;
+/** Clip's Keep choices, by the setting's index. */
+const CLIP_KEEPS = ['front', 'back', 'both'] as const;
 
 /** A burst of edits settles this long before the collision is rebuilt (`buildSoon`): one rebuild for a run of keys. */
 const BUILD_SETTLE_MS = 100;
@@ -549,6 +557,13 @@ export class GeometryEditor {
    * moved whole keeps its uvs under texture lock, so it needs none).
    */
   private liveUv: { attr: BufferAttribute | InterleavedBufferAttribute; i: number; map: TextureMapping; size: readonly [number, number]; at: Vec3; moves: boolean; uv: [number, number] }[] = [];
+  /**
+   * A Shift-drag extrude's new faces during the drag (the owner, 2026-11-20: "when I am shift extruding, those looked
+   * stretched until I release the mouse"): each face's corners where they start and whether they move, its texel scale
+   * and texture size, and where its corners are drawn. Each drag step lays it as the release will: world-aligned by the
+   * face's facing at that step (`moveLive`) -- the face has no facing of its own until it has depth.
+   */
+  private liveMade: LiveMadeFace[] = [];
   /** The viewport's World / Local (`syncGizmo`): Local turns the pivot onto the selection's own axes (`localFrame`). */
   private space: 'world' | 'local' = 'world';
   /** The handle clouds drawn, each resized every frame to a fixed size on screen (`frameHandles`). */
@@ -648,7 +663,7 @@ export class GeometryEditor {
     this.fixed.name = 'forge-geometry-fixed';
     this.edges.name = 'forge-geometry-edges';
     this.edges.visible = this.wireOn;
-    deps.scene.add(this.edges, this.overlay, this.fixed, this.hover, this.pivot, this.strokeLayer, this.knifeLayer);
+    deps.scene.add(this.edges, this.overlay, this.fixed, this.hover, this.pivot, this.strokeLayer, this.knifeLayer, this.lineLayer);
     this.gizmo = new TransformControls(deps.camera(), deps.input);
     this.gizmo.disconnect();                                   // driven by the editor's own pointer handlers below
     tightenGizmo(this.gizmo);                                  // hit only near its handles, no negative-side handles (`../gizmoPick`)
@@ -715,6 +730,8 @@ export class GeometryEditor {
         this.button('thicken', 'Thicken', 'Thicken Faces (G): the selected faces given a back a grid step behind them and walls round their border -- a sheet, such as a plane, whose border is all open', () => this.thicken()),
         this.button('bridge', 'Bridge', 'Bridge (B): join two selected faces with new faces between them (the two removed), or two open edges (or two runs of open edges, as many in each) with faces', () => this.bridge()),
         this.button('fill', 'Fill Hole', 'Fill Hole: each hole a selected open edge lies on (a loop of edges with a face on one side only) capped with one face', () => this.fillSelection()),
+        this.button('clip', 'Clip', 'Clipping tool (Shift+X): drag a line on a surface (on the grid while snapping; Ctrl flips it) -- the selected objects or faces cut by the plane through it, square to the surface. Keep Front, Back or Both (Shift+X cycles), Cap fills the cut; Enter applies, Space applies and stays, Esc cancels', () => this.setLineTool(this.lineTool === 'clip' ? null : 'clip')),
+        this.button('mirror', 'Mirror', 'Mirror tool: drag a line on a surface -- a mirrored copy of the selected objects made across the plane through it, square to the surface. Enter applies, Space applies and stays, Esc cancels', () => this.setLineTool(this.lineTool === 'mirror' ? null : 'mirror')),
         this.button('knife', 'Knife', 'Knife (C): click points on vertices, edges or across faces -- on the grid while snapping (Ctrl flips it; Shift: only in line with the last point; V: loop mode, a click cuts the loop through an edge); Enter cuts straight across the faces between them, Backspace takes a point back, Esc leaves', () => this.setKnife(!this.knifeOn)),
         this.button('loopcut', 'Loop Cut', 'Loop Cut: a new edge loop through the middle of the selected edges\u2019 rings (across the four-sided faces beside them)', () => this.loopCutSelection()),
         this.button('connect', 'Connect', 'Connect: the selected edges split at their middles and joined across the faces they share (select a ring, then Connect: a loop cut); in Point mode, the selected points joined in the order picked, straight across the faces between', () => this.connectSelection()),
@@ -1658,6 +1675,7 @@ export class GeometryEditor {
     if (!on && this.tool !== 'select') this.setTool('select'); // the sampler's or the brush's cursor goes with the mode
     if (!on) this.setBlockOn(false);                           // and the block tool, a shape half-made let go
     if (!on && this.knifeOn) this.setKnife(false);
+    if (!on && this.lineTool) this.setLineTool(null);
     if (!on && this.collisionOn) this.leaveCollision();       // and collision editing (its edits kept in the collision)
     // The mode left, what was selected in it let go (the owner, 2026-11-16: "when switching modes on the top bar,
     // deselect whatever we selected in that mode"), as Object mode's own selection is on entering this one.
@@ -1886,6 +1904,7 @@ export class GeometryEditor {
     // undo of a tool that made faces and selected them), and drawing it would read past them.
     this.sel = emptySelection(this.sel.mode);
     if (this.knifeOn) { this.knifePts = []; this.drawKnife(); }
+    if (this.lineTool) { this.line = null; this.lineCache = null; this.drawLineTool(); }
     if (!s) {
       if (!this.forMap || this.forMap !== map) return;
       if (this.drawn) this.deps.onViewSwap(null);
@@ -2389,7 +2408,7 @@ export class GeometryEditor {
       if (this.sel.mode === 'point') add(this.handles([...items].flatMap((v) => vertPos(o.mesh, v as number)), HANDLE_PX + 5, HIGHLIGHT, true));
     }
     const centre = selectionCentre(geo, this.sel);
-    if (centre && !(this.paintOn && this.collisionOn) && !this.textureOn) {   // painting, or the Texture layer: no gizmo
+    if (centre && !(this.paintOn && this.collisionOn) && !this.textureOn && !this.lineTool) {   // painting, the Texture layer or Clip / Mirror: no gizmo
       this.pivot.position.set(centre[0], centre[1], centre[2]);
       if (this.space === 'local') this.pivot.quaternion.copy(this.localFrame());
       else this.pivot.quaternion.identity();
@@ -2422,6 +2441,8 @@ export class GeometryEditor {
       b.title = busy ? `${b.dataset['title']} -- not while Create is on (Esc leaves it)` : b.dataset['title'];
     }
     this.buttons.get('knife')?.classList.toggle('is-on', this.knifeOn);
+    this.buttons.get('clip')?.classList.toggle('is-on', this.lineTool === 'clip');
+    this.buttons.get('mirror')?.classList.toggle('is-on', this.lineTool === 'mirror');
     // The Edit tools a selection mode has no use for, not shown (the owner, 2026-11-18: "if an edit tool cannot even be used
     // in that mode, don't show it at all for that mode"); those it has, greyed while the selection gives them nothing to
     // do ("the edit tools should only be enabled ... if that operation can be done"), the reason in the title.
@@ -2607,6 +2628,7 @@ export class GeometryEditor {
   private setMode(mode: SelectMode): void {
     if (!this.geo || this.blockOn) return;                                     // Create on: no selection mode to choose (`drawBar`)
     if (this.knifeOn) this.setKnife(false);                                    // a mode chosen mid-tool resets the tool
+    if (this.lineTool) this.setLineTool(null);
     if (this.lastOp) { this.lastOp = null; this.drawToolPanel(); }             // and ends the last tool's adjusting
     // Choosing a selection mode is choosing to select, not paint -- but on the Texture layer it is what a dab covers.
     if (this.tool !== 'select' && !this.textureOn) this.setTool('select');
@@ -2678,6 +2700,7 @@ export class GeometryEditor {
           after.objects.add(id);
           after.items.set(id, new Set(left));
         }
+        refreshUvs(o.mesh, objectFaces(o), this.size);   // each face's uvs laid again from its mapping, as a level editor does after an edit
         markReshaped(o);
       }
       this.sel = after;
@@ -2796,15 +2819,54 @@ export class GeometryEditor {
    * an object's points and face rings, and a selection set directly -- so a browser run can choose a box's top face or an
    * edge by its place, as a click would, without hunting for it on screen.
    */
-  testMesh(id: string): { verts: number[]; faces: (number[] | null)[]; surfaces: (number[] | null)[] } | null {
+  testMesh(id: string): { verts: number[]; faces: (number[] | null)[]; surfaces: (number[] | null)[]; uvs: (number | 'none' | null)[]; cornerUvs: (number[] | null)[] } | null {
     const o = this.objectById(id);
     if (!o) return null;
     const mine = new Set(objectFaces(o));
+    // Each face's texture state: 'none' with no mapping, else how far (in texture widths) its corners' uvs lie from
+    // where its mapping puts them -- 0 when they agree.
+    const uvOff = (i: number): number | 'none' => {
+      const f = o.mesh.faces[i]!;
+      if (!f.mapping) return 'none';
+      const sz = this.size(o.mesh.styles[f.style]!.style.textureName) ?? [1, 1];
+      let worst = 0;
+      for (const c of f.corners) {
+        const [u, v] = mappedUv(f.mapping, vertPos(o.mesh, o.mesh.cVert[c]!), sz);
+        worst = Math.max(worst, Math.abs(u - o.mesh.cUv[c * 2]!), Math.abs(v - o.mesh.cUv[c * 2 + 1]!));
+      }
+      return worst;
+    };
     return {
       verts: [...o.mesh.verts],
       faces: o.mesh.faces.map((f, i) => (f && mine.has(i) ? faceVerts(o.mesh, i) : null)),
       surfaces: o.mesh.faces.map((f, i) => (f && mine.has(i) && f.surface ? [...f.surface] : null)),
+      uvs: o.mesh.faces.map((f, i) => (f && mine.has(i) ? uvOff(i) : null)),
+      cornerUvs: o.mesh.faces.map((f, i) => (f && mine.has(i) ? f.corners.flatMap((c) => [o.mesh.cUv[c * 2]!, o.mesh.cUv[c * 2 + 1]!]) : null)),
     };
+  }
+
+  /**
+   * New faces a tool made given a level editor's texture for them (the owner, 2026-11-20: "fill the same hole, the texture
+   * applied is not great, it is rotated"): world-aligned, as Create lays a shape's faces and Extrude, Bevel and Bridge lay
+   * theirs, at `texel` -- else the finest texel scale of the faces beside them, else the map's -- their uvs laid. Without
+   * it a face made with no mapping keeps the uvs its corners were copied with, from the faces round it: rotated, stretched.
+   */
+  private alignNewFaces(m: EditMesh, made: readonly number[], within: readonly number[], texel?: number): void {
+    const mine = new Set(made);
+    const em = edgeMap(m, within);
+    for (const f of made) {
+      const face = m.faces[f];
+      if (!face) continue;
+      let t = texel;
+      if (t === undefined) {
+        const vs = faceVerts(m, f);
+        const beside = vs.flatMap((a, i) => em.get(edgeKey(a, vs[(i + 1) % vs.length]!))?.faces ?? []).filter((g) => !mine.has(g));
+        const scales = beside.map((g) => m.faces[g]?.mapping?.scaleU).filter((x): x is number => !!x);
+        t = scales.length ? Math.min(...scales) : this.scaleTexel();
+      }
+      face.mapping = worldAligned(faceNormal(m, f), t);
+    }
+    refreshUvs(m, made, this.size);
   }
   testSelect(mode: SelectMode, picks: readonly { id: string; items: readonly (number | string)[] }[]): void {
     if (!this.geo || this.blockOn || this.knifeOn) return;
@@ -2881,7 +2943,7 @@ export class GeometryEditor {
   private drawToolPanel(rebuild = false): void {
     const op = this.lastOp;
     const defs = op ? TOOL_SETTINGS[op.tool] ?? [] : [];
-    const shown = !!op && defs.length > 0 && this.active && !this.blockOn && !this.polyOn && !this.textureOn;
+    const shown = !!op && defs.length > 0 && this.active && !this.blockOn && !this.polyOn && !this.textureOn && !this.lineTool;
     if (!shown) { if (this.toolPanel) this.toolPanel.hidden = true; return; }
     // Built again only for another run (or Reset): a field being dragged is never taken from under the pointer.
     if (this.toolPanel && this.toolPanelFor === op && !rebuild) { this.toolPanel.hidden = false; return; }
@@ -3135,6 +3197,7 @@ export class GeometryEditor {
         saved.save(o.mesh);
         const k = mode === 'edge' ? mergeVerts(o.mesh, collapseEdgeGroups([...items].map((x) => edgeOfKey(x as string))), 'centre') : collapseFaces(o.mesh, [...items] as number[]);
         if (!k.length) { saved.restore(); made = 0; return false; }
+        refreshUvs(o.mesh, objectFaces(o), this.size);   // each face's uvs laid again from its mapping, as a level editor does after an edit
         markReshaped(o);
         made += k.length;
       }
@@ -3164,6 +3227,7 @@ export class GeometryEditor {
         if (!o || !items?.size) continue;
         const r = extendEdges(o.mesh, [...items].map((x) => edgeOfKey(x as string)), amount);
         if (!r.faces.length) continue;
+        refreshUvs(o.mesh, objectFaces(o), this.size);   // each face's uvs laid again from its mapping, as a level editor does after an edit
         markReshaped(o);
         made += r.faces.length;
         after.objects.add(id);
@@ -3240,6 +3304,318 @@ export class GeometryEditor {
     else this.deps.say(`${onFaces ? 'Bevel needs faces with an outline between them and other faces' : 'Bevel needs edges between two faces'}${refusedWhy()}`, true);
   }
 
+  /* ---------- Clip and Mirror ---------- */
+
+  /**
+   * The Clipping and Mirror tools (the reference editor's; the owner, 2026-11-20: "implement the clipping tool and
+   * mirror"): a line drawn on a surface -- pressed on it and dragged, its ends on the grid in that surface's plane while
+   * snapping (Ctrl flips it), either end dragged again after -- and the plane through it square to the surface: Clip cuts
+   * the selected objects (or faces) by it, Mirror copies the selected objects across it. The line is drawn on the
+   * workplane while it is shown, else on the face under the pointer (its normal taken to the nearest axis), else on a
+   * plane facing the view. Enter applies (the tool then left), Space applies and stays, Esc lets the line go (then the
+   * tool). The result is shown live.
+   */
+  private lineTool: 'clip' | 'mirror' | null = null;
+  /** The line: the plane it is drawn on (`n`, through its ends) and its two ends. */
+  private line: { n: Vec3; p1: Vec3; p2: Vec3 } | null = null;
+  private lineDrag: { end: 'p1' | 'p2'; pointerId: number } | null = null;
+  private lineHover: Vec3 | null = null;
+  private readonly lineLayer = new Group();
+  private linePanel: HTMLElement | null = null;
+  /** The live preview's lines, by the line and settings they were made for. */
+  private lineCache: { key: string; kept: number[]; cut: number[] } | null = null;
+
+  private setLineTool(kind: 'clip' | 'mirror' | null): void {
+    if (kind && !this.geo) return;
+    if (kind && this.blockOn) this.setBlockOn(false);
+    if (kind && this.knifeOn) this.setKnife(false);
+    this.lineTool = kind;
+    this.line = null;
+    this.lineDrag = null;
+    this.lineHover = null;
+    this.lineCache = null;
+    if (kind) {
+      this.detachGizmo();
+      this.hoverKey = '';
+      clearGroup(this.hover);
+      this.deps.say(kind === 'clip'
+        ? 'Clip: drag a line on a surface; the plane through it, square to the surface, cuts the selection (Shift+X: keep Front / Back / Both). Enter applies, Space applies and stays, Esc cancels'
+        : 'Mirror: drag a line on a surface; the selection is copied across the plane through it, square to the surface. Enter applies, Space applies and stays, Esc cancels');
+    } else this.drawSelection();
+    this.drawLineTool();
+    this.drawLinePanel();
+    this.drawToolPanel();
+    this.drawBar();
+  }
+
+  /** Clip's Keep: 0 Front, 1 Back, 2 Both (kept in this browser, as the tools' settings are). */
+  private clipKeep(): number { const v = this.toolStore['clip']?.['keep']; return v === 1 || v === 2 ? v : 0; }
+  private clipCap(): boolean { return this.toolStore['clip']?.['cap'] === 1; }
+  private setClipKeep(v: number): void {
+    this.toolStore['clip'] = { ...this.toolStore['clip'], keep: v };
+    writeToolSettings(this.toolStore);
+    this.lineCache = null;
+    this.drawLineTool();
+    this.drawLinePanel();
+    this.deps.say(`Clip: keep ${['Front', 'Back', 'Both'][v]}`);
+  }
+
+  /** The nearest axis to `n`, signed (the reference editor snaps a picked surface's normal so). */
+  private static axisOf(n: readonly number[]): Vec3 {
+    const k = [0, 1, 2].reduce((a, b) => (Math.abs(n[b]!) > Math.abs(n[a]!) ? b : a), 0);
+    const out: Vec3 = [0, 0, 0];
+    out[k] = n[k]! < 0 ? -1 : 1;
+    return out;
+  }
+
+  /** Where the pointer at `ndc` meets the plane a line is drawn on: `locked` (an end being dragged), else as `setLineTool` says. */
+  private lineTrace(ndc: Vector2, locked: { n: Vec3; at: Vec3 } | null): { at: Vec3; n: Vec3 } | null {
+    const cam = this.deps.camera();
+    const ray = this.rayAt(ndc, cam);
+    const onPlane = (n: Vec3, through: Vec3): Vec3 | null => {
+      const den = dot(ray.dir, n);
+      if (Math.abs(den) < 1e-9) return null;
+      const t = dot(sub(through, ray.origin), n) / den;
+      return t > 0 ? add(ray.origin, scale(ray.dir, t)) : null;
+    };
+    if (locked) { const at = onPlane(locked.n, locked.at); return at ? { at, n: locked.n } : null; }
+    const forward = new Vector3();
+    cam.getWorldDirection(forward);
+    if (this.deps.workplaneShown?.() && this.deps.workplane) {
+      const w = this.deps.workplane();
+      const n = (cam as Camera & { isOrthographicCamera?: boolean }).isOrthographicCamera ? GeometryEditor.axisOf([-forward.x, -forward.y, -forward.z]) : normalize([...w.n] as Vec3);
+      const at = onPlane(n, [...w.at] as Vec3);
+      if (at) return { at, n };
+    }
+    const hit = this.geo ? pickFace(this.geo, ray, this.index) : null;
+    if (hit) return { at: [...hit.at] as Vec3, n: GeometryEditor.axisOf(faceNormal(hit.object.mesh, hit.face)) };
+    const n = GeometryEditor.axisOf([-forward.x, -forward.y, -forward.z]);
+    const ahead = add(ray.origin, scale(ray.dir, LINE_TOOL_REACH_ADAPTATION));
+    return { at: onPlane(n, ahead) ?? ahead, n };
+  }
+
+  /** `p` on the grid while snapping (the workplane's), kept on the drawing plane through it (normal `n`). */
+  private lineSnap(p: Vec3, n: Vec3): Vec3 {
+    const step = this.moveSnap();
+    if (!step) return p;
+    const { origin, q } = workplaneFrame(this.deps.workplane?.() ?? flatWorkplane(0));
+    const axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(([x, y, z]) => new Vector3(x, y, z).applyQuaternion(q).toArray());
+    const g = onFrameGrid(p, origin.toArray(), axes, step);
+    return sub(g, scale(n, dot(n, sub(g, p))));
+  }
+
+  /** The plane the line makes: through it, square to the surface it is drawn on. Null with no line yet. */
+  private linePlane(): { n: Vec3; d: number } | null {
+    const l = this.line;
+    if (!l) return null;
+    const along = sub(l.p2, l.p1);
+    if (length(along) < 1e-9) return null;
+    const n = normalize(cross(l.n, along));
+    return { n, d: dot(n, l.p1) };
+  }
+
+  /** What the tool acts on: each selected object's faces (Object mode) or its selected faces (Face mode). */
+  private lineTargets(): { o: GeoObject; faces: number[] }[] {
+    const out: { o: GeoObject; faces: number[] }[] = [];
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      if (!o) continue;
+      const faces = this.sel.mode === 'face' ? selectedFaces(this.sel, id) : objectFaces(o);
+      if (faces.length) out.push({ o, faces });
+    }
+    return out;
+  }
+
+  private lineDown(ndc: Vector2, pointerId: number): void {
+    const l = this.line;
+    if (l) {
+      const cam = this.deps.camera();
+      const r = this.deps.input.getBoundingClientRect();
+      const px = (p: Vec3): number => { const v = new Vector3(...p).project(cam); return Math.hypot(((v.x - ndc.x) * r.width) / 2, ((v.y - ndc.y) * r.height) / 2); };
+      const d1 = px(l.p1), d2 = px(l.p2);
+      if (Math.min(d1, d2) <= PICK_PX) { this.lineDrag = { end: d1 <= d2 ? 'p1' : 'p2', pointerId }; return; }
+    }
+    const tr = this.lineTrace(ndc, null);
+    if (!tr) return;
+    const at = this.lineSnap(tr.at, tr.n);
+    this.line = { n: tr.n, p1: at, p2: at };
+    this.lineDrag = { end: 'p2', pointerId };
+    this.lineCache = null;
+    this.drawLineTool();
+  }
+
+  private lineMove(ndc: Vector2, pointerId: number): void {
+    const l = this.line, drag = this.lineDrag;
+    if (l && drag && drag.pointerId === pointerId) {
+      const tr = this.lineTrace(ndc, { n: l.n, at: l.p1 });
+      if (tr) { l[drag.end] = this.lineSnap(tr.at, l.n); this.lineCache = null; }
+    } else {
+      const tr = this.lineTrace(ndc, null);
+      this.lineHover = tr ? this.lineSnap(tr.at, tr.n) : null;
+    }
+    this.drawLineTool();
+  }
+
+  private lineUp(): void {
+    this.lineDrag = null;
+    if (this.line && length(sub(this.line.p2, this.line.p1)) < 1e-9) this.line = null;
+    this.drawLineTool();
+  }
+
+  /** The line, its ends, the plane's outline and the result to come (Clip: the faces kept and the cut; Mirror: the copy). */
+  private drawLineTool(): void {
+    clearGroup(this.lineLayer);
+    if (!this.lineTool) return;
+    if (this.lineHover && !this.lineDrag) this.lineLayer.add(this.handles(Float32Array.from(this.lineHover), HANDLE_PX, HOVER, false));
+    const l = this.line;
+    if (!l) return;
+    this.lineLayer.add(this.thickLines([...l.p1, ...l.p2], HIGHLIGHT, EDGE_PX));
+    this.lineLayer.add(this.handles(Float32Array.from([...l.p1, ...l.p2]), HANDLE_PX, HIGHLIGHT, false));
+    const pl = this.linePlane();
+    if (!pl) return;
+    const half = scale(l.n, Math.max(length(sub(l.p2, l.p1)) / 2, 1));
+    const a = add(l.p1, half), b = add(l.p2, half), c = sub(l.p2, half), d = sub(l.p1, half);
+    this.lineLayer.add(this.thickLines([...a, ...b, ...b, ...c, ...c, ...d, ...d, ...a], HIGHLIGHT, 1, false, 0.6));
+    const key = `${this.lineTool}:${pl.n.join()}:${pl.d}:${this.clipKeep()}:${[...this.sel.objects].join()}`;
+    if (this.lineCache?.key !== key) {
+      const kept: number[] = [], cut: number[] = [];
+      for (const { o, faces } of this.lineTargets()) {
+        if (this.lineTool === 'clip') {
+          const copy = cloneMesh(o.mesh);
+          const r = clipFaces(copy, faces, pl.n, pl.d, CLIP_KEEPS[this.clipKeep()]!);
+          for (const e of edgeMap(copy, [...r.below, ...r.above]).values()) kept.push(...vertPos(copy, e.a), ...vertPos(copy, e.b));
+          for (const [x, y] of r.cut) cut.push(...vertPos(copy, x), ...vertPos(copy, y));
+        } else {
+          const M = mirrorMatrix(pl.n, pl.d);
+          const at = (p: Vec3): number[] => [0, 1, 2].map((r) => M[r]! * p[0] + M[4 + r]! * p[1] + M[8 + r]! * p[2] + M[12 + r]!);
+          for (const e of edgeMap(o.mesh, objectFaces(o)).values()) kept.push(...at(vertPos(o.mesh, e.a)), ...at(vertPos(o.mesh, e.b)));
+        }
+      }
+      this.lineCache = { key, kept, cut };
+    }
+    if (this.lineCache.kept.length) this.lineLayer.add(this.thickLines(this.lineCache.kept, HOVER, 2));
+    if (this.lineCache.cut.length) this.lineLayer.add(this.thickLines(this.lineCache.cut, HIGHLIGHT, 3));
+  }
+
+  /** The tool's panel: Clip's Keep and Cap; Apply and Cancel. */
+  private drawLinePanel(): void {
+    const kind = this.lineTool;
+    if (!kind || !this.active) { if (this.linePanel) this.linePanel.hidden = true; return; }
+    const doc = this.deps.doc;
+    let panel = this.linePanel;
+    if (!panel) {
+      panel = doc.createElement('div');
+      panel.className = 'fx-ai-legend fx-create-panel fx-tool-panel';
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', 'Clip and Mirror settings');
+      (this.deps.legendHost?.() ?? this.deps.statusHost).append(panel);
+      this.linePanel = panel;
+    }
+    panel.hidden = false;
+    panel.replaceChildren();
+    const head = doc.createElement('div');
+    head.className = 'fx-shape-settings-head';
+    const title = doc.createElement('span');
+    title.className = 'fx-create-panel-shape fx-tool-panel-title';
+    title.textContent = kind === 'clip' ? 'Clip' : 'Mirror';
+    head.append(title);
+    panel.append(head);
+    if (kind === 'clip') {
+      panel.append(this.settingRow({ key: 'keep', label: 'Keep', kind: 'choice', value: String(this.clipKeep()), options: [{ value: '0', label: 'Front' }, { value: '1', label: 'Back' }, { value: '2', label: 'Both' }], note: 'Which side of the plane stays (Shift+X cycles): Both cuts only, and splits a whole object in two' }, String(this.clipKeep()), (v) => this.setClipKeep(Number(v))));
+      panel.append(this.settingRow({ key: 'cap', label: 'Cap', kind: 'toggle', value: this.clipCap(), note: 'Fill the cut with a face, closing the shape' }, this.clipCap(), (v) => { this.toolStore['clip'] = { ...this.toolStore['clip'], cap: v ? 1 : 0 }; writeToolSettings(this.toolStore); }));
+    }
+    const row = doc.createElement('div');
+    row.className = 'fx-shape-settings-head';
+    for (const [label, run] of [['Apply', () => this.lineApply(false)], ['Cancel', () => this.setLineTool(null)]] as const) {
+      const b = doc.createElement('button');
+      b.type = 'button';
+      b.className = 'fx-shape-reset';
+      b.textContent = label;
+      b.title = label === 'Apply' ? 'Apply (Enter; Space applies and stays in the tool)' : 'Cancel (Esc)';
+      b.addEventListener('click', () => run());
+      row.append(b);
+    }
+    panel.append(row);
+  }
+
+  /** The tool applied (one edit): Clip's cut (capped where Cap is on; Both in Object mode two objects), or Mirror's copies. */
+  private lineApply(stay: boolean): void {
+    const geo = this.geo, pl = this.linePlane();
+    if (!geo || !pl) { this.deps.say(`${this.lineTool === 'clip' ? 'Clip' : 'Mirror'}: drag a line on a surface first`, true); return; }
+    const targets = this.lineTargets();
+    if (!targets.length) { this.deps.say(`${this.lineTool === 'clip' ? 'Clip' : 'Mirror'}: select objects (or faces) first`, true); return; }
+    let done = 0;
+    if (this.lineTool === 'clip') {
+      const keep = CLIP_KEEPS[this.clipKeep()]!;
+      const cap = this.clipCap();
+      this.edit('Clip', () => {
+        const saved = meshSaver();
+        const sel = emptySelection(this.sel.mode);
+        for (const { o, faces } of targets) {
+          saved.save(o.mesh);
+          const before = faces.filter((f) => o.mesh.faces[f]).length;
+          const r = clipFaces(o.mesh, faces, pl.n, pl.d, keep);
+          const kept = [...r.below, ...r.above].filter((f) => o.mesh.faces[f]);
+          if (!r.cut.length && kept.length === before) continue;
+          const parts: GeoObject[] = [o];
+          if (keep === 'both' && this.sel.mode === 'object' && r.below.length && r.above.length) {
+            const other = separateFaces(geo, o, r.above, `${o.name} clip`);
+            if (other) parts.push(other);
+          }
+          if (cap && r.cut.length) {
+            for (const part of parts) {
+              // The part's open edges on the plane (a part split off has its own points: the cut read again in it).
+              const onPlane = (v: number): boolean => Math.abs(dot(pl.n, vertPos(part.mesh, v)) - pl.d) < 1e-4;
+              const rims = [...edgeMap(part.mesh, objectFaces(part)).values()].filter((e) => e.faces.length === 1 && onPlane(e.a) && onPlane(e.b)).map((e) => [e.a, e.b] as [number, number]);
+              const holes = fillHoles(part.mesh, objectFaces(part), rims);
+              if (!('error' in holes)) this.alignNewFaces(part.mesh, holes.faces, objectFaces(part));
+            }
+          }
+          for (const part of parts) {
+            markReshaped(part);
+            sel.objects.add(part.id);
+            if (this.sel.mode === 'face') sel.items.set(part.id, new Set(kept.filter((f) => part.mesh.faces[f] && (part === o ? objectFaces(o).includes(f) : true))));
+          }
+          done++;
+        }
+        if (!done) return false;
+        this.sel = sel;
+        return true;
+      });
+      if (done) this.deps.say(`Clip: ${done} object${done === 1 ? '' : 's'} cut`);
+      else this.deps.say(`Clip: the plane cuts nothing selected${refusedWhy()}`, true);
+    } else {
+      const M = mirrorMatrix(pl.n, pl.d);
+      this.edit('Mirror', () => {
+        const sel = emptySelection('object');
+        const seen = new Set<string>();
+        for (const { o } of targets) {
+          if (seen.has(o.id)) continue;
+          seen.add(o.id);
+          const copy = addObject(geo, objectCopy(geo, o, `${o.name} mirror`));
+          transformVerts(copy.mesh, objectVerts(copy), M, { textureLock: true, size: this.size });
+          flipFaces(copy.mesh, objectFaces(copy));
+          // A mirror across a level plane turns floors into ceilings: each face's collision words read again by its facing.
+          for (const f of objectFaces(copy)) {
+            const face = copy.mesh.faces[f];
+            if (face?.surface) face.surface = floorOrWall(face.surface)(faceVerts(copy.mesh, f).map((v) => vertPos(copy.mesh, v)));
+          }
+          markReshaped(copy);
+          sel.objects.add(copy.id);
+          done++;
+        }
+        if (!done) return false;
+        if (this.sel.mode === 'object') this.sel = sel;
+        return true;
+      });
+      if (done) this.deps.say(`Mirror: ${done} mirrored cop${done === 1 ? 'y' : 'ies'} made`);
+      else this.deps.say(`Mirror: nothing copied${refusedWhy()}`, true);
+    }
+    if (!done) return;
+    if (stay) { this.line = null; this.lineCache = null; this.drawLineTool(); }
+    else this.setLineTool(null);
+  }
+
   /* ---------- the Knife ---------- */
 
   /** The Knife on (a level editor's knife: points clicked on the mesh, Enter cuts): its points so far, and where it would take one. */
@@ -3264,6 +3640,7 @@ export class GeometryEditor {
   private setKnife(on: boolean): void {
     if (on && !this.geo) return;
     if (on && this.blockOn) this.setBlockOn(false);
+    if (on && this.lineTool) this.setLineTool(null);
     this.knifeOn = on;
     this.knifePts = [];
     this.knifeHover = null;
@@ -3661,7 +4038,7 @@ export class GeometryEditor {
         saved.save(o.mesh);
         const r = fillHoles(o.mesh, objectFaces(o), [...items].map((k) => edgeOfKey(k as string)));
         if ('error' in r) { why = r.error; saved.restore(); made = 0; return false; }   // all or nothing
-        refreshUvs(o.mesh, r.faces, this.size);
+        this.alignNewFaces(o.mesh, r.faces, objectFaces(o));
         markReshaped(o);
         made += r.faces.length;
         const set = items as Set<number | string>;
@@ -3688,7 +4065,8 @@ export class GeometryEditor {
       const ok = this.forFaces((m, faces, o) => {
         const r = thickenFaces(m, faces, t);
         if (!r.faces.length) return;
-        refreshUvs(m, [...r.back, ...r.walls], this.size);
+        const scales = r.faces.map((f) => m.faces[f]?.mapping?.scaleU).filter((x): x is number => !!x);
+        this.alignNewFaces(m, [...r.back, ...r.walls], objectFaces(o), scales.length ? Math.min(...scales) : undefined);
         markReshaped(o);
         made += r.faces.length;
       });
@@ -3734,6 +4112,7 @@ export class GeometryEditor {
         saved.save(o.mesh);
         const k = mergeVerts(o.mesh, groups, at);
         if (!k.length) { saved.restore(); merged = 0; return false; }   // all or nothing
+        refreshUvs(o.mesh, objectFaces(o), this.size);   // each face's uvs laid again from its mapping, as a level editor does after an edit
         markReshaped(o);
         merged += groups.reduce((n, g) => n + g.length, 0);
         kept.set(id, k);
@@ -4225,6 +4604,7 @@ export class GeometryEditor {
   private setBlockOn(on: boolean): void {
     if (on && this.tool !== 'select') this.setTool('select');
     if (on && this.knifeOn) this.setKnife(false);
+    if (on && this.lineTool) this.setLineTool(null);
     this.polyCancel();
     this.blockCancel();
     const was = this.blockOn;
@@ -5514,10 +5894,34 @@ export class GeometryEditor {
       }
       if (corners.size) partial.set(m, corners);
     }
+    // A Shift-drag extrude's new faces: laid live by their facing each step (`liveMade`), not by a mapping they lack yet.
+    this.liveMade = [];
+    const madeCorner = new Map<EditMesh, Map<number, { face: LiveMadeFace; k: number }>>();
+    for (const [id, { faces, texel }] of this.extruding?.made ?? []) {
+      const o = this.objectById(id);
+      if (!o) continue;
+      const m = o.mesh, set = moving.get(m);
+      for (const f of faces) {
+        const face = m.faces[f];
+        if (!face || face.disp) continue;
+        const size = this.size(m.styles[face.style]!.style.textureName);
+        if (!size) continue;
+        const vs = faceVerts(m, f);
+        const lf: LiveMadeFace = { at: vs.map((v) => vertPos(m, v)), moves: vs.map((v) => !!set?.has(v)), texel, size, slots: [] };
+        this.liveMade.push(lf);
+        const byCorner = madeCorner.get(m) ?? madeCorner.set(m, new Map()).get(m)!;
+        face.corners.forEach((c, k) => { byCorner.set(c, { face: lf, k }); partial.get(m)?.delete(c); });
+      }
+    }
     this.liveUv = [];
     const takeUv = (mesh: Mesh, src: { mesh: EditMesh; corners: Int32Array }): void => {
       const corners = partial.get(src.mesh);
       const attr = mesh.geometry.getAttribute('uv') as BufferAttribute | InterleavedBufferAttribute | undefined;
+      const made = madeCorner.get(src.mesh);
+      if (made && attr) for (let i = 0; i < src.corners.length; i++) {
+        const hit = src.corners[i]! >= 0 ? made.get(src.corners[i]!) : undefined;
+        if (hit) hit.face.slots.push({ attr, i, k: hit.k, uv: [attr.getX(i), attr.getY(i)] });
+      }
       if (!corners || !attr) return;
       const set = moving.get(src.mesh)!;
       for (let i = 0; i < src.corners.length; i++) {
@@ -5564,6 +5968,17 @@ export class GeometryEditor {
       u.attr.setXY(u.i, x, y);
       touched.add(u.attr);
     }
+    for (const lf of this.liveMade) {
+      const pts = lf.at.map((p, k): Vec3 => { if (!lf.moves[k]) return p; v.set(p[0], p[1], p[2]).applyMatrix4(delta); return [v.x, v.y, v.z]; });
+      const n = polygonNormal(pts);
+      if (length(n) < 1e-9) continue;                          // no depth yet: nothing to face
+      const map = worldAligned(n, lf.texel);
+      for (const sl of lf.slots) {
+        const [x, y] = mappedUv(map, pts[sl.k]!, lf.size);
+        sl.attr.setXY(sl.i, x, y);
+        touched.add(sl.attr);
+      }
+    }
     for (const a of touched) {
       if ('data' in a && a.data) (a.data as { needsUpdate: boolean }).needsUpdate = true;
       else (a as BufferAttribute).needsUpdate = true;
@@ -5584,13 +5999,15 @@ export class GeometryEditor {
       this.moveLive(new Matrix4());
       // The texture as it was drawn (not as the mapping would lay it at rest: a disc uv a mapping only approximates).
       for (const u of this.liveUv) u.attr.setXY(u.i, u.uv[0], u.uv[1]);
-      for (const a of new Set(this.liveUv.map((u) => u.attr))) {
+      for (const lf of this.liveMade) for (const sl of lf.slots) sl.attr.setXY(sl.i, sl.uv[0], sl.uv[1]);
+      for (const a of new Set([...this.liveUv.map((u) => u.attr), ...this.liveMade.flatMap((lf) => lf.slots.map((sl) => sl.attr))])) {
         if ('data' in a && a.data) (a.data as { needsUpdate: boolean }).needsUpdate = true;
         else (a as BufferAttribute).needsUpdate = true;
       }
     }
     this.live = [];
     this.liveUv = [];
+    this.liveMade = [];
   }
 
   /**
@@ -5646,6 +6063,7 @@ export class GeometryEditor {
     // The sampler first: its click is a face's texture, never the gizmo's drag (the face sampled is often the selection's).
     if (this.sampling) { if (this.sampleAt(n)) this.setTool(this.toolBeforeSample); return; }
     if (this.knifeOn) { this.knifeClick(n); return; }           // the Knife: a click is a point of the cut
+    if (this.lineTool) { this.lineDown(n, e.pointerId); return; } // Clip / Mirror: a line drawn or an end moved
     // Create on: a resize handle of the shape just made first (`handleDown`); then the gizmo (the owner, 2026-11-17: "use
     // the gizmos after the shape is created"); else a new shape (`blockDown`, below).
     if (this.blockOn && !this.textureOn && this.block?.phase !== 'height' && this.handleDown(n, e)) return;
@@ -5750,6 +6168,7 @@ export class GeometryEditor {
     if (this.block) { this.blockMove(this.pointer); return; }  // a shape being dragged out or pulled up
     if (this.poly) { this.polyMove(this.pointer); return; }    // an outline being drawn, or its height pulled
     if (this.knifeOn) { this.knifeHover = this.knifeAt(this.pointer); this.drawKnife(); return; }
+    if (this.lineTool) { this.lineMove(this.pointer, e.pointerId); return; }
     if (this.handleDrag && this.handleDrag.pointerId === e.pointerId) { this.handleMove(this.pointer); return; }
     this.drawBlockStart((this.blockOn || this.polyOn) && !this.textureOn ? this.pointer : null);
     const st = this.stroke;
@@ -6142,6 +6561,7 @@ export class GeometryEditor {
 
   private onPointerUp(e: PointerEvent): void {
     if (!this.active) return;
+    if (this.lineDrag && this.lineDrag.pointerId === e.pointerId) { this.lineUp(); return; }
     if (this.block && this.block.phase === 'base' && this.block.pointerId === e.pointerId) { this.blockUp(e); return; }
     if (this.handleDrag && this.handleDrag.pointerId === e.pointerId) { this.handleUp(e); return; }
     if (this.stroke && this.stroke.pointerId === e.pointerId) { this.endStroke(); return; }
@@ -6174,6 +6594,12 @@ export class GeometryEditor {
       this.knifeLoop = !this.knifeLoop;
       this.deps.say(this.knifeLoop ? 'Knife loop mode: point at an edge to see the loop through it, click to cut it (V: back to points)' : 'Knife: points mode (V: loop mode)');
       this.drawKnife(); this.stop(e); return;
+    }
+    if (this.lineTool) {
+      if (k === 'enter') { this.lineApply(false); this.stop(e); return; }
+      if (e.code === 'Space' && !mod) { this.lineApply(true); this.stop(e); return; }
+      if (k === 'escape') { if (this.line) { this.line = null; this.lineCache = null; this.drawLineTool(); } else this.setLineTool(null); this.stop(e); return; }
+      if (this.lineTool === 'clip' && e.code === 'KeyX' && e.shiftKey && !mod && !e.altKey) { this.setClipKeep((this.clipKeep() + 1) % 3); this.stop(e); return; }
     }
     if (this.knifeOn && k === 'enter') { this.knifeApply(); this.stop(e); return; }
     if (this.knifeOn && k === 'backspace') { this.knifePts.pop(); this.drawKnife(); this.stop(e); return; }
@@ -6253,6 +6679,7 @@ export class GeometryEditor {
     if (c === 'KeyB' && !shift && (m === 'edge' || (alt && m === 'face'))) return 'bridge';
     if (c === 'KeyI' && !shift && !alt && m === 'edge') return 'snapedge';
     if (c === 'KeyO' && shift && !alt && (m === 'edge' || m === 'face')) return 'collapse';
+    if (c === 'KeyX' && shift && !alt && (m === 'object' || m === 'face')) return 'clip';
     if (c === 'KeyN' && !shift && !alt && m === 'edge') return 'extend';
     if (c === 'KeyF' && alt && !shift && m === 'edge') return 'bevel';
     if (c === 'KeyI' && shift && !alt && m === 'face') return 'inset';

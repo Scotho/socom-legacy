@@ -1994,6 +1994,91 @@ export function extendEdges(m: EditMesh, edges: readonly (readonly [number, numb
   });
 }
 
+/* ---------- clip and mirror ---------- */
+
+/** A point this near the clip plane lies on it (game units). */
+const CLIP_ON_PLANE = 1e-6;
+
+/**
+ * The reference editor's Clipping tool's cut (the owner, 2026-11-20: "implement the clipping tool"): `faces` cut by the
+ * plane `n` . p = `d` -- each edge across it split where it crosses (its other faces split there too, so nothing
+ * cracks), each face across it cut in two between its points on the plane -- then, by `keep`, the faces on one side
+ * taken away: 'front' keeps the side `n` points away from (n . p < d; the reference's Keep Front, its plane turned
+ * round before it clips), 'back' the side it points to, 'both' every face (the cut only). Faces keep their draw style,
+ * object, mapping and collision words (`Topo.splitFace`). Returns the new edges on the plane, and the faces left on
+ * each side (`below`: n . p <= d, `above`: n . p >= d). The surface may open where a side goes: the caller caps it.
+ */
+export function clipFaces(m: EditMesh, faces: readonly number[], n: readonly number[], d: number, keep: 'front' | 'back' | 'both'): { cut: [number, number][]; below: number[]; above: number[] } {
+  return transact(m, { open: true }, { cut: [], below: [], above: [] }, (T) => {
+    const N = normalize([n[0]!, n[1]!, n[2]!]);
+    const sd = (v: number): number => dot(N, T.pos(v)) - d;
+    const work = new Set(faces.filter((f) => T.live(f)));
+    // Each edge across the plane split where it crosses it.
+    const across = new Map<string, [number, number]>();
+    for (const f of work) {
+      const vs = T.ring(f);
+      vs.forEach((a, i) => {
+        const b = vs[(i + 1) % vs.length]!;
+        const sa = sd(a), sb = sd(b);
+        if ((sa > CLIP_ON_PLANE && sb < -CLIP_ON_PLANE) || (sa < -CLIP_ON_PLANE && sb > CLIP_ON_PLANE)) across.set(edgeKey(a, b), [a, b]);
+      });
+    }
+    for (const [a, b] of across.values()) {
+      const sa = sd(a), sb = sd(b);
+      const v = T.splitEdge(a, b, sa / (sa - sb));
+      T.setPos(v, sub(T.pos(v), scale(N, sd(v))));       // exactly on the plane
+    }
+    // Each face across it cut between its points on the plane (taken along the cut's line, two at a time).
+    const cut: [number, number][] = [];
+    const todo = [...work];
+    const out = new Set<number>();
+    while (todo.length) {
+      const f = todo.pop()!;
+      if (!T.live(f)) continue;
+      const vs = T.ring(f);
+      const s2 = vs.map(sd);
+      const hasAbove = s2.some((x) => x > CLIP_ON_PLANE), hasBelow = s2.some((x) => x < -CLIP_ON_PLANE);
+      if (!hasAbove || !hasBelow) { out.add(f); continue; }
+      const on = vs.filter((_, i) => Math.abs(s2[i]!) <= CLIP_ON_PLANE);
+      const line = normalize(cross(N, T.normal(f)));
+      on.sort((x, y) => dot(line, T.pos(x)) - dot(line, T.pos(y)));
+      let split = false;
+      for (let i = 0; i + 1 < on.length && !split; i++) {
+        const x = on[i]!, y = on[i + 1]!;
+        const k = vs.indexOf(x), j = vs.indexOf(y);
+        if ((k + 1) % vs.length === j || (j + 1) % vs.length === k || T.hasEdge(x, y)) continue;
+        const [a, b] = T.splitFace(f, x, y);
+        cut.push([x, y]);
+        todo.push(a, b);
+        split = true;
+      }
+      if (!split) out.add(f);                            // nothing to cut between (the plane only touches it)
+    }
+    const below: number[] = [], above: number[] = [];
+    for (const f of out) {
+      if (!T.live(f)) continue;
+      const s2 = T.ring(f).map(sd);
+      if (s2.every((x) => x <= CLIP_ON_PLANE) && s2.some((x) => x < -CLIP_ON_PLANE)) below.push(f);
+      else if (s2.every((x) => x >= -CLIP_ON_PLANE) && s2.some((x) => x > CLIP_ON_PLANE)) above.push(f);
+      else below.push(f);                                // a face lying in the plane: the kept side's, below
+    }
+    if (keep === 'front') for (const f of above) T.kill(f);
+    if (keep === 'back') for (const f of below) T.kill(f);
+    return { cut: cut.filter(([x, y]) => T.hasEdge(x, y)), below: keep === 'back' ? [] : below, above: keep === 'front' ? [] : above };
+  });
+}
+
+/** The 4 x 4 matrix (column-major) reflecting points through the plane `n` . p = `d`. */
+export function mirrorMatrix(n: readonly number[], d: number): number[] {
+  const [a, b, c] = normalize([n[0]!, n[1]!, n[2]!]);
+  return [
+    1 - 2 * a * a, -2 * a * b, -2 * a * c, 0,
+    -2 * a * b, 1 - 2 * b * b, -2 * b * c, 0,
+    -2 * a * c, -2 * b * c, 1 - 2 * c * c, 0,
+    2 * d * a, 2 * d * b, 2 * d * c, 1,
+  ];
+}
+
 /* ---------- fill hole ---------- */
 
 /** Fill Hole's refusal where a selected edge is no open border's. */
