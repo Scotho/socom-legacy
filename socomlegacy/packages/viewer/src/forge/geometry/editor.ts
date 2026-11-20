@@ -7,6 +7,7 @@ import {
   OrthographicCamera, PerspectiveCamera, Points, PointsMaterial, Quaternion, Raycaster, Vector2, Vector3, type Camera, type Scene,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { tightenGizmo } from '../gizmoPick';
 import { vec4 } from 'three/tsl';
 import { Line2NodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu';
 import { LineSegments2 } from 'three/examples/jsm/lines/webgpu/LineSegments2.js';
@@ -16,29 +17,33 @@ import type { GroundData } from '../../mover';
 import { buildWorld, type WorldView } from '../../world';
 import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, floorWordsOf, wallWordsOf } from './collision';
 import { displacementGrid, makeDisplacement, sculpt } from './displacement';
-import { add, cloneMesh, cross, dot, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type TextureMapping, type Vec3 } from './editMesh';
+import { add, cloneMesh, cross, dot, edgeKey, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, length, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type TextureMapping, type Vec3 } from './editMesh';
 import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, LADDER_CLIMB_FLAG, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, twinIndexOf, withCollisionType, withTwins, wordsOf, type CollisionType } from './hullGeometry';
 import { HULL_COLOURS, type HullViewPoly } from '../hull';
-import { deleteEdges, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, snapVerts, transformVerts } from './ops';
+import { lastRefusal } from './topology';
+/** Why the last tool was undone (`./topology` `transact`), as a message's tail; empty when it was not. */
+const refusedWhy = (): string => (lastRefusal ? ` (refused: ${lastRefusal} -- the mesh is as it was)` : '');
+import { BRIDGE_OPEN_ONLY, fillHoles, thickenFaces, THICKEN_NOT_OPEN, mergeVerts, mergeGroups, edgeMergeGroups, onFrameGrid, placeVerts, collapseEdgeGroups, collapseFaces, extendEdges, EXTEND_NOT_OPEN, loopCutAt, splitEdge, bevelEdges, bridgeEdgeRuns, bridgeEdges, bridgeEdgesBlocked, bridgeFaces, bridgeRunsBlocked, connectEdges, edgeFaceCount, extrudeClosedEdges, extrudeOrExtendVerts, isBent, joinFlatPairs, splitBentFaces, deleteEdges, extrudeEdges, extrudeFacesBy, insetFaces, knifeCut, loopCut, orientPulled, subdivideEdges, subdivideFaces, type KnifePoint, deleteFaces, deleteVerts, dissolveEdges, dissolveFaces, dissolveVerts, extrudeFaces, flipFaces, snapVerts, transformVerts } from './ops';
 import { box, cylinder, plane, sphere, UNTEXTURED_FLOOR_COLOR_ADAPTATION, type PrimitiveOptions } from './primitives';
-import { rayOnWorkplane, workplaneFrame, type Workplane } from '../mapGrid';
+import { flatWorkplane, rayOnWorkplane, workplaneFrame, type Workplane } from '../mapGrid';
+import { knifeSnapped, type KnifeFrame, type KnifePrev } from './knifeSnap';
 import { BLOCK_PREVIEW_SIZE_ADAPTATION, BLOCK_SHAPE_GROUPS, BLOCK_SHAPES, cleanOutline, outlineCrosses, polygonMesh, SHAPE_SETTINGS, shapeSettings, type ShapeSetting, type ShapeSettings, blockKind, blockMakes, blockMesh, blockParts, frameToWorld, stairsRampMesh, stairsRun, worldToFrame, type BlockFrame, type BlockShape } from './blockShapes';
-import { convertSelection, emptySelection, pick, pickFace, PickIndex, selectedFaces, selectionCentre, selectionVerts, type PickOp, type Ray, type SelectMode, type Selection } from './selection';
+import { convertSelection, edgeLoop, edgeRibs, edgeRing, emptySelection, growSelection, pick, pickFace, PickIndex, selectedFaces, selectionCentre, selectionVerts, type PickOp, type Ray, type SelectMode, type Selection } from './selection';
 import type { DrawSources } from './worldMesh';
 import type { FloorLook } from './blank';
 import type { Surface } from './collision';
 import { adjustMapping, align, alignToView, applyTexture, fitMapping, justify, mappedUv, medianTexelScale, pasteLook, refreshUvs, resetMapping, sampleFace, setDetail, textureState, textureTexelScales, worldAligned, type DetailChange, type FaceLook, type Justify, type MappingChange, type TextureSize, type TextureState } from './texturing';
 import {
-  addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
+  addObject, buildHull, cloneGeometry, compileDraws, duplicateObject, facesCopy, geometryOfMap, inPlaceCopy, markReshaped, mergeObjects, mul4, objectCopy, objectFaces, removeObject, separateFaces, transformObject, worldSectionsOf,
   type GeoObjectCopy,
   type GeoObject, type WorldGeometry,
 } from './world';
 import type { SavedWorld } from './geometryFile';
 
 /**
- * The Forge's geometry mode (a browser adaptation, FG.R2; the owner, 2026-11-14: "a full on hammer like geometry editing
- * tool"). Over a disc map's base it edits the map's world as `./world` holds it: object, point, edge and face modes,
- * the gizmo moving what is selected, primitives, extrude, delete, separate, flip, Hammer's texturing and displacement.
+ * The Forge's geometry mode (a browser adaptation, FG.R2; the owner, 2026-11-14: a full level-editor geometry editing
+ * tool). Over a disc map's base it edits the map's world as `./world` holds it: object, point, edge and face modes,
+ * the gizmo moving what is selected, primitives, extrude, delete, separate, flip, a level editor's texturing and displacement.
  * The edited world is drawn by a view of its own over the base's world, which is hidden while the geometry differs; the
  * hull is rebuilt only by Build (the owner, 2026-11-14: "collision should only be rebuilt with a rebuild button"), which
  * is where everything too slow for a drag goes.
@@ -63,7 +68,8 @@ export interface GeometryEditorDeps {
    * Bug 20 (one history across the modes): a geometry edit made, named `label` -- the page records it as a step of its
    * own in its one history, keeping the geometry as it now stands (`snapshot`) for an undo to put back (`restoreSnapshot`).
    */
-  onEdit: (label: string) => void;
+  /** An edit made; `amend`: the same edit made again (a tool's setting changed) -- the current step, not a new one. */
+  onEdit: (label: string, amend?: boolean) => void;
   /**
    * The selection drawn (the owner, 2026-11-15: "any selection pattern should be part of the undo"): the page records a
    * selection step when it differs from the step's (`selectionState`), once the gesture making it is over.
@@ -122,11 +128,12 @@ export interface GeometryEditorDeps {
 
 /**
  * The selection modes, as the toolbar and the words name them: the point mode is "Vertex" (the owner, 2026-11-16: "use
- * vertex everywhere where we used point"; Hammer's word), its code name `point` kept.
+ * vertex everywhere where we used point"; a level editor's word), its code name `point` kept.
  */
 const MODES: { mode: SelectMode; label: string; plural: string; key: string }[] = [
-  { mode: 'object', label: 'Object', plural: 'objects', key: '1' }, { mode: 'point', label: 'Vertex', plural: 'vertices', key: '2' },
-  { mode: 'edge', label: 'Edge', plural: 'edges', key: '3' }, { mode: 'face', label: 'Face', plural: 'faces', key: '4' },
+  // The reference editor's keys (the owner, 2026-11-19: one to one with it): 1 Vertex, 2 Edge, 3 Face, 4 Object.
+  { mode: 'point', label: 'Vertex', plural: 'vertices', key: '1' }, { mode: 'edge', label: 'Edge', plural: 'edges', key: '2' },
+  { mode: 'face', label: 'Face', plural: 'faces', key: '3' }, { mode: 'object', label: 'Object', plural: 'objects', key: '4' },
 ];
 /** A selection mode's thing, one or many, as the words say it ("vertex", "vertices"). */
 const modeWord = (mode: SelectMode, n = 1): string => {
@@ -169,7 +176,7 @@ const BLOCK_PREVIEW_COLOUR = 0xffc400;
 const BLOCK_REACH = 20000;
 /** How much nearer than the workplane, along the pointer's ray (game units), a face must be to take Create's press (`nearerOfWorkplane`'s `WORKPLANE_SEE_TOLERANCE` alike; a browser adaptation). */
 const BLOCK_SEE_TOLERANCE = 0.5;
-/** How near the outline's first point (CSS pixels) a Polygon click closes it (a browser adaptation, as Hammer's snap to it). */
+/** How near the outline's first point (CSS pixels) a Polygon click closes it (a browser adaptation, as a level editor's snap to it). */
 const POLY_CLOSE_PX = 10;
 /** A Texture State field's live drag redraws the world at most this often, milliseconds (a browser adaptation). */
 const TEXTURE_PREVIEW_MS = 80;
@@ -218,7 +225,7 @@ const VISIBLE_TESTS_MAX = 8;
 
 /** How near the pointer (CSS pixels) a point or an edge is taken in point and edge mode (a browser adaptation). */
 const PICK_PX = 12;
-/** A point's handle, CSS pixels across (a browser adaptation, after Hammer's vertex squares). */
+/** A point's handle, CSS pixels across (a browser adaptation, after a level editor's vertex squares). */
 const HANDLE_PX = 9;
 /**
  * The hover's and the selection's lines, CSS pixels wide (the owner, 2026-11-16: "make the edge hover/select line
@@ -245,6 +252,18 @@ function clearGroup(g: Group): void {
 interface Cage { edges: Float32Array; points: Float32Array; verts: number[]; edgeKeys: string[] }
 
 /** The geometry's selection as a step of the page's history keeps it: its mode, objects, and each object's items. */
+/**
+ * The selection modes each Edit tool works in, and is shown in: Fill Hole on edges; Thicken on faces; Merge on points or edges; Grow and Shrink Selection on points, edges or faces; Select Edge Loop and Ring on edges; Extrude and Separate on faces; Bridge on two faces or two edges; Flip on
+ * faces or whole objects; Inset on faces; Loop Cut on edges; Bevel on edges or faces (their outline); Subdivide on faces or edges; the Knife (a tool
+ * clicked on the mesh, no selection needed) in every mode but Object; Dissolve on points, edges or faces (an object has nothing round it to merge into); Delete on all.
+ */
+const EDIT_TOOL_MODES: Readonly<Record<string, readonly SelectMode[]>> = {
+  fill: ['edge'], thicken: ['face'], mergemeshes: ['object'], merge: ['point', 'edge'], grow: ['point', 'edge', 'face'], shrink: ['point', 'edge', 'face'], loop: ['edge'], ring: ['edge'], ribs: ['edge'], connect: ['edge', 'point'], collapse: ['edge', 'face'], extend: ['edge'], loopcut: ['edge'], bevel: ['edge', 'face'], extrude: ['face'], inset: ['face'], subdivide: ['face', 'edge'],
+  knife: ['point', 'edge', 'face'], bridge: ['face', 'edge'], separate: ['face'], flip: ['face', 'object'],
+  snapgrid: ['point', 'edge', 'face'], snapvert: ['point'], snapedge: ['edge'],
+  dissolve: ['point', 'edge', 'face'], delete: ['object', 'point', 'edge', 'face'],
+};
+
 /** The Edit menu's commands on the geometry (`GeometryEditor.command`): Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D and Delete. */
 export type GeometryCommand = 'copy' | 'cut' | 'paste' | 'duplicate' | 'delete';
 /** The Ctrl chords of `GeometryCommand`, by key code (the page's own, `../keys`). */
@@ -264,6 +283,19 @@ export interface GeometrySnapshot { map: LoadedMap; geo: WorldGeometry; edited: 
 
 
 /** The camera's letters while it navigates, as the page's (`../keys` `FLY_LETTERS`). */
+/** Meshes kept as they were before a tool touched them, to be put back whole where a later object refuses it. */
+function meshSaver(): { save(m: EditMesh): void; restore(): void } {
+  const was = new Map<EditMesh, EditMesh>();
+  return {
+    save: (m) => { if (!was.has(m)) was.set(m, cloneMesh(m)); },
+    restore: () => { for (const [m, copy] of was) Object.assign(m, copy); },
+  };
+}
+
+/** Dissolve's title in Point and Edge mode, and Combine Faces' in Face mode (the same button, the reference editor's names). */
+const DISSOLVE_TITLE = 'Dissolve (Backspace): the selected points or edges go and the faces round them merge, no hole';
+const COMBINE_TITLE = 'Combine Faces (Backspace): the edges between selected faces that lie flat together taken away, so they make one face (faces at an angle stay apart)';
+
 /** A burst of edits settles this long before the collision is rebuilt (`buildSoon`): one rebuild for a run of keys. */
 const BUILD_SETTLE_MS = 100;
 /** Each collision type's colour, as the collision view draws it (`../hull` `HULL_COLOURS`): its tab, the brush's hover and cursor. */
@@ -294,6 +326,8 @@ export class GeometryEditor {
   /** A stroke's painted faces, drawn textured until its end compiles the world (one rebuild a stroke, not a face). */
   private readonly strokeLayer = new Group();
   private editGroup!: HTMLElement;
+  /** The Select section of the Edit tools (grow, shrink, loop, ring, ribs): beside Edit. */
+  private selectGroup!: HTMLElement;
   private drawGeo: WorldGeometry | null = null;
   private hullGeo: WorldGeometry | null = null;
   private textureGroup!: HTMLElement;
@@ -503,7 +537,7 @@ export class GeometryEditor {
   /** Where each drawn vertex came from (`compileDraws`' sources), for the live drag. */
   private sources: DrawSources = new Map();
   /**
-   * The live drag (Hammer's: the faces bend as the gizmo moves): the drawn vertices and edge ends on a moving point, each
+   * The live drag (a level editor's: the faces bend as the gizmo moves): the drawn vertices and edge ends on a moving point, each
    * with where it stood, written each move into the buffers the view already has. Nothing is rebuilt until the release.
    */
   private live: { attr: BufferAttribute | InterleavedBufferAttribute; mesh: Mesh; at: number[]; base: number[] }[] = [];
@@ -520,6 +554,13 @@ export class GeometryEditor {
   /** The handle clouds drawn, each resized every frame to a fixed size on screen (`frameHandles`). */
   private readonly clouds = new Set<InstancedMesh>();
   private dragCopy = false;
+  /** A Shift-drag on the move gizmo: an extrude, made as the drag starts (`beginDragExtrude`). */
+  private dragExtrude = false;
+  /**
+   * The extrude a Shift-drag made at its start: the geometry and selection as they were (put back when the drag ends
+   * where it began), and per object the new faces with their source's texel scale (world-aligned at the release).
+   */
+  private extruding: { objects: GeoObject[]; sel: Selection; made: Map<string, { faces: number[]; texel: number; sides?: number[][]; pairs?: [number, number][] }> } | null = null;
   /**
    * The collision view following a drag (the owner, 2026-11-15: "the collision geometry preview update in realtime as I
    * edit the world geometry ... to see the colors move"): the drag applied for a moment, the collision built from it
@@ -607,9 +648,10 @@ export class GeometryEditor {
     this.fixed.name = 'forge-geometry-fixed';
     this.edges.name = 'forge-geometry-edges';
     this.edges.visible = this.wireOn;
-    deps.scene.add(this.edges, this.overlay, this.fixed, this.hover, this.pivot, this.strokeLayer);
+    deps.scene.add(this.edges, this.overlay, this.fixed, this.hover, this.pivot, this.strokeLayer, this.knifeLayer);
     this.gizmo = new TransformControls(deps.camera(), deps.input);
     this.gizmo.disconnect();                                   // driven by the editor's own pointer handlers below
+    tightenGizmo(this.gizmo);                                  // hit only near its handles, no negative-side handles (`../gizmoPick`)
     this.gizmo.addEventListener('dragging-changed', (e) => this.onDragging((e as unknown as { value: boolean }).value));
     this.gizmo.addEventListener('objectChange', () => this.onDragMove());
     deps.scene.add(this.gizmo.getHelper());
@@ -662,13 +704,38 @@ export class GeometryEditor {
     layerRow.classList.add('fx-geo-layer-top');
     deps.modeTools.append(label('Layer', ' fx-geo-layer-label'), layerRow);
     this.layerGroup = layerRow;
+    // Two sections (the owner, 2026-11-20: "lets just go with a Edit and Select section"): the tools that change the
+    // geometry, then those that change the selection. A section with no tool for the mode is hidden (`drawBar`).
     deps.tools.append(
       (this.editGroup = group('Edit',
         this.button('extrude', 'Extrude', 'Extrude the selected faces (then move them with the gizmo)', () => this.extrude()),
-        this.button('separate', 'Separate', 'Make the selected faces an object of their own', () => this.separate()),
-        this.button('flip', 'Flip', 'Flip the selected faces', () => this.edit('Flip faces', () => this.forFaces((m, fs) => flipFaces(m, fs)))),
-        this.button('dissolve', 'Dissolve', 'Dissolve the selection: vertices, edges or faces go and the faces round them merge, no hole (Backspace)', () => this.dissolveSelection()),
+        this.button('inset', 'Inset', 'Inset (Shift+I) the selected faces: shrunk in by a grid step, a ring of new faces round them (then scale them with the gizmo for more or less)', () => this.inset()),
+        this.button('bevel', 'Bevel', 'Bevel (Alt+F): each selected edge (between two faces) replaced by a face a grid step across; on faces, their outline bevelled', () => this.bevel()),
+        this.button('extend', 'Extend', 'Extend (N): each selected open edge given a new face, a grid step out in the plane of its face (the Amount in the settings)', () => this.extendSelection()),
+        this.button('thicken', 'Thicken', 'Thicken Faces (G): the selected faces given a back a grid step behind them and walls round their border -- a sheet, such as a plane, whose border is all open', () => this.thicken()),
+        this.button('bridge', 'Bridge', 'Bridge (B): join two selected faces with new faces between them (the two removed), or two open edges (or two runs of open edges, as many in each) with faces', () => this.bridge()),
+        this.button('fill', 'Fill Hole', 'Fill Hole: each hole a selected open edge lies on (a loop of edges with a face on one side only) capped with one face', () => this.fillSelection()),
+        this.button('knife', 'Knife', 'Knife (C): click points on vertices, edges or across faces -- on the grid while snapping (Ctrl flips it; Shift: only in line with the last point; V: loop mode, a click cuts the loop through an edge); Enter cuts straight across the faces between them, Backspace takes a point back, Esc leaves', () => this.setKnife(!this.knifeOn)),
+        this.button('loopcut', 'Loop Cut', 'Loop Cut: a new edge loop through the middle of the selected edges\u2019 rings (across the four-sided faces beside them)', () => this.loopCutSelection()),
+        this.button('connect', 'Connect', 'Connect: the selected edges split at their middles and joined across the faces they share (select a ring, then Connect: a loop cut); in Point mode, the selected points joined in the order picked, straight across the faces between', () => this.connectSelection()),
+        this.button('subdivide', 'Subdivide', 'Subdivide (Quad Slice): each selected four-cornered face cut in four through its sides\' middles (a face without four corners is left whole); each selected edge split at its middle', () => this.subdivide()),
+        this.button('merge', 'Merge', 'Merge: the selected points made one where the last picked one is, or those within a range (the settings); in Edge mode, open edges welded together', () => this.mergeSelection()),
+        this.button('collapse', 'Collapse', 'Collapse (Shift+O): each run of selected edges, or each selected face, made one point at its middle', () => this.collapseSelection()),
+        this.button('mergemeshes', 'Merge Meshes', 'Merge Meshes: the selected objects made one object, the first picked (nothing welded: their shapes stay as they are, in one mesh)', () => this.mergeMeshes()),
+        this.button('separate', 'Separate', 'Separate (Alt+N): make the selected faces an object of their own', () => this.separate()),
+        this.button('flip', 'Flip', 'Flip all faces of the selected objects (in Face mode: of the objects the selected faces are in)', () => this.edit('Flip faces', () => this.forFaces((m, fs, o) => flipFaces(m, this.sel.mode === 'face' ? objectFaces(o) : fs)))),
+        this.button('snapgrid', 'Snap to Grid', 'Snap to Grid (Ctrl+B): every selected point (or the points of the selected edges or faces) put on the grid of the snap step, on the workplane', () => this.snapToGrid()),
+        this.button('snapvert', 'Snap to Vertex', 'Snap to Vertex (B): the selected points all moved onto the last one picked (they stay separate points; Merge joins them)', () => this.snapToVertex()),
+        this.button('snapedge', 'Snap Edges', 'Snap Edges (I): the first selected edge moved onto the second, end to end the way they run', () => this.snapEdgeToEdge()),
+        this.button('dissolve', 'Dissolve', DISSOLVE_TITLE, () => this.dissolveSelection()),
         this.button('delete', 'Delete', 'Delete the selection and the faces it is part of, leaving a hole (Delete)', () => this.deleteSelection()),
+      )),
+      (this.selectGroup = group('Select',
+        this.button('grow', 'Grow Selection', 'Grow Selection (Numpad +): the points, edges or faces touching the selection added', () => this.growSelection('grow')),
+        this.button('shrink', 'Shrink Selection', 'Shrink Selection (Numpad −): the selection’s border taken off', () => this.growSelection('shrink')),
+        this.button('loop', 'Select Edge Loop', 'Select Edge Loop (L): the selected edges’ loops added (a double-click on an edge selects its loop)', () => this.selectEdges('loop')),
+        this.button('ring', 'Select Edge Ring', 'Select Edge Ring (G): the selected edges’ rings added (across the even-sided faces beside them)', () => this.selectEdges('ring')),
+        this.button('ribs', 'Select Ribs', 'Select Ribs (Ctrl+G): from a selected run or loop of edges, the edges across it on both sides, out through the four-sided faces', () => this.selectRibs()),
       )),
     );
     // The texture a button, not a list (the owner, 2026-11-16): the asset browser's Textures tab chooses it.
@@ -773,6 +840,14 @@ export class GeometryEditor {
     deps.input.addEventListener('pointerup', (e) => this.onPointerUp(e), true);
     deps.input.addEventListener('pointerleave', () => { this.hoverAt = null; this.drawHover(); this.drawBlockStart(null); });
     deps.input.addEventListener('pointercancel', () => { this.press = null; });
+    // A double-click on an edge selects its loop (Edge mode; every modeller's): the second click picked the
+    // edge (alone, or added with Shift), and its loop joins it.
+    deps.input.addEventListener('dblclick', (e) => {
+      if (!this.active || this.sel.mode !== 'edge' || this.blockOn || this.polyOn || !this.lastEdgePick || !this.geo) return;
+      // The face under the pointer: the side a loop that cannot go on runs round (`edgeLoop`'s `side`).
+      const hit = pickFace(this.geo, this.rayAt(this.ndc(e as PointerEvent), this.deps.camera()), this.index);
+      this.selectEdges('loop', [{ ...this.lastEdgePick, ...(hit && hit.object.id === this.lastEdgePick.id ? { side: hit.face } : {}) }]);
+    });
     const tick = (): void => { if (this.clouds.size) this.frameHandles(); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
     doc.addEventListener('keydown', (e) => this.onKey(e), true);
@@ -859,7 +934,7 @@ export class GeometryEditor {
   isCollision(): boolean { return this.active && this.collisionOn; }
 
   /**
-   * The box F frames in Geometry mode (Hammer's frame selection): every point the selection moves -- an object's all, a
+   * The box F frames in Geometry mode (a level editor's frame selection): every point the selection moves -- an object's all, a
    * face's, an edge's two, a point -- with a metre of room round it, so one point frames close, not into it. Null with
    * nothing selected.
    */
@@ -917,7 +992,7 @@ export class GeometryEditor {
   /**
    * The Display menu's Wireframe in Geometry mode (the owner, 2026-11-15: "draw the real polygon edges"): the edges of
    * the faces as edited -- a box's quad as four edges, a disc triangle as three -- in place of the triangles the GPU draws,
-   * which the page turns off while the mode is on, as Hammer's tools show a mesh's edges and never its triangulation.
+   * which the page turns off while the mode is on, as a level editor's tools show a mesh's edges and never its triangulation.
    */
   setWireframe(on: boolean): void {
     if (on === this.wireOn) return;
@@ -1033,12 +1108,13 @@ export class GeometryEditor {
     this.ctrlHeld = on;
     this.applyDragSnaps();
     if (this.dragStart) { this.onDragMove(); }                // a drag under way takes the flip at once
+    if (this.knifeOn) { this.knifeHover = this.knifeAt(this.pointer); this.drawKnife(); }   // the Knife's point snapped or let go at once
   }
   /** Bounds for a whole-object move: where it began and the moved objects' box, at the drag's start. */
   private dragBounds: { from: Vector3; min: Vec3; max: Vec3 } | null = null;
   /**
    * Snap by Centre or Bounds (`snapBy`): the pivot moved so that, on each axis the gizmo moves along, the moved box's
-   * middle (Centre) or its nearer edge to a grid line (Bounds, Hammer's: what is moved lines up by its edges) lands on it.
+   * middle (Centre) or its nearer edge to a grid line (Bounds, a level editor's: what is moved lines up by its edges) lands on it.
    */
   private boxSnapDrag(): void {
     const b = this.dragBounds;
@@ -1061,8 +1137,8 @@ export class GeometryEditor {
   /** The grid snap's step while it is on (`syncGizmo`): a new primitive's footing lands on it. */
   private gridSnap: number | null = null;
   /**
-   * The block tool (Create's Block and its shape; the owner, 2026-11-17: "implement a Drag-out block tool on the grid ...
-   * It should work very similar to the hammer source 2 tool"): while on, a press drags a rectangle out on the plane --
+   * The block tool (Create's Block and its shape; the owner, 2026-11-17: "implement a Drag-out block tool on the grid", as a
+   * level editor's block tool works): while on, a press drags a rectangle out on the plane --
    * the workplane, shown, on its grid while the snap is on; else the surface pressed on, by its normal, unsnapped -- the
    * release then pulls the height along the plane's normal until a click (or Enter) makes the shape. Esc cancels.
    */
@@ -1070,13 +1146,13 @@ export class GeometryEditor {
   /**
    * The last height a shape was pulled to (Create's, Polygon's), this session: a shape made in a view that looks along
    * its plane's normal (an orthographic view's: no height to read off the pointer) takes it, else one snap step (the
-   * owner, 2026-11-17: "in top/left/bottom/front ... I can't set the extrude height"; a browser adaptation, as Hammer's 2D
+   * owner, 2026-11-17: "in top/left/bottom/front ... I can't set the extrude height"; a browser adaptation, as a level editor's 2D
    * views keep the last depth).
    */
   private lastPull: number | null = null;
   /**
-   * The Polygon tool (the owner, 2026-11-17: "add the polygon tool similar to how hammer does it in geometry mode. This
-   * allows me to create custom shapes by drawing them line by line"; a browser adaptation, after Source 2 Hammer's): on,
+   * The Polygon tool (the owner, 2026-11-17: a Polygon tool in geometry mode, to create
+   * custom shapes by drawing them line by line; a browser adaptation, after a level editor's): on,
    * and the outline being drawn -- its plane (the workplane, or the face first clicked, as Create's), its snap, its
    * points in the plane's frame, where the pointer is, and its phase: points clicked one by one, then the height pulled.
    */
@@ -1198,7 +1274,7 @@ export class GeometryEditor {
 
   /**
    * Every geometry object for the Outliner (bug 18: "we need to see all the world geometry in the outliner. so all the map
-   * sections"; Hammer's Outliner lists every object): the map's own world sections (`kind` 'world'), then the objects
+   * sections"; a level editor's Outliner lists every object): the map's own world sections (`kind` 'world'), then the objects
    * made here. Before Geometry mode first opens the map, its sections read off the map itself (`worldSectionsOf`), with
    * the ids the opened geometry gives them, so a row's click opens the mode on that section.
    */
@@ -1581,6 +1657,7 @@ export class GeometryEditor {
     this.previewObjectTransform('position', null);             // a field's live drag let go: nothing left half-moved
     if (!on && this.tool !== 'select') this.setTool('select'); // the sampler's or the brush's cursor goes with the mode
     if (!on) this.setBlockOn(false);                           // and the block tool, a shape half-made let go
+    if (!on && this.knifeOn) this.setKnife(false);
     if (!on && this.collisionOn) this.leaveCollision();       // and collision editing (its edits kept in the collision)
     // The mode left, what was selected in it let go (the owner, 2026-11-16: "when switching modes on the top bar,
     // deselect whatever we selected in that mode"), as Object mode's own selection is on entering this one.
@@ -1623,7 +1700,7 @@ export class GeometryEditor {
     this.sampled = null;
     // The map's first texture by name, as the list it replaces opened on.
     this.textureName = Object.keys(map.textures).sort()[0] ?? null;
-    // A blank base (bug 17): its floor a plane of its own, as a new map in Hammer starts from what is made in it.
+    // A blank base (bug 17): its floor a plane of its own, as a new map in a level editor starts from what is made in it.
     const floor = map.world.length === 0 ? this.deps.defaultFloor?.() ?? null : null;
     if (floor) {
       const { size, divisions, look } = floor;
@@ -1681,8 +1758,38 @@ export class GeometryEditor {
     const solidsBefore = this.collisionOn ? new Map(geo.objects.map((o) => [o.id, o.hullOf])) : null;
     // An edit that leaves the selection alone (a paint stroke marks what it painted itself) marks no selected object.
     const selBefore = opts.selectionTouched === false ? [] : [...this.sel.objects];
-    if (change() === false) return;
+    // The faces already bent before the edit (a torus's on an oval footprint): left as they are -- only a face this
+    // edit bends, or a bent face it makes, is split (below).
+    const bentBefore = new Map<string, { faces: Set<number>; count: number }>();
+    if (!opts.shapeKept) for (const id of selBefore) {
+      const o = this.objectById(id);
+      if (o) bentBefore.set(id, { faces: new Set(objectFaces(o).filter((f) => isBent(o.mesh, f))), count: o.mesh.faces.length });
+    }
+    if (change() === false) {
+      // A run again with settings the tool refuses: the geometry is where the tool started; the step kept so.
+      if (this.rerun) { this.redraw(); if (this.rerun === 'amend') this.deps.onEdit(label, true); }
+      return;
+    }
+    this.editCount++;
+    // Any other edit ends the last tool's adjusting (its panel goes): only its own runs keep it.
+    if (!this.rerun && !this.parametricRunning && this.lastOp) { this.lastOp = null; this.drawToolPanel(); }
     if (!opts.shapeKept) this.twinIndex = null;                 // the shape may have changed: its twins read again
+    // A face the edit left bent (a corner off its plane) split into triangles, its fold a real edge -- every tool, every
+    // move (the owner, 2026-11-19: "it is like an edge but it is invisible. Please fix on all the tools"); a selected face
+    // split selects its triangles.
+    if (!opts.shapeKept) {
+      for (const id of new Set([...selBefore, ...this.sel.objects])) {
+        const o = this.objectById(id);
+        if (!o) continue;
+        const was = bentBefore.get(id);
+        if (!was) continue;                                    // made by this edit (Create's torus): as it was made
+        const split = splitBentFaces(o.mesh, objectFaces(o).filter((f) => !was.faces.has(f) && isBent(o.mesh, f)));
+        if (!split.size) continue;
+        markReshaped(o);
+        const items = this.sel.mode === 'face' ? this.sel.items.get(id) : undefined;
+        if (items) for (const [f, tris] of split) if (items.delete(f)) for (const g of tris) items.add(g);
+      }
+    }
     if (nodesBefore) {
       // Collision editing: an object the edit touched (selected before or after it, or made by it) is its node's hull
       // from now on; a node's object deleted leaves the node no hull of its own.
@@ -1697,8 +1804,9 @@ export class GeometryEditor {
     this.authored = true;
     this.collisionOutline = null;
     this.redraw();
+    if (this.rerun === 'quiet') return;                         // a live run again: nothing kept until the release
     this.buildSoon();
-    this.deps.onEdit(label);
+    this.deps.onEdit(label, this.rerun === 'amend');
   }
 
   /**
@@ -1767,12 +1875,17 @@ export class GeometryEditor {
 
   restoreSnapshot(s: GeometrySnapshot | null): void {
     this.previewObjectTransform('position', null);             // an undo mid field drag: the drag's preview let go first
+    if (!this.rerun) { this.lastOp = null; this.drawToolPanel(); }   // an undo or redo: the last tool's adjusting over
     const map = this.deps.map();
     // An undo or a redo leaves the layer and the brush as they are (the owner, 2026-11-15: "every stroke is ctrl z"):
     // undoing the first collision edit stays on the Collision layer, painting, its hull as Build makes it from the step's
     // drawn geometry (no collision edits yet).
     const onCollision = this.collisionOn, brush = this.tool;
     this.collisionOutline = null;
+    // The selection let go before the step's geometry is drawn: it may name faces or points the step does not have (an
+    // undo of a tool that made faces and selected them), and drawing it would read past them.
+    this.sel = emptySelection(this.sel.mode);
+    if (this.knifeOn) { this.knifePts = []; this.drawKnife(); }
     if (!s) {
       if (!this.forMap || this.forMap !== map) return;
       if (this.drawn) this.deps.onViewSwap(null);
@@ -1885,6 +1998,7 @@ export class GeometryEditor {
   private setShiftHeld(on: boolean): void {
     if (on === this.shiftHeld) return;
     this.shiftHeld = on;
+    if (this.knifeOn) { this.knifeHover = this.knifeAt(this.pointer); this.drawKnife(); }   // Shift: the aligned places only
     if (!this.paintOn || !this.active) return;
     this.paintUi();
     this.hoverKey = '';
@@ -1972,6 +2086,7 @@ export class GeometryEditor {
     if (this.textureGroup) this.textureGroup.hidden = !this.textureOn || this.collisionOn;
     if (this.displaceGroup) this.displaceGroup.hidden = !DISPLACE_TOOLS_SHOWN || this.collisionOn || this.textureOn;
     if (this.editGroup) this.editGroup.hidden = this.textureOn;
+    if (this.selectGroup) this.selectGroup.hidden = this.textureOn;
     this.applyWorldShown();
   }
 
@@ -2013,7 +2128,7 @@ export class GeometryEditor {
     if (this.poly) this.polyCancel();                               // and a polygon half-drawn
     if (!this.collisionOn && !this.textureOn) t = 'select';
     if (t === 'paint' && this.textureOn && !this.textureName) { this.deps.say('Choose a texture first (the Texture button, or the asset browser)', true); t = this.tool; }
-    if (t === this.tool) { this.paintUi(); return; }
+    if (t === this.tool) { this.paintUi(); this.drawBar(); return; }   // Select again after Create: the select modes back
     this.endStroke();
     if (t === 'sample') this.toolBeforeSample = this.tool === 'paint' ? 'paint' : 'select';
     const was = this.tool;
@@ -2263,7 +2378,7 @@ export class GeometryEditor {
       }
       const items = this.sel.items.get(id);
       if (!items) continue;
-      // An object with points or edges selected keeps its cage and handles shown, as Hammer keeps a mesh's in its tools.
+      // An object with points or edges selected keeps its cage and handles shown, as a level editor keeps a mesh's in its tools.
       if (this.sel.mode === 'point') this.fixed.add(this.handles(this.cageOf(o).points, HANDLE_PX, HOVER, true));
       if (this.sel.mode === 'face') {
         add(faceMesh(this.trianglesOf(o, items as Set<number>), HIGHLIGHT, this.collisionOn ? 0.15 : 0.45));
@@ -2292,7 +2407,47 @@ export class GeometryEditor {
   }
 
   private drawBar(): void {
-    for (const m of MODES) this.buttons.get(`mode-${m.mode}`)?.classList.toggle('is-on', this.sel.mode === m.mode);
+    this.drawToolPanel();                                      // shown only while its tool's result stands, Create off
+    // Create on: the selection modes off (the owner, 2026-11-18: "if we are in create mode for geometry, disable all the
+    // select tools, as it doesn't make sense to select a face in create mode"); Esc or Select brings them back.
+    for (const m of MODES) {
+      const b = this.buttons.get(`mode-${m.mode}`);
+      if (!b) continue;
+      b.classList.toggle('is-on', this.sel.mode === m.mode);
+      // An edit tool on (the Knife) does not lock them (the owner, 2026-11-19: "when we are using an edit tool, don't
+      // disable the select mode"): choosing one leaves the tool (`setMode`).
+      const busy = this.blockOn;
+      b.disabled = busy;
+      if (!b.dataset['title']) b.dataset['title'] = b.title;
+      b.title = busy ? `${b.dataset['title']} -- not while Create is on (Esc leaves it)` : b.dataset['title'];
+    }
+    this.buttons.get('knife')?.classList.toggle('is-on', this.knifeOn);
+    // The Edit tools a selection mode has no use for, not shown (the owner, 2026-11-18: "if an edit tool cannot even be used
+    // in that mode, don't show it at all for that mode"); those it has, greyed while the selection gives them nothing to
+    // do ("the edit tools should only be enabled ... if that operation can be done"), the reason in the title.
+    // Dissolve is Combine Faces in Face mode, as the reference editor names it there (the owner, 2026-11-20).
+    const dissolveButton = this.buttons.get('dissolve');
+    if (dissolveButton) {
+      const face = this.sel.mode === 'face';
+      dissolveButton.textContent = face ? 'Combine Faces' : 'Dissolve';
+      dissolveButton.dataset['title'] = face ? COMBINE_TITLE : DISSOLVE_TITLE;
+    }
+    for (const [id, modes] of Object.entries(EDIT_TOOL_MODES)) {
+      const b = this.buttons.get(id);
+      if (!b) continue;
+      if (!b.dataset['title']) b.dataset['title'] = b.title;
+      const shown = modes.includes(this.sel.mode);
+      b.hidden = !shown;
+      const why = shown ? this.toolBlocked(id) : null;
+      b.disabled = !shown || why !== null;
+      b.title = why === null ? b.dataset['title'] : `${b.dataset['title']} -- ${why}`;
+    }
+    // A section with no tool the mode has: hidden whole, its name with it.
+    for (const sec of [this.editGroup, this.selectGroup]) {
+      if (!sec) continue;
+      const any = [...sec.querySelectorAll<HTMLButtonElement>('button.fx-tool')].some((b) => !b.hidden);
+      sec.hidden = this.textureOn || !any;
+    }
     this.buttons.get('sculpt')?.classList.toggle('is-on', this.sculpting);
     this.buttons.get('sample')?.classList.toggle('is-on', this.sampling);
     this.deps.onHistory();
@@ -2320,8 +2475,139 @@ export class GeometryEditor {
 
   /* ---------- the tools ---------- */
 
+  /**
+   * What a tool made, selected in the selection mode in force (the owner, 2026-11-18: "when bridging and or creating new
+   * geometry don't switch the select mode for me"): its faces in Face mode, their edges or points in Edge or Point mode,
+   * its objects in Object mode (`convertSelection`, as a level editor carries a selection across modes).
+   */
+  private madeSelection(parts: readonly { o: GeoObject; faces: readonly number[] }[]): Selection {
+    const faces = emptySelection('face');
+    for (const { o, faces: fs } of parts) { faces.objects.add(o.id); faces.items.set(o.id, new Set(fs)); }
+    return this.sel.mode === 'face' || !this.geo ? faces : convertSelection(this.geo, faces, this.sel.mode);
+  }
+
+  /** Why an Edit tool can do nothing with the selection, in the mode it works in; null when it can. */
+  private toolBlocked(id: string): string | null {
+    if (id === 'knife') return null;                           // a tool clicked on the mesh: no selection needed
+    const picked: { o: GeoObject; item: number | string }[] = [];
+    for (const oid of this.sel.objects) {
+      const o = this.objectById(oid);
+      if (!o) continue;
+      if (this.sel.mode === 'object') picked.push({ o, item: -1 });
+      else for (const item of this.sel.items.get(oid) ?? []) picked.push({ o, item });
+    }
+    const what = { object: 'objects', point: 'vertices', edge: 'edges', face: 'faces' }[this.sel.mode];
+    if (!picked.length) return `select ${what} first`;
+    if (id === 'bridge') return this.bridgeBlocked(picked);
+    if (id === 'connect' && picked.length < 2) return 'select two or more edges that share a face';
+    if (id === 'connect' && this.sel.mode === 'point' && picked.length < 2) return 'select two or more vertices (joined in the order picked)';
+    if (id === 'extend' && !picked.some((p) => edgeFaceCount(p.o.mesh, ...edgeOfKey(p.item as string)) === 1)) return EXTEND_NOT_OPEN;
+    if (id === 'mergemeshes' && new Set(picked.map((p) => p.o.mesh)).size < 2) return 'select two or more objects (map sections are one mesh already)';
+    if (id === 'snapvert' && picked.length < 2) return 'select two or more vertices (the last picked is where they go)';
+    if (id === 'snapedge' && picked.length !== 2) return `select two edges (${picked.length} selected)`;
+    if (id === 'separate') {
+      // Faces that are already a whole object of their own have nothing to leave.
+      const whole = [...this.sel.objects].every((oid) => {
+        const o = this.objectById(oid);
+        return !o || o.group !== undefined ? false : (this.sel.items.get(oid)?.size ?? 0) >= objectFaces(o).length;
+      });
+      return whole ? 'the selected faces are a whole object already' : null;
+    }
+    return null;
+  }
+
+  /** Why Bridge cannot join the selection (`./ops` `bridgeFaces`, `bridgeEdges` refuse the same); null when it can. */
+  private bridgeBlocked(picked: readonly { o: GeoObject; item: number | string }[]): string | null {
+    const what = this.sel.mode === 'face' ? 'faces' : 'edges';
+    // Runs of open edges (more than two edges): one object's, as many in each run.
+    if (this.sel.mode === 'edge' && picked.length > 2) {
+      const o = picked[0]!.o;
+      if (picked.some((p) => p.o !== o)) return 'bridge runs of edges within one object';
+      return bridgeRunsBlocked(o.mesh, picked.map((p) => edgeOfKey(p.item as string)));
+    }
+    if (picked.length !== 2) return `select two ${what} (${picked.length} selected)`;
+    const [one, two] = picked as [{ o: GeoObject; item: number | string }, { o: GeoObject; item: number | string }];
+    if (one.o.mesh !== two.o.mesh && one.o.group !== undefined && two.o.group !== undefined) return 'the two are in different map meshes';
+    if (this.sel.mode === 'edge') {
+      // Open edges only (a level editor's): each edge read in its own object's mesh, before Bridge merges two objects.
+      const e1 = edgeOfKey(one.item as string), e2 = edgeOfKey(two.item as string);
+      if (one.o.mesh === two.o.mesh) return bridgeEdgesBlocked(one.o.mesh, e1, e2);
+      const n1 = edgeFaceCount(one.o.mesh, e1[0], e1[1]), n2 = edgeFaceCount(two.o.mesh, e2[0], e2[1]);
+      if (!n1 || !n2) return 'select two edges of faces';
+      return n1 === 1 && n2 === 1 ? null : BRIDGE_OPEN_ONLY;
+    }
+    const a = one.o.mesh.faces[one.item as number] ? faceVerts(one.o.mesh, one.item as number) : [];
+    const b = two.o.mesh.faces[two.item as number] ? faceVerts(two.o.mesh, two.item as number) : [];
+    if (a.length !== b.length) return `the faces have ${a.length} and ${b.length} points: they need as many each`;
+    if (one.o.mesh === two.o.mesh && a.some((v) => b.includes(v))) return 'the faces share a point';
+    return null;
+  }
+
+  /** The edge the last click picked on screen (Edge mode), for a double-click's loop. */
+  private lastEdgePick: { id: string; key: string } | null = null;
+
+  /**
+   * Loop or ring select (the owner, 2026-11-18: "implement the loop/ring select"; every modeller's): the
+   * selected edges' loops (`./selection` `edgeLoop`) or rings (`edgeRing`) added to the selection -- or, given `from`,
+   * those edges'. Edge mode only; each edge walks the faces of its own object.
+   */
+  selectEdges(how: 'loop' | 'ring', from?: readonly { id: string; key: string; side?: number }[]): void {
+    if (!this.geo || this.sel.mode !== 'edge') { this.deps.say(`Select ${how === 'loop' ? 'Loop' : 'Ring'} works on edges: select one in Edge mode`, true); return; }
+    const seeds: readonly { id: string; key: string; side?: number }[] = from ?? [...this.sel.objects].flatMap((id) => [...(this.sel.items.get(id) ?? [])].map((key) => ({ id, key: key as string })));
+    const cam = this.deps.camera();
+    const eye = new Vector3().setFromMatrixPosition(cam.matrixWorld).toArray();
+    if (!seeds.length) { this.deps.say('Select an edge first', true); return; }
+    let added = 0;
+    const facesOf = new Map<string, number[]>();
+    for (const seed of seeds) {
+      const { id, key } = seed;
+      const o = this.objectById(id);
+      if (!o) continue;
+      let faces = facesOf.get(id);
+      if (!faces) { faces = objectFaces(o); facesOf.set(id, faces); }
+      const [a, b] = edgeOfKey(key);
+      // The side a loop runs round where it cannot go on: the face the pointer was on, else the edge's face turned most
+      // toward the camera.
+      const facing = (f: number): number => { const n = faceNormal(o.mesh, f), p = facePoints(o.mesh, f)[0]!; return dot(n, sub(eye, p)) / (length(sub(eye, p)) || 1); };
+      const side = seed.side ?? (edgeMap(o.mesh, faces).get(key)?.faces ?? []).sort((x, y) => facing(y) - facing(x))[0];
+      const walk = how === 'loop' ? edgeLoop(o.mesh, faces, a, b, side) : edgeRing(o.mesh, faces, a, b);
+      let set = this.sel.items.get(id);
+      if (!set) { set = new Set(); this.sel.items.set(id, set); }
+      this.sel.objects.add(id);
+      for (const k of walk) if (!set.has(k)) { set.add(k); added++; }
+    }
+    this.drawSelection();
+    this.deps.say(added ? `${how === 'loop' ? 'Loop' : 'Ring'}: ${added} edge${added === 1 ? '' : 's'} added` : `No ${how} goes on from the selected edge${seeds.length === 1 ? '' : 's'}`);
+  }
+
+  /**
+   * Grow or Shrink Selection (`./selection` `growSelection`): each selected object's points, edges or faces a step bigger
+   * or smaller, within its own object. Point, Edge and Face mode; the change counted.
+   */
+  growSelection(how: 'grow' | 'shrink'): void {
+    const mode = this.sel.mode;
+    if (!this.geo || mode === 'object') { this.deps.say(`${how === 'grow' ? 'Grow' : 'Shrink'} works on points, edges or faces`, true); return; }
+    let before = 0, after = 0;
+    for (const id of [...this.sel.objects]) {
+      const o = this.objectById(id);
+      const items = this.sel.items.get(id);
+      if (!o || !items) continue;
+      before += items.size;
+      const next = growSelection(o.mesh, objectFaces(o), mode, items, how);
+      after += next.size;
+      if (next.size) this.sel.items.set(id, next);
+      else { this.sel.items.delete(id); this.sel.objects.delete(id); }
+    }
+    if (!before) { this.deps.say(`Select ${modeWord(mode, 2)} first`, true); return; }
+    this.drawSelection();
+    const d = Math.abs(after - before);
+    this.deps.say(d ? `${how === 'grow' ? 'Grow' : 'Shrink'}: ${d} ${how === 'grow' ? 'added' : 'taken off'}, ${after} selected` : `${how === 'grow' ? 'Nothing more touches the selection' : 'The selection has no border to take off'}`);
+  }
+
   private setMode(mode: SelectMode): void {
-    if (!this.geo) return;
+    if (!this.geo || this.blockOn) return;                                     // Create on: no selection mode to choose (`drawBar`)
+    if (this.knifeOn) this.setKnife(false);                                    // a mode chosen mid-tool resets the tool
+    if (this.lastOp) { this.lastOp = null; this.drawToolPanel(); }             // and ends the last tool's adjusting
     // Choosing a selection mode is choosing to select, not paint -- but on the Texture layer it is what a dab covers.
     if (this.tool !== 'select' && !this.textureOn) this.setTool('select');
     this.sel = convertSelection(this.geo, this.sel, mode);
@@ -2369,7 +2655,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Hammer's dissolve (Backspace): in point mode each point goes and the faces round it merge (a point on a straight run
+   * A level editor's dissolve (Backspace): in point mode each point goes and the faces round it merge (a point on a straight run
    * just leaves its edge); in edge mode each edge's two faces merge; in face mode the selected faces that touch merge.
    * Object mode has nothing to dissolve: Backspace deletes, as Delete does.
    */
@@ -2378,7 +2664,7 @@ export class GeometryEditor {
     if (this.sel.mode === 'object') { this.deleteSelection(); return; }
     let kept = 0, made = 0;
     const after = emptySelection(this.sel.mode === 'face' ? 'face' : this.sel.mode);
-    this.edit('Dissolve', () => {
+    this.edit(this.sel.mode === 'face' ? 'Combine faces' : 'Dissolve', () => {
       if (!this.sel.objects.size) return false;
       for (const id of this.sel.objects) {
         const o = this.objectById(id);
@@ -2397,25 +2683,1108 @@ export class GeometryEditor {
       this.sel = after;
       return made > 0;
     });
-    const what = this.sel.mode === 'face' ? 'faces merged' : `${this.sel.mode === 'point' ? 'points' : 'edges'} dissolved`;
-    if (kept) this.deps.say(`${what}; ${kept} on the border left (nothing to merge with)`, made === 0);
+    const what = this.sel.mode === 'face' ? 'faces combined' : `${this.sel.mode === 'point' ? 'points' : 'edges'} dissolved`;
+    if (kept) this.deps.say(`${what}; ${kept} left (on a border, or their faces would not make one face)${refusedWhy()}`, made === 0);
   }
 
-  private extrude(): void {
+  private extrude(): void { this.parametric('extrude', 'Extrude', () => this.extrudeRun()); }
+  private extrudeRun(): void {
     if (this.sel.mode !== 'face') { this.deps.say('Extrude works on faces: select them in Face mode', true); return; }
-    const unit = 1 / (this.forMap?.metersPerUnit ?? 1);
-    // The walls world-aligned (Hammer's new faces), at the extruded face's own texel scale where it has a mapping: each
+    const unit = this.tp('extrude', 'distance');
+    // The walls world-aligned (a level editor's new faces), at the extruded face's own texel scale where it has a mapping: each
     // wall's corners were its edge's, the same uv top and bottom, so its texture ran in stripes (the owner, 2026-11-17:
     // "When I extrude a face, there is no created geometry on the side walls"). The gizmo's move then keeps them mapped
     // (`transformVerts` rewrites a mapped face's uvs).
     this.edit('Extrude', () => this.forFaces((m, faces, o) => {
       const scaleOf = new Map(faces.map((f) => [f, m.faces[f]?.mapping?.scaleU ?? this.scaleTexel()] as const));
-      const { walls } = extrudeFaces(m, faces, unit);
+      const { walls } = extrudeFacesBy(m, faces, unit);
+      if (!walls.length && lastRefusal) this.deps.say(`Extrude: nothing made${refusedWhy()}`, true);
       const texel = Math.min(...scaleOf.values());
       for (const w of walls) { const face = m.faces[w]; if (face) face.mapping = worldAligned(faceNormal(m, w), texel); }
       refreshUvs(m, walls, this.size);
       markReshaped(o);
     }));
+  }
+
+  /**
+   * A level editor's Bridge (the owner, 2026-11-18: "lets start with a bridge tool first"; a browser adaptation): two selected
+   * faces joined by new faces between them, the two removed (`./ops` `bridgeFaces`), or two selected edges joined by one
+   * face (`bridgeEdges`). The new faces are world-aligned at the source face's texel scale, as an extrude's walls are,
+   * and carry its object and collision. Two faces or edges of two objects: the objects merged into one first (a map's
+   * section takes the other in; two sections already share the world's mesh). One edit; the new faces selected.
+   */
+  /** Bridge on two runs of open edges in one object (`./ops` `bridgeEdgeRuns`): the new faces world-aligned, selected. */
+  private bridgeRuns(picked: readonly { o: GeoObject; item: number | string }[]): void {
+    const o = picked[0]!.o;
+    const blocked = this.bridgeBlocked(picked);
+    if (blocked) { this.deps.say(`Bridge: ${blocked}`, true); return; }
+    const texel = this.scaleTexel();
+    let made = 0, error = '';
+    this.edit('Bridge edges', () => {
+      const r = bridgeEdgeRuns(o.mesh, picked.map((p) => edgeOfKey(p.item as string)));
+      if ('error' in r) { error = r.error; return false; }
+      for (const f of r.faces) { const face = o.mesh.faces[f]; if (face) face.mapping = worldAligned(faceNormal(o.mesh, f), texel); }
+      refreshUvs(o.mesh, r.faces, this.size);
+      markReshaped(o);
+      made = r.faces.length;
+      this.sel = this.madeSelection([{ o, faces: r.faces }]);
+      return true;
+    });
+    if (error) this.deps.say(error, true);
+    else this.deps.say(`Bridged: ${made} new face${made === 1 ? '' : 's'}`);
+  }
+
+  private bridge(): void { this.parametric(this.sel.mode === 'face' ? 'bridge' : 'bridgeEdges', 'Bridge', () => this.bridgeRun()); }
+  private bridgeRun(): void {
+    if (!this.geo) return;
+    const mode = this.sel.mode;
+    if (mode !== 'face' && mode !== 'edge') { this.deps.say('Bridge works on two faces (Face mode) or two edges (Edge mode)', true); return; }
+    const picked: { o: GeoObject; item: number | string }[] = [];
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      for (const item of this.sel.items.get(id) ?? []) if (o) picked.push({ o, item });
+    }
+    const what = mode === 'face' ? 'faces' : 'edges';
+    if (mode === 'edge' && picked.length > 2) { this.bridgeRuns(picked); return; }
+    if (picked.length !== 2) { this.deps.say(`Bridge joins two ${what}: ${picked.length} selected`, true); return; }
+    let [one, two] = picked as [{ o: GeoObject; item: number | string }, { o: GeoObject; item: number | string }];
+    if (one.o.mesh !== two.o.mesh && one.o.group !== undefined && two.o.group !== undefined) {
+      this.deps.say('Bridge joins two pieces of one mesh, or a map section and an object of its own', true);
+      return;
+    }
+    const geo = this.geo;
+    const scaleTexel = this.scaleTexel();
+    let error = '';
+    let merged = false;
+    let made = 0;
+    this.edit(`Bridge ${what}`, () => {
+      // Two meshes: the second object into the first (a map's section always takes the other in), its items renumbered.
+      if (one.o.mesh !== two.o.mesh) {
+        if (two.o.group !== undefined) [one, two] = [two, one];
+        const into = one.o, src = two.o.mesh;
+        const faceBase = into.mesh.faces.length, vertBase = into.mesh.verts.length / 3;
+        const faceAt = new Map<number, number>();
+        let k = 0;
+        src.faces.forEach((f, i) => { if (f) faceAt.set(i, faceBase + k++); });
+        const item = mode === 'face' ? faceAt.get(two.item as number)! : edgeOfKey(two.item as string).map((v) => v + vertBase).join('_');
+        if (!mergeObjects(geo, [into.id, two.o.id])) { error = 'The two objects could not be merged'; return false; }
+        two = { o: into, item };
+        merged = true;
+      }
+      const m = one.o.mesh;
+      // The source face (the first face, or the face along the first edge): its texel scale, read before it goes.
+      const src = mode === 'face' ? one.item as number : edgeMap(m).get(one.item as string)?.faces[0];
+      const texel = (src !== undefined ? m.faces[src]?.mapping?.scaleU : undefined) ?? scaleTexel;
+      const r = mode === 'face'
+        ? bridgeFaces(m, one.item as number, two.item as number, this.tp('bridge', 'segments'))
+        : bridgeEdges(m, edgeOfKey(one.item as string) as [number, number], edgeOfKey(two.item as string) as [number, number]);
+      if ('error' in r) { error = r.error; return false; }
+      // The new faces' texture: world-aligned at the source's texel scale (as an extrude's walls), their UVs laid.
+      for (const f of r.faces) { const face = m.faces[f]; if (face) face.mapping = worldAligned(faceNormal(m, f), texel); }
+      refreshUvs(m, r.faces, this.size);
+      markReshaped(one.o);
+      made = r.faces.length;
+      this.sel = this.madeSelection([{ o: one.o, faces: r.faces }]);
+      return true;
+    });
+    if (error) { this.deps.say(error, true); return; }
+    this.deps.say(`Bridged: ${made} new face${made === 1 ? '' : 's'}${merged ? ' (the two objects merged into one)' : ''}`);
+  }
+
+  /**
+   * A test instrument (the page's development build only, `__forgeCollision.geoMesh` / `geoSelect`; no game behaviour):
+   * an object's points and face rings, and a selection set directly -- so a browser run can choose a box's top face or an
+   * edge by its place, as a click would, without hunting for it on screen.
+   */
+  testMesh(id: string): { verts: number[]; faces: (number[] | null)[]; surfaces: (number[] | null)[] } | null {
+    const o = this.objectById(id);
+    if (!o) return null;
+    const mine = new Set(objectFaces(o));
+    return {
+      verts: [...o.mesh.verts],
+      faces: o.mesh.faces.map((f, i) => (f && mine.has(i) ? faceVerts(o.mesh, i) : null)),
+      surfaces: o.mesh.faces.map((f, i) => (f && mine.has(i) && f.surface ? [...f.surface] : null)),
+    };
+  }
+  testSelect(mode: SelectMode, picks: readonly { id: string; items: readonly (number | string)[] }[]): void {
+    if (!this.geo || this.blockOn || this.knifeOn) return;
+    this.sel = emptySelection(mode);
+    for (const { id, items } of picks) { this.sel.objects.add(id); if (mode !== 'object') this.sel.items.set(id, new Set(items)); }
+    this.drawSelection();
+  }
+
+  /** The step the made-to-measure tools use (Inset, Bevel): the grid's, else a metre. */
+  private toolStep(): number {
+    return this.snapStep > 0 ? this.snapStep : 1 / (this.forMap?.metersPerUnit ?? 1);
+  }
+
+  /* ---------- the Edit tools' settings, adjusted after the fact ---------- */
+
+  /** The tools' settings the user set (kept in this browser), over their starting values. */
+  private toolStore: Record<string, Record<string, number>> = readToolSettings();
+  /**
+   * The last parametric tool run (the owner, 2026-11-19: "parametric values ... in real time"; as a modeller's "adjust
+   * last operation"): the geometry and selection it ran on, and how to run it again -- so a setting changed in the panel
+   * runs it again over what it started from, in the same undo step. Gone on any other edit, an undo, a mode change.
+   */
+  private lastOp: { tool: string; title: string; before: GeoObject[]; sel: Selection; run: () => void } | null = null;
+  /** A run again: `quiet` while a setting is dragged (no history, no build), `amend` at its release (the same step). */
+  private rerun: 'quiet' | 'amend' | null = null;
+  /** A parametric tool's first run is under way (its edit keeps `lastOp`). */
+  private parametricRunning = false;
+  private toolPanel: HTMLElement | null = null;
+  /** The run the panel was built for. */
+  private toolPanelFor: object | null = null;
+
+  /** A tool's setting now: the user's, else its start (the grid step's or a metre's multiple where it says). */
+  private tp(tool: string, key: string): number {
+    const def = TOOL_SETTINGS[tool]?.find((d) => d.key === key);
+    const v = this.toolStore[tool]?.[key];
+    if (typeof v === 'number' && Number.isFinite(v)) return def ? Math.min(def.max, Math.max(def.min, v)) : v;
+    if (!def) return 0;
+    if (def.grid !== undefined) return this.toolStep() * def.grid;
+    if (def.metre !== undefined) return def.metre / (this.forMap?.metersPerUnit ?? 1);
+    return def.value ?? 0;
+  }
+
+  /** A parametric tool run: its first run made, then kept as `lastOp` for the panel; a run again goes straight through. */
+  private parametric(tool: string, title: string, run: () => void): void {
+    if (!this.geo) return;
+    if (this.rerun) { run(); return; }
+    const sel: Selection = { mode: this.sel.mode, objects: new Set(this.sel.objects), items: new Map([...this.sel.items].map(([k, v]) => [k, new Set(v)])) };
+    const before = cloneGeometry(this.geo).objects;
+    const edits = this.editCount;
+    this.parametricRunning = true;
+    try { run(); } finally { this.parametricRunning = false; }
+    this.lastOp = this.editCount !== edits ? { tool, title, before, sel, run } : null;
+    this.drawToolPanel();
+  }
+  /** Edits made so far (`parametric` tells whether a tool made one). */
+  private editCount = 0;
+
+  /** The last parametric tool run again over what it started from (a setting changed): `quiet` live, `amend` kept. */
+  private rerunLast(mode: 'quiet' | 'amend'): void {
+    const op = this.lastOp;
+    if (!op || !this.geo) return;
+    const fresh = cloneGeometry({ ...this.geo, objects: op.before }).objects;
+    this.geo.objects.splice(0, this.geo.objects.length, ...fresh);
+    this.sel = { mode: op.sel.mode, objects: new Set(op.sel.objects), items: new Map([...op.sel.items].map(([k, v]) => [k, new Set(v)])) };
+    this.rerun = mode;
+    try { op.run(); } finally { this.rerun = null; }
+  }
+
+  /**
+   * The last parametric tool's settings, in a panel in the viewport's lower left (as Create's): a row each, changed live
+   * as a value is dragged and kept at its release (`rerunLast`), Reset putting them back where they start. Shown while
+   * the tool's result stands and nothing else has been done.
+   */
+  private drawToolPanel(rebuild = false): void {
+    const op = this.lastOp;
+    const defs = op ? TOOL_SETTINGS[op.tool] ?? [] : [];
+    const shown = !!op && defs.length > 0 && this.active && !this.blockOn && !this.polyOn && !this.textureOn;
+    if (!shown) { if (this.toolPanel) this.toolPanel.hidden = true; return; }
+    // Built again only for another run (or Reset): a field being dragged is never taken from under the pointer.
+    if (this.toolPanel && this.toolPanelFor === op && !rebuild) { this.toolPanel.hidden = false; return; }
+    this.toolPanelFor = op;
+    const doc = this.deps.doc;
+    let panel = this.toolPanel;
+    if (!panel) {
+      panel = doc.createElement('div');
+      panel.className = 'fx-ai-legend fx-create-panel fx-tool-panel';
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', 'Edit tool settings');
+      (this.deps.legendHost?.() ?? this.deps.statusHost).append(panel);
+      this.toolPanel = panel;
+    }
+    panel.hidden = false;
+    panel.replaceChildren();
+    const head = doc.createElement('div');
+    head.className = 'fx-shape-settings-head';
+    const title = doc.createElement('span');
+    title.className = 'fx-create-panel-shape fx-tool-panel-title';
+    title.textContent = op!.title;
+    const reset = doc.createElement('button');
+    reset.type = 'button';
+    reset.className = 'fx-shape-reset';
+    reset.textContent = 'Reset';
+    reset.title = `Every ${op!.title} setting back to where it starts`;
+    reset.addEventListener('click', () => { delete this.toolStore[op!.tool]; writeToolSettings(this.toolStore); this.rerunLast('amend'); this.drawToolPanel(true); });
+    head.append(title, reset);
+    panel.append(head);
+    for (const d of defs) {
+      if (d.when && this.tp(op!.tool, d.when.key) !== d.when.is) continue;
+      const value = this.tp(op!.tool, d.key);
+      const put = (v: number): void => { this.toolStore[op!.tool] = { ...this.toolStore[op!.tool], [d.key]: v }; };
+      if (d.options) {
+        const setting: ShapeSetting = { key: d.key, label: d.label, kind: 'choice', value: String(value), options: d.options.map((label, i) => ({ value: String(i), label })), note: d.note };
+        // A choice can show or hide the settings that depend on it: the panel built again.
+        panel.append(this.settingRow(setting, String(value), (v) => { put(Number(v)); writeToolSettings(this.toolStore); this.rerunLast('amend'); this.drawToolPanel(true); }));
+        continue;
+      }
+      const setting: ShapeSetting = { key: d.key, label: d.label, kind: 'number', value, min: d.min, max: d.max, step: d.step, note: d.note, ...(d.unit ? { unit: d.unit } : {}) };
+      panel.append(this.settingRow(setting, Math.round(value * 1000) / 1000,
+        (v) => { put(v as number); writeToolSettings(this.toolStore); this.rerunLast('amend'); },
+        (v) => { put(v); this.rerunLast('quiet'); }));
+    }
+  }
+
+  /**
+   * A level editor's Subdivide (the owner, 2026-11-18): in Face mode each selected face split in four round its middle (`./ops`
+   * `subdivideFaces`; a triangle in three), its neighbours given the edge middles so nothing cracks; in Edge mode each
+   * selected edge split at its middle. The new faces or half-edges selected, the mode kept. One edit.
+   */
+  private subdivide(): void {
+    if (this.sel.mode === 'edge') this.parametric('subdivideEdges', 'Subdivide', () => this.subdivideRun());
+    else this.parametric('subdivide', 'Quad Slice', () => this.subdivideRun());
+  }
+  private subdivideRun(): void {
+    if (!this.geo || (this.sel.mode !== 'face' && this.sel.mode !== 'edge')) { this.deps.say('Subdivide works on faces or edges', true); return; }
+    let made = 0;
+    if (this.sel.mode === 'face') {
+      this.edit('Subdivide faces', () => {
+        const parts: { o: GeoObject; faces: number[] }[] = [];
+        const ok = this.forFaces((m, faces, o) => {
+          const out = subdivideFaces(m, faces, this.tp('subdivide', 'cutsX'), this.tp('subdivide', 'cutsY'));
+          if (!out.length) return;
+          refreshUvs(m, out, this.size);
+          markReshaped(o);
+          made += out.length;
+          parts.push({ o, faces: out });
+        });
+        if (!ok || !made) return false;
+        this.sel = this.madeSelection(parts);
+        return true;
+      });
+      if (made) this.deps.say(`Subdivided: ${made} faces`);
+      else this.deps.say(`Subdivide: nothing made${refusedWhy()}`, true);
+      return;
+    }
+    this.edit('Subdivide edges', () => {
+      const after = emptySelection('edge');
+      for (const id of [...this.sel.objects]) {
+        const o = this.objectById(id);
+        const keys = [...(this.sel.items.get(id) ?? [])] as string[];
+        if (!o || !keys.length) continue;
+        const cuts = this.tp('subdivideEdges', 'cuts');
+        const halves = new Set(subdivideEdges(o.mesh, keys.map((k) => edgeOfKey(k)), cuts));
+        if (!halves.size) continue;
+        made += halves.size / (cuts + 1);
+        markReshaped(o);
+        after.objects.add(id);
+        after.items.set(id, halves);
+      }
+      if (!made) return false;
+      this.sel = after;
+      return true;
+    });
+    if (made) this.deps.say(`Subdivided: ${made} edge${made === 1 ? '' : 's'} cut`);
+    else this.deps.say(`Subdivide: nothing split${refusedWhy()}`, true);
+  }
+
+  /**
+   * every modeller's loop cut (the owner, 2026-11-18): for each selected edge, a new edge loop through the
+   * middle of its ring (`./selection` `edgeRing`, `./ops` `loopCut`) -- across the four-sided faces beside it, round a
+   * box or a cylinder, stopping where a face is not four-sided. The new loop selected (Edge mode). One edit.
+   */
+  private loopCutSelection(): void { this.parametric('loopcut', 'Loop Cut', () => this.loopCutRun()); }
+  private loopCutRun(): void {
+    if (!this.geo || this.sel.mode !== 'edge') { this.deps.say('Loop Cut works on edges: select one in Edge mode', true); return; }
+    let cuts = 0, noRing = 0;
+    this.edit('Loop cut', () => {
+      const after = emptySelection('edge');
+      for (const id of [...this.sel.objects]) {
+        const o = this.objectById(id);
+        const keys = [...(this.sel.items.get(id) ?? [])] as string[];
+        if (!o || !keys.length) continue;
+        const done = new Set<string>();
+        const loop = new Set<string>();
+        for (const k of keys) {
+          if (done.has(k)) continue;
+          const [a, b] = edgeOfKey(k);
+          const ring = edgeRing(o.mesh, objectFaces(o), a, b);
+          for (const r of ring) done.add(r);
+          if (ring.length < 2) { noRing++; continue; }
+          // The ring cut `cuts` times across, evenly (`./ops` `loopCutAt`; one cut is the ring connected).
+          const cut = loopCutAt(o.mesh, a, b, this.tp('loopcut', 'cuts'), objectFaces(o));
+          for (const [x, y] of cut) loop.add(edgeKey(x, y));
+          if (cut.length) cuts++;
+        }
+        if (!loop.size) continue;
+        const verts = new Set([...loop].flatMap((k) => edgeOfKey(k)));
+        refreshUvs(o.mesh, objectFaces(o).filter((f) => faceVerts(o.mesh, f).some((v) => verts.has(v))), this.size);
+        markReshaped(o);
+        after.objects.add(id);
+        after.items.set(id, loop);
+      }
+      if (!cuts) return false;
+      this.sel = after;
+      return true;
+    });
+    if (cuts) this.deps.say(`Loop cut: ${cuts} new loop${cuts === 1 ? '' : 's'}${noRing ? `; ${noRing} edge${noRing === 1 ? '' : 's'} with no even-sided face beside left` : ''}`);
+    else this.deps.say(`Loop Cut needs an edge with an even-sided face beside it${refusedWhy()}`, true);
+  }
+
+  /**
+   * Connect (the owner, 2026-11-19: one to one with the reference editor): the selected edges that share a face with
+   * another selected edge split at their middles, and the new points joined across each face they share (`./ops`
+   * `connectEdges`). The new edges selected. One edit.
+   */
+  private connectSelection(): void {
+    if (this.sel.mode === 'point') { this.connectPoints(); return; }
+    if (!this.geo || this.sel.mode !== 'edge') { this.deps.say('Connect works on edges: select two or more in Edge mode', true); return; }
+    let made = 0;
+    this.edit('Connect edges', () => {
+      const after = emptySelection('edge');
+      for (const id of [...this.sel.objects]) {
+        const o = this.objectById(id);
+        const keys = [...(this.sel.items.get(id) ?? [])] as string[];
+        if (!o || keys.length < 2) continue;
+        const cut = connectEdges(o.mesh, keys.map((k) => edgeOfKey(k)));
+        if (!cut.length) continue;
+        const verts = new Set(cut.flat());
+        refreshUvs(o.mesh, objectFaces(o).filter((f) => faceVerts(o.mesh, f).some((v) => verts.has(v))), this.size);
+        markReshaped(o);
+        made += cut.length;
+        after.objects.add(id);
+        after.items.set(id, new Set(cut.map(([a, b]) => edgeKey(a, b))));
+      }
+      if (!made) return false;
+      this.sel = after;
+      return true;
+    });
+    if (made) this.deps.say(`Connected: ${made} new edge${made === 1 ? '' : 's'}`);
+    else this.deps.say(`Connect needs two or more selected edges that share a face${refusedWhy()}`, true);
+  }
+
+  /**
+   * Connect in Point mode (the reference editor's Connect Vertex Path; the owner, 2026-11-20): each object's selected
+   * points joined in the order picked, each to the next by a straight cut across the faces between (`./ops` `knifeCut`,
+   * the Knife's own cut through those points). All or nothing: a step with no way across refuses the whole connect.
+   * The points stay selected. One edit.
+   */
+  private connectPoints(): void {
+    const byObject = new Map<GeoObject, number[]>();
+    for (const { o, item } of this.pickedInOrder()) (byObject.get(o) ?? byObject.set(o, []).get(o)!).push(item as number);
+    if (![...byObject.values()].some((vs) => vs.length > 1)) { this.deps.say('Connect: select two or more vertices of one object (joined in the order picked)', true); return; }
+    let made = 0, missed = false;
+    this.edit('Connect vertices', () => {
+      const saved = meshSaver();
+      for (const [o, vs] of byObject) {
+        if (vs.length < 2) continue;
+        saved.save(o.mesh);
+        const r = knifeCut(o.mesh, vs.map((v) => ({ v })));
+        if (r.missed) { missed = true; saved.restore(); made = 0; return false; }
+        if (!r.edges.length) continue;
+        const verts = new Set(r.edges.flat());
+        refreshUvs(o.mesh, objectFaces(o).filter((f) => faceVerts(o.mesh, f).some((v) => verts.has(v))), this.size);
+        markReshaped(o);
+        made += r.edges.length;
+      }
+      return made > 0;
+    });
+    if (made) this.deps.say(`Connected: ${made} new edge${made === 1 ? '' : 's'}`);
+    else this.deps.say(missed ? 'Connect: no straight way across the faces between two of the points' : `Connect: the points are joined already${refusedWhy()}`, true);
+  }
+
+  /**
+   * Merge Meshes (the reference editor's, Object mode; the owner, 2026-11-20: "add the merge mesh button"): the
+   * selected objects made one -- each into the first picked (`./world` `mergeObjects`), nothing welded. A map's section
+   * takes the others in (its mesh is the map's: a section is never merged away), and sections of the one map mesh are
+   * one mesh already, so only one of them takes part. The merged object selected. One edit.
+   */
+  private mergeMeshes(): void {
+    const geo = this.geo;
+    if (!geo || this.sel.mode !== 'object') { this.deps.say('Merge Meshes works on objects: select them in Object mode', true); return; }
+    const objs = [...this.sel.objects].map((id) => this.objectById(id)).filter((o): o is GeoObject => !!o);
+    // One object a mesh, in the order picked; a map section first where there is one.
+    const seen = new Set<EditMesh>();
+    const parts = objs.filter((o) => (seen.has(o.mesh) ? false : (seen.add(o.mesh), true)));
+    const section = parts.findIndex((o) => o.group !== undefined);
+    if (section > 0) parts.unshift(...parts.splice(section, 1));
+    if (parts.length < 2) { this.deps.say('Merge Meshes: select two or more objects (map sections are one mesh already)', true); return; }
+    let into: GeoObject | null = null;
+    this.edit('Merge meshes', () => {
+      into = mergeObjects(geo, parts.map((o) => o.id));
+      if (!into) return false;
+      markReshaped(into);
+      const sel = emptySelection('object');
+      sel.objects.add(into.id);
+      this.sel = sel;
+      return true;
+    });
+    if (into) this.deps.say(`Merged ${parts.length} objects into ${(into as GeoObject).name ?? 'one'}`);
+    else this.deps.say('Merge Meshes: the objects could not be merged', true);
+  }
+
+  /**
+   * Collapse (the reference editor's Shift+O; the owner, 2026-11-20): in Edge mode each run of selected edges made one
+   * point at the average of its points (`./ops` `collapseEdgeGroups`, `mergeVerts`); in Face mode each selected face in
+   * turn made one point at its middle (`collapseFaces`). The selection cleared, as the reference clears it. All or
+   * nothing; one edit.
+   */
+  private collapseSelection(): void {
+    const mode = this.sel.mode;
+    if (!this.geo || (mode !== 'edge' && mode !== 'face')) { this.deps.say('Collapse works on edges or faces', true); return; }
+    let made = 0;
+    this.edit('Collapse', () => {
+      const saved = meshSaver();
+      for (const id of this.sel.objects) {
+        const o = this.objectById(id);
+        const items = this.sel.items.get(id);
+        if (!o || !items?.size) continue;
+        saved.save(o.mesh);
+        const k = mode === 'edge' ? mergeVerts(o.mesh, collapseEdgeGroups([...items].map((x) => edgeOfKey(x as string))), 'centre') : collapseFaces(o.mesh, [...items] as number[]);
+        if (!k.length) { saved.restore(); made = 0; return false; }
+        markReshaped(o);
+        made += k.length;
+      }
+      if (!made) return false;
+      this.sel = emptySelection(mode);
+      return true;
+    });
+    if (made) this.deps.say(`Collapsed to ${made} point${made === 1 ? '' : 's'}`);
+    else this.deps.say(`Collapse: nothing collapsed${refusedWhy()}`, true);
+  }
+
+  /**
+   * Extend (the reference editor's N in Edge mode; the owner, 2026-11-20): each selected open edge given a new face,
+   * its far edge the Amount out (a grid step to start, as the reference's) in the plane of the edge's face (`./ops`
+   * `extendEdges`); the far edges selected. One edit; its Amount in the settings panel.
+   */
+  private extendSelection(): void { this.parametric('extend', 'Extend', () => this.extendRun()); }
+  private extendRun(): void {
+    if (!this.geo || this.sel.mode !== 'edge') { this.deps.say('Extend works on open edges in Edge mode', true); return; }
+    const amount = this.tp('extend', 'amount');
+    let made = 0;
+    this.edit('Extend edges', () => {
+      const after = emptySelection('edge');
+      for (const id of this.sel.objects) {
+        const o = this.objectById(id);
+        const items = this.sel.items.get(id);
+        if (!o || !items?.size) continue;
+        const r = extendEdges(o.mesh, [...items].map((x) => edgeOfKey(x as string)), amount);
+        if (!r.faces.length) continue;
+        markReshaped(o);
+        made += r.faces.length;
+        after.objects.add(id);
+        after.items.set(id, new Set(r.edges.map(([a, b]) => edgeKey(a, b))));
+      }
+      if (!made) return false;
+      this.sel = after;
+      return true;
+    });
+    if (made) this.deps.say(`Extended ${made} edge${made === 1 ? '' : 's'} by ${Math.round(amount * 1000) / 1000} units`);
+    else this.deps.say(`Extend: ${lastRefusal ? `nothing made${refusedWhy()}` : EXTEND_NOT_OPEN}`, true);
+  }
+
+  /** Select Ribs (the reference editor's Ctrl+G in Edge mode; `./selection` `edgeRibs`): the ribs the new selection. */
+  private selectRibs(): void {
+    if (!this.geo || this.sel.mode !== 'edge') { this.deps.say('Select Ribs works on edges', true); return; }
+    const next = emptySelection('edge');
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      const items = this.sel.items.get(id);
+      if (!o || !items?.size) continue;
+      const ribs = edgeRibs(o.mesh, objectFaces(o), [...items].map((x) => edgeOfKey(x as string)));
+      if (ribs.size) { next.objects.add(id); next.items.set(id, ribs); }
+    }
+    const n = [...next.items.values()].reduce((t, x) => t + x.size, 0);
+    if (!n) { this.deps.say('Select Ribs: select one run or loop of edges beside four-sided faces', true); return; }
+    this.sel = next;
+    this.drawSelection();
+    this.deps.say(`Select Ribs: ${n} edges`);
+  }
+
+  /**
+   * A level editor's Bevel on edges (the owner, 2026-11-18; one segment, a chamfer) -- or, on faces, their outline's edges: each edge between two faces
+   * replaced by a face a grid step across (`./ops` `bevelEdges`), held under half its faces' edges. The bevel faces
+   * world-aligned at their face's texel scale (as an extrude's walls), the faces they reshaped laid again. The bevels
+   * selected, the mode kept. One edit.
+   */
+  private bevel(): void { this.parametric('bevel', 'Bevel', () => this.bevelRun()); }
+  private bevelRun(): void {
+    if (!this.geo || (this.sel.mode !== 'edge' && this.sel.mode !== 'face')) { this.deps.say('Bevel works on edges or faces', true); return; }
+    const onFaces = this.sel.mode === 'face';
+    const width = this.tp('bevel', 'width'), segments = this.tp('bevel', 'segments'), shape = this.tp('bevel', 'shape');
+    const scaleTexel = this.scaleTexel();
+    let made = 0, skipped = 0;
+    this.edit('Bevel', () => {
+      const parts: { o: GeoObject; faces: number[] }[] = [];
+      for (const id of [...this.sel.objects]) {
+        const o = this.objectById(id);
+        const items = [...(this.sel.items.get(id) ?? [])];
+        if (!o || !items.length) continue;
+        const m = o.mesh;
+        // Faces (the owner, 2026-11-18: "can a face have a bevel?" -- "yes"; Blender's face bevel): their outline -- each
+        // edge between a selected face and one not selected -- bevelled; the edges between selected faces left.
+        const keys = onFaces ? (() => {
+          const chosen = new Set(items as number[]);
+          return [...edgeMap(m, objectFaces(o)).entries()].filter(([, e]) => e.faces.length === 2 && e.faces.filter((f) => chosen.has(f)).length === 1).map(([k]) => k);
+        })() : items as string[];
+        if (!keys.length) continue;
+        const texel = Math.min(scaleTexel, ...keys.map((k) => { const f = edgeMap(m).get(k)?.faces[0]; return (f !== undefined && m.faces[f]?.mapping?.scaleU) || scaleTexel; }));
+        const r = bevelEdges(m, keys.map((k) => edgeOfKey(k)), width, segments, shape);
+        skipped += r.skipped;
+        if (!r.faces.length) continue;
+        for (const f of r.faces) { const face = m.faces[f]; if (face) face.mapping = worldAligned(faceNormal(m, f), texel); }
+        refreshUvs(m, [...r.faces, ...r.touched], this.size);
+        markReshaped(o);
+        made += r.faces.length;
+        parts.push({ o, faces: r.faces });
+      }
+      if (!made) return false;
+      this.sel = this.madeSelection(parts);
+      return true;
+    });
+    if (made) this.deps.say(`Bevelled ${Math.round(width * 100) / 100} units${skipped ? `; ${skipped} edge${skipped === 1 ? '' : 's'} not between two faces left` : ''}`);
+    else this.deps.say(`${onFaces ? 'Bevel needs faces with an outline between them and other faces' : 'Bevel needs edges between two faces'}${refusedWhy()}`, true);
+  }
+
+  /* ---------- the Knife ---------- */
+
+  /** The Knife on (a level editor's knife: points clicked on the mesh, Enter cuts): its points so far, and where it would take one. */
+  private knifeOn = false;
+  private knifePts: { id: string; p: KnifePoint; at: Vec3 }[] = [];
+  private knifeHover: { id: string; p: KnifePoint; at: Vec3 } | null = null;
+  /**
+   * The Knife's loop mode (the reference editor's, V while the Knife is on): before a point is made, the pointer on an
+   * edge shows the loop through it -- across four-sided faces, at that place along each edge -- and a click cuts it.
+   */
+  private knifeLoop = false;
+  /** The Knife is on (the page leaves it V, its loop mode's: `../keys`). */
+  knifeActive(): boolean { return this.active && this.knifeOn; }
+  private knifeLoopLines: { key: string; lines: number[] } | null = null;
+  private readonly knifeLayer = new Group();
+
+  /**
+   * The Knife on or off (the owner, 2026-11-18: "implement ... Knife"; a level editor's): on, a click is a point of the cut -- a
+   * point of the mesh, or a place along an edge -- Enter cuts between them in order, Backspace takes the last back, Esc
+   * lets them go (then the tool). Create off, the gizmo aside, the selection modes held (`drawBar`).
+   */
+  private setKnife(on: boolean): void {
+    if (on && !this.geo) return;
+    if (on && this.blockOn) this.setBlockOn(false);
+    this.knifeOn = on;
+    this.knifePts = [];
+    this.knifeHover = null;
+    if (on) {
+      this.detachGizmo();
+      this.hoverKey = '';
+      clearGroup(this.hover);
+      this.deps.say('Knife: click points on vertices, edges or across faces of one object (start on an edge or a vertex); Enter cuts, Backspace takes a point back, Esc leaves');
+    } else this.drawSelection();
+    this.drawKnife();
+    this.drawBar();
+  }
+
+  /**
+   * Where a Knife click at `ndc` would put its point: the mesh's point within reach on screen, else the nearest place
+   * along an edge (the view ray's closest to it) -- on the object the cut is on once it has a point, else on what the
+   * pointer is over -- never one hidden behind the geometry. Null: nothing in reach.
+   */
+  private knifeAt(ndc: Vector2): { id: string; p: KnifePoint; at: Vec3 } | null {
+    if (!this.geo) return null;
+    const cam = this.deps.camera();
+    const r = this.deps.input.getBoundingClientRect();
+    const toPx = (x: number, y: number, z: number): [number, number] | null => {
+      const v = new Vector3(x, y, z).project(cam);
+      return v.z > 1 || v.z < -1 ? null : [((v.x - ndc.x) * r.width) / 2, ((v.y - ndc.y) * r.height) / 2];
+    };
+    const ray = this.rayAt(ndc, cam);
+    const eye = new Vector3().setFromMatrixPosition(cam.matrixWorld).toArray();
+    const seen = (p: readonly number[]): boolean => !this.index || this.index.visible(eye, p);
+    let objects: GeoObject[];
+    const first = this.knifePts[0];
+    if (first) { const o = this.objectById(first.id); objects = o ? [o] : []; }
+    else {
+      const around = [[0, 0], [PICK_PX, 0], [-PICK_PX, 0], [0, PICK_PX], [0, -PICK_PX]].map(([dx, dy]) => pickFace(this.geo!, this.rayAt(new Vector2(ndc.x + (2 * dx!) / r.width, ndc.y + (2 * dy!) / r.height), cam), this.index)?.object ?? null);
+      objects = [...new Set(around.filter((o): o is GeoObject => !!o))];
+    }
+    // The grid snap on (Ctrl flips it, as a move's): the nearest snap place on the face under the pointer (`./knifeSnap`).
+    const step = this.moveSnap();
+    if (step) {
+      const snapped = this.knifeSnapAt(ndc, objects, step);
+      if (snapped) return snapped;
+    }
+    let best: { id: string; p: KnifePoint; at: Vec3; d: number } | null = null;
+    for (const o of objects) {
+      const cage = this.cageOf(o);
+      for (let i = 0; i < cage.verts.length; i++) {
+        const at: Vec3 = [cage.points[i * 3]!, cage.points[i * 3 + 1]!, cage.points[i * 3 + 2]!];
+        const q = toPx(at[0], at[1], at[2]);
+        if (!q) continue;
+        const d = Math.hypot(q[0], q[1]);
+        if (d <= PICK_PX && (!best || d < best.d) && seen(at)) best = { id: o.id, p: { v: cage.verts[i]! }, at, d: d - PICK_PX };   // a point before an edge
+      }
+    }
+    if (best) return { id: best.id, p: best.p, at: best.at };
+    for (const o of objects) {
+      const cage = this.cageOf(o);
+      for (let i = 0; i < cage.edgeKeys.length; i++) {
+        const e = cage.edges;
+        const A: Vec3 = [e[i * 6]!, e[i * 6 + 1]!, e[i * 6 + 2]!], B: Vec3 = [e[i * 6 + 3]!, e[i * 6 + 4]!, e[i * 6 + 5]!];
+        // The edge's place nearest the view ray.
+        const u = sub(B, A), w0 = sub(ray.origin, A);
+        const b = dot(ray.dir, u), c = dot(u, u), dd = dot(ray.dir, w0), ee = dot(u, w0);
+        const den = c - b * b;
+        const t = Math.min(0.98, Math.max(0.02, den > 1e-12 ? (ee - b * dd) / den : 0.5));
+        const at: Vec3 = [A[0] + u[0] * t, A[1] + u[1] * t, A[2] + u[2] * t];
+        const q = toPx(at[0], at[1], at[2]);
+        if (!q) continue;
+        const d = Math.hypot(q[0], q[1]);
+        if (d > PICK_PX || (best && d >= best.d) || !seen(at)) continue;
+        // The place along the edge from its key's first point, worked from the mesh's own points (the cage holds them
+        // in single floats, so its ends need not equal them: a place read off it would land mirrored on the edge).
+        const [a, bb] = edgeOfKey(cage.edgeKeys[i]!);
+        const pa = vertPos(o.mesh, a), pb = vertPos(o.mesh, bb);
+        const ab = sub(pb, pa), len2 = dot(ab, ab);
+        const ta = len2 > 1e-18 ? Math.min(0.98, Math.max(0.02, dot(sub(at, pa), ab) / len2)) : 0.5;
+        best = { id: o.id, p: { a, b: bb, t: ta }, at: add(pa, scale(ab, ta)), d };
+      }
+    }
+    if (best) return { id: best.id, p: best.p, at: best.at };
+    // No point or edge in reach: the place inside the face under the pointer (a cut across it, `./ops` `knifeCut`).
+    const hit = pickFace(this.geo, ray, this.index);
+    if (hit && objects.includes(hit.object) && !hit.object.mesh.faces[hit.face]?.disp) return { id: hit.object.id, p: { f: hit.face, at: hit.at }, at: hit.at };
+    return null;
+  }
+
+  /**
+   * The Knife's snapped point at `ndc` (`./knifeSnap` `knifeSnapped`): on the face of `objects` under the pointer (or
+   * a pick's reach off it), the snap place nearest where the pointer meets it -- the cut's last point on that object
+   * its alignments' start, Shift (with a point made) only the aligned places, on the workplane's frame. Null: no face.
+   */
+  private knifeSnapAt(ndc: Vector2, objects: readonly GeoObject[], step: number): { id: string; p: KnifePoint; at: Vec3 } | null {
+    if (!this.geo) return null;
+    const cam = this.deps.camera();
+    const r = this.deps.input.getBoundingClientRect();
+    for (const [dx, dy] of [[0, 0], [PICK_PX, 0], [-PICK_PX, 0], [0, PICK_PX], [0, -PICK_PX]]) {
+      const hit = pickFace(this.geo, this.rayAt(new Vector2(ndc.x + (2 * dx!) / r.width, ndc.y + (2 * dy!) / r.height), cam), this.index);
+      if (!hit || !objects.includes(hit.object) || hit.object.mesh.faces[hit.face]?.disp) continue;
+      const m = hit.object.mesh;
+      const last = [...this.knifePts].reverse().find((k) => k.id === hit.object.id);
+      const prev: KnifePrev | null = last ? { at: last.at, ...('a' in last.p ? { edge: [last.p.a, last.p.b] as const } : {}) } : null;
+      const { origin, q } = workplaneFrame(this.deps.workplane?.() ?? flatWorkplane(0));
+      const axis = (x: number, y: number, z: number): Vec3 => new Vector3(x, y, z).applyQuaternion(q).toArray() as Vec3;
+      const frame: KnifeFrame = { origin: origin.toArray() as Vec3, axes: [axis(1, 0, 0), axis(0, 1, 0), axis(0, 0, 1)] };
+      const s = knifeSnapped(m, hit.face, hit.at as Vec3, step, frame, prev, this.shiftHeld && !!prev);
+      if (s) return { id: hit.object.id, p: s.p, at: s.at };
+    }
+    return null;
+  }
+
+  /** The loop the Knife's loop mode would cut through hover `h` (on an edge), as line pairs; a copy cut to see it. */
+  private knifeLoopPreview(h: { id: string; p: KnifePoint; at: Vec3 } | null): number[] | null {
+    if (!h || !('a' in h.p)) return null;
+    const o = this.objectById(h.id);
+    if (!o) return null;
+    const key = `${h.id}:${h.p.a}_${h.p.b}:${h.p.t.toFixed(5)}`;
+    if (this.knifeLoopLines?.key === key) return this.knifeLoopLines.lines;
+    const copy = cloneMesh(o.mesh);
+    const lines = loopCutAt(copy, h.p.a, h.p.b, 1, objectFaces(o), h.p.t).flatMap(([x, y]) => [...vertPos(copy, x), ...vertPos(copy, y)]);
+    this.knifeLoopLines = { key, lines };
+    return lines;
+  }
+
+  /** The loop mode's click: the loop through the edge place `at` cut (`./ops` `loopCutAt` at its share), its edges selected. */
+  private knifeLoopCut(at: { id: string; p: KnifePoint; at: Vec3 } | null): void {
+    if (!at || !('a' in at.p)) { this.deps.say('Knife loop: point at an edge (beside a four-sided face)', true); return; }
+    const o = this.objectById(at.id);
+    if (!o) return;
+    const { a, b, t } = at.p;
+    let made = 0;
+    this.edit('Loop cut', () => {
+      const cut = loopCutAt(o.mesh, a, b, 1, objectFaces(o), t);
+      if (!cut.length) return false;
+      made = cut.length;
+      const verts = new Set(cut.flat());
+      refreshUvs(o.mesh, objectFaces(o).filter((f) => faceVerts(o.mesh, f).some((v) => verts.has(v))), this.size);
+      markReshaped(o);
+      const edges = emptySelection('edge');
+      edges.objects.add(o.id);
+      edges.items.set(o.id, new Set(cut.map(([x, y]) => edgeKey(x, y))));
+      this.sel = this.sel.mode === 'edge' || !this.geo ? edges : convertSelection(this.geo, edges, this.sel.mode);
+      return true;
+    });
+    this.knifeLoopLines = null;
+    this.knifeHover = null;
+    this.drawKnife();
+    if (made) this.deps.say(`Knife loop: ${made} new edges (click another edge, V for points, Esc leaves)`);
+    else this.deps.say(`Knife loop: no four-sided face beside that edge${refusedWhy()}`, true);
+  }
+
+  private knifeClick(n: Vector2): void {
+    if (this.knifeLoop && !this.knifePts.length) { this.knifeLoopCut(this.knifeAt(n)); return; }
+    const at = this.knifeAt(n);
+    if (!at) { this.deps.say('Knife: click on a face, an edge or a vertex', true); return; }
+    if (!this.knifePts.length && 'f' in at.p) { this.deps.say('Knife: start the cut on an edge or a vertex (then click across faces, edges or vertices)', true); return; }
+    const last = this.knifePts[this.knifePts.length - 1];
+    if (last && length(sub(last.at, at.at)) < 1e-6) return;     // the same place twice: one point
+    this.knifePts.push(at);
+    this.drawKnife();
+  }
+
+  /** The Knife's cut (Enter): `./ops` `knifeCut` through its points in order, one edit; the cut edges selected. */
+  private knifeApply(): void {
+    const pts = this.knifePts;
+    const o = pts.length ? this.objectById(pts[0]!.id) : undefined;
+    // One point on an edge: the edge split there, the new point selected (the reference editor's single cut point).
+    const one = pts.length === 1 ? pts[0]!.p : null;
+    if (o && one && 'a' in one) {
+      let made = -1;
+      this.edit('Knife', () => {
+        made = splitEdge(o.mesh, one.a, one.b, one.t);
+        if (made < 0) return false;
+        markReshaped(o);
+        const points = emptySelection('point');
+        points.objects.add(o.id);
+        points.items.set(o.id, new Set([made]));
+        this.sel = this.sel.mode === 'point' || !this.geo ? points : convertSelection(this.geo, points, this.sel.mode);
+        return true;
+      });
+      this.knifePts = [];
+      this.drawKnife();
+      this.deps.say(made >= 0 ? 'Knife: the edge split at the point (click on for another, Esc leaves)' : `Knife: no split${refusedWhy()}`, made < 0);
+      return;
+    }
+    if (pts.length < 2) { this.deps.say('Knife: click at least two points, then Enter', true); return; }
+    if (!o) return;
+    let cuts = 0, missed = 0;
+    this.edit('Knife', () => {
+      const r = knifeCut(o.mesh, pts.map((x) => x.p));
+      cuts = r.edges.length; missed = r.missed;
+      if (!cuts) return false;
+      const verts = new Set(r.edges.flat());
+      refreshUvs(o.mesh, objectFaces(o).filter((f) => faceVerts(o.mesh, f).some((v) => verts.has(v))), this.size);
+      markReshaped(o);
+      const edges = emptySelection('edge');
+      edges.objects.add(o.id);
+      edges.items.set(o.id, new Set(r.edges.map(([a, b]) => edgeKey(a, b))));
+      this.sel = this.sel.mode === 'edge' || !this.geo ? edges : convertSelection(this.geo, edges, this.sel.mode);
+      return true;
+    });
+    this.knifePts = [];
+    this.drawKnife();
+    if (cuts) this.deps.say(`Knife: ${cuts} cut${cuts === 1 ? '' : 's'}${missed ? `; ${missed} step${missed === 1 ? '' : 's'} with no face in common left` : ''} (click on for another, Esc leaves)`);
+    else this.deps.say(`Knife: no cut -- each two points in a row must share a face${refusedWhy()}`, true);
+  }
+
+  /** The Knife's points, the lines between them, and the place a click would take, with a line to it. */
+  private drawKnife(): void {
+    clearGroup(this.knifeLayer);
+    if (!this.knifeOn) return;
+    const pts = this.knifePts.map((x) => x.at);
+    if (pts.length) this.knifeLayer.add(this.handles(Float32Array.from(pts.flat()), HANDLE_PX, HIGHLIGHT, false));
+    const pairs: number[] = [];
+    for (let i = 0; i + 1 < pts.length; i++) pairs.push(...pts[i]!, ...pts[i + 1]!);
+    if (pairs.length) this.knifeLayer.add(this.thickLines(pairs, HIGHLIGHT, EDGE_PX));
+    const h = this.knifeHover;
+    if (this.knifeLoop && !pts.length) {
+      const lines = this.knifeLoopPreview(h);
+      if (lines?.length) this.knifeLayer.add(this.thickLines(lines, HOVER, 3));
+    }
+    if (h) {
+      this.knifeLayer.add(this.handles(Float32Array.from(h.at), HANDLE_PX, HOVER, false));
+      const last = pts[pts.length - 1];
+      if (last) this.knifeLayer.add(this.thickLines([...last, ...h.at], HOVER, 2));
+    }
+  }
+
+  /**
+   * A Shift-drag's extrude, made as the drag starts (the owner, 2026-11-18: "do shift drag for faces and edges"; a browser
+   * adaptation after ProBuilder's and Maya's): the selected faces extruded by nothing (`./ops` `extrudeFaces`,
+   * their walls between the old place and the new), or the selected edges pulled out into new faces (`extrudeEdges`, the
+   * selection then their copies) -- so the drag moves them out and the walls follow, live. Not an edit of its own: the
+   * release's move is the one edit (labelled Extrude), and a drag let go where it began puts everything back.
+   */
+  private beginDragExtrude(): void {
+    if (!this.geo) return;
+    const geo = this.geo;
+    const before = cloneGeometry(geo).objects;
+    const sel: Selection = { mode: this.sel.mode, objects: new Set(this.sel.objects), items: new Map([...this.sel.items].map(([k, v]) => [k, new Set(v)])) };
+    const made = new Map<string, { faces: number[]; texel: number; sides?: number[][]; pairs?: [number, number][] }>();
+    const scaleTexel = this.scaleTexel();
+    for (const id of [...this.sel.objects]) {
+      const o = this.objectById(id);
+      const items = this.sel.items.get(id);
+      if (!o || !items?.size) continue;
+      const m = o.mesh;
+      if (this.sel.mode === 'face') {
+        const faces = [...items] as number[];
+        const texel = Math.min(...faces.map((f) => m.faces[f]?.mapping?.scaleU ?? scaleTexel));
+        made.set(id, { faces: extrudeFaces(m, faces, 0).walls, texel });
+      } else if (this.sel.mode === 'point') {
+        // A point on an open border extended out of it (its copy moved by the drag, a face across its border edges);
+        // any other pulled out into a spike (its corners cut a grid step round it, the point at the apex).
+        const verts = [...items] as number[];
+        const firstNew = m.faces.length;
+        const { moving, pairs } = extrudeOrExtendVerts(m, verts, this.toolStep());
+        // The faces the extend made (each holds a copy) world-aligned at the release; a spike's pieces keep their mapping.
+        const copies = new Set(moving.filter((x) => !verts.includes(x)));
+        const fresh: number[] = [];
+        for (let f = firstNew; f < m.faces.length; f++) if (m.faces[f] && faceVerts(m, f).some((v) => copies.has(v))) fresh.push(f);
+        made.set(id, { faces: fresh, texel: scaleTexel, pairs });
+        this.sel.items.set(id, new Set(moving));
+      } else {
+        const keys = [...items] as string[];
+        const texel = Math.min(scaleTexel, ...keys.map((k) => { const f = edgeMap(m).get(k)?.faces[0]; return (f !== undefined && m.faces[f]?.mapping?.scaleU) || scaleTexel; }));
+        // An open edge (a face on one side) is pulled out into a new face; an edge between two faces raises a ridge --
+        // bevelled a quarter step wide with itself kept in the middle, which the drag pulls out (the mesh stays closed,
+        // never a fin standing on it).
+        const all = keys.map((k) => edgeOfKey(k));
+        const closed = all.filter(([a, b]) => edgeFaceCount(m, a, b) === 2);
+        const open = all.filter(([a, b]) => edgeFaceCount(m, a, b) === 1);
+        const faces: number[] = [];
+        const kept = new Set<string>();
+        if (closed.length) {
+          const r = extrudeClosedEdges(m, closed, this.toolStep() / 4);
+          faces.push(...r.faces);
+          if (r.faces.length) for (const [a, b] of closed) kept.add(edgeKey(a, b));
+        }
+        let sides: number[][] | undefined;
+        if (open.length) {
+          const r = extrudeEdges(m, open);
+          faces.push(...r.faces);
+          sides = [...Array(faces.length - r.faces.length).fill([]), ...r.sides];
+          for (const [a, b] of r.edges) kept.add(edgeKey(a, b));
+        }
+        made.set(id, { faces, texel, ...(sides ? { sides } : {}) });
+        this.sel.items.set(id, kept);
+      }
+      markReshaped(o);
+    }
+    if (!made.size) return;
+    this.extruding = { objects: before, sel, made };
+    this.redraw();
+  }
+
+  /**
+   * every modeller's Inset (the owner, 2026-11-18: "lets try to implement inset"; a browser adaptation): the
+   * selected faces shrunk in by the grid step (a metre with no grid) -- held under half the shortest edge of their border,
+   * so nothing crosses -- with a ring of new faces round them (`./ops` `insetFaces`). The faces stay selected, inside
+   * the ring, for the gizmo's scale to make it more or less. One edit.
+   */
+  /** The selection's items in the order picked, across objects: each object's in turn (`sel.objects`' order). */
+  private pickedInOrder(): { o: GeoObject; item: number | string }[] {
+    const out: { o: GeoObject; item: number | string }[] = [];
+    for (const id of this.sel.objects) { const o = this.objectById(id); if (o) for (const item of this.sel.items.get(id) ?? []) out.push({ o, item }); }
+    return out;
+  }
+
+  /** Points moved to new places, by object, as one edit (`./ops` `placeVerts`): the selection kept. */
+  private placeEdit(label: string, places: ReadonlyMap<GeoObject, ReadonlyMap<number, Vec3>>): boolean {
+    let moved = 0;
+    this.edit(label, () => {
+      for (const [o, at] of places) {
+        if (!at.size) continue;
+        placeVerts(o.mesh, at, { size: this.size });
+        markReshaped(o);
+        moved += at.size;
+      }
+      return moved > 0;
+    });
+    return moved > 0;
+  }
+
+  /**
+   * Snap to Grid (the reference editor's Ctrl+B, in Point, Edge and Face mode; the owner, 2026-11-20): every selected
+   * point -- or each point of the selected edges or faces -- put on the grid of the snap step in the workplane's frame
+   * (`./ops` `onFrameGrid`). A face it bends is split (the bent-face rule in `edit`). One edit.
+   */
+  private snapToGrid(): void {
+    if (!this.geo || this.sel.mode === 'object') { this.deps.say('Snap to Grid works on vertices, edges or faces', true); return; }
+    const step = this.toolStep();
+    const { origin, q } = workplaneFrame(this.deps.workplane?.() ?? flatWorkplane(0));
+    const o3 = origin.toArray();
+    const axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(([x, y, z]) => new Vector3(x, y, z).applyQuaternion(q).toArray());
+    const places = new Map<GeoObject, Map<number, Vec3>>();
+    for (const id of this.sel.objects) {
+      const o = this.objectById(id);
+      if (!o) continue;
+      const at = new Map<number, Vec3>();
+      for (const v of selectionVerts(this.sel, o)) {
+        const p = vertPos(o.mesh, v), g = onFrameGrid(p, o3, axes, step);
+        if (length(sub(g, p)) > 1e-9) at.set(v, g);
+      }
+      places.set(o, at);
+    }
+    if (this.placeEdit('Snap to grid', places)) this.deps.say(`Snapped to the grid (${Math.round(step * 1000) / 1000} units)`);
+    else this.deps.say('Snap to Grid: already on the grid', true);
+  }
+
+  /** Snap to Vertex (the reference editor's B in Point mode): every selected point moved onto the last one picked. One edit. */
+  private snapToVertex(): void {
+    const picked = this.pickedInOrder();
+    if (this.sel.mode !== 'point' || picked.length < 2) { this.deps.say('Snap to Vertex: select two or more vertices (the last picked is where they go)', true); return; }
+    const last = picked[picked.length - 1]!;
+    const to = vertPos(last.o.mesh, last.item as number);
+    const places = new Map<GeoObject, Map<number, Vec3>>();
+    for (const { o, item } of picked) {
+      const at = places.get(o) ?? places.set(o, new Map()).get(o)!;
+      if (length(sub(vertPos(o.mesh, item as number), to)) > 1e-9) at.set(item as number, [...to] as Vec3);
+    }
+    if (this.placeEdit('Snap to vertex', places)) this.deps.say(`Snapped ${picked.length - 1} vertices onto the last picked`);
+    else this.deps.say('Snap to Vertex: they are there already', true);
+  }
+
+  /**
+   * Snap Edges (the reference editor's I in Edge mode): the first of two selected edges moved onto the second -- each
+   * end onto the second's end the same way along (the reference swaps the targets where the edges run opposite ways).
+   * One edit.
+   */
+  private snapEdgeToEdge(): void {
+    const picked = this.pickedInOrder();
+    if (this.sel.mode !== 'edge' || picked.length !== 2) { this.deps.say('Snap Edges: select two edges, the one to move first', true); return; }
+    const [one, two] = picked as [{ o: GeoObject; item: number | string }, { o: GeoObject; item: number | string }];
+    const [a, b] = edgeOfKey(one.item as string), [c, d] = edgeOfKey(two.item as string);
+    let ta = vertPos(two.o.mesh, c), tb = vertPos(two.o.mesh, d);
+    const pa = vertPos(one.o.mesh, a), pb = vertPos(one.o.mesh, b);
+    if (dot(sub(pb, pa), sub(tb, ta)) < 0) [ta, tb] = [tb, ta];
+    const places = new Map<GeoObject, Map<number, Vec3>>([[one.o, new Map<number, Vec3>([[a, ta], [b, tb]])]]);
+    if (this.placeEdit('Snap edges', places)) this.deps.say('Snapped the first edge onto the second');
+  }
+
+  /**
+   * Fill Hole (the owner, 2026-11-19: "do fill hole"; a browser adaptation): each hole a selected open edge lies on
+   * capped with one face (`./ops` `fillHoles`), its texture world-aligned; a cap off its plane split into triangles (the
+   * bent-face rule in `edit`). The holes' edges stay selected. One edit.
+   */
+  private fillSelection(): void {
+    if (this.sel.mode !== 'edge') { this.deps.say('Fill Hole works on edges: select an edge of the hole in Edge mode', true); return; }
+    let made = 0, why = '';
+    this.edit('Fill hole', () => {
+      const saved = meshSaver();
+      for (const id of this.sel.objects) {
+        const o = this.objectById(id);
+        const items = this.sel.items.get(id);
+        if (!o || !items?.size) continue;
+        saved.save(o.mesh);
+        const r = fillHoles(o.mesh, objectFaces(o), [...items].map((k) => edgeOfKey(k as string)));
+        if ('error' in r) { why = r.error; saved.restore(); made = 0; return false; }   // all or nothing
+        refreshUvs(o.mesh, r.faces, this.size);
+        markReshaped(o);
+        made += r.faces.length;
+        const set = items as Set<number | string>;
+        for (const f of r.faces) { const vs = faceVerts(o.mesh, f); vs.forEach((v, i) => set.add(edgeKey(v, vs[(i + 1) % vs.length]!))); }
+      }
+      return made > 0;
+    });
+    if (made) this.deps.say(`Fill: ${made} hole${made === 1 ? '' : 's'} capped`);
+    else this.deps.say(why || 'Fill: select an edge of a hole', true);
+  }
+
+  /**
+   * Thicken Faces (the reference editor's, G; the owner, 2026-11-20: "remove the hollow and add the thicken faces"):
+   * each selected island of faces with an all-open border given a back `amount` behind it and walls round it (`./ops`
+   * `thickenFaces`); its faces stay selected; the new faces world-aligned. An island on a closed solid is left alone.
+   * One edit; its Amount (a grid step to start, as the reference's) in the settings panel.
+   */
+  private thicken(): void { this.parametric('thicken', 'Thicken', () => this.thickenRun()); }
+  private thickenRun(): void {
+    if (this.sel.mode !== 'face') { this.deps.say('Thicken works on faces: select them in Face mode', true); return; }
+    const t = this.tp('thicken', 'amount');
+    let made = 0;
+    this.edit('Thicken faces', () => {
+      const ok = this.forFaces((m, faces, o) => {
+        const r = thickenFaces(m, faces, t);
+        if (!r.faces.length) return;
+        refreshUvs(m, [...r.back, ...r.walls], this.size);
+        markReshaped(o);
+        made += r.faces.length;
+      });
+      return ok && made > 0;
+    });
+    if (made) this.deps.say(`Thicken ${Math.round(t * 100) / 100} units: ${made} face${made === 1 ? '' : 's'} given a back`);
+    else this.deps.say(`Thicken: nothing made${lastRefusal ? refusedWhy() : ` -- ${THICKEN_NOT_OPEN}`}`, true);
+  }
+
+  /**
+   * Merge, as the reference editor's (the owner, 2026-11-19: "always match hammer for all tools"). Point mode: each
+   * object's selected points merged by the Range setting -- Everything (one point), Grid (points nearer each other than
+   * the grid step) or Fixed (nearer than Distance) -- each group landing where its last picked point is (`./ops`
+   * `mergeGroups`). Edge mode: open edges welded -- two into one, more at their touching ends (`edgeMergeGroups`). The
+   * kept points (Point mode) or the edges between them (Edge mode) selected after. One edit.
+   */
+  private mergeSelection(): void {
+    if (this.sel.mode === 'edge') this.parametric('mergeEdges', 'Merge', () => this.mergeRun());
+    else this.parametric('merge', 'Merge', () => this.mergeRun());
+  }
+  private mergeRun(): void {
+    const mode = this.sel.mode;
+    if (mode !== 'point' && mode !== 'edge') { this.deps.say('Merge works on points or edges', true); return; }
+    const range = this.tp('merge', 'range');
+    const within = range === 1 ? this.toolStep() : range === 2 ? this.tp('merge', 'distance') : null;
+    let merged = 0, why = '';
+    const kept = new Map<string, number[]>();
+    this.edit('Merge', () => {
+      const saved = meshSaver();
+      for (const id of this.sel.objects) {
+        const o = this.objectById(id);
+        const items = this.sel.items.get(id);
+        if (!o || !items?.size) continue;
+        let groups: number[][], at: 'centre' | 'last' = 'last';
+        if (mode === 'point') groups = mergeGroups(o.mesh, [...items] as number[], within);
+        else {
+          const r = edgeMergeGroups(o.mesh, objectFaces(o), [...items].map((k) => edgeOfKey(k as string)));
+          if ('error' in r) { why = r.error; saved.restore(); merged = 0; return false; }
+          ({ groups, at } = r);
+        }
+        groups = groups.filter((g) => g.length > 1);
+        if (!groups.length) continue;
+        saved.save(o.mesh);
+        const k = mergeVerts(o.mesh, groups, at);
+        if (!k.length) { saved.restore(); merged = 0; return false; }   // all or nothing
+        markReshaped(o);
+        merged += groups.reduce((n, g) => n + g.length, 0);
+        kept.set(id, k);
+      }
+      if (!merged) return false;
+      const sel = emptySelection(mode);
+      for (const [id, k] of kept) {
+        const o = this.objectById(id)!;
+        let items: Set<number | string> = new Set(k);
+        if (mode === 'edge') {
+          const at = new Set(k);
+          items = new Set([...edgeMap(o.mesh, objectFaces(o)).values()].filter((e) => at.has(e.a) && at.has(e.b)).map((e) => edgeKey(e.a, e.b)));
+          if (!items.size) continue;
+        }
+        sel.objects.add(id); sel.items.set(id, items);
+      }
+      this.sel = sel;
+      return true;
+    });
+    if (merged && !lastRefusal) this.deps.say(`Merge: ${merged} points made ${[...kept.values()].reduce((n, k) => n + k.length, 0)}`);
+    else if (why) this.deps.say(`Merge: ${why}`, true);
+    else this.deps.say(`Merge: ${lastRefusal ? `nothing merged${refusedWhy()}` : mode === 'edge' ? 'select two or more open edges' : within === null ? 'select two or more points' : 'no selected points are within the range'}`, true);
+  }
+
+  private inset(): void { this.parametric('inset', 'Inset', () => this.insetRun()); }
+  private insetRun(): void {
+    if (this.sel.mode !== 'face') { this.deps.say('Inset works on faces: select them in Face mode', true); return; }
+    const step = this.tp('inset', 'amount'), steps = this.tp('inset', 'steps');
+    let made = 0, amount = step;
+    this.edit('Inset', () => {
+      const parts: { o: GeoObject; faces: number[] }[] = [];
+      const ok = this.forFaces((m, faces, o) => {
+        // Held under half the region's shortest border edge.
+        const inside = edgeMap(m, faces);
+        let shortest = Infinity;
+        for (const e of inside.values()) if (e.faces.length === 1) shortest = Math.min(shortest, length(sub(vertPos(m, e.b), vertPos(m, e.a))));
+        const d = Math.min(step, shortest * 0.45);
+        amount = Math.min(amount, d);
+        const r = insetFaces(m, faces, d, steps);
+        if (!r.ring.length) return;
+        refreshUvs(m, [...r.faces, ...r.ring], this.size);
+        markReshaped(o);
+        made += r.ring.length;
+        parts.push({ o, faces: r.faces });
+      });
+      if (!ok || !made) return false;
+      this.sel = this.madeSelection(parts);
+      return true;
+    });
+    if (made) this.deps.say(`Inset ${Math.round(amount * 100) / 100} units: ${made} new face${made === 1 ? '' : 's'} round the selection; scale it with the gizmo for more or less`);
+    else if (lastRefusal) this.deps.say(`Inset: nothing made${refusedWhy()}`, true);
   }
 
   private separate(): void {
@@ -2431,23 +3800,22 @@ export class GeometryEditor {
         if (piece) made.push(piece);
       }
       if (!made.length) return false;
-      this.sel = emptySelection('object');
-      for (const p of made) this.sel.objects.add(p.id);
+      this.sel = this.madeSelection(made.map((p) => ({ o: p, faces: objectFaces(p) })));
       return true;
     });
   }
 
   /**
    * Copy, Cut, Paste, Duplicate and Delete on the geometry (the owner, 2026-11-16: "implement copy/paste/cut/duplicate/
-   * delete when in geometry mode ... on faces"), as Source 2 Hammer has them: they act on faces (Face mode) or whole
+   * delete when in geometry mode ... on faces"), as a level editor has them: they act on faces (Face mode) or whole
    * objects (Object mode). A vertex or an edge is part of the faces round it, not geometry of its own, so there is
-   * nothing of it to copy -- Hammer copies none; Delete (a hole) and Backspace (dissolve) are what those modes have.
+   * nothing of it to copy -- a level editor copies none; Delete (a hole) and Backspace (dissolve) are what those modes have.
    * - Copy: the selected faces (or objects) to the clipboard, as they are now.
    * - Cut: Copy, then Delete -- one step.
    * - Paste: a new object made of each copied set, in place -- exactly where it was copied, so it moves off in the old
    *   one's plane -- and selected, so the gizmo moves it on.
-   * - Duplicate: a copy in place, selected (Hammer's way: then drag it off).
-   * A face set pasted or duplicated is an object of its own (Hammer's paste makes a new mesh): the faces it came from
+   * - Duplicate: a copy in place, selected (a level editor's way: then drag it off).
+   * A face set pasted or duplicated is an object of its own (a level editor's paste makes a new mesh): the faces it came from
    * stay as they were, and nothing is welded. The clipboard keeps its layer: Geometry faces paste on the Geometry layer,
    * Collision faces on the Collision layer. The Texture layer edits no shape.
    */
@@ -2568,7 +3936,7 @@ export class GeometryEditor {
 
   /* ---------- the block tool ---------- */
 
-  /** The block tool's shape (Hammer's Geometry Type), beside the Tool section while Block is on. */
+  /** The block tool's shape (a level editor's Geometry Type), beside the Tool section while Block is on. */
   /**
    * Create's shape menu (the owner, 2026-11-17: "make the dropdown create menu a little nicer. Be nice to have a preview
    * image and it is categorized better"; a browser adaptation, FG.R2): a button wearing the shape's picture and word; its
@@ -2790,11 +4158,12 @@ export class GeometryEditor {
     if (this.block) { this.drawBlock(); return; }
     const lb = this.lastBlock;
     if (lb && lb.shape === shape && this.sel.objects.size === 1 && this.sel.objects.has(lb.id)) {
-      const f = { ...lb.frame, origin: frameToWorld(lb.frame, 0, lb.y[0], 0) };
-      const a: [number, number] = [lb.x[0], lb.z[0]], b: [number, number] = [lb.x[1], lb.z[1]], h = lb.y[1] - lb.y[0];
-      const settings = this.liveSettings.settings;
-      this.drawOutline(this.outlineParts(shape, f, a, b, h, lb.run, settings));
-      this.drawBlockSolid(this.shapeMesh(shape, f, a, b, h, { textureName: lb.textureName, size: this.size, scaleTexel: this.scaleTexel() }, lb.run, settings), lb.textureName);
+      // The shape itself rebuilt with the value, nothing kept (the owner, 2026-11-19: "the live sliders should show the
+      // correct geometry, right now while I drag it shows a weird mixture of both"): never a preview drawn over the old
+      // one. The release keeps it, one edit (`setShapeSetting`).
+      lb.settings = this.liveSettings.settings;
+      this.rerun = 'quiet';
+      try { this.rebuildLastBlock(`${BLOCK_SHAPES.find((x) => x.shape === shape)?.label ?? 'Box'} settings`); } finally { this.rerun = null; }
       return;
     }
     this.showCentrePreview(shape);
@@ -2855,6 +4224,7 @@ export class GeometryEditor {
   /** The block tool on (its tab lit in place of Select's, the crosshair, its shape shown) or off (Select's again); a shape half-made let go. */
   private setBlockOn(on: boolean): void {
     if (on && this.tool !== 'select') this.setTool('select');
+    if (on && this.knifeOn) this.setKnife(false);
     this.polyCancel();
     this.blockCancel();
     const was = this.blockOn;
@@ -2864,6 +4234,7 @@ export class GeometryEditor {
     if (!on) this.drawBlockStart(null);
     this.syncBlockHandles();
     this.paintUi();
+    this.drawBar();
     if (on) this.deps.say(this.blockShape === 'polygon' ? 'Polygon: click its points one by one, then the first again (or Enter) to close it (Esc leaves the tool)'
       : this.deps.workplaneShown?.() ? 'Create: drag a rectangle out on the workplane (Esc leaves the tool)' : 'Create: drag a rectangle out on a surface (Esc leaves the tool)');
   }
@@ -3103,8 +4474,7 @@ export class GeometryEditor {
       // so it goes where they go (`followersOf`) and with them when they are deleted.
       const hullOwn = this.collisionOn || !o.solid ? null : this.shapeHull(shape, b.frame, b.a, b.b, b.h, opts, run, o.solid);
       if (hullOwn) this.setShapeHull(o, hullOwn);
-      this.sel = emptySelection('object');
-      this.sel.objects.add(o.id);
+      this.sel = this.madeSelection([{ o, faces: objectFaces(o) }]);
       this.focus = o.id;
       this.lastBlock = { id: o.id, shape, ...made, textureName: this.textureName, verts: [...o.mesh.verts], settings: { ...settings } };
     });
@@ -3253,6 +4623,9 @@ export class GeometryEditor {
     this.edit(label, () => {
       Object.assign(o.mesh, mesh);
       markReshaped(o);
+      // The selection's faces, edges or points named the old mesh's (a cylinder's 18 faces, now 9): the shape's own again,
+      // as Create left it -- else the selection drawn reads faces that are gone and the edit never lands.
+      if (this.sel.mode !== 'object' && this.sel.objects.has(o.id)) this.sel = this.madeSelection([{ o, faces: objectFaces(o) }]);
       const hullOwn = this.collisionOn || !o.solid ? null : this.shapeHull(lb.shape, f, a, b, h, opts, lb.run, o.solid);
       if (hullOwn) this.setShapeHull(o, hullOwn);
       lb.verts = [...o.mesh.verts];
@@ -3467,8 +4840,7 @@ export class GeometryEditor {
     this.polyCancel();
     this.edit(flat ? 'Create polygon face' : 'Create polygon', () => {
       const o = addObject(geo, { name: 'Polygon', kind: 'mesh', mesh, ...(surface ? { solid: surface } : {}) });
-      this.sel = emptySelection('object');
-      this.sel.objects.add(o.id);
+      this.sel = this.madeSelection([{ o, faces: objectFaces(o) }]);
       this.focus = o.id;
     });
     this.deps.say(`Polygon made${flat ? ' (a flat face)' : ''}: click the next one's first point, or Esc to leave the tool`);
@@ -3549,7 +4921,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The sampler's click (Hammer's eyedropper, the Sample mode or a Shift+click while painting): what the face under `n` has -- its texture (and its look, which Apply lays), or on the Collision
+   * The sampler's click (a level editor's eyedropper, the Sample mode or a Shift+click while painting): what the face under `n` has -- its texture (and its look, which Apply lays), or on the Collision
    * layer its collision type and climb flag -- as the active one. Whether it took one.
    */
   private sampleAt(n: Vector2): boolean {
@@ -3659,11 +5031,11 @@ export class GeometryEditor {
     }));
   }
 
-  /* ---------- the Inspector's Texture State and Modify Texture (Hammer 2's face edit) ---------- */
+  /* ---------- the Inspector's Texture State and Modify Texture (a level editor 2's face edit) ---------- */
 
   /**
-   * The selected faces' Texture State (the owner, 2026-11-17: "add texturing the same way source hammer 2 does it. Align,
-   * Scale, Shift, Rotate, Fit, Justify"; a browser adaptation): what they share, null where they differ; null off the
+   * The selected faces' Texture State (the owner, 2026-11-17: texturing as a level editor does it: Align,
+   * Scale, Shift, Rotate, Fit, Justify; a browser adaptation): what they share, null where they differ; null off the
    * Texture layer or with nothing selected. The Inspector reads it whenever the selection or the geometry changes.
    */
   textureStateNow(): TextureStateView | null {
@@ -3711,7 +5083,7 @@ export class GeometryEditor {
     return (name && this.naturalScales.get(name.toLowerCase())) || this.scaleTexel();
   }
 
-  /** Reset (Hammer's): the selected faces world-aligned at their texture's natural size, shift and rotation zeroed. */
+  /** Reset (a level editor's): the selected faces world-aligned at their texture's natural size, shift and rotation zeroed. */
   resetTexture(): void {
     this.edit('Reset texture', () => this.forFaces((m, faces) => resetMapping(m, faces, this.size, (n) => this.naturalScale(n))));
   }
@@ -3939,7 +5311,7 @@ export class GeometryEditor {
   private texturePreviewTimer: ReturnType<typeof setTimeout> | null = null;
   private texturePreviewAt = 0;
 
-  /** Hammer's Align: to the world (the nearest axis plane), to the face's own plane, or to the view (upright as you look). */
+  /** a level editor's Align: to the world (the nearest axis plane), to the face's own plane, or to the view (upright as you look). */
   alignTexture(how: 'world' | 'face' | 'view'): void {
     const scaleTexel = this.scaleTexel();
     const cam = this.deps.camera();
@@ -3951,7 +5323,7 @@ export class GeometryEditor {
     }));
   }
 
-  /** Hammer's Fit (`repeat` X by Y across) and Justify; `together` is "Treat as one": the selected faces one surface. */
+  /** a level editor's Fit (`repeat` X by Y across) and Justify; `together` is "Treat as one": the selected faces one surface. */
   justifyTexture(how: Justify, together: boolean, repeat: readonly [number, number] = [1, 1]): void {
     const scaleTexel = this.scaleTexel();
     this.edit(how === 'fit' ? 'Fit texture' : `Justify texture ${how}`, () => this.forFaces((m, faces) => justify(m, faces, how, this.size, scaleTexel, { repeat, together })));
@@ -3975,6 +5347,7 @@ export class GeometryEditor {
       this.dragBounds = this.selectionBox();
       this.applyDragSnaps();
       this.dragLift = this.lowestLift();
+      if (this.dragExtrude) this.beginDragExtrude();
       // The live vertices first: building the view (the first edit) redraws the selection, which the preview then joins.
       this.startLive();
       this.startPreview();
@@ -3991,16 +5364,25 @@ export class GeometryEditor {
     const mat = delta.elements;
     const copy = this.dragCopy;
     this.dragCopy = false;
-    if (delta.equals(new Matrix4())) { this.endLive(true); this.drawSelection(); return; }   // no move: the preview goes
+    this.dragExtrude = false;
+    const extruding = this.extruding;
+    this.extruding = null;
+    if (delta.equals(new Matrix4())) {
+      this.endLive(true);
+      // A Shift-drag let go where it began: no extrude (its faces of no depth taken back), the selection as it was.
+      if (extruding) { this.geo.objects.splice(0, this.geo.objects.length, ...extruding.objects); this.sel = extruding.sel; this.redraw(); }
+      this.drawSelection();
+      return;
+    }                                                          // no move: the preview goes
     this.endLive(false);
     if (this.sel.mode === 'object') { this.transformObjects(mat, copy); return; }
     if (copy && this.sel.mode === 'face') { this.copyFacesBy(mat); return; }
-    // Bug 5: a move with the grid snap on puts each moved point on the grid, along the axes it moved (Hammer snaps vertices),
+    // Bug 5: a move with the grid snap on puts each moved point on the grid, along the axes it moved (a level editor snaps vertices),
     // not just the selection's centre by a whole step.
     const step = this.gizmo.mode === 'translate' && this.snapBy === 'bounds' ? this.moveSnap() : null;
     const pure = [0, 1, 2, 4, 5, 6, 8, 9, 10].every((i, j) => Math.abs(mat[i]! - (j % 4 === 0 ? 1 : 0)) < 1e-9);
     const axes = [0, 1, 2].map((k) => Math.abs(mat[12 + k]!) > 1e-9);
-    this.edit(`Transform ${modeWord(this.sel.mode, 2)}`, () => {
+    this.edit(extruding ? 'Extrude' : `Transform ${modeWord(this.sel.mode, 2)}`, () => {
       for (const id of this.sel.objects) {
         const o = this.objectById(id);
         if (!o) continue;
@@ -4008,6 +5390,19 @@ export class GeometryEditor {
         transformVerts(o.mesh, vs, mat, { textureLock: true, size: this.size });
         if (step && pure) snapVerts(o.mesh, vs, step, axes, { size: this.size });
         markReshaped(o);
+      }
+      // An extrude's new faces world-aligned at their source's texel scale (as the Extrude button's walls), now they
+      // have their depth.
+      for (const [id, { faces, texel, sides, pairs }] of extruding?.made ?? []) {
+        const o = this.objectById(id);
+        if (!o) continue;
+        // Pulled edges: each new face carries on its edge's face that lies along the pull.
+        if (sides) orientPulled(o.mesh, faces, sides, [mat[12]!, mat[13]!, mat[14]!]);
+        // A lone border point's two triangles: one four-sided face where the pull left them flat together.
+        if (pairs?.length) joinFlatPairs(o.mesh, pairs);
+        const liveMade = faces.filter((f) => o.mesh.faces[f]);
+        for (const f of liveMade) { const face = o.mesh.faces[f]; if (face) face.mapping = worldAligned(faceNormal(o.mesh, f), texel); }
+        refreshUvs(o.mesh, liveMade, this.size);
       }
     });
   }
@@ -4199,7 +5594,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The drag's live edges (point, edge and face mode), as Hammer stretches a mesh under its vertex tool: every edge of a
+   * The drag's live edges (point, edge and face mode), as a level editor stretches a mesh under its vertex tool: every edge of a
    * face at a moving point, its moving ends carried by the gizmo as it drags. The faces themselves follow at the release.
    */
   private startPreview(): void {
@@ -4250,6 +5645,7 @@ export class GeometryEditor {
     this.gizmo.camera = cam;
     // The sampler first: its click is a face's texture, never the gizmo's drag (the face sampled is often the selection's).
     if (this.sampling) { if (this.sampleAt(n)) this.setTool(this.toolBeforeSample); return; }
+    if (this.knifeOn) { this.knifeClick(n); return; }           // the Knife: a click is a point of the cut
     // Create on: a resize handle of the shape just made first (`handleDown`); then the gizmo (the owner, 2026-11-17: "use
     // the gizmos after the shape is created"); else a new shape (`blockDown`, below).
     if (this.blockOn && !this.textureOn && this.block?.phase !== 'height' && this.handleDown(n, e)) return;
@@ -4271,6 +5667,9 @@ export class GeometryEditor {
         // Alt-drag copies (the owner, 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl):
         // objects whole, and faces (`copyFacesBy`). A vertex or an edge has nothing of its own to copy: it moves.
         this.dragCopy = e.altKey && (this.sel.mode === 'object' || this.sel.mode === 'face');
+        // Shift-drag extrudes (the owner, 2026-11-18: "do shift drag for faces and edges"; ProBuilder's and
+        // Maya's): faces, or edges pulled out into new faces, then moved with the drag -- one edit (`beginDragExtrude`).
+        this.dragExtrude = e.shiftKey && !e.altKey && this.gizmo.mode === 'translate' && this.sel.mode !== 'object';
         this.drive.pointerDown({ x: n.x, y: n.y, button: 0 });
         try { this.deps.input.setPointerCapture(e.pointerId); } catch { /* the release still arrives over the viewport */ }
         return;
@@ -4299,7 +5698,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Drag select as Hammer's: what the pointer passes over while held is taken -- the face under it in face mode, the
+   * Drag select as a level editor's: what the pointer passes over while held is taken -- the face under it in face mode, the
    * object in object mode, the nearest point or edge on screen in point and edge mode -- added (a plain drag, after
    * starting the selection afresh, or Shift's), or taken out (Ctrl's). A quick sweep is sampled along its path every few
    * pixels, so what lies between two pointer events is not skipped. Returns whether anything changed.
@@ -4350,6 +5749,7 @@ export class GeometryEditor {
     this.setCtrlHeld(e.ctrlKey || e.metaKey);                  // and Ctrl, the snaps' flip
     if (this.block) { this.blockMove(this.pointer); return; }  // a shape being dragged out or pulled up
     if (this.poly) { this.polyMove(this.pointer); return; }    // an outline being drawn, or its height pulled
+    if (this.knifeOn) { this.knifeHover = this.knifeAt(this.pointer); this.drawKnife(); return; }
     if (this.handleDrag && this.handleDrag.pointerId === e.pointerId) { this.handleMove(this.pointer); return; }
     this.drawBlockStart((this.blockOn || this.polyOn) && !this.textureOn ? this.pointer : null);
     const st = this.stroke;
@@ -4485,7 +5885,7 @@ export class GeometryEditor {
         this.hover.add(this.hoverLines(ps.flatMap((q, i) => [...q, ...ps[(i + 1) % ps.length]!]), 1, on ? HOVER_SELECTED : HOVER));
       };
     } else if (mode === 'point' || mode === 'edge') {
-      // As Hammer shows a mesh in its vertex and edge tools: the object under the pointer (or the one its nearest point or
+      // As a level editor shows a mesh in its vertex and edge tools: the object under the pointer (or the one its nearest point or
       // edge is on) drawn with its edges and, in point mode, a square handle on every point; the one a click takes lit.
       const near = this.screenNearest(new Vector2(at.x, at.y), hit?.object ?? null);
       const shown = near?.object ?? hit?.object ?? null;
@@ -4511,7 +5911,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The selection's own axes, as Hammer's local space: a face selection's mean normal up and its first edge across; an
+   * The selection's own axes, as a level editor's local space: a face selection's mean normal up and its first edge across; an
    * edge along itself, up its faces' mean normal; points up their faces' mean normal; an object its own (`GeoObject.basis`).
    */
   private localFrame(): Quaternion {
@@ -4551,7 +5951,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Square handles on points, as Hammer draws a mesh's vertices: a small cube each, kept `px` pixels across on screen
+   * Square handles on points, as a level editor draws a mesh's vertices: a small cube each, kept `px` pixels across on screen
    * (`frameHandles`). The renderer draws `Points` a pixel wide whatever their size, so handles are meshes.
    */
   private handles(points: ArrayLike<number>, px: number, color: number, depth: boolean): InstancedMesh {
@@ -4609,7 +6009,7 @@ export class GeometryEditor {
 
   /**
    * The point (point mode) or edge (edge mode) nearest the pointer on screen, within `PICK_PX` pixels, among the object
-   * under the pointer and the objects with something selected: Hammer's screen-space pick, so a point is taken from
+   * under the pointer and the objects with something selected: a level editor's screen-space pick, so a point is taken from
    * near it, not only from the face it stands on.
    */
   private screenNearest(ndc: Vector2, under: GeoObject | null): { object: GeoObject; item: number | string } | null {
@@ -4620,7 +6020,14 @@ export class GeometryEditor {
       const v = new Vector3(x, y, z).project(cam);
       return v.z > 1 || v.z < -1 ? null : [((v.x - ndc.x) * r.width) / 2, ((v.y - ndc.y) * r.height) / 2];
     };
-    const objects = [...new Set([under, ...[...this.sel.objects].map((id) => this.objectById(id))].filter((o): o is GeoObject => !!o))];
+    // The objects under the pointer's reach too, not only under its one pixel: on an object's outline the pixel itself
+    // can fall on what stands behind it (the floor beyond a box's corner), and the outline's edge would never be taken.
+    const around: (GeoObject | null)[] = [];
+    for (const [dx, dy] of [[PICK_PX, 0], [-PICK_PX, 0], [0, PICK_PX], [0, -PICK_PX]] as const) {
+      const at = new Vector2(ndc.x + (2 * dx) / r.width, ndc.y + (2 * dy) / r.height);
+      around.push(pickFace(this.geo, this.rayAt(at, cam), this.index)?.object ?? null);
+    }
+    const objects = [...new Set([under, ...around, ...[...this.sel.objects].map((id) => this.objectById(id))].filter((o): o is GeoObject => !!o))];
     // Every point or edge within reach, nearest first; then the first the camera sees (the occluded-pick fix: a point or
     // an edge behind a wall is neither hovered nor taken). An edge is seen when any of three points along it is.
     const found: { object: GeoObject; item: number | string; d: number; at: Vec3[] }[] = [];
@@ -4660,7 +6067,8 @@ export class GeometryEditor {
   private pickOnScreen(ndc: Vector2, under: GeoObject | null, op: PickOp): void {
     const near = this.screenNearest(ndc, under);
     if (op === 'only') { this.sel.objects.clear(); this.sel.items.clear(); }
-    if (!near) return;
+    if (!near) { this.lastEdgePick = null; return; }
+    this.lastEdgePick = this.sel.mode === 'edge' ? { id: near.object.id, key: near.item as string } : null;
     let set = this.sel.items.get(near.object.id);
     if (!set) { set = new Set(); this.sel.items.set(near.object.id, set); }
     this.sel.objects.add(near.object.id);
@@ -4762,6 +6170,14 @@ export class GeometryEditor {
     const mod = e.ctrlKey || e.metaKey;
     // The block tool: Esc lets a shape half-made go (then the tool itself); Enter makes the shape being pulled.
     // Create's Polygon: Esc lets the outline go (then the tool), Enter closes it (then makes it), Backspace takes a point back.
+    if (this.knifeOn && k === 'v' && !mod && !e.altKey && !e.shiftKey) {
+      this.knifeLoop = !this.knifeLoop;
+      this.deps.say(this.knifeLoop ? 'Knife loop mode: point at an edge to see the loop through it, click to cut it (V: back to points)' : 'Knife: points mode (V: loop mode)');
+      this.drawKnife(); this.stop(e); return;
+    }
+    if (this.knifeOn && k === 'enter') { this.knifeApply(); this.stop(e); return; }
+    if (this.knifeOn && k === 'backspace') { this.knifePts.pop(); this.drawKnife(); this.stop(e); return; }
+    if (this.knifeOn && k === 'escape') { if (this.knifePts.length) { this.knifePts = []; this.drawKnife(); } else this.setKnife(false); this.stop(e); return; }
     if (k === 'escape' && this.poly) { this.polyCancel(); this.stop(e); return; }
     if (k === 'escape' && (this.block || this.blockOn)) { if (this.block) this.blockCancel(); else this.setBlockOn(false); this.stop(e); return; }
     if (k === 'enter' && this.poly) { if (this.poly.phase === 'points') this.polyClose(); else this.polyCommit(); this.stop(e); return; }
@@ -4780,15 +6196,68 @@ export class GeometryEditor {
     // them to it (`../keys` `GEOMETRY_SHARED`), so none does two things.
     const chord = mod && !e.altKey && !e.shiftKey ? CHORD_COMMANDS[e.code] : undefined;
     if (chord) { if (!e.repeat) this.command(chord); this.stop(e); return; }
+    // Ctrl+G: Select Ribs, the reference editor's, in Edge mode.
+    if (mod && e.code === 'KeyG' && !e.altKey && !e.shiftKey && !this.textureOn && this.sel.mode === 'edge') {
+      if (!e.repeat) this.selectRibs();
+      this.stop(e);
+      return;
+    }
+    // Ctrl+B: Snap to Grid, the reference editor's, in Point, Edge and Face mode.
+    if (mod && e.code === 'KeyB' && !e.altKey && !e.shiftKey && !this.textureOn) {
+      if (!e.repeat && this.sel.mode !== 'object') { const why = this.toolBlocked('snapgrid'); if (why) this.deps.say(`Snap to Grid: ${why}`, true); else this.snapToGrid(); }
+      this.stop(e);
+      return;
+    }
     // Ctrl+Z and Ctrl+Y are the page's: its one history holds the geometry's steps too (bug 20).
     if (mod) return;
+    // The tools' own keys, as the reference editor binds them (the owner, 2026-11-19), where the page has no use for the
+    // key: C the Knife, L loop and G ring select and B Bridge in Edge mode, Alt+F Bevel, Shift+I Inset, Alt+N Separate,
+    // Alt+B Bridge. (F, V, P, M and H stay the page's: frame, walk, play, menu, docks.)
+    if (!this.textureOn && !e.repeat) {
+      const tool = this.toolKey(e);
+      if (tool) {
+        const why = EDIT_TOOL_MODES[tool]?.includes(this.sel.mode) ? this.toolBlocked(tool) : `not in ${modeWord(this.sel.mode)} mode`;
+        if (why !== null && tool !== 'knife') this.deps.say(`${this.buttons.get(tool)?.dataset['title']?.split(':')[0] ?? tool}: ${why}`, true);
+        else this.buttons.get(tool)?.click();
+        this.stop(e);
+        return;
+      }
+    }
     // W / E / R and Q are the page's (its gizmo's mode and space), which it hands on here (`syncGizmo`).
-    // Hammer's keys: Delete removes (a hole where faces went), Backspace dissolves (the faces round it merge).
+    // A level editor's keys: Delete removes (a hole where faces went), Backspace dissolves (the faces round it merge).
     if ((k === 'delete' || k === 'backspace') && this.textureOn) { this.stop(e); }   // the Texture layer edits no shape
     else if (k === 'delete') { this.deleteSelection(); this.stop(e); }
     else if (k === 'backspace') { this.dissolveSelection(); this.stop(e); }
     else if (k === 'escape' && this.tool !== 'select') { this.setTool('select'); this.stop(e); }   // Paint or Sample: back to Select
-    else if (k === 'escape' && !this.deps.doc.pointerLockElement) { this.sel = emptySelection(this.sel.mode); this.drawSelection(); this.stop(e); }
+    else if (k === 'escape' && !this.deps.doc.pointerLockElement) {
+      // Esc steps back one thing at a time: a tool (above), then the selection, then -- nothing selected, no tool -- out of
+      // Point, Edge or Face mode to Object mode (the owner, 2026-11-19: "nothing is selected and no tool is selected,
+      // pressing esc should make us go to geometry object mode").
+      const empty = [...this.sel.items.values()].every((s) => s.size === 0) && (this.sel.mode !== 'object' || this.sel.objects.size === 0);
+      if (empty && this.sel.mode !== 'object') this.setMode('object');
+      else { this.sel = emptySelection(this.sel.mode); this.drawSelection(); }
+      this.stop(e);
+    }
+  }
+
+  /** The Edit tool a key chooses in the current mode (`onKey`), or null. */
+  private toolKey(e: KeyboardEvent): string | null {
+    const m = this.sel.mode, c = e.code, alt = e.altKey, shift = e.shiftKey;
+    if (c === 'NumpadAdd' && !alt && !shift && m !== 'object') return 'grow';
+    if (c === 'NumpadSubtract' && !alt && !shift && m !== 'object') return 'shrink';
+    if (c === 'KeyC' && !alt && !shift && m !== 'object') return 'knife';
+    if (c === 'KeyL' && !alt && !shift && m === 'edge') return 'loop';
+    if (c === 'KeyG' && !alt && !shift && m === 'edge') return 'ring';
+    if (c === 'KeyG' && !alt && !shift && m === 'face') return 'thicken';
+    if (c === 'KeyB' && !shift && !alt && m === 'point') return 'snapvert';
+    if (c === 'KeyB' && !shift && (m === 'edge' || (alt && m === 'face'))) return 'bridge';
+    if (c === 'KeyI' && !shift && !alt && m === 'edge') return 'snapedge';
+    if (c === 'KeyO' && shift && !alt && (m === 'edge' || m === 'face')) return 'collapse';
+    if (c === 'KeyN' && !shift && !alt && m === 'edge') return 'extend';
+    if (c === 'KeyF' && alt && !shift && m === 'edge') return 'bevel';
+    if (c === 'KeyI' && shift && !alt && m === 'face') return 'inset';
+    if (c === 'KeyN' && alt && !shift && m === 'face') return 'separate';
+    return null;
   }
 
   private stop(e: KeyboardEvent): void {
@@ -4798,6 +6267,63 @@ export class GeometryEditor {
 }
 
 export type { Vector3 };
+
+/**
+ * An Edit tool's setting (the owner, 2026-11-19: "for each tool can you add parameteric values we can change ...
+ * similar [to] the create objects ... in real time"): a number, starting at `value` -- or at the grid step times `grid`
+ * (a metre with no grid), or a metre times `metre` -- in [`min`, `max`] by `step`.
+ */
+/** `options`: a choice, its value the option's index; `when`: shown only while another setting has that value. */
+interface ToolSetting { key: string; label: string; min: number; max: number; step: number; note: string; unit?: 'u'; value?: number; grid?: number; metre?: number; options?: readonly string[]; when?: { key: string; is: number } }
+/** Each parametric Edit tool's settings (a browser adaptation, FG.R2; the reference editor's tool panels' values). */
+const TOOL_SETTINGS: Readonly<Record<string, readonly ToolSetting[]>> = {
+  bevel: [
+    { key: 'width', label: 'Width', min: 0.01, max: 10000, step: 0.25, unit: 'u', grid: 1, note: 'How far the bevel reaches from the edge, along each face (held under half their edges)' },
+    { key: 'segments', label: 'Segments', min: 1, max: 16, step: 1, value: 1, note: 'Faces across each bevel: 1 a flat chamfer, more a curve' },
+    { key: 'shape', label: 'Shape', min: 0, max: 1, step: 0.05, value: 1, note: 'With more than one segment: 0 straight across, 1 a round curve into the corner' },
+  ],
+  inset: [
+    { key: 'amount', label: 'Amount', min: 0.01, max: 10000, step: 0.25, unit: 'u', grid: 1, note: 'How far the faces shrink in (held under half their border\'s shortest edge)' },
+    { key: 'steps', label: 'Steps', min: 1, max: 8, step: 1, value: 1, note: 'Rings between the old outline and the new, the amount shared evenly' },
+  ],
+  extrude: [
+    { key: 'distance', label: 'Distance', min: 0.01, max: 10000, step: 0.25, unit: 'u', metre: 1, note: 'How far the faces are pulled out along their normal' },
+  ],
+  subdivide: [
+    { key: 'cutsX', label: 'Cuts X', min: 0, max: 16, step: 1, value: 1, note: 'Cuts across the face\'s first and third sides' },
+    { key: 'cutsY', label: 'Cuts Y', min: 0, max: 16, step: 1, value: 1, note: 'Cuts across its second and fourth sides' },
+  ],
+  subdivideEdges: [
+    { key: 'cuts', label: 'Cuts', min: 1, max: 16, step: 1, value: 1, note: 'New points along each edge, evenly spaced' },
+  ],
+  loopcut: [
+    { key: 'cuts', label: 'Cuts', min: 1, max: 16, step: 1, value: 1, note: 'New loops across the ring, evenly spaced' },
+  ],
+  thicken: [
+    { key: 'amount', label: 'Amount', min: 0.01, max: 10000, step: 0.25, unit: 'u', grid: 1, note: 'How thick: the back this far behind the faces' },
+  ],
+  extend: [
+    { key: 'amount', label: 'Amount', min: 0.01, max: 10000, step: 0.25, unit: 'u', grid: 1, note: 'How far out the new edges go, in the plane of each edge\u2019s face' },
+  ],
+  merge: [
+    { key: 'range', label: 'Range', min: 0, max: 2, step: 1, value: 0, options: ['Everything', 'Grid', 'Fixed'], note: 'Which selected points merge: all of them into one, those within the grid step of each other, or those within Distance' },
+    { key: 'distance', label: 'Distance', min: 0.01, max: 10000, step: 0.1, unit: 'u', value: 0.1, when: { key: 'range', is: 2 }, note: 'With Range Fixed: points nearer each other than this merge' },
+  ],
+  bridge: [
+    { key: 'segments', label: 'Segments', min: 1, max: 16, step: 1, value: 1, note: 'Rings along a bridge between two faces' },
+  ],
+};
+/** Where the Edit tools' settings are kept in this browser (a browser adaptation, FG.R2: a viewer's own preference). */
+const TOOL_SETTINGS_KEY = 's2u-forge-tool-settings';
+function readToolSettings(): Record<string, Record<string, number>> {
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem(TOOL_SETTINGS_KEY) ?? 'null') as unknown;
+    return raw && typeof raw === 'object' ? raw as Record<string, Record<string, number>> : {};
+  } catch { return {}; }
+}
+function writeToolSettings(all: Record<string, Record<string, number>>): void {
+  try { globalThis.localStorage?.setItem(TOOL_SETTINGS_KEY, JSON.stringify(all)); } catch { /* this visit's alone */ }
+}
 
 /** Where Create's shape settings are kept in this browser (a browser adaptation, FG.R2: a viewer's own preference). */
 const SHAPE_SETTINGS_KEY = 's2u-forge-shape-settings';

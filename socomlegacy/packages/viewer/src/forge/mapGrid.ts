@@ -4,14 +4,14 @@ import { LineBasicNodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu';
 
 /**
  * The Forge's map grid (View > Map grid; a browser adaptation, FG.R2: the original has no editor): the snap's grid, drawn
- * over the base -- a disc map, an authored map or the blank floor alike -- through the origin, as Hammer's grid is (so a
+ * over the base -- a disc map, an authored map or the blank floor alike -- through the origin, as a level editor's grid is (so a
  * placement at 0,0,0 sits on it, and what is drawn is where the grid snap lands).
  *
  * Its lines, in tiers (`gridTiers`): every grid step (the snap's, `setStep`); every `METRE_STEP` (1 m at the disc's
  * `MetersPerUnit` 0.1) and every `MAJOR_STEP` (10 m) brighter, each where it is a multiple of the step -- the metric
  * grid the disc's maps were laid out on (a probe of five maps' world vertices, 2026-11-15: 5 and 10 units far above a
- * power of two's share), fixed whatever the step, as Hammer's highlight lines are. A tier closer than a few pixels on
- * screen fades out (Hammer's "hide grid smaller than 4 pixels"), so a 1/16 step stays readable at any zoom. The axes
+ * power of two's share), fixed whatever the step, as a level editor's highlight lines are. A tier closer than a few pixels on
+ * screen fades out (a level editor's "hide grid smaller than 4 pixels"), so a 1/16 step stays readable at any zoom. The axes
  * through the origin in the gizmo's colours: X red, Y green, Z blue.
  *
  * Drawn in the fragment shader (a quad a plane, its lines from the world position's derivatives) so any step and any
@@ -21,7 +21,7 @@ import { LineBasicNodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu';
  * view in any direction"), one shown at a time as the view that draws looks (`orient`): a perspective view, the workplane's
  * (`Workplane`: flat at y = 0 unless set or picked), depth-tested so it lies under what stands over it, fading with
  * distance; an orthographic view, the workplane's while it faces the view, else the axis plane the view looks straight at
- * behind the whole map (as Hammer's 2D views draw their grid under everything), unfaded. A bright cyan (apart from the axes) that reads on a dark map and
+ * behind the whole map (as a level editor's 2D views draw their grid under everything), unfaded. A bright cyan (apart from the axes) that reads on a dark map and
  * the blank floor's grey.
  */
 export const METRE_STEP = 10;

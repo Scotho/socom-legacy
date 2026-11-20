@@ -2705,7 +2705,7 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-create-panel-shape:hover { background: var(--fx-hover); border-color: var(--fx-control-edge); }
 .fx-create-panel-shape .fx-shape-icon { width: 22px; height: 22px; }
 .fx-create-panel .fx-shape-setting { grid-template-columns: 100px 1fr; }
-/* Geometry mode's Texture State and Modify Texture (`./panels/textureInspector`; Source 2 Hammer's face edit panel): a
+/* Geometry mode's Texture State and Modify Texture (`./panels/textureInspector`; a level editor's face edit panel): a
    caption column, then the row's fields (Scale and Shift X / Y, Rotate) or its buttons, wrapping when the dock is narrow. */
 .fx-inspector .fx-texture-section .fx-fields { grid-template-columns: 1fr; }
 .fx-inspector .fx-texture-section .fx-field-row { display: grid; grid-template-columns: 64px repeat(2, minmax(0, 1fr)); gap: 6px; align-items: center; }

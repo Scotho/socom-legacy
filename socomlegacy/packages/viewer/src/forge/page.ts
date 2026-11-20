@@ -14,6 +14,7 @@ import {
   MeshBasicMaterial, Euler, MathUtils, Object3D, PlaneGeometry, Quaternion, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { tightenGizmo } from './gizmoPick';
 import { GeometryEditor, type GeometrySelectionState, type GeometrySnapshot } from './geometry/editor';
 import { decodeGeometry, encodeGeometry, gunzip, gzip } from './geometry/geometryFile';
 import { getGeometry, putGeometry, sweepGeometry } from './geometryStore';
@@ -1760,7 +1761,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const SNAP_BY_OPTIONS: readonly [SnapBy, string, string][] = [
     ['pivot', 'Pivot', 'Where the gizmo sits lands on the grid: an object\'s own origin, a group\'s or a geometry selection\'s middle'],
     ['centre', 'Centre', 'The middle of what is moved (its box\'s) lands on the grid'],
-    ['bounds', 'Bounds', 'What is moved lands its nearest edges on the grid lines (Hammer\'s); in Geometry mode moved points, edges and faces each point on the grid'],
+    ['bounds', 'Bounds', 'What is moved lands its nearest edges on the grid lines (a level editor\'s); in Geometry mode moved points, edges and faces each point on the grid'],
   ];
   const snapByBtns = SNAP_BY_OPTIONS.map(([v, label, title]) => {
     const b = el(doc, 'button', 'fx-asset-tab', label);
@@ -3074,9 +3075,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
 
   gizmo = new TransformControls(fly.viewportCamera(), input);
+  tightenGizmo(gizmo);                                          // hit only near its handles, no negative-side handles (`./gizmoPick`)
   gizmo.setTranslationSnap(null);
   scene.add(gizmo.getHelper());
-  // The geometry mode (`./geometry/editor`; a browser adaptation, FG.R2): the base map's world edited as Hammer edits a
+  // The geometry mode (`./geometry/editor`; a browser adaptation, FG.R2): the base map's world edited as a level editor edits a
   // map. Its pointer and keys are its own while it is on; the page lets go of its selection and gizmo.
   /**
    * Geometry mode's Inspector (the owner, 2026-11-15: "show the transform for geometry objects, and allow the user to edit
@@ -3093,7 +3095,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   if (geoProps) geoProps.hidden = true;
   const geoTransform = geoInspector.body.querySelector<HTMLElement>('[data-inspect-section="transform"]');
   /**
-   * The Texture layer's Texture State and Modify Texture (Source 2 Hammer's face edit; the owner, 2026-11-17), in the
+   * The Texture layer's Texture State and Modify Texture (a level editor's face edit; the owner, 2026-11-17), in the
    * Transform's place while the layer is on: every press one edit on the selected faces (`./panels/textureInspector`).
    */
   const textureInspector = buildTextureInspector(doc, {
@@ -3171,7 +3173,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     doc, scene, input, modeTools: geometryModeTools, tools: geometryTools, statusHost: viewport, legendHost: () => { if (!legendStack.isConnected) viewport.append(legendStack); return legendStack; }, camera: () => fly.viewportCamera(), say,
     navigating: () => fly.navigating(),
     onHistory: () => refreshUndo(),
-    onEdit: (label) => { recordGeometryStep(label); drawGeoInspector(); },
+    // A tool run again with a setting changed (`amend`): folded into its own step, never a new one.
+    onEdit: (label, amend) => { if (amend) foldGeometryNext = true; recordGeometryStep(label); drawGeoInspector(); },
     onSelect: () => { noteSelectionSoon(); drawGeoInspector(); },
     onObjects: () => { drawOutlinerSoon(); drawGeoInspector(); },
     // A disc map's base edits its world; a blank base (bug 17) an empty world over its library's textures, which opens with
@@ -5076,7 +5079,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   /**
    * A split's other views (the owner, 2026-11-15): every view but the first with its Wireframe and Map grid on -- in
-   * Modelling mode the edges alone, its Geometry off (as Hammer's 2D views are); in Object mode over its Geometry, kept on
+   * Modelling mode the edges alone, its Geometry off (as a level editor's 2D views are); in Object mode over its Geometry, kept on
    * (Textured is every view's, untouched). The first (the perspective) is left as the user set it. Set when the layout
    * changes (not when a kept split is first laid: it opens as it was) and when the mode changes (`force`); a view's own
    * menu turns them after.
@@ -5916,7 +5919,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // Selections are steps too (the owner, 2026-11-15), so the history holds more of them than the layout's 100 alone.
   const history = new History<string>('', 300);
   /**
-   * Bug 20 (one history across the modes, as Hammer's, Unreal's and Blender's undo): the geometry beside the history --
+   * Bug 20 (one history across the modes, as Unreal's and Blender's undo): the geometry beside the history --
    * each step names a revision (`HistoryStep.geo`), each revision the geometry as it stood (`GeometryEditor.snapshot`;
    * revision 0, as the layout opened). A geometry edit is a step of its own (`recordGeometryStep`); an undo or a redo
    * puts the geometry of the step it lands on back (`restoreGeometry`), in any mode.
@@ -5956,7 +5959,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * Bug 1 (the Forge geometry audit; the owner, 2026-11-16: "Edits aren't saved. A reload, a base switch or opening a
    * layout loses everything, with no warning"; a browser adaptation, FG.R2): the geometry a layout saves is an asset of
    * its own in this browser (`./geometryStore`, by its content's hash), the layout naming it (`Layout.geometry`), as
-   * Hammer keeps a map's mesh edits in its `.vmap`. `geoSaved`: the asset of the geometry at a revision (`geometryKey`),
+   * A level editor keeps a map's mesh edits in its `.vmap`. `geoSaved`: the asset of the geometry at a revision (`geometryKey`),
    * so an autosave encodes a geometry once, not at every save of the layout; null, the base's own geometry.
    */
   let geoSaved: { key: string; ref: string | null } | null = null;
@@ -10592,7 +10595,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     };
     // Geometry (the owner, 2026-11-15; bug 18: "we need to see all the world geometry in the outliner. so all the map
     // sections"; then "add the geometry folder to either map objects or user objects, depending if we created it"): every
-    // geometry object, as Hammer's Outliner lists them -- the map's own world sections in a Geometry folder under Map
+    // geometry object, as a level editor's Outliner lists them -- the map's own world sections in a Geometry folder under Map
     // Objects, each box, plane, sphere, cylinder and piece made in one under User Objects. A click selects it in Geometry
     // mode (the mode turned on), Shift or Ctrl adds it or takes it out; a double-click frames it.
     // The geometry's two layers, each a folder of its own in both sections at all times (the owner, 2026-11-15: "create
@@ -13804,6 +13807,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       walking: (): boolean => playing,
       /** An object of the layer the editor is on selected whole, as a click on it in Object selection selects it. */
       select: (id: string): void => geometry?.selectObject(id, false),
+      geoMesh: (id: string) => geometry?.testMesh(id) ?? null,
+      geoSelect: (mode: 'object' | 'point' | 'edge' | 'face', picks: { id: string; items: (number | string)[] }[]): void => geometry?.testSelect(mode, picks),
       /** A custom map opened as New's blank preset opens one (its library the page's own). */
       openBlank: async (library: string = BLANK_LIBRARY): Promise<void> => {
         for (let i = 0; busy && i < 100; i++) await new Promise((r) => setTimeout(r, 100));
@@ -14256,6 +14261,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const keyState = (): ForgeKeyState => ({
     typing: false /* the listeners return on a field first */, match: match !== null, menu: padMenu.isOpen(), card: !modal.hidden || !help.hidden, playing,
     geometry: geometry?.isActive() ?? false,                   // Geometry mode's own keys are its (`./keys` `GEOMETRY_SHARED`)
+    knife: geometry?.knifeActive() ?? false,                   // the Knife's V (loop mode), not Walk
     pointerLocked: !!doc.pointerLockElement,                      // the review's F2: no pointer lock API is no lock
     leased: leases.holder() !== null,                             // FUI-2: a panel holding the focus reads its own keys
     navigating: fly.navigating(),                                 // RMB fly, a pan, an orbit, a dolly: W / E / R are the camera's
@@ -16386,13 +16392,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       'rule',
       { label: 'Duplicate', icon: icon('duplicate'), keys: 'Ctrl+D', act: () => (geoEdits() ? geometry!.command('duplicate') : duplicate()), enabled: () => (geoEdits() ? geometry!.canCommand('duplicate') : !dupBtn.disabled) },
       { label: 'Delete', icon: icon('trash'), keys: 'Del', act: () => (geoEdits() ? geometry!.command('delete') : remove()), enabled: () => (geoEdits() ? geometry!.canCommand('delete') : !delBtn.disabled) },
-      'rule',
-      // Select similar faces (the owner, 2026-11-17; modelling tools' "select similar"): Geometry mode's, any layer.
-      { label: 'Select Coplanar Faces', act: () => geometry?.selectSimilar('coplanar'), enabled: geoEdits },
-      { label: 'Select Faces With Same Texture', act: () => geometry?.selectSimilar('texture'), enabled: geoEdits },
-      { label: 'Select Floors', act: () => geometry?.selectSimilar('floors'), enabled: geoEdits },
-      { label: 'Select Walls', act: () => geometry?.selectSimilar('walls'), enabled: geoEdits },
-      { label: 'Select Ceilings', act: () => geometry?.selectSimilar('ceilings'), enabled: geoEdits },
     ]);
     // The AI Navigation menu is gone (the owner, 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
     // settings"): its layer switches are AI Navigation mode's View (`navToggle`); the map's switch the Overlays menu's.

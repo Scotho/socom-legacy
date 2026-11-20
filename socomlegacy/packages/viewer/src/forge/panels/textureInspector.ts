@@ -5,8 +5,8 @@ import type { DetailChange, Justify, MappingChange } from '../geometry/texturing
 import type { TextureStateView } from '../geometry/editor';
 
 /**
- * Geometry mode's texturing in the Inspector, as Source 2 Hammer's face edit panel lays it out (the owner, 2026-11-17:
- * "add texturing the same way source hammer 2 does it. Align, Scale, Shift, Rotate, Fit, Justify, etc."; a browser
+ * Geometry mode's texturing in the Inspector, as a level editor's face edit panel lays it out (the owner, 2026-11-17:
+ * texturing as a level editor does it: Align, Scale, Shift, Rotate, Fit, Justify; a browser
  * adaptation, FG.R2): two folding sections in the dock's one section look (`.fx-fold`).
  * - **Texture State**: the selected faces' Scale (world units a texel, U and V), Shift (texels) and Rotate (degrees),
  *   each a field that scrubs or takes a typed value -- blank where the faces differ, and setting it sets them all.
@@ -16,7 +16,7 @@ import type { TextureStateView } from '../geometry/editor';
  * Every press is one edit (one undo step), on the faces the Select tool has (a face selection, or whole objects).
  *
  * The assists for someone new to texturing (the owner, 2026-11-17: "easy ... for noobs ... but also stay standard") are
- * the same numbers shown or set another way, never a state of their own: Units (Texels, Hammer's; or Metres -- Scale as
+ * the same numbers shown or set another way, never a state of their own: Units (Texels, a level editor's; or Metres -- Scale as
  * the size of one copy of the texture, Shift as a part of one copy), Reset (world-aligned at the texture's natural size,
  * as the map's own makers laid it), and a warning when the texture is stretched or far off that size, with Fix (Reset).
  *
@@ -70,7 +70,7 @@ export function buildTextureInspector(doc: Document, hooks: TextureInspectorHook
   const unitsSel = forgeEl(doc, 'select', 'fx-select fx-texture-units') as HTMLSelectElement;
   for (const [v, w] of [['texels', 'Texels'], ['metres', 'Metres']] as const) { const o = forgeEl(doc, 'option', '', w) as HTMLOptionElement; o.value = v; unitsSel.append(o); }
   unitsSel.value = pageSettings.get(UNITS_KEY) === 'metres' ? 'metres' : 'texels';
-  unitsSel.title = 'Texels: Scale in world units a texel and Shift in texels (Hammer\'s). Metres: Scale as the size of one copy of the texture, Shift as a part of one copy';
+  unitsSel.title = 'Texels: Scale in world units a texel and Shift in texels (a level editor\'s). Metres: Scale as the size of one copy of the texture, Shift as a part of one copy';
   unitsSel.setAttribute('aria-label', 'Units');
   const metres = (): boolean => unitsSel.value === 'metres';
   /** A texture's width (axis 0) or height (1) in metres a copy needs its size; null where the faces' textures differ. */
@@ -236,7 +236,7 @@ export function buildTextureInspector(doc: Document, hooks: TextureInspectorHook
   const repeats = (): [number, number] => [Math.max(0.01, Number(fitX.value) || 1), Math.max(0.01, Number(fitY.value) || 1)];
   const step = (): { shift: number; rotate: number } => hooks.steps();
   line('Align',
-    btn('World', 'Align to the world: the axis plane nearest each face (Hammer\'s default)', () => hooks.align('world')),
+    btn('World', 'Align to the world: the axis plane nearest each face (a level editor\'s default)', () => hooks.align('world')),
     btn('Face', 'Align to the face: the axes in each face\'s own plane', () => hooks.align('face')),
     btn('View', 'Align to the view: upright as the camera looks at it', () => hooks.align('view')),
     btn('Reset', 'Reset: world-aligned at the texture\'s natural size (as the map\'s own makers laid it), shift and rotation zeroed', () => hooks.reset()));

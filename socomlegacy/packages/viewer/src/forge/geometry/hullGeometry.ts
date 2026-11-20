@@ -6,7 +6,7 @@ import { appendOwnedPolys, buildHullMesh, GEOMETRY_OWNER_MODEL, type GeoObject, 
 
 /**
  * Collision editing (the owner, 2026-11-15: "a collision edit toggle in geometry mode ... it should be like I was just
- * editing another geometry"; a browser adaptation, FG.R2, as Hammer's clip brushes and Source 2's collision meshes are
+ * editing another geometry"; a browser adaptation, FG.R2, as a level editor's clip brushes and an engine's collision meshes are
  * edited with the same tools as the rest): the hull as editable geometry. Each world node's polygons are one object (a
  * face a polygon, its surface words on it: `Face.surface`), so every tool of Geometry mode -- the selection modes, the
  * gizmo, Delete, Dissolve, Extrude, Create, the Outliner, undo -- works on it unchanged. An object edited here is the

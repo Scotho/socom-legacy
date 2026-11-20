@@ -6,7 +6,7 @@ import { dot, facePoints, liveFaces, polygonNormal, triangulate, type EditMesh, 
 /**
  * The hull as its own editable layer. The original's collision is separate data from its draws (`GroundData`: the
  * probe's polygons, `worldCollision` order, with their surface words and owners), so it is imported verbatim -- an
- * untouched layer packs back to the very `GroundData` it came from -- and edited on its own, as Hammer's collision is.
+ * untouched layer packs back to the very `GroundData` it came from -- and edited on its own, as a level editor's collision is.
  * Geometry made by hand gets a hull from its faces (`hullOfMesh`, a browser adaptation: the original's tools built its
  * hulls by a process not known here).
  */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { box } from '../../src/forge/geometry/primitives';
 import { snapVerts, transformVerts, translation } from '../../src/forge/geometry/ops';
 
-// Bug 5 (the geometry audit): grid snap puts each moved point on the grid, along the axes it moved -- Hammer snaps
+// Bug 5 (the geometry audit): grid snap puts each moved point on the grid, along the axes it moved -- a level editor snaps
 // vertices -- not the selection's centre by a whole step.
 const OPTS = { textureName: null, size: () => null, scaleTexel: 1 };
 const xs = (m: { verts: number[] }, vs: number[]): number[] => vs.map((v) => m.verts[v * 3]!);

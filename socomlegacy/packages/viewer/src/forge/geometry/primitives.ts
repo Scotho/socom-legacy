@@ -4,7 +4,7 @@ import {
 import { refreshUvs, worldAligned, type TextureSize } from './texturing';
 
 /**
- * New geometry from primitives (a browser adaptation, after Hammer's block tool; the owner, 2026-11-14: "create new
+ * New geometry from primitives (a browser adaptation, after a level editor's block tool; the owner, 2026-11-14: "create new
  * geometry from cubes, spheres, planes"). Each is a mesh of its own in world space -- shared points, a corner each face
  * so each face shades flat and maps its own texture -- textured world-aligned at `scaleTexel` world units a texel (the
  * map's own density, `./texturing` `medianTexelScale`, when the caller has it). Faces wind CCW seen from outside.
@@ -49,7 +49,7 @@ export function meshOf(points: readonly Vec3[], rings: readonly number[][], opts
   return m;
 }
 
-/** A box between two corners (Hammer's block). */
+/** A box between two corners (a level editor's block). */
 export function box(min: readonly number[], max: readonly number[], opts: PrimitiveOptions): EditMesh {
   const [x0, y0, z0] = [Math.min(min[0]!, max[0]!), Math.min(min[1]!, max[1]!), Math.min(min[2]!, max[2]!)];
   const [x1, y1, z1] = [Math.max(min[0]!, max[0]!), Math.max(min[1]!, max[1]!), Math.max(min[2]!, max[2]!)];

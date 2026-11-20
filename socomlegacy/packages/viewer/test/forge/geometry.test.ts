@@ -170,7 +170,7 @@ describe('tools', () => {
   });
 });
 
-describe('texturing (as Hammer does it)', () => {
+describe('texturing (as a level editor does it)', () => {
   it('world-aligned: a floor maps x to u and z to v at its scale', () => {
     const map = worldAligned([0, 1, 0], 2);
     expect(mappedUv(map, [64, 0, 32], [32, 16])).toEqual([1, 1]);
@@ -206,7 +206,7 @@ describe('texturing (as Hammer does it)', () => {
     expect(Math.abs(m.faces[0]!.mapping!.u[2])).toBeCloseTo(1);
   });
 
-  // Hammer 2's Texture State and Modify Texture (the owner, 2026-11-17: "Align, Scale, Shift, Rotate, Fit, Justify").
+  // A level editor 2's Texture State and Modify Texture (the owner, 2026-11-17: "Align, Scale, Shift, Rotate, Fit, Justify").
   it('Texture State: rotation read off the axes, set absolutely; shared values, null where faces differ', () => {
     expect(mappingRotation(worldAligned([0, 1, 0], 1))).toBeCloseTo(0);
     const m = plane([0, 0, 0], 10, 10, 2, OPTS);
@@ -472,16 +472,18 @@ describe('Build: the hull from the edited geometry', () => {
   });
 });
 
-describe("dissolve (Hammer's Backspace; Delete leaves a hole)", () => {
+describe("dissolve (a level editor's Backspace; Delete leaves a hole)", () => {
   const corners = (m: ReturnType<typeof box>): number[] => liveFaces(m).map((f) => m.faces[f]!.corners.length);
   const closed = (m: ReturnType<typeof box>): boolean => [...edgeMap(m).values()].every((e) => e.faces.length === 2);
 
-  it('an edge of a box: its two faces become one six-cornered face, the box still closed', () => {
+  it('an edge of a box: its two faces become one, the two points left with two edges taken out (the box closed)', () => {
     const m = box([0, 0, 0], [4, 4, 4], OPTS);
     const top = liveFaces(m).find((f) => faceNormal(m, f)[1] > 0.9)!;
     const [a, b] = faceVerts(m, top);
     expect(dissolveEdges(m, [[a!, b!]])).toEqual({ faces: [expect.any(Number)], kept: 0 });
-    expect(corners(m).sort()).toEqual([4, 4, 4, 4, 6]);
+    // The edge's two ends had three edges each, two once it went, both inside the surface: taken out of their faces --
+    // the joined face four-cornered, the two side faces beside it triangles.
+    expect(corners(m).sort()).toEqual([3, 3, 4, 4, 4]);
     expect(closed(m)).toBe(true);
   });
 
@@ -516,13 +518,19 @@ describe("dissolve (Hammer's Backspace; Delete leaves a hole)", () => {
     expect(corners(m)).toEqual([8]);
   });
 
-  it('faces: a 2x2 plane merged into one; every inner edge of a 3x3 grid dissolved into one', () => {
+  it('faces: a 2x2 plane combined into one quad (the points in a line on its sides taken out); a 3x3 grid\'s inner edges too', () => {
     const m = plane([0, 0, 0], 8, 8, 2, OPTS);
     expect(dissolveFaces(m, liveFaces(m))).toHaveLength(1);
-    expect(corners(m)).toEqual([8]);
+    expect(corners(m)).toEqual([4]);
     const g = plane([0, 0, 0], 12, 12, 3, OPTS);
     const inner = [...edgeMap(g).values()].filter((e) => e.faces.length === 2).map((e) => [e.a, e.b] as [number, number]);
     expect(dissolveEdges(g, inner).kept).toBe(0);
-    expect(corners(g)).toEqual([12]);
+    expect(corners(g)).toEqual([4]);
+  });
+
+  it('faces at an angle are never combined: a box\'s six stay six', () => {
+    const m = box([0, 0, 0], [4, 4, 4], OPTS);
+    dissolveFaces(m, liveFaces(m));
+    expect(liveFaces(m)).toHaveLength(6);
   });
 });

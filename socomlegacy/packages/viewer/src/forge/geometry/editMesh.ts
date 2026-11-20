@@ -1,8 +1,8 @@
 import type { LoadedMesh } from '../../loadMap';
 
 /**
- * The Forge's editable geometry (a browser adaptation, FG.R2 -- the game has no editor; the owner, 2026-11-14: "I basically
- * want a source 2 like hammer editable"). A polygon mesh of shared points, each face a ring of corners:
+ * The Forge's editable geometry (a browser adaptation, FG.R2 -- the game has no editor; the owner, 2026-11-14: a level editor's
+ * editable mesh). A polygon mesh of shared points, each face a ring of corners:
  * - a **point** (`verts`) is a position; every face that uses it moves with it, across textures and draws;
  * - a **corner** is a face's use of a point plus what the draw carries per vertex -- uv, the material colour, the vertex
  *   normal, the visual's centroid (`MeshData`) -- so a seam keeps its two uvs on one point;
@@ -39,7 +39,7 @@ export interface StyleSlot {
 }
 
 /**
- * A texture laid on a face as Hammer lays one: two texture axes, a scale on each (world units a texel) and a shift on
+ * A texture laid on a face as a level editor lays one: two texture axes, a scale on each (world units a texel) and a shift on
  * each (texels), so a texel coordinate is `dot(p, u) / scaleU + shiftU` and the uv that over the texture's size
  * (`./texturing` `mappedUv`). A face off the disc has none until it is textured or picked up (`fitMapping`): its
  * corners keep the disc's uvs.

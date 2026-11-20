@@ -4,7 +4,7 @@ import { importWorld } from './worldMesh';
 import { medianTexelScale } from './texturing';
 
 /**
- * A blank base's geometry (bug 17; a browser adaptation, after Hammer's new map, which models from nothing): the floor it
+ * A blank base's geometry (bug 17; a browser adaptation, after a level editor's new map, which models from nothing): the floor it
  * opens with is a plane of its own -- editable, displaceable, solid -- and what it looks and stands like is read off the
  * library map the blank base is built from, not chosen:
  * - no texture (the owner, 2026-11-17: "when I create an empty map, then go to geometry mode, the ground immediately gets a

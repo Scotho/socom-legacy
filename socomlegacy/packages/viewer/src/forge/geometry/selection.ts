@@ -3,13 +3,14 @@ import {
   type EditMesh, type Vec3,
 } from './editMesh';
 import { displacementGrid } from './displacement';
+import { Topo } from './topology';
 import { objectFaces, objectVerts, type GeoObject, type WorldGeometry } from './world';
 
 /**
- * Selection in Hammer's four modes (a browser adaptation; the owner, 2026-11-14: "an object mode, point mode, edge
+ * Selection in a level editor's four modes (a browser adaptation; the owner, 2026-11-14: "an object mode, point mode, edge
  * mode, and face mode"): a whole object, its points, its edges, its faces. Picking is by a ray (the camera's through the
  * cursor): the nearest face it hits, and in point and edge mode the point or edge of that hit nearest the ray within
- * `tolerance` world units. A selection converts between modes as Hammer's does (`selectionVerts`).
+ * `tolerance` world units. A selection converts between modes as a level editor's does (`selectionVerts`).
  */
 
 export type SelectMode = 'object' | 'point' | 'edge' | 'face';
@@ -26,7 +27,7 @@ export const emptySelection = (mode: SelectMode = 'object'): Selection => ({ mod
 
 export interface Ray { origin: readonly number[]; dir: readonly number[] }
 
-/** Möller-Trumbore: the ray's distance to triangle a b c, or null (both sides hit, as Hammer picks a face from behind). */
+/** Möller-Trumbore: the ray's distance to triangle a b c, or null (both sides hit, as a level editor picks a face from behind). */
 export function rayTriangle(ray: Ray, a: readonly number[], b: readonly number[], c: readonly number[]): number | null {
   const e1 = sub(b, a), e2 = sub(c, a);
   const p = cross(ray.dir, e2);
@@ -171,7 +172,7 @@ export function selectionVerts(sel: Selection, object: GeoObject): Set<number> {
   return new Set([...items].flatMap((f) => (m.faces[f as number] ? faceVerts(m, f as number) : [])));
 }
 
-/** A selection carried to another mode, as Hammer converts one: faces to their points or edges, points to the faces they close, and so on. */
+/** A selection carried to another mode, as a level editor converts one: faces to their points or edges, points to the faces they close, and so on. */
 export function convertSelection(world: WorldGeometry, sel: Selection, mode: SelectMode): Selection {
   const out = emptySelection(mode);
   for (const object of world.objects) {
@@ -204,6 +205,88 @@ export function selectionCentre(world: WorldGeometry, sel: Selection): Vec3 | nu
 /** The faces a face selection holds in one object (what the texture tools act on). */
 export const selectedFaces = (sel: Selection, id: string): number[] =>
   sel.mode === 'face' ? [...(sel.items.get(id) ?? [])].filter((x): x is number => typeof x === 'number') : [];
+
+/**
+ * Grow or Shrink selection (every modeller's; the owner, 2026-11-19: "implement the grow shrink selection"; a browser
+ * adaptation, the game has no editor): one object's `items` in `mode`, among `faces`, a step bigger or smaller.
+ * As the reference editor's (the owner, 2026-11-19: "always match hammer for all tools"): Grow adds a point's
+ * neighbours along its edges, the edges meeting a selected edge's ends, and the faces across a selected face's edges
+ * (not those touching at a corner alone). Shrink takes off the border: a point with an unselected neighbour, an edge
+ * with an end that an unselected edge meets, a face with an edge whose far side is unselected or open -- a selected
+ * plane's own rim faces go too.
+ */
+export function growSelection(m: EditMesh, faces: readonly number[], mode: 'point' | 'edge' | 'face', items: ReadonlySet<number | string>, how: 'grow' | 'shrink'): Set<number | string> {
+  const edges = [...edgeMap(m, faces).values()];
+  if (mode === 'point') {
+    const near = new Map<number, number[]>();
+    for (const e of edges) { (near.get(e.a) ?? near.set(e.a, []).get(e.a)!).push(e.b); (near.get(e.b) ?? near.set(e.b, []).get(e.b)!).push(e.a); }
+    const sel = items as ReadonlySet<number>;
+    if (how === 'grow') return new Set([...sel, ...[...sel].flatMap((v) => near.get(v) ?? [])]);
+    return new Set([...sel].filter((v) => (near.get(v) ?? []).every((w) => sel.has(w))));
+  }
+  if (mode === 'edge') {
+    const at = new Map<number, string[]>();
+    for (const e of edges) { const k = edgeKey(e.a, e.b); for (const v of [e.a, e.b]) (at.get(v) ?? at.set(v, []).get(v)!).push(k); }
+    const sel = new Set([...items].filter((k) => typeof k === 'string' && at.has(edgeOfKey(k)[0]))) as Set<string>;
+    const ends = (k: string): number[] => edgeOfKey(k);
+    if (how === 'grow') return new Set([...sel, ...[...sel].flatMap((k) => ends(k).flatMap((v) => at.get(v) ?? []))]);
+    return new Set([...sel].filter((k) => ends(k).every((v) => (at.get(v) ?? []).every((x) => sel.has(x)))));
+  }
+  // Faces: across their edges only, as the reference editor's (a face touching at a corner alone is not taken); on
+  // shrink a face stays only where every edge has a selected face on its far side -- an open edge is a border.
+  const sel = new Set([...items].filter((f) => typeof f === 'number' && m.faces[f])) as Set<number>;
+  const byKey = new Map<string, number[]>();
+  for (const e of edges) byKey.set(edgeKey(e.a, e.b), e.faces);
+  const across = (f: number): number[][] => {
+    const vs = faceVerts(m, f);
+    return vs.map((a, i) => (byKey.get(edgeKey(a, vs[(i + 1) % vs.length]!)) ?? []).filter((g) => g !== f));
+  };
+  if (how === 'grow') return new Set([...sel, ...[...sel].flatMap((f) => across(f).flat())]);
+  return new Set([...sel].filter((f) => across(f).every((far) => far.length > 0 && far.every((g) => sel.has(g)))));
+}
+
+/**
+ * Select Ribs (the reference editor's Ctrl+G in Edge mode; the owner, 2026-11-20): the selected edges, one run or one
+ * loop (the spine; anything else gives nothing), and from each spine edge on both its sides a walk across four-sided
+ * faces -- each face's two edges beside the one walked in from (the ribs) taken, then on through its opposite edge
+ * into the face beyond -- until a face is not four-sided, the walk runs off the mesh or comes back round. The ribs
+ * alone are the new selection, among `faces` (one object's).
+ */
+export function edgeRibs(m: EditMesh, faces: readonly number[], spine: readonly (readonly [number, number])[]): Set<string> {
+  const out = new Set<string>();
+  const em = edgeMap(m, faces);
+  const keys = [...new Set(spine.map(([a, b]) => edgeKey(a, b)))].filter((k) => em.has(k));
+  if (!keys.length) return out;
+  // One run or one loop: no point with three spine edges, and all of them joined.
+  const at = new Map<number, string[]>();
+  for (const k of keys) for (const v of edgeOfKey(k)) (at.get(v) ?? at.set(v, []).get(v)!).push(k);
+  if ([...at.values()].some((l) => l.length > 2)) return out;
+  const reached = new Set<string>([keys[0]!]);
+  const todo = [keys[0]!];
+  while (todo.length) for (const v of edgeOfKey(todo.pop()!)) for (const k of at.get(v) ?? []) if (!reached.has(k)) { reached.add(k); todo.push(k); }
+  if (reached.size !== keys.length) return out;
+  for (const k of keys) {
+    const [x0, y0] = edgeOfKey(k);
+    for (const f0 of em.get(k)!.faces) {
+      let f: number | undefined = f0, x = x0, y = y0;
+      const seen = new Set<number>();
+      while (f !== undefined && !seen.has(f)) {
+        const vs = faceVerts(m, f);
+        if (vs.length !== 4) break;
+        const i = vs.findIndex((v, j) => (v === x && vs[(j + 1) % 4] === y) || (v === y && vs[(j + 1) % 4] === x));
+        if (i < 0) break;
+        seen.add(f);
+        const p = vs[i]!, q = vs[(i + 1) % 4]!, r = vs[(i + 2) % 4]!, w = vs[(i + 3) % 4]!;
+        out.add(edgeKey(w, p));
+        out.add(edgeKey(q, r));
+        const here: number = f;
+        f = em.get(edgeKey(r, w))?.faces.find((g) => g !== here);
+        x = r; y = w;
+      }
+    }
+  }
+  return out;
+}
 
 export type { EditMesh };
 
@@ -294,4 +377,103 @@ export class PickIndex {
     }
     return true;
   }
+}
+
+/**
+ * The edge loop through edge `a`-`b` among `faces` (every modeller's loop select; the owner, 2026-11-18): from
+ * each end, on to the edge that carries straight on -- through a point with an even number of edges, the one halfway
+ * round its fan (a grid's four: the one sharing no face with the edge arrived on; a sphere's pole: the meridian
+ * opposite); along an open border, the next border edge -- until a point where none does (an odd number of edges, a
+ * corner of a border), or back at the start. Returns its edges' keys, `a`-`b`'s first.
+ *
+ * Where it goes on from neither end (each end a corner of three or five edges: every edge of a box -- the owner,
+ * 2026-11-18: "I create a cube ... double click an edge, doesn't select a loop"), the loop is the border of `side`, the
+ * face beside the edge the pointer was on (or the one facing the camera), as modellers loop a box's face: a cube's top
+ * edge double-clicked from above, its four top edges.
+ */
+export function edgeLoop(m: EditMesh, faces: readonly number[], a: number, b: number, side?: number): string[] {
+  const t = new Topo(m, faces);
+  const start = edgeKey(a, b);
+  if (!t.hasEdge(a, b)) return [];
+  const out = [start];
+  const seen = new Set(out);
+  /** The edge carrying on from `u` -> `v` through `v` (as `[v, w]`), or null where none does. */
+  const next = (u: number, v: number): number | null => {
+    if (t.facesOn(u, v).length === 1) {
+      const border = t.spokes(v).filter((w) => w !== u && t.facesOn(v, w).length === 1);
+      return border.length === 1 ? border[0]! : null;
+    }
+    // Through a point whose faces go all the way round it in one fan (`Topo.fan`) with an even number of edges: the edge
+    // halfway round -- straight across a grid's four, through a sphere's pole to the meridian opposite (the owner,
+    // 2026-11-18: "shouldn't an edge loop go around the full circle not just half way?"). An odd count (a box's corner)
+    // stops it.
+    const fan = t.fan(v);
+    if (!fan || !fan.closed) return null;
+    const N = fan.out.length;
+    const i = fan.out.indexOf(u);
+    if (N % 2 !== 0 || N < 2 || i < 0) return null;
+    const w = fan.out[(i + N / 2) % N]!;
+    return t.facesOn(v, w).length === 2 ? w : null;
+  };
+  for (const [from, end] of [[a, b], [b, a]] as const) {
+    let u: number = from, v: number = end;
+    for (;;) {
+      const w = next(u, v);
+      if (w === null) break;
+      const k = edgeKey(v, w);
+      if (seen.has(k)) break;
+      seen.add(k);
+      if (end === b) out.push(k); else out.splice(1, 0, k);
+      u = v; v = w;
+    }
+  }
+  // No loop goes on from the edge: the outline of the face beside it with more sides; of two alike, `side` (the face
+  // the pointer was over), else the first.
+  const beside = t.facesOn(a, b);
+  if (out.length === 1 && beside.length) {
+    const most = Math.max(...beside.map((f) => t.ring(f).length));
+    const widest = beside.filter((f) => t.ring(f).length === most);
+    const face = side !== undefined && widest.includes(side) ? side : widest[0]!;
+    const vs = faceVerts(m, face);
+    const ring = vs.map((v, i) => edgeKey(v, vs[(i + 1) % vs.length]!));
+    const at0 = ring.indexOf(start);
+    return [...ring.slice(at0), ...ring.slice(0, at0)];
+  }
+  return out;
+}
+
+/**
+ * The edge ring through edge `a`-`b` among `faces` (ring select): across each four-sided face beside it to the edge
+ * opposite, and on across that edge's other face, until a face that is not four-sided, an open border, or back at the
+ * start. Returns its edges' keys, `a`-`b`'s first.
+ */
+export function edgeRing(m: EditMesh, faces: readonly number[], a: number, b: number): string[] {
+  const t = new Topo(m, faces);
+  const start = edgeKey(a, b);
+  const first = t.facesOn(a, b);
+  if (!first.length) return [];
+  const out = [start];
+  const seen = new Set(out);
+  for (const f0 of first) {
+    let x = a, y = b, f: number | undefined = f0;
+    while (f !== undefined) {
+      // Across a face of an even number of sides to the side opposite (a quad's facing side, a hexagon's third on).
+      const vs = t.ring(f);
+      const n = vs.length;
+      if (n % 2 !== 0 || n < 4) break;
+      const i = vs.findIndex((v, j) => edgeKey(v, vs[(j + 1) % n]!) === edgeKey(x, y));
+      if (i < 0) break;
+      const p = vs[(i + n / 2) % n]!, q = vs[(i + n / 2 + 1) % n]!;
+      const opp = edgeKey(p, q);
+      if (seen.has(opp)) break;
+      seen.add(opp);
+      out.push(opp);
+      const from: number = f;
+      // On across the opposite edge, where it has one face more (an edge of three faces or more ends the ring).
+      const across = t.facesOn(p, q).filter((g) => g !== from);
+      f = across.length === 1 ? across[0] : undefined;
+      x = p; y = q;
+    }
+  }
+  return out;
 }

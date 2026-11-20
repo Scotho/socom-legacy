@@ -4,7 +4,7 @@ import {
 } from '../../src/forge/history';
 
 /**
- * Bug 20 (a browser adaptation, FG.R2): one history for the layout and the geometry, as Hammer's, Unreal's and Blender's
+ * Bug 20 (a browser adaptation, FG.R2): one history for the layout and the geometry, as Unreal's and Blender's
  * undo cover every mode. A step names the geometry's revision (`geo`); each geometry edit is a step of its own, tagged
  * `geometry`, so one undo takes back one geometry operation and a layout edit keeps the geometry as it stood.
  */

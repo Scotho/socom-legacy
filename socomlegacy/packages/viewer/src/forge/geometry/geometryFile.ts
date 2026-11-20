@@ -4,7 +4,7 @@ import type { GeoObject, WorldGeometry } from './world';
 /**
  * The edited geometry as a file (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits aren't saved"; a browser
  * adaptation, FG.R2 -- the game has no editor): what `../geometryStore` keeps for a layout (`Layout.geometry`), as
- * Hammer keeps a map's mesh edits in its `.vmap`. Only what an edit can change is written -- the drawn layer's objects
+ * A level editor keeps a map's mesh edits in its `.vmap`. Only what an edit can change is written -- the drawn layer's objects
  * and meshes, the collision layer's when it was edited, the textures lent from other maps -- never what the disc gives
  * back as it was read (the hull as read, the world's original mesh, the owners' nodes): `GeometryEditor.restoreSaved`
  * takes those from the base as it opens it, so a file is small and the disc stays the one source of the disc's data.

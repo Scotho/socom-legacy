@@ -2,7 +2,7 @@ import { add, scale, type EditMesh, type Vec3 } from './editMesh';
 import { meshOf, type PrimitiveOptions } from './primitives';
 
 /**
- * The block tool's shapes (a browser adaptation, after Source 2 Hammer's block tool: drag a rectangle out on the
+ * The block tool's shapes (a browser adaptation, after a level editor's block tool: drag a rectangle out on the
  * workplane, then pull its height; the owner, 2026-11-17: "implement a Drag-out block tool on the grid. and remove the
  * fixed cube/plane/sphere/cylinder ... There is dropdown for various shapes"). Each is built in the plane's own frame --
  * across its `u` and `v`, up its `n` -- filling the dragged rectangle and the pulled height, then carried into the world
@@ -212,14 +212,18 @@ interface Opening { from: number; to: number; bottom: number; top: number }
  * (0..W): its points shared, each face wound to face out (`out`, the outward way in r, y, s), a face's repeated points
  * dropped.
  */
-function runBuilder(x0: number, x1: number, z0: number, z1: number, run: Run) {
+function runBuilder(x0: number, x1: number, z0: number, z1: number, run: Run, unite = false) {
   const L = run.alongZ ? z1 - z0 : x1 - x0, W = run.alongZ ? x1 - x0 : z1 - z0;
   const points: Vec3[] = [];
   const index = new Map<string, number>();
+  /** The piece points are made for: points are one only within a piece (`separate` starts the next). */
+  let piece = 0;
+  const separate = (): void => { piece++; };
   const at = (r: number, y: number, sw: number): number => {
     const rr = run.rev ? L - r : r;
     const p: Vec3 = run.alongZ ? [x0 + sw, y, z0 + rr] : [x0 + rr, y, z0 + sw];
-    const k = p.join(',');
+    // One point for one place, to a millionth of a unit (an arch's curve meets its legs a rounding off: one point).
+    const k = `${piece}:${p.map((c) => Math.round(c * 1e6)).join(',')}`;
     let i = index.get(k);
     if (i === undefined) { i = points.length; points.push(p); index.set(k, i); }
     return i;
@@ -231,9 +235,12 @@ function runBuilder(x0: number, x1: number, z0: number, z1: number, run: Run) {
     if (kept.length < 3) return;
     rings.push(facing(points, kept, out));
   };
-  /** A box from (r0, y0, s0) to (r1, y1, s1): its six faces (none when it has no size). */
+  /** The boxes of a shape built as one solid (`unite`): made into its outside at `finish`. */
+  const boxes: [number, number, number, number, number, number][] = [];
+  /** A box from (r0, y0, s0) to (r1, y1, s1): its six faces (none when it has no size); kept for `finish` when uniting. */
   const cuboid = (r0: number, r1: number, y0: number, y1: number, s0: number, s1: number): void => {
     if (r1 - r0 < 1e-6 || y1 - y0 < 1e-6 || s1 - s0 < 1e-6) return;
+    if (unite) { boxes.push([r0, r1, y0, y1, s0, s1]); return; }
     face([at(r0, y0, s0), at(r1, y0, s0), at(r1, y0, s1), at(r0, y0, s1)], dir(0, -1, 0));
     face([at(r0, y1, s0), at(r1, y1, s0), at(r1, y1, s1), at(r0, y1, s1)], dir(0, 1, 0));
     face([at(r0, y0, s0), at(r0, y1, s0), at(r0, y1, s1), at(r0, y0, s1)], dir(-1, 0, 0));
@@ -259,7 +266,37 @@ function runBuilder(x0: number, x1: number, z0: number, z1: number, run: Run) {
       if (o.top < y1 - 1e-6) slab(p, q, Math.max(o.top, y0), y1);
     }
   };
-  return { L, W, points, rings, at, dir, face, cuboid, wall };
+  /**
+   * The boxes kept (`unite`) as one solid (the owner, 2026-11-18: every tool on a doorway, a window or a room failed: its
+   * slabs touched face to face, each keeping its own face, so the shape was not one solid): space cut along every box's
+   * sides into cells, a cell solid where a box holds it, and a face wherever a solid cell meets an empty one or the
+   * outside -- the union's outside, no face inside it, every edge met once each way.
+   */
+  const finish = (): void => {
+    if (!boxes.length) return;
+    const cutsOf = (k: 0 | 2 | 4): number[] => {
+      const all: number[] = boxes.flatMap((b) => [b[k], b[k + 1]!]).sort((p, q) => p - q);
+      return all.filter((v, i) => i === 0 || v - all[i - 1]! > 1e-6);
+    };
+    const R = cutsOf(0), Y = cutsOf(2), Sx = cutsOf(4);
+    const solid = (i: number, j: number, k: number): boolean => {
+      if (i < 0 || j < 0 || k < 0 || i >= R.length - 1 || j >= Y.length - 1 || k >= Sx.length - 1) return false;
+      const r = (R[i]! + R[i + 1]!) / 2, y = (Y[j]! + Y[j + 1]!) / 2, sw = (Sx[k]! + Sx[k + 1]!) / 2;
+      return boxes.some((b) => r > b[0] && r < b[1] && y > b[2] && y < b[3] && sw > b[4] && sw < b[5]);
+    };
+    for (let i = 0; i + 1 < R.length; i++) for (let j = 0; j + 1 < Y.length; j++) for (let k = 0; k + 1 < Sx.length; k++) {
+      if (!solid(i, j, k)) continue;
+      const r0 = R[i]!, r1 = R[i + 1]!, ya = Y[j]!, yb = Y[j + 1]!, s0 = Sx[k]!, s1 = Sx[k + 1]!;
+      if (!solid(i, j - 1, k)) face([at(r0, ya, s0), at(r1, ya, s0), at(r1, ya, s1), at(r0, ya, s1)], dir(0, -1, 0));
+      if (!solid(i, j + 1, k)) face([at(r0, yb, s0), at(r1, yb, s0), at(r1, yb, s1), at(r0, yb, s1)], dir(0, 1, 0));
+      if (!solid(i - 1, j, k)) face([at(r0, ya, s0), at(r0, yb, s0), at(r0, yb, s1), at(r0, ya, s1)], dir(-1, 0, 0));
+      if (!solid(i + 1, j, k)) face([at(r1, ya, s0), at(r1, yb, s0), at(r1, yb, s1), at(r1, ya, s1)], dir(1, 0, 0));
+      if (!solid(i, j, k - 1)) face([at(r0, ya, s0), at(r1, ya, s0), at(r1, yb, s0), at(r0, yb, s0)], dir(0, 0, -1));
+      if (!solid(i, j, k + 1)) face([at(r0, ya, s1), at(r1, ya, s1), at(r1, yb, s1), at(r0, yb, s1)], dir(0, 0, 1));
+    }
+    boxes.length = 0;
+  };
+  return { L, W, points, rings, at, dir, face, cuboid, wall, finish, separate };
 }
 
 /**
@@ -381,16 +418,18 @@ function archParts(x0: number, x1: number, z0: number, z1: number, h: number, ru
 
 /** Doorway: a wall along the longer side (`run`) with its doorways through it, floor up. */
 function doorwayParts(x0: number, x1: number, z0: number, z1: number, h: number, run: Run, s: ShapeSettings): Parts {
-  const b = runBuilder(x0, x1, z0, z1, run);
+  const b = runBuilder(x0, x1, z0, z1, run, true);
   b.wall('r', 0, b.L, 0, b.W, 0, h, spread(0, b.L, Math.round(n_(s, 'doors', 1)), n_(s, 'doorWidth', DOOR_WIDTH_ADAPTATION), 0, n_(s, 'doorHeight', DOOR_HEIGHT_ADAPTATION), h));
+  b.finish();
   return { points: b.points, rings: b.rings };
 }
 
 /** Window: a wall along the longer side (`run`) with its windows through it, over their sill. */
 function windowParts(x0: number, x1: number, z0: number, z1: number, h: number, run: Run, s: ShapeSettings): Parts {
-  const b = runBuilder(x0, x1, z0, z1, run);
+  const b = runBuilder(x0, x1, z0, z1, run, true);
   const sill = n_(s, 'sill', WINDOW_SILL_ADAPTATION);
   b.wall('r', 0, b.L, 0, b.W, 0, h, spread(0, b.L, Math.round(n_(s, 'windows', 1)), n_(s, 'windowWidth', WINDOW_WIDTH_ADAPTATION), sill, sill + n_(s, 'windowHeight', WINDOW_HEIGHT_ADAPTATION), h));
+  b.finish();
   return { points: b.points, rings: b.rings };
 }
 
@@ -399,7 +438,7 @@ function windowParts(x0: number, x1: number, z0: number, z1: number, h: number, 
  * front, back, left and right walls in turn, in the wall's middle; its windows on every wall, spread round the door.
  */
 function roomParts(x0: number, x1: number, z0: number, z1: number, h: number, s: ShapeSettings): Parts {
-  const b = runBuilder(x0, x1, z0, z1, { alongZ: false, rev: false });
+  const b = runBuilder(x0, x1, z0, z1, { alongZ: false, rev: false }, true);
   const t = Math.min(n_(s, 'wall', WALL_THICKNESS_ADAPTATION), b.L / 4, b.W / 4, h / 4);
   const hasFloor = b_(s, 'floor', true), hasCeiling = b_(s, 'ceiling', true);
   if (hasFloor) b.cuboid(0, b.L, 0, t, 0, b.W);
@@ -428,6 +467,7 @@ function roomParts(x0: number, x1: number, z0: number, z1: number, h: number, s:
   b.wall('s', t, b.W - t, 0, t, yb, yt, openingsOf(t, b.W - 2 * t, doors >= 3));
   b.wall('s', t, b.W - t, b.L - t, b.L, yb, yt, openingsOf(t, b.W - 2 * t, doors >= 4));
   void wh;
+  b.finish();
   return { points: b.points, rings: b.rings };
 }
 
@@ -486,11 +526,17 @@ function pipeParts(x0: number, x1: number, z0: number, z1: number, h: number, s:
   return { points, rings };
 }
 
-/** Torus: a ring `sides` round, its tube `tubeSides` round, the tube as thick as the height (at most half the narrower radius). */
+/**
+ * Torus: a ring `sides` round, its tube `tubeSides` round, the tube as thick as the height -- at most under half the
+ * narrower radius, so its hole stays open (at half, the tube met itself across the narrow side: points of its inside on
+ * top of each other, which every tool then tore open -- the owner, 2026-11-18, every tool tested).
+ */
+/** The torus's tube at most this share of its narrower radius (its hole a tenth of it at least): a Forge choice, no original. */
+const TORUS_TUBE_MAX = 0.45;
 function torusParts(x0: number, x1: number, z0: number, z1: number, h: number, s: ShapeSettings): Parts {
   const n = Math.max(3, Math.round(n_(s, 'sides', BLOCK_SIDES))), m = Math.max(3, Math.round(n_(s, 'tubeSides', 8)));
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, rx = (x1 - x0) / 2, rz = (z1 - z0) / 2;
-  const rt = Math.min(h / 2, Math.min(rx, rz) / 2), Rx = rx - rt, Rz = rz - rt, cy = h / 2;
+  const rt = Math.min(h / 2, Math.min(rx, rz) * TORUS_TUBE_MAX), Rx = rx - rt, Rz = rz - rt, cy = h / 2;
   const points: Vec3[] = [];
   const centre = (i: number): Vec3 => { const th = (2 * Math.PI * i) / n; return [cx + Rx * Math.cos(th), cy, cz + Rz * Math.sin(th)]; };
   for (let i = 0; i < n; i++) {
@@ -531,7 +577,9 @@ function stairParts(x0: number, x1: number, z0: number, z1: number, h: number, r
   const n = asked > 0 ? asked : Math.max(1, Math.round(h / STAIR_STEP_RISE_ADAPTATION));
   const xr = (k: number): number => (L * k) / n, yr = (k: number): number => (h * k) / n;
   if (c_(s, 'style', 'solid') === 'floating') {
-    for (let k = 0; k < n; k++) b.cuboid(xr(k), xr(k + 1), yr(k), yr(k + 1), 0, W);
+    // Each step a slab of its own (the owner, 2026-11-18, every tool tested): steps touching along an edge shared their
+    // points there, four faces on one edge, which no tool could work on.
+    for (let k = 0; k < n; k++) { b.separate(); b.cuboid(xr(k), xr(k + 1), yr(k), yr(k + 1), 0, W); }
     return { points: b.points, rings: b.rings };
   }
   for (let k = 0; k < n; k++) {
@@ -692,8 +740,8 @@ export function stairsRampMesh(f: BlockFrame, a: readonly [number, number], b: r
 }
 
 /**
- * The Polygon tool's outline cleaned (the owner, 2026-11-17: "add the polygon tool similar to how hammer does it in
- * geometry mode ... create custom shapes by drawing them line by line"; a browser adaptation, after Source 2 Hammer's
+ * The Polygon tool's outline cleaned (the owner, 2026-11-17: a Polygon tool to draw custom shapes
+ * line by line; a browser adaptation, after a level editor's
  * Polygon tool): its points in the plane's frame ([along u, along v]), a point the same as the one before dropped (and
  * the last where it closes on the first), a point on the straight line between its neighbours dropped.
  */

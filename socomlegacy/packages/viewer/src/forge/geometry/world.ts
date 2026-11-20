@@ -248,7 +248,7 @@ const near = (a: Slab, b: Slab): boolean => onSlab(a, b.c) || onSlab(b, a.c);
 /**
  * A reshaped node's hull at Build (the owner, 2026-11-15, after stairs walked jagged once their node was edited: "do 1"
  * -- keep the disc's hull where nothing changed). The disc's hull is authored apart from the draws (a staircase is one
- * ramp polygon over its drawn steps: MP51's wc01, 12 steps under one ramp; a node's own `di_` meshes), as Hammer's clip
+ * ramp polygon over its drawn steps: MP51's wc01, 12 steps under one ramp; a node's own `di_` meshes), as a level editor's clip
  * brushes and Unreal's simple collision are, so a hull made from every drawn face walks the steps one ledge at a time.
  * So: the node's faces are compared with the read ones (`WorldGeometry.original`, carried by its whole move `moved`);
  * the disc's polygons on or near a face changed or deleted go (moved with the node as a whole otherwise), and the hull
@@ -409,7 +409,7 @@ export function duplicateObject(g: WorldGeometry, o: GeoObject, mat?: ArrayLike<
 }
 
 /**
- * Some of an object's faces copied out as an object of their own, not yet added (Hammer's copy of faces): their points,
+ * Some of an object's faces copied out as an object of their own, not yet added (a level editor's copy of faces): their points,
  * corners, styles, mappings and displacements, the source left as it was. Null when none of `faces` is there.
  */
 export function facesCopy(g: WorldGeometry, from: GeoObject, faces: readonly number[], name: string): GeoObjectCopy | null {
@@ -447,7 +447,7 @@ export function inPlaceCopy(c: GeoObjectCopy): GeoObjectCopy {
 }
 
 /**
- * Faces of an object made an object of their own (Hammer's separate): moved out with their points, corners and styles,
+ * Faces of an object made an object of their own (a level editor's separate): moved out with their points, corners and styles,
  * so a building carved out of the map's world moves, hides and copies as one. Points the two share are copied, the
  * seam opening only where one is moved.
  */

@@ -27,6 +27,8 @@ export interface ForgeKeyState {
    * its, and the page keeps only the keys every mode shares (`GEOMETRY_SHARED`). Absent: off.
    */
   geometry?: boolean;
+  /** Geometry mode's Knife is on: V is its loop mode's (the reference editor's), not Walk. Absent: off. */
+  knife?: boolean;
   /** A match runs (the Play match or a lobby's): keyless (OT.R68). */
   match: boolean;
   /** The forge menu (`./padMenu`) is open. */
@@ -150,6 +152,7 @@ const GEOMETRY_SHARED: ReadonlySet<ForgeKeyAction> = new Set<ForgeKeyAction>([
 
 /** The editor's action for a key, or null (the key is someone else's, or nothing's). */
 export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyAction | null {
+  if (s.geometry && s.knife && e.code === 'KeyV' && !e.ctrlKey && !e.metaKey && !e.altKey) return null;
   const a = pageKeyAction(e, s);
   if (!s.geometry || a === null || typeof a === 'object' && 'menu' in a) return a;
   return typeof a === 'string' && GEOMETRY_SHARED.has(a) ? a : null;

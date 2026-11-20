@@ -166,7 +166,7 @@ export interface Layout {
   /**
    * The base's world geometry as this layout edits it (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits
    * aren't saved"; a browser adaptation, FG.R2): a reference (`GEOMETRY_REF`, `geometry:` and the content's SHA-256) to
-   * the edited meshes kept as an asset in this browser's store (`viewer/src/forge/geometryStore`), as Hammer keeps a map's
+   * the edited meshes kept as an asset in this browser's store (`viewer/src/forge/geometryStore`), as a level editor keeps a map's
    * mesh edits in its `.vmap`. The disc's map is untouched. Absent: the base's own geometry. Online refused (another
    * player's browser has no such asset).
    */

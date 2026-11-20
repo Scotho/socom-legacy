@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { faceNormal, liveFaces, type Vec3 } from '../../src/forge/geometry/editMesh';
 import { blockKind, blockMakes, blockMesh, blockParts, frameToWorld, STAIR_STEP_RISE_ADAPTATION, stairsRampMesh, stairsRun, worldToFrame, type BlockFrame } from '../../src/forge/geometry/blockShapes';
 
-// The block tool's shapes (a browser adaptation, after Source 2 Hammer's block tool): built in a plane's frame over the
+// The block tool's shapes (a browser adaptation, after a level editor's block tool): built in a plane's frame over the
 // dragged rectangle and the pulled height, faces facing out.
 const OPTS = { textureName: null, size: () => null, scaleTexel: 1 };
 const FLAT: BlockFrame = { origin: [0, 0, 0], u: [1, 0, 0], n: [0, 1, 0], v: [0, 0, 1] };
