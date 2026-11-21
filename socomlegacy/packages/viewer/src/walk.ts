@@ -167,6 +167,12 @@ export interface WalkCameraState {
  */
 export type PhasedPose = (() => TraversalPose | null) & { at?: (seconds: number) => void };
 
+/**
+ * The Ctrl keys, C's twins on the stance (the owner, 2026-11-16: "make ctrl work to crouch in play mode and test room
+ * mode"; a browser adaptation, the PC's crouch key -- the original reads a pad): a tap crouches, a hold goes prone, as C.
+ */
+export const STANCE_CTRL_KEYS: ReadonlySet<string> = new Set(['ControlLeft', 'ControlRight']);
+
 export class WalkMode {
   /** The map's ground, and the mover on it once walk is first asked for: the grid costs 15 ms on Guidance. */
   private ground: GroundData | undefined;
@@ -537,6 +543,8 @@ export class WalkMode {
    * `STANCE_HOLD_S_PLACEHOLDER` goes prone -- run once a frame in `frame`.
    */
   private stanceKeyHeld = false;
+  /** The stance keys held now (C, and Ctrl its twin): the hold lasts while any is down. */
+  private readonly stanceKeys = new Set<string>();
   private stanceKeyPressed = false;
   private readonly stanceKey = new StanceButton(STANCE_HOLD_S_PLACEHOLDER, KEY_STANCE);
   /** The touch C button (`./touch`): `C`'s rule on its own machine, fed by `stanceTouch`, run beside the key's. */
@@ -2781,6 +2789,16 @@ export class WalkMode {
 
   private readonly onKey = (e: KeyboardEvent): void => {
     if (!import.meta.env.DEV && !this.kbm) return;             // RB-8 (OT.R114, RB.R4): the camera's opt-in, asked now
+    // Ctrl is C's twin (the owner, 2026-11-16: "make ctrl work to crouch in play mode and test room mode"; a browser
+    // adaptation, the PC's crouch key): its own press carries `ctrlKey`, so it is let through the modifier test alone.
+    if (STANCE_CTRL_KEYS.has(e.code)) {
+      if (e.repeat || e.metaKey || e.altKey || e.shiftKey || !this.walking) return;
+      const target = e.target;
+      if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+      if (this.menuHeld) return;                              // the R2 inventory open: no stance (ctrl+0x221)
+      this.popArm = null; this.stanceKeys.add(e.code); this.stanceKeyHeld = true; this.stanceKeyPressed = true;
+      return;
+    }
     if (!['KeyG', 'KeyC', 'Space'].includes(e.code) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
     if (e.code !== 'KeyG' && !this.walking) return;          // in fly mode Space stays the camera's "up"
     if (e.code === 'KeyG' && !this.modeKey) return;           // the fly camera is not a player's in Play
@@ -2789,17 +2807,23 @@ export class WalkMode {
     e.preventDefault();
     if (this.menuHeld && e.code !== 'KeyG') return;           // the R2 inventory open: no jump, no stance (ctrl+0x221)
     if (e.code === 'Space') this.jumpPress();                  // OT.R76: the pop inside its window, else the jump
-    else if (e.code === 'KeyC') { this.popArm = null; this.stanceKeyHeld = true; this.stanceKeyPressed = true; }   // OT.R76: a fresh C closes the window at its press
+    else if (e.code === 'KeyC') { this.popArm = null; this.stanceKeys.add('KeyC'); this.stanceKeyHeld = true; this.stanceKeyPressed = true; }   // OT.R76: a fresh C closes the window at its press
     else this.setMode(this.walking ? 'fly' : 'walk');
   };
 
-  /** `C` let go: the tap (or nothing, after a hold) is the next frame's. Taken with a modifier too: a release is a release. */
+  /**
+   * `C` (or a Ctrl, its twin) let go: the tap (or nothing, after a hold) is the next frame's -- once neither is held.
+   * Taken with a modifier too: a release is a release.
+   */
   private readonly onKeyUp = (e: KeyboardEvent): void => {
-    if (e.code === 'KeyC') this.stanceKeyHeld = false;
+    if (e.code !== 'KeyC' && !STANCE_CTRL_KEYS.has(e.code)) return;
+    this.stanceKeys.delete(e.code);
+    this.stanceKeyHeld = this.stanceKeys.size > 0;
   };
 
   private readonly onBlur = (): void => {
     this.popArm = null;                                          // OT.R76: focus lost (and a mode change) closes the window
+    this.stanceKeys.clear();
     this.stanceKeyHeld = false;
     this.stanceKeyPressed = false;
     this.stanceKey.reset();

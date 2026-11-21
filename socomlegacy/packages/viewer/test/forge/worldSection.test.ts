@@ -37,7 +37,7 @@ describe('Map Settings: surface, sound & view', () => {
     expect(depth.value).toBe('0.2');
     depth.value = '0.5'; depth.dispatchEvent(new Event('input'));
     expect(depth.closest('.fx-world-slider')!.nextElementSibling!.textContent).toBe('50%');
-    expect([...depth.closest('.fx-world-slider')!.querySelectorAll('.fx-world-ends span')].map((e) => e.textContent)).toEqual(['Dry', 'Echoey']);
+    expect([...depth.closest('.fx-world-slider')!.querySelectorAll('.fx-world-ends span')].map((e) => e.textContent)).toEqual(['Dry', 'Wet']);
     depth.dispatchEvent(new Event('change'));
     expect(patches.pop()).toEqual({ reverb: { indoor: [[0.45, 1], [0.5, 1]], outdoor: [[0.07, 1], [0, 1]] } });
 

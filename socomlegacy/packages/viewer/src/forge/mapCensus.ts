@@ -95,7 +95,7 @@ export function censusOfCopies(c: MapCopies): MapCensus {
 const COPY_WORDS: Readonly<Record<CopyKind, readonly [string, string]>> = {
   door: ['door', 'doors'], turret: ['turret', 'turrets'], hostage: ['hostage character', 'hostage characters'], ladder: ['ladder', 'ladders'],
   gate: ['gate', 'gates'], barrier: ['damage trigger', 'damage triggers'], flare: ['flare', 'flares'],
-  sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['ambient effect', 'ambient effects'],
+  sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'],
 };
 
 /**
@@ -109,7 +109,7 @@ export function censusOptions(maps: readonly (readonly [string, string])[], know
   const [one, many] = COPY_WORDS[kind];
   return maps.map(([stem, label]) => {
     const c = known(stem);
-    if (!c) return [stem, `${label} · counting…`, false] as const;
+    if (!c) return [stem, `${label} · loading…`, false] as const;
     const n = c[kind] ?? 0;
     return [stem, `${label} · ${n === 0 ? 'none' : `${n} ${n === 1 ? one : many}`}`, n === 0 && stem !== current] as const;
   });

@@ -39,7 +39,7 @@ import { readGates, type GateSpec } from './gates';
 import { craneRides, readCranes, splitCranePlacements, type CraneSpec } from './cranes';
 import { readTacData, type TacData } from './tacMap';
 import { bombStartOf, mapEscortees, mapTurrets } from './simMap';
-import { worldPiecePlanFor, type WorldPieceInfo, type WorldPieceSwap } from './worldPieces';
+import { worldNodesOf, worldPiecePlanFor, type WorldPieceInfo, type WorldPieceSwap } from './worldPieces';
 import { reverbZones } from './soundData';
 
 /**
@@ -139,6 +139,13 @@ export type LoadedMesh = MeshData & {
    * the model's for a prop's part -- before any merge; a merged draw carries it per vertex (`MeshData.centroids`).
    */
   centre?: [number, number, number];
+  /**
+   * A world part's node (`LoadMapOptions.worldNodes`): its index in `LoadedMap.worldNodes`, or -1 for none. Read by the
+   * merge (`mergeWorld`), which carries it per triangle as `triNodes`; absent on a merged draw.
+   */
+  worldNode?: number;
+  /** A merged world draw's node per triangle (`LoadedMap.worldNodes` index, 0xffff for none); only on a `worldNodes` load. */
+  triNodes?: Uint16Array;
 };
 
 export interface LoadedMap {
@@ -208,6 +215,17 @@ export interface LoadedMap {
    * the model-pack panel read it. Absent on every other load.
    */
   worldPieceList?: WorldPieceInfo[];
+  /**
+   * The Forge's geometry editor (`LoadMapOptions.worldNodes`): the world model's direct children, disc order, that a
+   * world draw's `triNodes` index -- `world:<name>#<ordinal>` and the node's name. Absent on every other load.
+   */
+  worldNodes?: { key: string; name: string; anchor?: number[] }[];
+  /**
+   * The geometry editor's hull owners' nodes (`LoadMapOptions.worldNodes`): per `ground.owners` entry, the `worldNodes`
+   * index of the direct child of the world model it is under (-1 for the root's own) -- what Build moves or rebuilds
+   * with that node's object. Absent on every other load, or when the walk's owners did not match the hull's.
+   */
+  ownerNodes?: number[];
   /** Test-room model pack: requested level pieces kept on the disc's draw because they move or break (`worldPieces`). */
   worldPiecesKept?: string[];
   /** Test-room model pack: requested level pieces left alone because they have no world draw of their own (`worldPieces`). */
@@ -451,6 +469,12 @@ export type OnStage = (stage: LoadStage, done: number, total: number) => void;
 export interface LoadMapOptions {
   worldPieces?: readonly string[];
   listWorldPieces?: boolean;
+  /**
+   * The Forge's geometry editor (a browser adaptation, FG.R2): tag each world triangle with the direct child of the
+   * world model it is drawn under (`LoadedMesh.triNodes`, `LoadedMap.worldNodes`). The draws are the same; only the
+   * tag is added.
+   */
+  worldNodes?: boolean;
 }
 
 export async function loadMap(source: AssetSource, path: string, onStage?: OnStage, options?: LoadMapOptions): Promise<LoadedMap> {
@@ -502,6 +526,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
   const piecePlan = worldPiecePlanFor(placement.models, placement.world, options, (p) => placement.alternate(p) || placement.switchPath(p) !== null || placement.scrollPath(p) !== null || ridesCrane(p));
   const pieceOrder = new Map<number, number>();
   const pieceCells = new Map<number, number[]>();
+  const worldNodes = options?.worldNodes && placement.models ? worldNodesOf(placement.models, placement.world) : null;
   for (const [wi, p] of placement.world.entries()) {
     step('geometry', chunk++, placement.world.length);
     if (piecePlan && piecePlan.drop[wi]) {
@@ -543,6 +568,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
         ...(scrollPath !== null ? { scrollPath } : {}),
         ...(hasVertexAlpha(mesh) ? { vertexAlpha: true } : {}),
         ...(mesh.alphaPass ? { alphaPass: true } : {}),
+        ...(worldNodes ? { worldNode: worldNodes.of[wi] ?? -1 } : {}),
       });
     });
     for (const strip of lines) segments.add(strip, p.rowMajor, orderOf(p, 0), cells);
@@ -807,6 +833,9 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
     ...(instanceRoots.length ? { instanceRoots } : {}),
     ...(worldSwaps ? { worldSwaps } : {}),
     ...(options?.listWorldPieces && piecePlan ? { worldPieceList: piecePlan.list } : {}),
+    ...(worldNodes ? { worldNodes: worldNodes.nodes } : {}),
+    // The hull's owners' nodes, kept only when they count the hull's owners (the same walk made both).
+    ...(worldNodes && placement.ground && worldNodes.owners.length === placement.ground.owners.length ? { ownerNodes: worldNodes.owners } : {}),
     ...(piecePlan && piecePlan.keptMoving.length > 0 ? { worldPiecesKept: piecePlan.keptMoving } : {}),
     ...(piecePlan && piecePlan.keptPropsOnly.length > 0 ? { worldPiecesPropsOnly: piecePlan.keptPropsOnly } : {}),
     tac: tac.data,
@@ -869,6 +898,7 @@ export function transferables(map: LoadedMap): Transferable[] {
     if (mesh.normals) add(mesh.normals.buffer);
     if (mesh.faceNormals) add(mesh.faceNormals.buffer);
     if (mesh.centroids) add(mesh.centroids.buffer);
+    if (mesh.triNodes) add(mesh.triNodes.buffer);
   }
   for (const prop of map.props) add(prop.matrices.buffer);
   for (const swap of map.worldSwaps ?? []) add(swap.anchor.buffer);
@@ -1156,6 +1186,8 @@ export function mergeWorld(
     ...(list[0]!.alphaPass && list[0]!.centre && list.every((p) => sameCentre(p.centre, list[0]!.centre)) ? { centre: list[0]!.centre } : {}),
     ...(list[0]!.centroids && list[0]!.detailOn === false ? { detailOn: false } : {}),
     ...(list[0]!.centroids && list[0]!.detailRange !== undefined ? { detailRange: list[0]!.detailRange } : {}),
+    // The Forge's node tag (`LoadMapOptions.worldNodes`): each part's node over its triangles, in `mergeMeshes`' order.
+    ...(list.every((p) => p.worldNode !== undefined) ? { triNodes: Uint16Array.from(list.flatMap((p) => new Array<number>(p.indices.length / 3).fill(p.worldNode! < 0 ? 0xffff : p.worldNode!))) } : {}),
   })).sort((a, b) => a.order - b.order);
 }
 

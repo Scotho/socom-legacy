@@ -15,7 +15,7 @@ import { placementOf } from '../hide';
 import { parseCamera, serializeLayout, type Layout, type LayoutBase, type LayoutCamera, type Piece } from '../layout';
 import type { PaletteEntry } from '../library';
 import type { BombMarkerKind } from '../pieces';
-import { boundStep, GRID_STEP_MAX, GRID_STEP_MIN, pastedPlaces, TURN_STEP_MAX, TURN_STEP_MIN } from '../placement';
+import { GRID_STEP_LADDER, onLadder, pastedPlaces, TURN_STEP_LADDER } from '../placement';
 import { recordOfLayout } from '../record';
 import { probeForge, type ForgeProbeWorld } from './probe';
 import {
@@ -586,8 +586,9 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
         case 'palette.choose': editor.choose(args['asset'] as string); break;
         case 'palette.favourite': editor.setFavourite(args['asset'] as string, !!args['on']); break;
         case 'snap.set': {
-          const grid = boundStep((args['grid'] as number | undefined) ?? editor.gridStep(), GRID_STEP_MIN, GRID_STEP_MAX, editor.gridStep());
-          const turn = boundStep((args['rotation'] as number | undefined) ?? editor.turnStep(), TURN_STEP_MIN, TURN_STEP_MAX, editor.turnStep());
+          // Each step held to its ladder, as the pills hold the owner's (`onLadder`).
+          const grid = onLadder((args['grid'] as number | undefined) ?? editor.gridStep(), GRID_STEP_LADDER, editor.gridStep());
+          const turn = onLadder((args['rotation'] as number | undefined) ?? editor.turnStep(), TURN_STEP_LADDER, editor.turnStep());
           editor.setSnap(grid, turn, args['on'] as boolean); break;
         }
         case 'tool.set': editor.setTool(args['tool'] as ForgeAgentView['tool'], (args['gizmo'] || undefined) as 'translate' | 'rotate' | undefined); break;

@@ -68,7 +68,11 @@ export function buildRosterSection(doc: Document): RosterSection {
         mapSel.setAttribute('aria-label', `${SIDE_LABEL[side]} column ${column + 1}: map`);
         if (column > 0) mapSel.append(option(NONE, pick ? '(no column)' : '(add a column)'));
         const maps = v.maps.some(([m]) => m === pick?.map) || !pick ? v.maps : [[pick.map, pick.map] as const, ...v.maps];
-        mapSel.append(...maps.map(([stem, label]) => option(stem, label)));
+        // Under its header, as every map list of the Forge (the asset browser's): the multiplayer maps.
+        const group = forgeEl(doc, 'optgroup', '');
+        group.label = 'Multiplayer';
+        group.append(...maps.map(([stem, label]) => option(stem, label)));
+        mapSel.append(group);
         mapSel.value = pick?.map ?? NONE;
         mapSel.disabled = v.locked;
         mapSel.addEventListener('change', () => set(column, mapSel.value === NONE ? null : { map: mapSel.value, index: 0 }));

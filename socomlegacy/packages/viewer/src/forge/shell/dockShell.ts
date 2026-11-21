@@ -842,6 +842,29 @@ export function createDockShell(options: DockShellOptions): ForgeShellPage {
       if (!g || !sectionsOf(tab).length || sectionsOf(tab).some((m) => m.panel.movable === false)) return;
       dock(tab, g, 'center');
     },
+    layoutSnapshot() {
+      return JSON.stringify({ v: 2, root, closed, open });
+    },
+    restoreLayout(snapshot) {
+      type Raw = { v?: unknown; root?: unknown; closed?: unknown; open?: unknown } | null;
+      const raw = ((): Raw => { try { return JSON.parse(snapshot) as Raw; } catch { return null; } })();
+      if (!raw || raw.v !== 2 || !nodeOk(raw.root)) return false;
+      const rec = (v: unknown, ok: (x: unknown) => boolean): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v)
+        ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => ok(x))) : {});
+      root = normalize(clone(raw.root)) ?? clone(options.defaults.root);
+      for (const k of Object.keys(closed)) delete closed[k];
+      for (const k of Object.keys(open)) delete open[k];
+      Object.assign(closed, rec(raw.closed, (x) => typeof x === 'string'));
+      Object.assign(open, rec(raw.open, (x) => typeof x === 'boolean'));
+      // A panel the snapshot does not know (registered since), neither docked nor closed in it: put where it belongs.
+      for (const m of mounted.values()) {
+        const key = dockTabKeyOf(m.panel);
+        if (m.panel.dock !== 'workspace' && !groupOf(key) && !(key in closed)) place(key, m.panel.dock);
+      }
+      save();
+      render();
+      return true;
+    },
     resetLayout() {
       root = clone(options.defaults.root);
       for (const k of Object.keys(closed)) delete closed[k];

@@ -351,6 +351,15 @@ export interface SplitViews {
   restore(record: SplitRecord | null): void;
   /** A map opened (`key` names it): views kept on another map start again from the first view's camera. */
   mapOpened(key: string): void;
+  /** How many views the layout shows (1 unsplit). */
+  count(): number;
+  /** View `i`'s own Draw switches (`ViewLook.draw`), or undefined when it has none (the menus' own); null for the active view. */
+  viewDraw(i: number): Record<string, boolean> | undefined | null;
+  /**
+   * View `i`'s own Draw switches set to `draw` (undefined: none of its own); its marks made from the active view's first
+   * when it has none. Not the active view's (the menus are its): false then.
+   */
+  setViewDraw(i: number, draw: Record<string, boolean> | undefined): boolean;
   dispose(): void;
 }
 
@@ -705,6 +714,19 @@ export function createSplitViews(o: SplitViewsOptions): SplitViews {
       layout = record.layout;
       drawMenu();
       relayout();
+    },
+    count: () => splitCount(layout),
+    viewDraw: (i) => {
+      const v = views[i];
+      if (!v || i === active) return null;
+      return v.look?.draw ? { ...v.look.draw } : undefined;
+    },
+    setViewDraw: (i, draw) => {
+      const v = views[i];
+      if (!v || i === active) return false;
+      if (!v.look) { const now = o.lookNow(); v.look = { ...now, off: [...now.off] }; }
+      if (draw) v.look.draw = { ...draw }; else delete v.look.draw;
+      return true;
     },
     mapOpened: (key) => {
       activateMain();

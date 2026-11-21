@@ -370,6 +370,13 @@ export interface BombPageView {
   sound?: { play(name: string, at: readonly [number, number, number]): void } | null;
   /** PB-9b: the bases' pulse on the page's world (`worldPulse`). */
   pulse?: BombPulseView | null;
+  /**
+   * The game's own valves on the page's world (`WorldState.setValve`): `mp_bomb`, the bomb's state as the room sends it
+   * (its numbers are the game's, research 214; `objectives` tests them, research 192 s2), and the round's others
+   * (`./gameValves`, through this same hook), for a Forge map script to read (`SCRIPT_GAME_VALUES`). Nothing of the
+   * page's own reads them.
+   */
+  valve?: ((name: string, value: number) => void) | null;
 }
 
 /**
@@ -634,9 +641,11 @@ export class BombPage {
       this.plantClip = this.ownPlacement(this.bomb);                     // a placement under way at a welcome: no clip
       this.draw(null, this.bomb);
       this.pulse(null, this.bomb);
+      this.view.valve?.('mp_bomb', this.bomb?.state ?? 0);
     } else if (ev.type === 'bomb') {
       const { type: _type, ...wire } = ev;
       this.bomb = wire;
+      this.view.valve?.('mp_bomb', wire.state);
       this.draw(was, wire);
       this.pulse(was, wire);
       this.plant(wire);

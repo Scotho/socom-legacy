@@ -681,8 +681,8 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     expect(drawnPanels(document).filter((id) => !OFF_THE_RIGHT.has(id))).toEqual(['outliner', 'inspector']);
     openMenu(document);
     const labels = [...document.querySelectorAll('.fx-menu li .fx-menu-label')].map((l) => l.textContent);
-    // FC2-4: Settings is his "Map Settings" (its panel's title, OT.R112).
-    const wanted = ['Inspector', 'Outliner', 'Map Settings', 'Wireframe', 'Day / night', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
+    // FC2-4: Settings is his "Map Settings" (its panel's title, OT.R112); its lighting row "Night / day" (this branch's).
+    const wanted = ['Inspector', 'Outliner', 'Map Settings', 'Wireframe', 'Night / day', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
     for (const label of wanted) expect(labels).toContain(label);
     expect(labels.filter((l) => l === 'Connect your agent')).toHaveLength(1);
     expect([...document.querySelectorAll('.fx-menu li.is-head')].map((h) => h.textContent)).toContain(PANELS_MENU_HEADING);

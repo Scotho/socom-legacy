@@ -116,6 +116,10 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-tool { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 7px; }
 /* `display: inline-flex` beats the hidden attribute, the same way the lobby window's flex did (FG-44). */
 .fx-tool[hidden] { display: none; }
+/* A paint bar's tab or Apply hidden on a layer that does not offer it (`./paintTools` `setShown`): the tabs' own display would show it. */
+.fx-paint-tools [hidden] { display: none; }
+/* Snap by's World-only choices greyed with the Local gizmo. */
+.fx-snap-by [role="tab"]:disabled { opacity: var(--fx-disabled); cursor: not-allowed; }
 .fx-tool:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-control-edge); }
 .fx-tool.is-on { background: var(--fx-selected); border-color: var(--fx-gold); color: var(--fx-gold); }
 .fx-tool:disabled { background: transparent; border-color: transparent; }
@@ -243,6 +247,10 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-asset-size-value { min-width: 34px; color: var(--fx-text); font: var(--fx-type-mono); text-align: right; }
 .fx-asset-preview-toggle { display: flex; align-items: center; gap: 8px; color: var(--fx-text); font: var(--fx-type-body); cursor: pointer; }
 .fx-asset-preview-toggle input { accent-color: var(--fx-gold); }
+/* The preview volume: its words, its slider filling the row, its percent. */
+.fx-asset-preview-volume { cursor: default; }
+.fx-asset-preview-volume input[type='range'] { flex: 1; min-width: 80px; }
+.fx-asset-preview-volume-value { min-width: 3.5ch; text-align: right; font-variant-numeric: tabular-nums; }
 .fx-right { right: 0; top: var(--fx-top); bottom: var(--fx-status); width: var(--fx-right); border-left: 1px solid var(--fx-edge); overflow-y: auto; }
 .fx-dock[hidden] { display: none; }
 .fx-dock-zone { overflow: auto; padding: var(--s2u-space-2); }
@@ -486,6 +494,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 }
 .fx-panel-head .fx-dim { font: var(--fx-type-caption); }
 .fx-chip { display: inline-flex; align-items: center; gap: var(--s2u-space-1); height: 24px; padding: 0 10px; border-color: var(--fx-control-edge); border-radius: var(--fx-radius-pill); }
+/* A chip a tab does not use (the Props tab's All and Favourites, the Programs tab's filter) is gone, its `inline-flex` notwithstanding. */
+.fx-chip[hidden] { display: none; }
 .fx-chip:hover { background: var(--fx-hover); }
 /* A chip's icon a little larger and heavier: at 12px a 2.2 stroke read as a hairline (the owner, 2026-11-11). */
 .fx-chip .fx-ico { width: 14px; height: 14px; stroke-width: 2.6; }
@@ -624,6 +634,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   background: radial-gradient(ellipse at 50% 45%, #a8a8a8 0%, #808080 60%, #5c5c5c 100%);
   color: var(--fx-dim);
 }
+/* A Sound tile (the asset browser's Sound tab): no picture, its speaker on the panel's own ground. */
+.fx-asset-thumbnail.fx-asset-sound { background: var(--fx-panel-2); color: var(--fx-gold); }
+.fx-asset-thumbnail.fx-asset-sound > .fx-ico { width: 40%; height: 40%; }
 .fx-asset-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
 .fx-asset-thumbnail img:not(.is-ready) { visibility: hidden; }
 .fx-asset-thumbnail-status { position: absolute; padding: 4px; color: var(--fx-dim); font: var(--fx-type-caption); text-align: center; }
@@ -677,6 +690,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   padding: var(--s2u-space-2) var(--s2u-space-3) var(--s2u-space-3);
   border: 0;
 }
+/* A panel's section put away (the placements' Inspector while Geometry mode's shows): the flex above is no showing. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section[hidden] { display: none; }
 .fx-section h3 { margin: var(--s2u-space-1) 0 0; font: var(--fx-type-caption); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fx-dim); }
 /* The selection's head stays at the top of the dock's scroll, under the tab strip: its name and its kind. */
 .fx-inspect-head {
@@ -777,7 +792,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
    selected, not the row color"). */
 .fx-outliner li.is-on { color: var(--fx-gold); }
 /* The tree (`Layout.tree`): a child's row indented under its parent's; a row a dragged placement would go under. */
-.fx-outliner li.fx-tree-child { border-left: 1px dashed var(--fx-line, rgba(255, 255, 255, 0.15)); }
+.fx-outliner li.fx-tree-child { position: relative; }
+/* A row with no children: its caret's room kept, so every icon at a depth stands in one column. */
+.fx-outliner li > .fx-row-caret-room { display: inline-block; cursor: default; }
 .fx-outliner li.is-drop { outline: 1px solid var(--fx-gold); outline-offset: -1px; }
 /* A drop between rows: a line above (before) or below (after) the row, as tree views draw it. */
 .fx-outliner li.is-drop-before { box-shadow: inset 0 2px 0 var(--fx-gold); }
@@ -840,7 +857,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-assets li.fx-group-head { cursor: default; padding-top: 10px; font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); }
 .fx-assets li.fx-group-head:hover { background: none; }
 .fx-toggle { display: flex; align-items: center; gap: var(--s2u-space-2); height: 24px; cursor: pointer; font: var(--fx-type-control); }
-.fx-toggle input[type=checkbox] {
+/* Every on / off in the Forge a switch (the owner, 2026-11-12: "just a switch for everything ... across all of the forge
+   ui"): each checkbox of the page drawn as the pill, labelled (`.fx-toggle`) or not; the agent's switch and the game overlay's keep their own. */
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)) {
   appearance: none;
   width: 28px;
   height: 14px;
@@ -852,13 +871,15 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   cursor: pointer;
   flex: none;
   transition: background var(--s2u-dur-fast) var(--s2u-ease);
+  vertical-align: middle;
 }
-.fx-toggle input[type=checkbox]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
-.fx-toggle input[type=checkbox]:checked { background: var(--fx-gold); }
-.fx-toggle input[type=checkbox]:checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input))::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):checked { background: var(--fx-gold); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
 /* A switch over several (the Billboards dropdown's All): some on, some off -- its knob midway, the track half lit. */
-.fx-toggle input[type=checkbox]:indeterminate { background: color-mix(in srgb, var(--fx-gold) 45%, var(--fx-divider)); }
-.fx-toggle input[type=checkbox]:indeterminate::after { transform: translateX(7px); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):indeterminate { background: color-mix(in srgb, var(--fx-gold) 45%, var(--fx-divider)); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):indeterminate::after { transform: translateX(7px); }
+:is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)):disabled { opacity: var(--fx-disabled); cursor: default; }
 .fx-detail-distance .fx-range { flex: 1 1 auto; min-width: 0; }
 .fx-detail-distance__value { flex: none; min-width: 3.5ch; text-align: right; }
 /* FP-2 (FP.R5, a browser adaptation): Draw > Picture's render scale row, the detail distance's shape. */
@@ -898,7 +919,9 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-setting-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-2); color: var(--fx-text); }
 .fx-setting-value { font: var(--fx-type-mono); color: var(--fx-gold); white-space: nowrap; }
 .fx-setting-pair { display: flex; align-items: center; gap: 6px; }
-.fx-setting-pair .fx-range { flex: 1 1 auto; }
+.fx-setting-pair .fx-range { flex: 1 1 auto; min-width: 0; }
+/* A slider's end words on its own line (Night ... Day): each beside the end it names. */
+.fx-slider-end { flex: none; font: var(--fx-type-caption); color: var(--fx-dim); }
 .fx-setting-reset { flex: none; height: 20px; padding: 0 var(--s2u-space-2); font: var(--fx-type-control); }
 .fx-setting-nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 .fx-setting-nums .fx-setting-head { font: var(--fx-type-caption); color: var(--fx-dim); }
@@ -970,7 +993,6 @@ body.fx-docks-off .fx-viewport, body.is-playing .fx-viewport { left: 0; right: 0
 }
 .fx-canvas, .fx-input { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .fx-input { touch-action: none; }
-.fx-input.is-placing { cursor: crosshair; }
 body.is-playing .fx-input { display: none; }
 .fx-viewport-left-controls {
   position: absolute;
@@ -1038,7 +1060,7 @@ body.is-playing .fx-input { display: none; }
 }
 .fx-viewport-mode { min-width: 0; }
 /* The Environment panel's read-only rows (`./panels/environmentPanel`): a label and its value, a colour's swatch first. */
-.fx-env-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
+.fx-env-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
 .fx-env-rows dt { color: var(--fx-dim); white-space: nowrap; }
 .fx-env-rows dd { display: flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; margin: 0; color: var(--fx-text); font-family: var(--s2u-font-mono); overflow-wrap: anywhere; }
 .fx-env-swatch { flex: none; width: 14px; height: 14px; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); }
@@ -1124,7 +1146,7 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-snap-preset:hover { background: var(--fx-hover); }
 .fx-snap-preset[aria-pressed="true"] { color: var(--fx-gold); background: var(--fx-selected); }
 .fx-snap-pill .fx-viewport-snap-field { margin-top: var(--s2u-space-1); }
-/* Surface snapping's button: round, its icon lit gold while on; its dropdown the switch, then its settings. */
+/* The Workplane and Surface Snapping button: round, its icon lit gold while surface snapping is on; its dropdown the workplane's section, then surface snapping's. */
 .fx-surface-snap { position: relative; display: flex; }
 .fx-surface-button { display: inline-grid; place-items: center; width: 28px; height: 28px; box-sizing: border-box; color: var(--fx-ico-quiet); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: 50%; cursor: pointer; list-style: none; }
 .fx-surface-button::-webkit-details-marker { display: none; }
@@ -1135,6 +1157,17 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-surface-row { display: flex; align-items: center; gap: var(--s2u-space-2); color: var(--fx-text); font: var(--fx-type-control); }
 .fx-surface-row.is-disabled { opacity: var(--fx-disabled); cursor: default; }
 .fx-surface-offset { grid-template-columns: auto 1fr; align-items: center; }
+.fx-surface-offset.is-disabled { opacity: var(--fx-disabled); }
+/* The workplane's section, first in that dropdown; surface snapping's set apart below it by a rule and space. */
+.fx-workplane-section { display: grid; gap: var(--s2u-space-1); padding-bottom: var(--s2u-space-2); }
+.fx-snap-section-start { margin-top: var(--s2u-space-2); padding-top: var(--s2u-space-3); border-top: 1px solid var(--fx-edge); }
+.fx-workplane-normal { color: var(--fx-text); font-size: 0.9em; }
+.fx-workplane-buttons { display: flex; gap: var(--s2u-space-1); }
+/* Pick and Reset as buttons (the owner, 2026-11-17: "make the pick and reset buttons a bit more visible"). */
+.fx-workplane-buttons .fx-tool { flex: 1; justify-content: center; padding: 4px 8px; color: var(--fx-text); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); }
+.fx-workplane-buttons .fx-tool:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-gold); }
+.fx-workplane-buttons .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; background: var(--fx-veil); border-color: var(--fx-edge); }
+.fx-workplane-buttons .fx-tool.is-on { color: var(--fx-gold); background: var(--fx-selected); border-color: var(--fx-gold); }
 /* The row's » (`fitHud`): what does not fit beside the view's menus, in a dropdown under it, each as it is on the row. */
 .fx-hud-more { position: relative; }
 .fx-hud-more[hidden] { display: none; }
@@ -1375,6 +1408,59 @@ body.is-playing .fx-axis-widget { display: none; }
   pointer-events: none;
 }
 .fx-legend[hidden] { display: none; }
+/* The AI map overlay's legend (`./aiMapOverlay` `drawAiMapLegend`): the viewport's lower left, over the keys' strip. */
+.fx-ai-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 40px;
+  z-index: var(--fx-z-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+  padding: var(--s2u-space-2) var(--s2u-space-3);
+  background: var(--fx-veil-strong);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  pointer-events: none;
+}
+.fx-ai-legend[hidden] { display: none; }
+/* The legends stacked in the viewport's lower left (the AI map's above the collision's), none over another. */
+.fx-legend-stack {
+  position: absolute;
+  left: 10px;
+  bottom: 40px;
+  z-index: var(--fx-z-raised);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-height: calc(100% - 80px);
+  overflow: hidden;
+  pointer-events: none;
+}
+.fx-legend-stack > .fx-ai-legend { position: static; }
+.fx-ai-legend__row.is-empty, .fx-ai-legend__hint.is-empty { opacity: 0.45; }
+.fx-ai-legend__head { margin-bottom: 2px; font: var(--fx-type-caption); color: var(--fx-dim); }
+/* The collision legend's Colour by switch (`./hull` `drawHullLegend`): beside the title, the one part of the legend that takes the pointer. */
+.fx-ai-legend__head:has(.fx-hull-colour-by) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fx-hull-colour-by { pointer-events: auto; height: 22px; padding: 0 var(--s2u-space-1); font: var(--fx-type-caption); }
+.fx-ai-legend__row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px; }
+.fx-ai-legend__swatch { width: 12px; height: 12px; border-radius: 2px; opacity: 0.85; }
+.fx-ai-legend__swatch.is-line { height: 2px; border-radius: 1px; opacity: 1; }
+/* A row's context line, under its words (indented past the swatch). */
+.fx-ai-legend__hint { margin: -1px 0 2px 20px; max-width: 260px; font: var(--fx-type-caption); line-height: 1.35; color: var(--fx-dim); }
+.fx-ai-legend__count { font: var(--fx-type-mono); color: var(--fx-dim); }
+.fx-ai-legend__foot { margin-top: 2px; font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-ai-legend__kinds { display: flex; flex-direction: column; gap: 3px; }
+/* The cell under the pointer, and each hostage's route: a rule above each part. */
+.fx-ai-legend__hover, .fx-ai-legend__routes { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--fx-edge); font: var(--fx-type-mono); max-width: 340px; overflow-wrap: anywhere; }
+.fx-ai-legend__routes { display: flex; flex-direction: column; gap: 2px; }
+.fx-ai-legend__routes[hidden] { display: none; }
+.fx-ai-legend__route { color: #f4d35e; }
+.fx-ai-legend__route.is-none { color: #ff3b30; }
 /* R7-A R2: the legend's inline form (`drawLegend`'s placement 'inline'), the menu header's prompts -- in the header's
    flow, with no strip veil or rule; its own class, so `.fx-legend` (the strip, absolute in `.fx-modal` too) never takes it
    to the bottom of the window as a second strip. */
@@ -1844,6 +1930,9 @@ body.is-matching .fx-legend { display: none; }
   height: 40px;
   display: flex;
   align-items: center;
+  /* Centred, every mode and layer alike (the owner, 2026-11-16); `safe`: wider than the window, it starts at the left
+     and scrolls, never cut off at either end. */
+  justify-content: safe center;
   gap: 6px;
   padding: 0 var(--s2u-space-2);
   box-sizing: border-box;
@@ -1864,6 +1953,7 @@ body.is-matching .fx-legend { display: none; }
 .fx-tools-row .fx-tool { gap: 6px; padding: 0 8px; }
 /* A section a game mode (the owner, 2026-11-06): its caption, then its groups; greyed whole when its type is not played. */
 .fx-tools-row .fx-mode-section { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; height: 34px; border: 1px solid var(--fx-edge); border-radius: 4px; }
+.fx-tools-row .fx-mode-section[hidden] { display: none; }
 .fx-tools-row .fx-mode-section > .fx-group:last-child { border-right: 0; }
 .fx-mode-section__label { font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); white-space: nowrap; padding-right: 4px; }
 .fx-tools-row .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; }
@@ -1873,15 +1963,72 @@ body.is-matching .fx-legend { display: none; }
 .fx-light-rig > h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fx-light-rig__light { margin: 6px 0 10px; }
 .fx-light-rig__title { margin: 0 0 4px; font: var(--fx-type-caption); letter-spacing: .1em; text-transform: uppercase; color: var(--fx-dim); }
-.fx-light-rig__row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
-.fx-light-rig__label { flex: 0 0 96px; color: var(--fx-dim); }
 .fx-light-rig__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.fx-light-rig__row { flex-wrap: wrap; }
-.fx-light-rig__row .fx-light-rig__num { width: 58px; }
 .fx-light-rig__check { margin: 0; }
 .fx-light-rig__buttons { display: flex; gap: 6px; flex: none; }
-.fx-light-rig__row .fx-num { width: 64px; }
 .fx-light-rig__colour { width: 36px; height: 24px; padding: 0; border: 1px solid var(--fx-control-edge); background: none; cursor: pointer; }
+.fx-light-rig__row .fx-num { width: 64px; }
+/* A property table (the owner, 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
+   largest text in that property table"): a panel's body as one grid -- its labels' column as wide as its widest label,
+   then the widgets, then a readout at the end. Each row lines up on it (`subgrid`); a heading, a note or a section of
+   its own spans the whole width. */
+.fx-prop-table { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; column-gap: 10px; row-gap: 6px; align-content: start; }
+/* A dock panel's body that is a table: the table's grid over the docks' own column (`.fx-section`), its spacing kept. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section.fx-prop-table { display: grid; row-gap: var(--s2u-space-2); }
+.fx-prop-table > * { grid-column: 1 / -1; min-width: 0; }
+.fx-prop-table > .fx-prop-row,
+.fx-prop-table > .fx-setting,
+.fx-prop-table > .fx-toggle,
+.fx-prop-table > .fx-setting-nums > .fx-setting,
+.fx-prop-table > .fx-light-rig__slot > .fx-setting { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; row-gap: 4px; }
+.fx-prop-table > .fx-setting-nums, .fx-prop-table > .fx-light-rig__slot { display: contents; }
+/* The light rig's rows: the label, then its widgets in a line as they were. */
+.fx-prop-row { font: var(--fx-type-control); }
+.fx-prop-label { grid-column: 1; color: var(--fx-dim); }
+.fx-prop-value { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+/* A setting's row: its label, its control, its readout (or its reset) at the end; a row's further controls under the
+   first, in the control's column. Outside a table, the same columns on the row alone. */
+.fx-setting { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; }
+.fx-setting > .fx-setting-head { display: contents; }
+.fx-setting > .fx-setting-head > span:first-child { grid-column: 1; grid-row: 1; color: var(--fx-dim); }
+.fx-setting > .fx-setting-head > .fx-setting-value, .fx-setting > .fx-setting-head > .fx-setting-reset { grid-column: 3; justify-self: end; }
+.fx-setting > .fx-setting-head > .fx-setting-value { grid-row: 1; }
+.fx-setting > :not(.fx-setting-head) { grid-column: 2; min-width: 0; }
+/* No readout or reset of its own: its control runs to the row's end. */
+.fx-setting:not(:has(> .fx-setting-head > :is(.fx-setting-value, .fx-setting-reset))) > :not(.fx-setting-head) { grid-column: 2 / -1; }
+.fx-setting > .fx-select, .fx-setting > .fx-num { justify-self: start; max-width: 100%; }
+/* A table of its own (the reverb's zones): the row's full width, under its label. */
+.fx-setting > .fx-world-reverb { grid-column: 1 / -1; }
+.fx-setting-nums .fx-setting-head { font: var(--fx-type-control); }
+/* A switch in a table: its words in the label column, the switch in the widgets'. */
+.fx-prop-table > .fx-toggle > span { grid-column: 1; grid-row: 1; color: var(--fx-dim); }
+.fx-prop-table > .fx-toggle > input { grid-column: 2; justify-self: start; }
+/* One property style in every panel (the owner, 2026-11-12: "keep the same text style, height, spacing for all the
+   properties ... like the transform's Position and Rotation"; "Don't make it all caps"): every property's label in the
+   transform caption's face, in its own case; every row the transform row's height (the stepper's 26px), 6px apart. */
+.fx-field-caption,
+.fx-inspect-data dt,
+.fx-prop-label,
+.fx-setting > .fx-setting-head > span:first-child,
+.fx-prop-table > .fx-toggle > span,
+.fx-env-rows dt {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  font: var(--fx-type-caption);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--fx-dim);
+  white-space: nowrap;
+}
+.fx-inspect-data dd, .fx-env-rows dd, .fx-prop-value { min-height: 26px; display: flex; align-items: center; }
+.fx-inspect-data { grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--s2u-space-3); }
+.fx-env-rows { gap: 6px var(--s2u-space-3); }
+.fx-prop-table, :is(.fx-dock, .fx-workbench) .fx-panel > .fx-section.fx-prop-table { row-gap: 6px; }
+.fx-fields { gap: 6px; }
+/* The controls in a property row: the stepper's height. */
+.fx-prop-value .fx-select, .fx-setting > .fx-select, .fx-inspect-data .fx-select, .fx-inspect-data .fx-inspect-button { height: 26px; }
+.fx-light-rig__colour { height: 26px; }
 /* The layout's name: shown, not typed (Saves' Save as names it). */
 .fx-top .fx-name[readonly] { cursor: default; background: transparent; border-color: transparent; text-overflow: ellipsis; }
 .fx-top .fx-name[readonly]:focus { outline: none; }
@@ -2129,9 +2276,513 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
   body.forge-page option::checkmark { display: none; }
   /* The row under the pointer or the keys on gold, its words dark (the system's list's light blue, in the Forge's colour). */
   body.forge-page option:is(:hover, :focus-visible):not(:disabled) { color: var(--fx-on-accent); background: var(--fx-gold); outline-style: none; }
-  /* A group's heading bold, its options set in under it, as the system's list draws them. */
-  body.forge-page optgroup { font: var(--fx-type-control); font-weight: 700; color: var(--fx-text); }
-  body.forge-page optgroup option { padding-left: 18px; font-weight: 400; }
+  /* A group's heading a heading (the owner, 2026-11-13: "make those headers look like actual header ... room to
+     breathe ... a line/divider between Multiplayer and Campaign"; every map list alike -- Across maps, Multiplayer,
+     Campaign, Custom / Preset): the menus' own section heading's look (`.fx-viewport-modes-heading`: capitals, spaced,
+     dim), larger, with space above and below it, and a rule between one group and the next. Its options set in under
+     it in their own words. */
+  body.forge-page optgroup {
+    display: block; padding: 10px 0 4px; font: var(--fx-type-control); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--fx-dim); text-indent: 12px;   /* the heading's line set in, its options' own */
+    /* Its band a shade of its own (the owner, 2026-11-13: "a nice background color so they stand out"), the options under
+       it back on the list's own panel -- so only the heading wears it. */
+    padding-bottom: 0; background: var(--fx-panel-2);
+  }
+  body.forge-page optgroup > option { background: var(--fx-panel); }
+  body.forge-page :is(optgroup, option) + optgroup { margin-top: 6px; border-top: 1px solid var(--fx-edge); }
+  /* The band's foot: the space under the heading (the group's own shade), then the first option on the panel. */
+  body.forge-page optgroup > option:first-of-type { margin-top: 6px; }
+  body.forge-page optgroup option { padding: 5px 12px 5px 22px; font-weight: 400; letter-spacing: normal; text-transform: none; text-indent: 0; }
   body.forge-page select::picker(select) { max-height: min(70vh, 560px); overflow-y: auto; }
-  body.forge-page option:disabled { opacity: var(--fx-disabled); cursor: default; }
+  /* A row greyed by its words alone (the owner, 2026-11-13: "when an item is disabled, don't change the background color,
+     just the text"): a faded row let its group heading's band through. */
+  body.forge-page option:disabled { opacity: 1; color: color-mix(in srgb, var(--fx-text) 38%, transparent); cursor: default; }
+  /* A row's note set at its right (`optionWithNote`: a map's count; the owner, 2026-11-13: "right aligned"), dim, its
+     separator unseen here (the closed field reads the three as one line). On the hover's gold, and greyed, as its words. */
+  body.forge-page option:has(> .fx-option-note) { display: flex; align-items: center; }
+  body.forge-page option > .fx-option-sep { display: none; }
+  body.forge-page option > .fx-option-note { margin-left: auto; padding-left: 16px; color: var(--fx-dim); white-space: nowrap; }
+  body.forge-page option:is(:hover, :focus-visible):not(:disabled) > .fx-option-note, body.forge-page option:disabled > .fx-option-note { color: inherit; }
 }
+/* An asset tile dragged over an Inspector row that takes it (Source, its object): marked as the Outliner's drop is. */
+.fx-inspect-edit.is-asset-drop { outline: 2px solid var(--fx-gold); outline-offset: -1px; }
+
+/* An object tile's star and its sound's play button both on it: the star at the right as a prop's, the play at the left. */
+.fx-assets[data-view="grid"] .fx-star.fx-asset-play { right: auto; left: 8px; }
+
+/* An Inspector select with its browse button at its right (`InspectorEditor.browse`). */
+.fx-inspect-data dd.fx-inspect-browse-row { display: flex; gap: 4px; align-items: center; }
+.fx-inspect-data dd.fx-inspect-browse-row > .fx-inspect-edit { flex: 1 1 auto; min-width: 0; }
+.fx-inspect-browse { flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; }
+.fx-inspect-browse .fx-ico { width: 14px; height: 14px; }
+/* The mini asset browser: the asset browser lent to a popup by an Inspector row, its tabs and its footer left out. */
+.fx-asset-picker {
+  position: fixed; z-index: 1000; display: flex; flex-direction: column; width: 380px; height: min(560px, 80vh);
+  padding: 0 8px 8px; box-sizing: border-box; background: var(--fx-panel); border: 1px solid var(--fx-edge);
+  border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); overflow: hidden;
+  /* Resized by its corner (the owner, 2026-11-13: "movable and resizable"). */
+  resize: both; min-width: 260px; min-height: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+}
+.fx-asset-picker-head {
+  cursor: move; user-select: none; touch-action: none;
+  display: flex; align-items: center; justify-content: space-between; margin: 0 -8px 8px; padding: 6px 8px 6px 12px;
+  background: var(--fx-panel-2); border-bottom: 1px solid var(--fx-edge); color: var(--fx-dim);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.fx-asset-picker-close { width: 24px; height: 24px; padding: 0; }
+.fx-assets-pane.is-picking > .fx-asset-tabs,
+.fx-assets-pane.is-picking > .fx-assets-foot { display: none; }
+
+/* A Source's Custom (a damage trigger's, a switch's, a program's; the owner, 2026-11-13: "make the custom row a bit more
+   visible"): gold and bold; the groups' own divider sets it apart from the maps under it. */
+body.forge-page option[value="*custom"] { padding: 7px 12px; color: var(--fx-gold); font-weight: 700; }
+/* Its group header straight under it, no gap between: the header's own line the one divider. */
+body.forge-page option[value="*custom"] + optgroup { margin-top: 0; }
+body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(--fx-on-accent); }
+
+/* An Inspector row with room above it (`InspectorEditor.gap`): a script's header, each of its steps, its Add row. */
+.fx-inspect-data > .fx-inspect-gap { margin-top: 12px; }
+
+/* ---- The Script editor's node view (`./panels/scriptGraph`; the owner, 2026-11-13: "a nodal view of the same underlying
+   data", then "parameters inside the node ... sideways ... the + more obvious"). A flow left to right: its event, each
+   step a node coloured by its family holding its own rows, an If's lanes one over another joined at its End if, a While's
+   body above its line back; every wire's + shown. */
+.fx-sg { --sg-wire: color-mix(in srgb, var(--fx-text) 38%, transparent); --sg-media: #4fa3d9; --sg-flow: #a07ad6; --sg-state: #5cb87a; --sg-action: #d9644f;
+  display: flex; flex-direction: column; height: 100%; min-height: 220px; }
+.fx-sg-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--fx-edge); }
+.fx-sg-title { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; color: var(--fx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-sg-zooms { display: inline-flex; gap: 2px; }
+.fx-sg-zoom { min-width: 26px; height: 24px; padding: 0 6px; }
+.fx-sg-zoom-word { min-width: 48px; }
+.fx-sg-canvas { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; cursor: grab;
+  background-color: var(--fx-panel);
+  background-image: radial-gradient(color-mix(in srgb, var(--fx-text) 10%, transparent) 1px, transparent 1px); background-size: 18px 18px; }
+.fx-sg-canvas.is-panning { cursor: grabbing; }
+.fx-sg-graph { display: inline-block; min-width: 100%; min-height: 100%; padding: 28px 32px; box-sizing: border-box; }
+
+/* Left to right: each row's wires through its nodes' middles. */
+.fx-sg-flow, .fx-sg-seq, .fx-sg-while, .fx-sg-if, .fx-sg-lane { display: flex; flex-direction: row; align-items: center; }
+.fx-sg-flow { width: max-content; }
+
+/* A node: its command, its number, its remove; then its own rows (the Inspector's editors). */
+.fx-sg-node { --fam: var(--sg-flow); position: relative; flex: 0 0 auto; width: 290px; box-sizing: border-box; background: var(--fx-panel-2);
+  border: 1px solid color-mix(in srgb, var(--fam) 55%, var(--fx-edge)); border-top: 4px solid var(--fam); border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); cursor: default; text-align: left; }
+.fx-sg-node.is-on { outline: 2px solid var(--fx-gold); outline-offset: 2px; }
+.fx-sg-fam-media { --fam: var(--sg-media); }
+.fx-sg-fam-flow { --fam: var(--sg-flow); }
+.fx-sg-fam-state { --fam: var(--sg-state); }
+.fx-sg-fam-action { --fam: var(--sg-action); }
+.fx-sg-node-head { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 3px 6px 3px 10px; cursor: pointer; border-bottom: 1px solid var(--fx-edge); }
+.fx-sg-node-head:focus-visible { outline: 2px solid var(--fx-gold); outline-offset: -2px; }
+.fx-sg-cmd { color: var(--fam, var(--fx-gold)); font-weight: 700; font-size: 12px; letter-spacing: 0.08em; }
+.fx-sg-num { color: var(--fx-dim); font-size: 10px; }
+.fx-sg-remove { margin-left: auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--fx-dim); font-size: 11px; cursor: pointer; }
+.fx-sg-remove:hover { color: var(--fx-on-accent); background: var(--sg-action); }
+/* Its rows, as the Inspector's, inside it. */
+.fx-sg-node > .fx-sg-rows { margin: 0; padding: 8px 10px 10px; border-top: 0; gap: 5px 8px; }
+.fx-sg-node > .fx-sg-rows[hidden] { display: none; }
+.fx-sg-detail { padding: 6px 10px 8px; color: var(--fx-text); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+/* Its event, and the end. */
+.fx-sg-event { --fam: var(--fx-gold); width: 180px; border-radius: 18px 6px 6px 18px; }
+.fx-sg-event .fx-sg-node-head { color: var(--fx-gold); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; cursor: default; }
+/* A block's closer (End if, End while) and the end: a small pill. */
+.fx-sg-pill { width: auto; min-width: 84px; border-top-width: 1px; border-radius: 999px; }
+.fx-sg-pill .fx-sg-node-head { justify-content: center; border-bottom: 0; padding: 3px 12px; }
+.fx-sg-pill .fx-sg-num { display: none; }
+.fx-sg-done { --fam: var(--fx-dim); padding: 4px 14px; color: var(--fx-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; box-shadow: none; }
+/* LOOP: back to the start. */
+.fx-sg-note { padding: 0 10px 8px; color: var(--sg-flow); font-size: 11px; }
+
+/* A wire between nodes, its + always shown on it. */
+.fx-sg-wire { position: relative; flex: 0 0 auto; width: 56px; height: 2px; background: var(--sg-wire); }
+.fx-sg-wire.is-grow { flex: 1 1 auto; min-width: 56px; }
+.fx-sg-seq.is-grow { flex: 1 1 auto; }
+.fx-sg-wire.is-pass { background: repeating-linear-gradient(90deg, var(--sg-wire) 0 6px, transparent 6px 11px); }
+.fx-sg-add { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; transform: translate(-50%, -50%);
+  border: 2px solid var(--fx-gold); border-radius: 50%; background: var(--fx-panel-2); color: var(--fx-gold); font-size: 15px; font-weight: 700; line-height: 1;
+  cursor: pointer; z-index: 1; box-shadow: 0 0 0 3px var(--fx-panel); }
+.fx-sg-add:hover, .fx-sg-add:focus-visible { background: var(--fx-gold); color: var(--fx-on-accent); outline: none; }
+.fx-sg-wire.is-pass > .fx-sg-add { border-style: dashed; }
+
+/* An If: its lanes one over another, a bar down their starts and their ends (each end lane from its middle). */
+.fx-sg-lanes { display: flex; flex-direction: column; align-items: stretch; }
+.fx-sg-lane { position: relative; padding: 12px 0; }
+.fx-sg-lane::before, .fx-sg-lane::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--sg-wire); }
+.fx-sg-lane::before { left: 0; }
+.fx-sg-lane::after { right: 0; }
+.fx-sg-lane:first-child::before, .fx-sg-lane:first-child::after { top: 50%; }
+.fx-sg-lane:last-child::before, .fx-sg-lane:last-child::after { bottom: 50%; }
+.fx-sg-lane:only-child::before, .fx-sg-lane:only-child::after { display: none; }
+.fx-sg-stub { flex: 0 0 auto; width: 20px; height: 2px; background: var(--sg-wire); }
+.fx-sg-if > .fx-sg-pill { position: relative; }
+.fx-sg-if > .fx-sg-lanes { margin: 0 22px 0 0; }
+.fx-sg-if > .fx-sg-pill::before { content: ''; position: absolute; top: calc(50% - 1px); left: -24px; width: 22px; height: 2px; background: var(--sg-wire); }
+.fx-sg-tag { flex: 0 0 auto; padding: 2px 9px; border: 1px solid var(--fx-edge); border-radius: 999px; background: var(--fx-panel); color: var(--fx-dim);
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* A While: its body, a line under it back to its head. */
+
+/* The + menu. */
+.fx-sg-menu { position: absolute; z-index: 5; display: flex; flex-direction: column; min-width: 230px; padding: 4px; background: var(--fx-panel-2);
+  border: 1px solid var(--fx-edge); border-radius: 6px; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5); cursor: default; }
+.fx-sg-menu-sep { height: 1px; margin: 4px 6px; background: var(--fx-edge); }
+.fx-sg-menu-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font: var(--fx-type-control); }
+.fx-sg-menu-item .fx-sg-cmd { min-width: 62px; }
+/* Hovered: its family's colour behind it and a bar at its left, its words brighter. */
+.fx-sg-menu-item { box-shadow: inset 3px 0 0 transparent; transition: background-color 80ms ease-out, box-shadow 80ms ease-out; }
+.fx-sg-menu-item:hover, .fx-sg-menu-item:focus-visible { background: color-mix(in srgb, var(--fam) 24%, transparent); box-shadow: inset 3px 0 0 var(--fam); color: var(--fx-text); outline: none; }
+
+/* Nothing to draw: why, and the one press that gives it a script. */
+.fx-sg-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 16px; color: var(--fx-dim); text-align: center; }
+.fx-sg-empty p { margin: 0; }
+
+/* The Inspector's rows of the step chosen in the Script panel. */
+.fx-inspect-data > .is-script-focus { background: color-mix(in srgb, var(--fx-gold) 12%, transparent); }
+.fx-inspect-data > dt.is-script-focus { color: var(--fx-gold); box-shadow: inset 2px 0 0 var(--fx-gold); padding-left: 4px; }
+
+/* A While (the owner, 2026-11-13: "make the return while line connect to the nodes and have the arrow go in the right
+   direction"): its head and its End while each in a column (`.fx-sg-post`) as tall as the block, the node in its middle;
+   the line back drops from the End while's middle, runs along under the body and rises into the head, its arrow there.
+   The block's room above matches the line's below, so the wires stay through its middle. */
+.fx-sg-while { position: relative; align-items: stretch; padding: 26px 0; }
+.fx-sg-loop { display: flex; align-items: center; }
+.fx-sg-post { display: flex; flex-direction: column; align-items: center; margin-bottom: -26px; }
+.fx-sg-post-top { flex: 1 1 0; }
+.fx-sg-post-drop { position: relative; flex: 1 1 0; width: 100%; padding-bottom: 26px; }
+.fx-sg-post.is-end { width: 120px; }
+.fx-sg-post.is-end > .fx-sg-pill { width: 100%; }
+.fx-sg-while.has-return .fx-sg-post-drop::before { content: ''; position: absolute; left: calc(50% - 1px); top: 0; bottom: 12px; width: 2px; background: var(--sg-flow); }
+.fx-sg-while.has-return .fx-sg-post.is-end > .fx-sg-post-drop::before { top: 0; }
+/* The run along the bottom: from the head's middle (its node 290 wide) to the End's (120 wide), rounded at both turns. */
+.fx-sg-while.has-return::after { content: ''; position: absolute; left: 144px; right: 59px; bottom: 12px; height: 14px; border: 2px solid var(--sg-flow); border-top: 0; border-radius: 0 0 10px 10px; }
+.fx-sg-while.has-return .fx-sg-post-drop::before { bottom: 24px; }
+/* Its arrow: up, into the head. */
+.fx-sg-while.has-return .fx-sg-post.is-head > .fx-sg-post-drop::after { content: ''; position: absolute; left: calc(50% - 6px); top: 0; width: 0; height: 0;
+  border: 6px solid transparent; border-bottom: 9px solid var(--sg-flow); border-top: 0; }
+
+/* An If's lanes (the owner, 2026-11-13: "make the if/else if/else if chain a bit more organized"): each a row -- its
+   condition in a column as wide as a node (the If's "then", an Else if's node, the Otherwise), its steps after, every
+   lane's starting at the same place -- set apart by a faint band. */
+.fx-sg-lane { padding: 10px 0; }
+.fx-sg-lane + .fx-sg-lane { border-top: 1px dashed color-mix(in srgb, var(--fx-text) 12%, transparent); }
+.fx-sg-lane-head { flex: 0 0 290px; display: flex; align-items: center; }
+.fx-sg-lane-head.is-line > .fx-sg-line { flex: 1 1 auto; height: 2px; background: var(--sg-wire); }
+.fx-sg-lane-pass .fx-sg-lane-head.is-line > .fx-sg-line { background: repeating-linear-gradient(90deg, var(--sg-wire) 0 6px, transparent 6px 11px); }
+
+/* The Script editor's switch: the map's script or the selected object's. */
+.fx-sg-bar-left { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.fx-sg-views { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--fx-edge); border-radius: 6px; }
+.fx-sg-view { height: 22px; padding: 0 10px; font-size: 12px; }
+.fx-sg-view.is-on { color: var(--fx-on-accent); background: var(--fx-gold); }
+/* The Map panel's Script row: the map script's button and its count. */
+.fx-map-script-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+.fx-map-script-open { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; }
+.fx-map-script-open .fx-ico { width: 14px; height: 14px; }
+.fx-map-script-count { font-size: 11px; }
+
+/* The Script editor's Flags legend (the owner, 2026-11-13): at its left, every flag of the layout's scripts -- marked
+   where the script shown uses it, unfolded to its uses (each one a jump to its step) -- then the game's own values. */
+.fx-sg-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.fx-sg-body > .fx-sg-canvas { flex: 1 1 auto; min-width: 0; }
+.fx-sg-legend { flex: 0 0 280px; display: flex; flex-direction: column; gap: 2px; padding: 8px; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border-right: 1px solid var(--fx-edge); background: var(--fx-panel-2); }
+.fx-sg-legend-head { display: flex; align-items: center; gap: 6px; margin: 6px 2px 4px; color: var(--fx-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.fx-sg-legend-head:first-child { margin-top: 0; }
+.fx-sg-legend-count { padding: 0 6px; border-radius: 999px; background: var(--fx-panel); color: var(--fx-text); font-size: 10px; letter-spacing: 0; }
+.fx-sg-legend-none { margin: 0 2px 6px; color: var(--fx-dim); font-size: 12px; line-height: 1.4; }
+.fx-sg-flag { border-radius: 4px; }
+.fx-sg-flag.is-here { box-shadow: inset 3px 0 0 var(--sg-state); background: color-mix(in srgb, var(--sg-state) 10%, transparent); }
+.fx-sg-flag-top { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font: var(--fx-type-control); }
+.fx-sg-flag-top:hover, .fx-sg-flag-top:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-sg-flag-caret { width: 10px; color: var(--fx-dim); font-size: 10px; }
+.fx-sg-flag-name { font-family: var(--fx-font-mono, monospace); font-size: 12px; color: var(--sg-state); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-sg-flag-here { padding: 0 5px; border-radius: 3px; background: var(--sg-state); color: var(--fx-on-accent); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.fx-sg-flag-meta { margin-left: auto; color: var(--fx-dim); font-size: 10px; white-space: nowrap; }
+.fx-sg-flag-meta.is-warn { color: var(--sg-action); font-weight: 700; }
+.fx-sg-flag-uses { display: flex; flex-direction: column; gap: 1px; padding: 0 4px 6px 20px; }
+.fx-sg-use { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font-size: 11px; }
+.fx-sg-use:hover, .fx-sg-use:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-sg-use-kind { min-width: 34px; font-weight: 700; font-size: 10px; letter-spacing: 0.06em; }
+.fx-sg-use.is-write .fx-sg-use-kind { color: var(--sg-state); }
+.fx-sg-use.is-read .fx-sg-use-kind { color: var(--sg-flow); }
+.fx-sg-use-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-sg-game { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
+.fx-sg-game .fx-sg-flag-name { color: var(--sg-media); }
+
+/* The Original map tab (the owner, 2026-11-13: "see the official maps' map scripting"): its program and sequence
+   pickers in the bar; an engine command no script step stands for, grey (`native`); a read-only node its words. */
+.fx-sg-disc { display: inline-flex; align-items: center; gap: 12px; }
+.fx-sg-disc-field { display: inline-flex; align-items: center; gap: 6px; }
+.fx-sg-disc-label { color: var(--fx-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.fx-sg-disc[hidden] { display: none; }
+.fx-sg-disc .fx-select { height: 24px; max-width: 220px; font-size: 12px; }
+.fx-sg-fam-native { --fam: color-mix(in srgb, var(--fx-text) 45%, transparent); }
+.fx-sg-legend[hidden] { display: none; }
+
+/* The legend's sequence rows' rename and remove (the owner, 2026-11-13: the sequence bar's, moved to the left bar). */
+.fx-sg-seq-remove { flex: 0 0 auto; width: 18px; height: 18px; margin-left: 2px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--fx-dim); font-size: 10px; cursor: pointer; }
+.fx-sg-seq-remove:hover { color: var(--fx-on-accent); background: var(--sg-action); }
+.fx-sg-seq-input { flex: 1 1 auto; min-width: 0; height: 22px; font-size: 12px; }
+.fx-sg-seq-add { align-self: stretch; height: 24px; margin: 4px 2px 0; padding: 0 8px; font-size: 12px; }
+
+/* The legend's sequences (the owner, 2026-11-13: "add our sequences to the left hand side bar"); every legend row keeps
+   its height so the legend scrolls rather than squeezes. */
+.fx-sg-legend > * { flex-shrink: 0; }
+.fx-sg-seq-item .fx-sg-flag-top { padding: 0 6px 0 0; cursor: default; }
+.fx-sg-seq-item .fx-sg-flag-top:hover { background: transparent; }
+.fx-sg-seq-caret { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 24px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.fx-sg-seq-open { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer; font: var(--fx-type-control); }
+.fx-sg-seq-open:hover, .fx-sg-seq-open:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-sg-seq-item .fx-sg-flag-name { color: var(--sg-flow); }
+.fx-sg-seq-item.is-here { box-shadow: inset 3px 0 0 var(--sg-flow); background: color-mix(in srgb, var(--sg-flow) 10%, transparent); }
+.fx-sg-seq-who { color: var(--fx-dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* A text field's suggestions (a flag's name): its button, and the list under it (the owner, 2026-11-13). */
+.fx-inspect-suggest { color: var(--sg-state, var(--fx-accent)); }
+.fx-inspect-suggest .fx-ico { fill: color-mix(in srgb, currentColor 30%, transparent); }
+.fx-suggest-list { position: fixed; z-index: 2000; display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 3px;
+  border: 1px solid var(--fx-edge); border-radius: 4px; background: var(--fx-panel); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); overscroll-behavior: contain; }
+.fx-suggest-item { padding: 4px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--fx-text); text-align: left; cursor: pointer;
+  font-family: var(--fx-font-mono, monospace); font-size: 12px; white-space: nowrap; }
+.fx-suggest-item:hover, .fx-suggest-item:focus-visible { background: var(--fx-selected); outline: none; }
+.fx-suggest-item.is-on { color: var(--sg-state, var(--fx-accent)); }
+
+/* The steps' one menu (`panels/stepMenu`), fixed on the page: the + menu's look, its families' colours of its own. */
+.fx-step-menu, .fx-step-pick { --sg-media: #4fa3d9; --sg-flow: #a07ad6; --sg-state: #5cb87a; --sg-action: #d9644f; }
+.fx-sg-menu.fx-step-menu { position: fixed; z-index: 2000; overflow-y: auto; overscroll-behavior: contain; }
+.fx-sg-menu-item.is-on { background: color-mix(in srgb, var(--fam) 14%, transparent); box-shadow: inset 3px 0 0 var(--fam); }
+.fx-sg-fam-tool { --fam: var(--fx-dim); }
+.fx-sg-fam-tool .fx-sg-cmd { color: var(--fx-text); }
+.fx-sg-fam-remove { --fam: var(--sg-action); }
+.fx-sg-fam-remove .fx-sg-cmd { color: var(--sg-action); }
+/* A Step row's button: the step shown as the menu shows it, an arrow at its right like a select's. */
+.fx-step-pick { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; cursor: pointer; overflow: hidden; }
+.fx-step-pick .fx-sg-cmd { flex: 0 0 auto; font-size: 11px; }
+.fx-step-pick-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-step-pick.is-empty .fx-step-pick-words { color: var(--fx-dim); }
+
+/* The program sidebar's edge: a drag resizes it (a double click its default); a sequence's name on a line of its own,
+   its state under it (the owner, 2026-11-13: "when I add a new sequence, I can't even read it"). */
+.fx-sg-legend { border-right: 0; }
+.fx-sg-legend-grip { flex: 0 0 5px; cursor: col-resize; background: var(--fx-edge); transition: background-color 80ms ease-out; }
+.fx-sg-legend-grip:hover, .fx-sg-legend-grip.is-dragging { background: var(--fx-gold, var(--fx-accent)); }
+.fx-sg-legend-grip[hidden] { display: none; }
+.fx-sg-seq-item .fx-sg-flag-top { flex-wrap: wrap; row-gap: 0; }
+.fx-sg-seq-item .fx-sg-seq-open { flex: 1 1 0; }
+.fx-sg-seq-item .fx-sg-flag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-sg-seq-item .fx-sg-seq-remove { order: 2; }
+.fx-sg-seq-item .fx-sg-flag-top > .fx-sg-flag-meta { order: 3; flex: 1 0 100%; margin: 0 0 4px; padding-left: 24px; text-align: left; }
+.fx-sg-seq-who:empty { display: none; }
+
+/* A condition's further test, and its Add a test row: room above it and a faint line, in the Inspector and the nodes. */
+.fx-inspect-data > .fx-inspect-group { margin-top: 10px; padding-top: 10px; border-top: 1px dashed color-mix(in srgb, var(--fx-text) 16%, transparent); }
+
+/* The asset tiles' own drag (page.ts `tileDrag`): no text picked up on the way, a grabbing hand, and the asset's name by
+   the pointer while it is off the viewport. */
+body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grabbing !important; }
+.fx-tile-drag-chip { position: fixed; z-index: 10000; pointer-events: none; padding: 3px 8px; border-radius: 4px;
+  background: var(--fx-panel, #0e1a1f); border: 1px solid var(--fx-gold, #d9b24c); color: var(--fx-text, #e6edf0);
+  font: var(--fx-type-body, 12px sans-serif); white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+/* A drag over something it cannot go on (a texture over a prop): the chip says so, in the warning colour. */
+.fx-tile-drag-chip.is-refused { border-color: var(--fx-danger, #e5534b); color: var(--fx-danger, #e5534b); }
+.fx-tile-drag-chip.is-refused::before { content: '\2298  '; }
+
+/* Geometry mode's tools (`./geometry/editor`; a browser adaptation, FG.R2): in the object bar's place in Geometry mode,
+   its placing sections hidden and the geometry's labelled sections laid out as theirs are. */
+.fx-geo-tools { display: contents; }
+.fx-geo-tools[hidden] { display: none; }
+.fx-tools-row.is-geometry > .fx-mode-section { display: none; }
+.fx-tools-row.is-navigation > .fx-mode-section { display: none; }
+/* The editor mode picker (Object, Modelling) and the toolbar groups each mode shows: the other mode's hidden. */
+.fx-top .fx-group[hidden] { display: none; }
+.fx-top .fx-edit-mode { height: 28px; flex: none; min-width: 9.5em; }
+.fx-geo-texture { max-width: 200px; height: 28px; flex: none; display: inline-flex; align-items: center; gap: 6px; }
+/* The Texture button's swatch and name (the texture chosen in the asset browser's Textures). */
+.fx-geo-texture-swatch { width: 18px; height: 18px; border-radius: 2px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+.fx-geo-texture-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A texture tile's picture: the texture over a checker, so its transparent texels read as such. */
+.fx-asset-texture { background: repeating-conic-gradient(#3a3d42 0 25%, #2c2f33 0 50%) 0 0 / 12px 12px; }
+/* The Layer tabs: the asset browser's little tabs (`.fx-asset-tab`), in a row on the object bar. */
+.fx-geo-layer-tabs { flex-wrap: nowrap; margin: 0; }
+/* The paint tools' modes and Apply (`./paintTools`): Select | Paint | Sample, then Apply, one group. */
+.fx-paint-tools { display: flex; align-items: center; gap: 6px; }
+/* The Layer tabs on the top toolbar, after Object / Point / Edge / Face: a gap and a rule between them. */
+.fx-geo-layer-top { align-self: center; }
+/* The top bar's labels (Mode, Select, Layer): the second toolbar's section label look, centred on the row. */
+.fx-bar-label { align-self: center; padding-left: 2px; }
+/* Layer after the selection modes: a gap and a rule between them. */
+/* Every section of both bars set apart (the owner, 2026-11-17: "give spacing between each section of buttons ... too
+   squished and it is very hard to read ... add dividers and spacing for each"): on the top bar, a caption after other
+   controls opens its section with a full-height rule and room either side; on the second toolbar the sections' boxes
+   stand further apart, their captions clear of their buttons. */
+.fx-top .fx-bar-label:not(:first-child) {
+  align-self: stretch; display: flex; align-items: center;
+  margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--fx-edge);
+}
+.fx-top .fx-bar-label { padding-right: 4px; }
+.fx-top > .fx-group--edit-mode, .fx-top > .fx-group--modes { padding: 0 10px; }
+.fx-tools-row { gap: 14px; }
+.fx-tools-row .fx-mode-section { padding: 0 6px 0 10px; }
+.fx-tools-row .fx-mode-section__label { padding-right: 8px; }
+.fx-tools-row .fx-mode-section > .fx-group + .fx-group { margin-left: 2px; }
+/* A collision type tab's colour: the collision view's own for that type. */
+.fx-type-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+.fx-geo-layer-tabs[hidden] { display: none; }
+/* The Climbable tab's flag and caret, and its menu (fixed under the tab). */
+.fx-climb-flag { opacity: 0.8; }
+.fx-climb-flag::before { content: '\00b7'; margin-right: 4px; }
+.fx-climb-caret { font-size: 10px; opacity: 0.8; }
+.fx-climb-menu {
+  position: fixed;
+  z-index: var(--fx-z-popup, 50);
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--fx-veil-strong);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+}
+.fx-climb-item { font: inherit; font-size: 12px; text-align: left; padding: 4px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--fx-text); cursor: pointer; }
+.fx-climb-item:hover { background: var(--fx-hover); }
+.fx-climb-item.is-on { color: var(--fx-gold); }
+/* The paint cursor's words: the face's collision type under the pointer, and what a click makes it. */
+.fx-paint-tip {
+  position: fixed;
+  z-index: var(--fx-z-popup, 50);
+  padding: 2px 6px;
+  background: var(--fx-veil-strong);
+  border: 1px solid var(--fx-edge);
+  border-radius: 3px;
+  font: var(--fx-type-caption);
+  color: var(--fx-text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.fx-paint-tip[hidden] { display: none; }
+/* Its status line: a pill at the viewport's foot. */
+.fx-geo-status {
+  position: absolute; left: var(--s2u-space-2); bottom: var(--s2u-space-2); max-width: calc(100% - 2 * var(--s2u-space-2));
+  padding: 2px var(--s2u-space-2); background: var(--fx-veil-strong); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius);
+  color: var(--fx-edge-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: var(--fx-z-raised);
+}
+.fx-geo-status[hidden] { display: none; }
+
+/* Create's shape menu (the owner, 2026-11-17: "a preview image and it is categorized better"): its button the shape's
+   picture and word; its panel the shapes by group, a picture each, the chosen one gold. */
+.fx-geo-block-shape { display: inline-flex; align-items: center; gap: var(--s2u-space-1); }
+.fx-geo-block-shape .fx-shape-icon { width: 18px; height: 18px; flex: none; }
+.fx-shape-menu { width: auto; max-width: calc(100vw - 16px); }
+.fx-shape-grid { display: grid; grid-template-columns: repeat(5, 64px); gap: var(--s2u-space-1); }
+.fx-shape-item {
+  display: grid; justify-items: center; gap: 2px; padding: 6px 2px;
+  background: transparent; color: var(--fx-text); border: 1px solid transparent; border-radius: var(--fx-radius);
+  font: var(--fx-type-caption); cursor: pointer;
+}
+.fx-shape-item:hover, .fx-shape-item:focus-visible { background: var(--fx-hover); border-color: var(--fx-control-edge); outline: none; }
+.fx-shape-item.is-on { border-color: var(--fx-gold); color: var(--fx-gold); }
+.fx-shape-item .fx-shape-icon { width: 32px; height: 32px; }
+/* The chosen shape's settings under the shapes: a row each, its word then its field (a number with its unit, a choice, a
+   switch); Reset beside the title. */
+.fx-shape-settings { display: grid; gap: var(--s2u-space-1); padding-top: var(--s2u-space-2); border-top: 1px solid var(--fx-edge); }
+.fx-shape-settings-head { display: flex; align-items: center; justify-content: space-between; }
+.fx-shape-reset { background: transparent; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); color: var(--fx-dim); font: var(--fx-type-caption); padding: 1px 8px; cursor: pointer; }
+.fx-shape-reset:hover { color: var(--fx-text); background: var(--fx-hover); }
+.fx-shape-setting { grid-template-columns: 110px 1fr; font: var(--fx-type-caption); }
+.fx-shape-num { display: flex; align-items: center; gap: var(--s2u-space-1); }
+.fx-shape-num .fx-num { width: 80px; }
+.fx-shape-unit { color: var(--fx-dim); }
+.fx-shape-setting input[type="checkbox"] { justify-self: start; }
+/* Create's settings panel in the viewport's lower left, among the legends (the owner, 2026-11-17: "make the settings a
+   little window in the viewport (bottom left) similar to legend"): live to the pointer, its head the shape (a click opens
+   the shapes), its rows the settings; dimmed gold while it shows a shape hovered in the menu. */
+.fx-legend-stack > .fx-create-panel { position: static; }
+.fx-create-panel { pointer-events: auto; gap: var(--s2u-space-1); width: 270px; max-height: 60vh; overflow-y: auto; }
+.fx-create-panel.is-hover { border-color: var(--fx-gold); }
+.fx-create-panel .fx-shape-settings-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2u-space-2); }
+.fx-create-panel-shape {
+  display: inline-flex; align-items: center; gap: var(--s2u-space-1); padding: 2px 6px 2px 2px;
+  background: transparent; color: var(--fx-text); border: 1px solid transparent; border-radius: var(--fx-radius);
+  font: var(--fx-type-control); cursor: pointer;
+}
+.fx-create-panel-shape:hover { background: var(--fx-hover); border-color: var(--fx-control-edge); }
+.fx-create-panel-shape .fx-shape-icon { width: 22px; height: 22px; }
+.fx-create-panel .fx-shape-setting { grid-template-columns: 100px 1fr; }
+/* Geometry mode's Texture State and Modify Texture (`./panels/textureInspector`; a level editor's face edit panel): a
+   caption column, then the row's fields (Scale and Shift X / Y, Rotate) or its buttons, wrapping when the dock is narrow. */
+.fx-inspector .fx-texture-section .fx-fields { grid-template-columns: 1fr; }
+.fx-inspector .fx-texture-section .fx-field-row { display: grid; grid-template-columns: 64px repeat(2, minmax(0, 1fr)); gap: 6px; align-items: center; }
+.fx-texture-count { font: var(--fx-type-caption); color: var(--fx-dim); margin: 0 0 8px; }
+.fx-texture-modify { display: grid; gap: 8px; }
+.fx-texture-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; align-items: center; }
+.fx-texture-buttons { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.fx-texture-btn { height: 26px; min-width: 30px; padding: 0 8px; justify-content: center; background: var(--fx-bg); border: 1px solid var(--fx-control-edge); }
+.fx-texture-btn:hover:not(:disabled) { border-color: var(--fx-gold); }
+.fx-texture-repeat-field { display: inline-flex; align-items: center; gap: 4px; font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-texture-repeat { width: 54px; height: 26px; }
+.fx-texture-treat-row { margin-top: 2px; }
+/* Texture State's Units and its warning (`./panels/textureInspector`): on the field rows' columns, the warning a quiet line. */
+.fx-texture-units-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; align-items: center; margin: 0 0 6px; }
+.fx-texture-units { height: 26px; max-width: 140px; }
+.fx-texture-warn { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font: var(--fx-type-caption); color: var(--fx-gold); }
+.fx-texture-warn[hidden] { display: none; }
+
+/* Edit > Preferences: the shortcut editor (`./shortcutEditor`; the owner, 2026-11-20). One card, its list scrolling. */
+.fx-prefs { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; overflow: hidden; }
+.fx-prefs header { display: flex; align-items: baseline; gap: var(--s2u-space-3); }
+.fx-prefs header h2 { margin: 0; }
+.fx-prefs-tab { font: var(--fx-type-body); color: var(--fx-gold); border-bottom: 2px solid var(--fx-gold); padding: 0 2px 2px; }
+.fx-prefs-count { margin-left: auto; font: var(--fx-type-body); color: var(--fx-dim); }
+.fx-prefs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-2); margin: var(--s2u-space-3) 0 var(--s2u-space-2); }
+.fx-prefs-bar .fx-search { flex: 1 1 200px; min-width: 160px; }
+.fx-prefs-filter { display: inline-flex; align-items: center; gap: 4px; font: var(--fx-type-body); color: var(--fx-dim); cursor: pointer; white-space: nowrap; }
+.fx-prefs-spacer { flex: 1 1 0; }
+.fx-prefs .fx-tool.is-recording, .fx-prefs-key.is-recording { outline: 2px solid var(--fx-gold); outline-offset: 1px; color: var(--fx-gold); }
+.fx-prefs-msg { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-2); padding: 6px 10px; margin-bottom: var(--s2u-space-2); font: var(--fx-type-body); line-height: 1.4;
+  border: 1px solid var(--fx-edge); border-left: 3px solid var(--fx-gold); background: var(--fx-panel-2); color: var(--fx-text); }
+.fx-prefs-msg[hidden] { display: none; }
+.fx-prefs-msg[data-kind="warn"] { border-left-color: var(--fx-alert); }
+.fx-prefs-msg[data-kind="error"] { border-left-color: var(--fx-danger); }
+.fx-prefs-msg[data-kind="ask"] { border-left-color: var(--fx-alert); }
+.fx-prefs-ask { display: inline-flex; gap: var(--s2u-space-2); margin-left: auto; }
+.fx-prefs-list { flex: 1 1 auto; overflow-y: auto; min-height: 120px; padding-right: 4px; }
+.fx-prefs-group { margin: var(--s2u-space-3) 0 4px; font: var(--fx-type-body); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fx-dim); }
+.fx-prefs-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; align-items: start; gap: var(--s2u-space-2); padding: 5px 4px; border-bottom: 1px solid var(--fx-divider); }
+.fx-prefs-row.is-custom .fx-prefs-name::after { content: ' \2022'; color: var(--fx-gold); }
+.fx-prefs-row.has-clash { background: color-mix(in srgb, var(--fx-danger) 8%, transparent); }
+.fx-prefs-row.is-fixed { opacity: 0.6; grid-template-columns: minmax(0, 1fr) auto; }
+.fx-prefs-cmd { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.fx-prefs-name { font: var(--fx-type-body); color: var(--fx-text); }
+.fx-prefs-where { font: var(--fx-type-body); font-size: 11px; color: var(--fx-dim); }
+.fx-prefs-notes { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; font: var(--fx-type-body); font-size: 11px; line-height: 1.35; }
+.fx-prefs-notes .is-clash { color: var(--fx-danger); }
+.fx-prefs-notes .is-warn { color: var(--fx-alert); }
+.fx-prefs-notes .is-shadow { color: var(--fx-dim); }
+.fx-prefs-keys { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.fx-prefs-slot { display: inline-flex; align-items: stretch; }
+.fx-prefs-key { min-width: 76px; padding: 3px 8px; font: var(--fx-type-mono); color: var(--fx-text); background: var(--fx-panel-2); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius) 0 0 var(--fx-radius); cursor: pointer; }
+.fx-prefs-key.is-empty { color: var(--fx-dim); border-radius: var(--fx-radius); border-style: dashed; }
+.fx-prefs-key:hover { border-color: var(--fx-gold); }
+.fx-prefs-clear { padding: 0 6px; color: var(--fx-dim); background: var(--fx-panel-2); border: 1px solid var(--fx-control-edge); border-left: 0; border-radius: 0 var(--fx-radius) var(--fx-radius) 0; cursor: pointer; }
+.fx-prefs-clear:hover { color: var(--fx-danger); }
+.fx-prefs-reset { width: 26px; height: 24px; color: var(--fx-gold); background: transparent; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); cursor: pointer; }
+.fx-prefs-reset[hidden] { visibility: hidden; display: inline-block; }
+.fx-prefs-fixedkeys { font: var(--fx-type-mono); color: var(--fx-dim); text-align: right; }
+.fx-prefs-findline { display: flex; align-items: center; gap: var(--s2u-space-2); margin-top: var(--s2u-space-2); font: var(--fx-type-body); color: var(--fx-gold); }
+.fx-prefs-empty { color: var(--fx-dim); }
+/* Geometry mode's Surface section (`./panels/surfaceInspector`, the Collision layer): a caption and its control a row. */
+.fx-surfprops-rows { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; align-items: center; }
+.fx-surfprops-row { display: contents; }
+.fx-surfprops-row > .fx-select { min-width: 0; width: 100%; box-sizing: border-box; height: 26px; }
+.fx-surfprops-note { margin: 8px 0 0; }
+.fx-surfprops-note[hidden] { display: none; }
+.fx-surfprops-area { display: flex; gap: 0; }
+.fx-surfprops-area > .fx-asset-tab { flex: 1 1 0; justify-content: center; }
+/* The Collision section's Property (`./geometry/editor` `propertyUi`; the owner, 2026-11-20: easy to find): first in the
+   section, in the accent's outline, the tabs beside it its values. */
+.fx-geo-prop { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.fx-geo-prop-word { font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-gold); }
+.fx-geo-prop-select { height: 26px; min-width: 112px; border-color: var(--fx-gold); color: var(--fx-text); font-weight: 600; }
+.fx-geo-material { display: inline-flex; align-items: center; gap: 6px; }
+.fx-geo-material[hidden] { display: none; }
+.fx-geo-material > .fx-select { height: 26px; max-width: 180px; }

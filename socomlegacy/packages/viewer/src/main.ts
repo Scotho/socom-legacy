@@ -137,6 +137,7 @@ import { orderCellOf, pickSurfaces } from './net/hostageOrder';
 import { setActionPickLog } from './actionPage';
 import { EQUIPMENT_SLOTS } from './equipment';
 import { INVENTORY_MENU_KEYS_READING } from './inventoryMenu';
+import { WheelNotches, wheelInventory } from './inventoryWheel';
 import { THROW_CLIPS } from './throwPose';
 import { grenadePlace, mountThrowables } from './matchThrow';
 import { postScriptMessage, refusalLine } from './matchMessages';
@@ -812,6 +813,17 @@ globalThis.addEventListener('keydown', testroomKeys((e: KeyboardEvent) => {   //
   if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
   switchFireMode();
 }));
+// The wheel on the kit (the owner, 2026-11-16; `./inventoryWheel`, a browser adaptation): the R2 inventory's highlight
+// open, the next slot the kit can take closed -- walking, no hold, no other menu over the game. OT.R29: a development
+// build's mouse; RB-8: the test room's while offline.
+{
+  const notches = new WheelNotches();
+  canvas.addEventListener('wheel', testroomKeys((e: WheelEvent) => {
+    if (!playOn || loadingJoin.blocked || walk.mode() !== 'walk' || armory.isOpen() || exchange.isOpen() || startMenu.isOpen() || taunts.isOpen()) return;
+    const n = notches.take(e, performance.now());
+    if (n !== 0) wheelInventory(inventory, throws, n > 0 ? 1 : -1);
+  }));
+}
 /** The trigger, pressed or let go: the firearm's, another owner's first -- the turret, the launcher, a throwable (`hands`). */
 function trigger(down: boolean): void {
   firearm.trigger(down);
@@ -1225,6 +1237,7 @@ const acts = mountActions({
     ownBody: ownBombBody(play, throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1 (research 214 s3): the own body
     sound: bombSound(gameAudio),                                                       // PB-1: the pickup's .FOOTBOMB
     pulse: worldPulse(() => pageWorld),                                                // PB-9b (research 284 s8): the bases' pulse
+    valve: (name, v) => { pageWorld?.setKeptValve(name, v); },                         // the game's `mp_bomb`, for a Forge map script
   },
   win: globalThis,
   drops: { ahead: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0), candidates: () => drops.holdCandidatesAt(walk.feet(), walk.snapshot()?.yaw ?? 0), second: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0, 2), item: (did) => drops.itemOf(did) },   // LkPaioX5 (c): the second TAKE and the names;   // PAR-34 group 7: PICKUP_HOLD_PER_CLASS_READING   // PF-34: the weapon prompt's drop

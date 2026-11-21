@@ -302,8 +302,12 @@ export class EffectRun {
           s.pc++;
           continue;
         case 'while': {
-          // Only the endless form is on the effects' path (the ripples); a conditional one is taken as false.
-          s.pc = op.forever || table.end[s.pc]! < 0 ? s.pc + 1 : table.end[s.pc]! + 1;
+          // `FUN_0025e630` (decomp 108131): flag 1 always goes on (the ripples' endless loop); otherwise its condition, an
+          // IF's tokens (`holds`), tested each time END_WHILE brings it back -- held, into the body; not, past END_WHILE.
+          // Was taken as false (only the endless form was on the effects' path); a Forge script's "While a flag is" runs it.
+          // A WHILE with no tokens read stays false, as before.
+          const enter = op.forever || (op.conditions !== undefined && op.conditions.length > 0 && this.holds(op.conditions));
+          s.pc = enter || table.end[s.pc]! < 0 ? s.pc + 1 : table.end[s.pc]! + 1;
           continue;
         }
         case 'endWhile': {

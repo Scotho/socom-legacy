@@ -3,7 +3,7 @@ import type { GroundData } from '../mover';
 import type { LoadedMap } from '../loadMap';
 import type { ContentResolver } from '../packs/content/collision';
 import { mapWithArsenal } from './arsenalSetting';
-import { withForgeObjects } from './forgeObjects';
+import { withForgeObjects, withMapScript } from './forgeObjects';
 import { hostageCharactersOf, withLentHostageBodies } from './hostages';
 import type { BombSite, Layout, LayoutBase, LayoutSettings, NpcMarker } from './layout';
 import { composeMatchMap } from './matchMap';
@@ -77,8 +77,9 @@ export function composeLayoutObjects(i: LayoutObjectsInput) {
   // The placed hostages and zones on the map, then the game type, its test reading them (`./playObjectives`).
   const played = playObjectives(bodied.map, { ...layout, ...(hostages ? { hostages } : {}) }, lent, type === undefined ? null : i.blocked);
   // The layout's placed tactical points and spectator views beside the map's own (`./placedPoints`), in any type; then
-  // its Forge objects (`./forgeObjects`): each one's place by its path, the ambient effects to play.
-  const pointed = withForgeObjects(withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), layout.objects);
+  // its Forge objects (`./forgeObjects`): each one's place by its path, the ambient effects to play; then the map script
+  // (`./forgeObjects` `withMapScript`): run from the round's start at the map's origin.
+  const pointed = withMapScript(withForgeObjects(withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), layout.objects), layout.mapScript);
   // The layout's placed turrets, doors, gates and C4 barriers, and flares beside the map's own: each its disc copy.
   const turreted = withPlacedTurrets(pointed, layout.turrets, i.turretOf);
   const doored = withPlacedDoors(turreted.map, layout.doors, i.doorOf);
@@ -88,7 +89,9 @@ export function composeLayoutObjects(i: LayoutObjectsInput) {
     ...(layout.gates ?? []).map((t) => ({ kind: 'gate' as const, ...t })), ...(layout.barriers ?? []).map((t) => ({ kind: 'barrier' as const, ...t })),
   ], i.accessOf, layout.switches ?? [], i.switchLookOf, pieceOwner, layout.triggers ?? []);
   // Each piece a placed node (`./placedAccess` `withPieceInstances`): a script's hide reaches every page on the wire.
-  if (layout.switches?.some((sw) => sw.script || sw.piece !== undefined) || layout.triggers?.length) accessed.map = withPieceInstances(accessed.map, i.pieceOwners);
+  // The map script's and a scripted Forge object's hides reach the pieces too.
+  if (layout.switches?.some((sw) => sw.script || sw.piece !== undefined) || layout.triggers?.length || layout.mapScript
+    || layout.objects?.some((o) => o.script)) accessed.map = withPieceInstances(accessed.map, i.pieceOwners);
   const flared = withPlacedFlares(accessed.map, layout.flares, i.flareOf).map;
   return { composed, played, why: played.why, turreted, doored, accessed, flared };
 }

@@ -1,6 +1,6 @@
 import { Matrix4 } from 'three';
 import type { EffectOp, EffectProgram } from '@s2u/scene';
-import type { AudioStep, ForgeObject as LayoutObject } from '@s2u/creator-contracts';
+import type { ForgeObject as LayoutObject, ScriptStep, ScriptSteps } from '@s2u/creator-contracts';
 import type { SoundEmitter } from '../soundData';
 import type { LoadedMap } from '../loadMap';
 import type { ForgeAmbient } from '../mapMeta';
@@ -14,10 +14,60 @@ import type { Effects } from '../effects';
  *   animations, `(flags & 3) === 1` as `../effectData` reads them, that draw or sound) -- played on every page from the
  *   map's start at its place (`playForgeAmbients`), its program and its sounds lent from its map (`../forge/scriptAssets`);
  *   its place kept by its path (`forgeObjectPath`, `MapMeta.forgePlaces`), a script's target. Its sounds may be its own
- *   audio script (`audioProgram`: the game's own commands) in place of its program's.
+ *   script (`ScriptStep`s, the one script of switches and triggers too) in place of its program's: made a self-starting
+ *   program at its place (`./placedAccess` `withPlacedAccess`) and run as the map's own are.
  */
 /** A Forge object's placed path: its place in `Layout.objects`, one-based. */
 export const forgeObjectPath = (i: number): string => `forge/object_${i + 1}`;
+/**
+ * The map script's own place (`Layout.mapScript`; a browser adaptation, FG.R2): a Forge node at the map's origin, its
+ * program's root -- what a sound or an effect with no object of its own plays at, as the disc's `objectives` plays its
+ * own at its root.
+ */
+export const FORGE_MAP_SCRIPT_PATH = 'forge/map_script';
+
+/** `map` with the layout's map script (`MapMeta.forgeMapScript`) and its place; the map as it was without one. */
+export function withMapScript(map: LoadedMap, script: ScriptSteps | undefined): LoadedMap {
+  if (!map.meta || !script?.steps.length) return map;
+  return { ...map, meta: { ...map.meta, forgePlaces: { ...(map.meta.forgePlaces ?? {}), [FORGE_MAP_SCRIPT_PATH]: [0, 0, 0] }, forgeMapScript: [...script.steps],
+    ...(script.sequences?.length ? { forgeMapSequences: script.sequences } : {}) } };
+}
+
+/**
+ * A placed scripted effect (the owner, 2026-11-13: "a unified effect object that a user can drag out and customize"; a
+ * browser adaptation, FG.R2): an ambient object (`ForgeObject`, kind `ambient`) named `FORGE_SCRIPT_OBJECT` -- no disc
+ * program has the name, so none plays (`Effects.playAt` finds none) -- its script (`ForgeObject.script`) its whole: the
+ * game's own commands, its sounds, its effects and whatever else a script does. `FORGE_SOUND_OBJECT`, the name such an
+ * object first had, is read the same.
+ */
+export const FORGE_SCRIPT_OBJECT = '=script';
+export const FORGE_SOUND_OBJECT = '=sound';
+/** The Effect tab's tiles' object names: a single sound's (`=sound:<sound>`), a single effect's (`=effect:<effect>`). */
+export const SOUND_ASSET_PREFIX = `${FORGE_SOUND_OBJECT}:`;
+export const EFFECT_ASSET_PREFIX = '=effect:';
+/**
+ * How long a placed single effect or one-shot sound waits before it runs again (its starting script: play, wait, loop):
+ * an editor's starting value, no game value -- the player's to change (the owner, 2026-11-13: "just make them loop").
+ */
+export const FORGE_SCRIPT_LOOP_WAIT_ADAPTATION = 5;
+/** Whether an ambient object is a placed scripted effect (`FORGE_SCRIPT_OBJECT`), not a disc map's ambient effect. */
+export const isScriptObject = (o: { name: string }): boolean => o.name === FORGE_SCRIPT_OBJECT || o.name === FORGE_SOUND_OBJECT;
+/** The sound a sound tile's name names (`SOUND_ASSET_PREFIX`), or null. */
+export const soundOfAssetName = (name: string): string | null => (name.startsWith(SOUND_ASSET_PREFIX) ? name.slice(SOUND_ASSET_PREFIX.length) : null);
+/** The effect an effect tile's name names (`EFFECT_ASSET_PREFIX`), or null. */
+export const effectOfAssetName = (name: string): string | null => (name.startsWith(EFFECT_ASSET_PREFIX) ? name.slice(EFFECT_ASSET_PREFIX.length) : null);
+/**
+ * An ambient object as placed: a single sound's or effect's tile (`=sound:` / `=effect:`) a scripted effect
+ * (`FORGE_SCRIPT_OBJECT`) running it from `source` -- a `~` sound once (it loops, the game's rule), a one-shot sound or an
+ * effect, then a wait (`FORGE_SCRIPT_LOOP_WAIT_ADAPTATION`), then from the top again (LOOP, for ever); any other as it is.
+ */
+export function scriptObjectData<T extends { kind: 'ambient'; source: string; name: string; script?: ScriptSteps }>(o: T): T {
+  const sound = soundOfAssetName(o.name), effect = effectOfAssetName(o.name);
+  if (sound === null && effect === null) return o;
+  const run: ScriptStep = sound !== null ? { do: 'sound', name: sound, from: o.source } : { do: 'effect', name: effect!, from: o.source };
+  const steps: ScriptStep[] = sound !== null && sound.startsWith('~') ? [run] : [run, { do: 'wait', seconds: FORGE_SCRIPT_LOOP_WAIT_ADAPTATION }, { do: 'loop' }];
+  return { ...o, name: FORGE_SCRIPT_OBJECT, script: o.script ?? { steps } };
+}
 
 /** A map's ambient program as the asset browser offers it. */
 export interface AmbientProgram {
@@ -31,6 +81,52 @@ export interface AmbientProgram {
   sounds: string[];
   /** Its looping sounds (a `~` name, `./soundData` `zanimEmitters`' rule) at their commands' volumes: its emitters. */
   loops: { sound: string; volume: number }[];
+}
+
+/**
+ * What any program of a map's does (`AmbientProgram`'s own reading, its self-starting flag not asked): a called effect's
+ * particles, sounds and light, the programs it calls with it -- an emitter's Does row whichever it plays. Null for a name
+ * the map has no program of.
+ */
+/**
+ * How a map's program repeats, read off its commands and the programs it calls (the owner, 2026-11-14: "generic for all
+ * native emitters"): `again` with a LOOP or a WHILE, else `once` -- its `~` sounds (`loops`) still looping by the game's
+ * own rule. Null for a name the map has no program of.
+ */
+export function programRepeatOf(map: Pick<LoadedMap, 'meta'>, name: string): { again: boolean; loops: boolean } | null {
+  const programs = (map.meta?.scene?.programs ?? []).map((p) => p.program);
+  const byName = new Map(programs.map((p) => [p.name.toLowerCase(), p]));
+  const first = byName.get(name.toLowerCase());
+  if (!first) return null;
+  const seen = new Set<string>();
+  let again = false, loops = false;
+  const walk = (p: EffectProgram): void => {
+    if (seen.has(p.name.toLowerCase()) || seen.size > 16) return;
+    seen.add(p.name.toLowerCase());
+    for (const s of p.sequences) for (const o of s.ops) {
+      if (o.op === 'loop' || o.op === 'while') again = true;
+      if (o.op === 'sound' && o.sound.startsWith('~')) loops = true;
+      if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); }
+    }
+  };
+  walk(first);
+  return { again, loops };
+}
+
+export function programWorkOf(map: Pick<LoadedMap, 'meta'>, name: string): { particles: boolean; sound: boolean; light: boolean } | null {
+  const programs = (map.meta?.scene?.programs ?? []).map((p) => p.program);
+  const byName = new Map(programs.map((p) => [p.name.toLowerCase(), p]));
+  const first = byName.get(name.toLowerCase());
+  if (!first) return null;
+  const seen = new Set<string>();
+  const ops: EffectProgram['sequences'][number]['ops'][number][] = [];
+  const walk = (p: EffectProgram): void => {
+    if (seen.has(p.name.toLowerCase()) || seen.size > 16) return;
+    seen.add(p.name.toLowerCase());
+    for (const s of p.sequences) for (const o of s.ops) { ops.push(o); if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); } }
+  };
+  walk(first);
+  return { particles: ops.some((o) => o.op === 'particles'), sound: ops.some((o) => o.op === 'sound'), light: ops.some((o) => o.op === 'light') };
 }
 
 /** A map's ambient programs (`AmbientProgram`), each once, by name. */
@@ -70,8 +166,8 @@ export function ambientProgramsOf(map: Pick<LoadedMap, 'meta'>): AmbientProgram[
 export function forgeAmbientEmitters(objects: readonly LayoutObject[] | undefined, programOf: (source: string, name: string) => AmbientProgram | null): SoundEmitter[] {
   const out: SoundEmitter[] = [];
   (objects ?? []).forEach((o, i) => {
-    // An audio script's own (`forgeAudioEmitters`) in place of its program's.
-    if (o.audio) { out.push(...forgeAudioEmitters(forgeObjectPath(i), o.at, o.audio)); return; }
+    // A script's own (`forgeScriptEmitters`) in place of its program's.
+    if (o.script) { out.push(...forgeScriptEmitters(forgeObjectPath(i), o.at, o.script.steps)); return; }
     if (o.kind !== 'ambient') return;
     const p = programOf(o.source, o.name);
     for (const l of p?.loops ?? []) out.push({ anim: o.name, sound: l.sound, node: forgeObjectPath(i), position: [o.at[0], o.at[1], o.at[2]], ...(l.volume !== 1 ? { volume: l.volume } : {}) });
@@ -90,7 +186,8 @@ export function withForgeObjects(map: LoadedMap, objects: readonly LayoutObject[
   objects.forEach((o, i) => {
     const path = forgeObjectPath(i);
     forgePlaces[path] = [o.at[0], o.at[1], o.at[2]];
-    if (o.kind === 'ambient') forgeAmbients.push({ path, source: o.source, name: o.name, at: [o.at[0], o.at[1], o.at[2]], yaw: o.yaw, ...(o.audio ? { audio: o.audio } : {}) });
+    if (o.kind === 'ambient') forgeAmbients.push({ path, source: o.source, name: o.name, at: [o.at[0], o.at[1], o.at[2]], yaw: o.yaw, ...(o.script ? { script: o.script.steps } : {}),
+      ...(o.script?.sequences?.length ? { sequences: o.script.sequences } : {}) });
   });
   return { ...map, meta: { ...map.meta, forgePlaces, forgeAmbients } };
 }
@@ -104,64 +201,42 @@ export function playForgeAmbients(effects: Pick<Effects, 'playAt' | 'playProgram
   const out: { stop(): void }[] = [];
   for (const a of ambients ?? []) {
     const m = new Matrix4().makeRotationY(a.yaw).setPosition(a.at[0], a.at[1], a.at[2]);
-    // An ambient's program (silent where its audio script stands in for its sounds), then its audio script's.
-    const h = effects.playAt(a.name, a.path, m, a.audio ? { silent: true } : {});
+    // An ambient's program (silent where its script stands in for its sounds). Its script is a self-starting program of
+    // the map's (`./placedAccess` `withPlacedAccess`), run by the world as the map's own are.
+    const h = effects.playAt(a.name, a.path, m, a.script ? { silent: true } : {});
     if (h) out.push(h);
-    if (a.audio?.length) out.push(effects.playProgram(audioProgram(a.path, a.audio), a.path, m));
   }
   return out;
 }
 
-/**
- * An ambient's audio script (`@s2u/creator-contracts` `AudioStep`) as the game's own program commands, one to one, rooted
- * at the object (`path`, node 1) -- `../effectRunner` runs it as it runs a disc map's: `play` a `SOUND` at the object at its
- * volume; `wait` a `WAIT` with its random range; `loop` a `LOOP` (its count, its seconds, or -1: for ever); `while` /
- * `endWhile` a `WHILE` (for ever) / `END_WHILE`; `if` / `elseif` an `IF` / `ELSEIF` on `RANDOM_WEIGHT`, `else`, `endif`.
- * Its `~` plays are its emitters (`forgeAudioEmitters`), as every ambient program's: an ambient run plays none itself.
- */
-export function audioProgram(path: string, steps: readonly AudioStep[]): EffectProgram {
-  const ops = steps.map((st): EffectOp => {
-    switch (st.do) {
-      case 'play': return { op: 'sound', sound: st.sound, node: 1, volume: st.volume ?? 1, newPlay: true };
-      case 'wait': return { op: 'wait', seconds: st.seconds, range: st.random ?? 0, frames: null };
-      case 'loop': return { op: 'loop', count: st.times ?? (st.seconds === undefined ? -1 : null), seconds: st.seconds ?? null };
-      case 'while': return { op: 'while', forever: true };
-      case 'endWhile': return { op: 'endWhile' };
-      case 'if': case 'elseif': return { op: st.do, conditions: [{ kind: 'random', p: st.chance }] };
-      case 'else': return { op: 'else' };
-      default: return { op: 'endif' };
-    }
-  });
-  return { name: `${path.replace(/\W/g, '_')}_audio`, root: 1, flags: 1, nodes: ['NA', path], sequences: [{ name: 'audio', activation: 1, ops }] };
-}
 
 /**
- * An ambient's audio script's emitters (`SoundEmitter`): each `~` sound it plays, once, at the object's place, at its
- * command's volume -- the game's own rule for every ambient program's `~` sounds (`@s2u/sound` `zanimEmitters`: a loop at
- * its node from the map's start, wherever in the program it stands).
+ * A script's emitters (`SoundEmitter`): each `~` sound it plays at its object (a step with no `at`), once, at the object's
+ * place, at its command's volume -- the game's own rule for every self-starting program's `~` sounds (`@s2u/sound`
+ * `zanimEmitters`: a loop at its node from the map's start, wherever in the program it stands).
  */
-export function forgeAudioEmitters(path: string, at: readonly [number, number, number], steps: readonly AudioStep[]): SoundEmitter[] {
+export function forgeScriptEmitters(path: string, at: readonly [number, number, number], steps: readonly ScriptStep[]): SoundEmitter[] {
   const out: SoundEmitter[] = [];
   for (const s of steps) {
-    if (s.do !== 'play' || !s.sound.startsWith('~') || out.some((e) => e.sound === s.sound)) continue;
-    out.push({ anim: `${path}_audio`, sound: s.sound, node: path, position: [at[0], at[1], at[2]], ...(s.volume !== undefined && s.volume !== 1 ? { volume: s.volume } : {}) });
+    if (s.do !== 'sound' || s.at || !s.name.startsWith('~') || out.some((e) => e.sound === s.name)) continue;
+    out.push({ anim: `${path}_script`, sound: s.name, node: path, position: [at[0], at[1], at[2]], ...(s.volume !== undefined && s.volume !== 1 ? { volume: s.volume } : {}) });
   }
   return out;
 }
 
 /**
- * An ambient program's own sounds as an audio script (`AudioStep`), `from` its map -- where they are the script's commands
+ * An ambient program's own sounds as script steps (`ScriptStep`), `from` its map -- where they are the script's commands
  * alone: the sequence that sounds (or the several that only sound, the `~` loops' each), its `SOUND`, `WAIT`, `LOOP`,
  * `WHILE` / `END_WHILE` and `IF` / `ELSEIF` on one `RANDOM_WEIGHT`, `ELSE`, `ENDIF` one to one (a trailing
  * `PAUSE_ANIMATION`, the run kept alive, left out). What only draws among them (a call, a light) is left out and `whole`
  * false: the script's random picks are then its own, no longer its drawing's (Sujo's lightning and its thunder). Where it
  * sounds by more than these (a test of another kind, a sequence of its own that does more), only its `~` loops, played.
  */
-export function audioOfProgram(program: EffectProgram, from: string): { steps: AudioStep[]; whole: boolean } {
+export function scriptOfProgram(program: EffectProgram, from: string): { steps: ScriptStep[]; whole: boolean } {
   const sounding = program.sequences.filter((s) => s.ops.some((o) => o.op === 'sound'));
-  const one = (o: EffectOp): AudioStep | null => {
+  const one = (o: EffectOp): ScriptStep | null => {
     switch (o.op) {
-      case 'sound': return { do: 'play', sound: o.sound, from, ...(o.volume !== 1 ? { volume: o.volume } : {}) };
+      case 'sound': return { do: 'sound', name: o.sound, from, ...(o.volume !== 1 ? { volume: o.volume } : {}) };
       case 'wait': return o.frames === null ? { do: 'wait', seconds: o.seconds, ...(o.range ? { random: o.range } : {}) } : null;
       case 'loop':
         return o.count !== null && o.count !== -1 ? { do: 'loop', times: o.count } : o.seconds !== null ? { do: 'loop', seconds: o.seconds } : { do: 'loop' };
@@ -172,7 +247,7 @@ export function audioOfProgram(program: EffectProgram, from: string): { steps: A
         return c.length === 1 && c[0]!.kind === 'random' ? { do: o.op, chance: c[0]!.p } : null;
       }
       case 'else': return { do: 'else' };
-      case 'endif': return { do: 'endif' };
+      case 'endif': return { do: 'end' };
       default: return null;
     }
   };
@@ -180,9 +255,9 @@ export function audioOfProgram(program: EffectProgram, from: string): { steps: A
   // its random picks its own, no longer its drawing's.
   const DRAWS = new Set<EffectOp['op']>(['call', 'light', 'active', 'opacity', 'particles', 'motion', 'rotate', 'translate', 'fromTo', 'pauseAnimation']);
   let dropped = false;
-  const translate = (ops: readonly EffectOp[]): AudioStep[] | null => {
+  const translate = (ops: readonly EffectOp[]): ScriptStep[] | null => {
     const body = ops[ops.length - 1]?.op === 'pauseAnimation' ? ops.slice(0, -1) : ops;
-    const out: AudioStep[] = [];
+    const out: ScriptStep[] = [];
     for (const o of body) {
       const st = one(o);
       if (st) { out.push(st); continue; }
@@ -198,21 +273,11 @@ export function audioOfProgram(program: EffectProgram, from: string): { steps: A
     // Several that only sound, together from the start: one after another here is the same.
     return { steps: sounding.flatMap((s) => translate(s.ops) ?? []), whole: true };
   }
-  const loops: AudioStep[] = [];
+  const loops: ScriptStep[] = [];
   for (const s of program.sequences) for (const o of s.ops) {
-    if (o.op === 'sound' && o.sound.startsWith('~') && !loops.some((l) => l.do === 'play' && l.sound === o.sound)) loops.push({ do: 'play', sound: o.sound, from, ...(o.volume !== 1 ? { volume: o.volume } : {}) });
+    if (o.op === 'sound' && o.sound.startsWith('~') && !loops.some((l) => l.do === 'sound' && l.name === o.sound)) loops.push({ do: 'sound', name: o.sound, from, ...(o.volume !== 1 ? { volume: o.volume } : {}) });
   }
   return { steps: loops, whole: false };
 }
 
-/** The sounds an audio script plays, by the map each is from (`from`; absent, `home`'s): what the match lends. */
-export function audioScriptSounds(steps: readonly AudioStep[] | undefined, home: string): { from: string; names: string[] }[] {
-  const by = new Map<string, Set<string>>();
-  for (const s of steps ?? []) {
-    if (s.do !== 'play') continue;
-    const from = s.from ?? home;
-    if (!by.has(from)) by.set(from, new Set());
-    by.get(from)!.add(s.sound);
-  }
-  return [...by].map(([from, names]) => ({ from, names: [...names] }));
-}
+

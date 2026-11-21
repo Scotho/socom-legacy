@@ -1189,6 +1189,8 @@ export function buildWorld(map: LoadedMap): WorldView {
     // The marks' clip (`./markClip` `entryOf`) keys this draw as the world's one node; it read that off `frustumCulled`
     // false until the cull above (PR #672) could turn it on, so the world's draws are named outright.
     mesh.userData.worldDraw = true;
+    // The Forge's geometry editor moves a draw's vertices in place while a gizmo drags (`./forge/geometry/editor`).
+    mesh.userData.worldPart = part;
     later(revealWorld, mesh, part.order, part.cells ?? [], part.alternate, part.textureName, false, null, part.alphaPass === true, part.alphaPass ? part.centre ?? null : null);
     switchMesh(part.switchPath ? `w:${part.switchPath}` : undefined, part.switchPath, mesh);
     // OBF-22: the marks' clip files a mark on it under its switch path (`./markClip`, `lastNodePath`), so `setNodeActive`

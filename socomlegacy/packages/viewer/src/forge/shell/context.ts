@@ -168,8 +168,18 @@ export interface ForgeEditor {
   hoverSound?(asset: string | null): void;
   /** Where an asset's sound stands while it plays (0 to 1), or null: the asset browser preview's timeline. */
   soundProgress?(asset: string): number | null;
-  /** The real piece of `asset`, staged off the scene; null when it does not build here or a placement is not admitted now. */
-  stagePiece(asset: string): Promise<StagedPiece | null>;
+  /** A sound asset's card in the preview's picture (a Sound tile has no model): its name and art; null for any other. */
+  soundCard?(asset: string): { name: string; art: string } | null;
+  /** A flat asset's picture in the preview (a Textures tile has no model): its name and its picture (null while it is read); null for any other. */
+  pictureCard?(asset: string): { name: string; url: string | null } | null;
+  /** A drag over the viewport driven through the page's own Place tool (`../../creator/assetsForgePanel` `dragPlace`). */
+  dragPlace?: { enter(asset: string): boolean; over(clientX: number, clientY: number): boolean; drop(clientX: number, clientY: number): boolean; leave(): void };
+  /**
+   * The real piece of `asset`, staged off the scene; null when it does not build here or a placement is not admitted now.
+   * `background` (a drag's ghost; the owner, 2026-11-14: "make the placement responsive ... load the asset in the
+   * background"): staged at once, its model joining it once read -- the drop never waits on it.
+   */
+  stagePiece(asset: string, options?: { background?: boolean }): Promise<StagedPiece | null>;
   /**
    * Place a staged piece at `at` (game units), turned `yaw` (radians), as the facade's `piece.place`: one revision-guarded
    * edit, one history step. A staged piece whose admission has lapsed (`state().canPlace` false at the call) is refused
@@ -180,6 +190,11 @@ export interface ForgeEditor {
   viewport(): HTMLElement;
   /** R3-B: a drop at the client point, projected through the page's camera (`ForgeDropProjection`). */
   projectDrop(clientX: number, clientY: number): ForgeDropProjection;
+  /**
+   * A drop at the centre of the view, as the camera sees it (a browser adaptation: the Outliner's asset drop, the owner
+   * 2026-11-12: "creates the asset at the center point in the viewport from the camera's view").
+   */
+  projectCentre?(): ForgeDropProjection;
   /**
    * R3-B: an opaque object standing for the source `asset` is read from -- the same object while that source stays
    * loaded, another once it is read again; null when it is not loaded here. A caller compares it, never reads it.
@@ -300,8 +315,8 @@ function panelEditor(editor: ForgeEditor, signal: AbortSignal): ForgeEditor {
   const live = new Set<StagedPiece>();
   signal.addEventListener('abort', () => { for (const s of [...live]) s.dispose(); live.clear(); }, { once: true });
   const own: Pick<ForgeEditor, 'stagePiece' | 'place'> = {
-    async stagePiece(asset) {
-      const staged = await editor.stagePiece(asset);
+    async stagePiece(asset, options) {
+      const staged = await editor.stagePiece(asset, options);
       if (!staged) return null;
       if (signal.aborted) { staged.dispose(); return null; }
       for (const s of [...live]) if (s.disposed) live.delete(s);

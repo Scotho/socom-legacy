@@ -71,8 +71,12 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   FORGE_DOCK_LAYOUT_KEY,             // forge/shell/dockShell.ts: the workbench's docking tree (the owner, 2026-11-11)
   'forge.inspector.transform.open',  // forge/panels/inspectorPanel.ts: the Inspector's Transform section open or folded
   'forge.inspector.properties.open', // forge/panels/inspectorPanel.ts: the Inspector's Properties section open or folded
+  'forge.inspector.surface.open',    // forge/panels/surfaceInspector.ts: Geometry mode's Surface section open or folded (Collision layer)
   's2u-forge-favourites',            // forge/favourites.ts FAVOURITES_KEY: the starred props
+  's2u-forge-object-favourites',     // forge/favourites.ts OBJECT_FAVOURITES_KEY: the starred tiles of the other tabs
   's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
+  's2u-forge-mode-docks',            // forge/page.ts FORGE_MODE_LAYOUTS_KEY: Object and Modelling mode's own dock layouts (a browser adaptation)
+  's2u-forge-object-view',           // forge/page.ts FORGE_OBJECT_VIEW_KEY: Object mode's Display and Overlays settings while in Modelling (a browser adaptation)
   'forge.agent.pairedClients',       // agent/setup.ts AGENT_PAIRED_CLIENTS_KEY: the agents this browser paired once; their setup folds (AX-U)
   'forge.agent.resume',              // agent/connection.ts AGENT_RESUME_KEY: the gateway's one-time resume ticket, this tab only (sessionStorage, AX-9)
   'forge.agent.gateway',             // agent/setup.ts AGENT_GATEWAY_KEY: the connection service's address, the Connect moment's field (LATER 423, FP-14)

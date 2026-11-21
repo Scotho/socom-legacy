@@ -1,12 +1,12 @@
-import { forgeObjectPath } from './forgeObjects';
+import { FORGE_MAP_SCRIPT_PATH, forgeObjectPath } from './forgeObjects';
 import { Matrix4, Vector3 } from 'three';
 import type { CollisionOwner, EffectCondition, EffectOp, EffectProgram, Footprint, WorldPoly } from '@s2u/scene';
-import type { PieceTrigger, SwitchScript, SwitchStep, SwitchTarget } from '@s2u/creator-contracts';
+import type { PieceTrigger, ScriptLogic, ScriptStep, ScriptSteps, ScriptTarget } from '@s2u/creator-contracts';
 import type { GateLeverSpec, GateSpec } from '../gates';
 import type { LoadedMap } from '../loadMap';
 import type { MapAction } from '../mapActions';
 import { under, type MapInitial, type MapInstance } from '../mapMeta';
-import { accessShapes, gateShapes, type GuideShapes } from './interactOverlay';
+import type { GuideShapes } from './interactOverlay';
 import { groundPolygons, packGround } from '../mover';
 import { placeRefs, type SceneDestructible, type SceneProgram } from '../sceneHealth';
 import { DOOR_GATE_WIRE_SLOTS } from '../net/codec';
@@ -87,8 +87,8 @@ export interface SwitchPlacement {
   /** The prop it is used on (`SwitchMarker.piece` / `node`): a prop of the layout's, or a map node's path; absent, its look. */
   piece?: number;
   node?: string;
-  /** Its script (`SwitchScript`, `scriptPrograms`): what a pull runs instead of a gate or a map action. */
-  script?: SwitchScript;
+  /** Its script (`ScriptSteps`, `scriptPrograms`): what a pull runs instead of a gate or a map action. */
+  script?: ScriptSteps;
 }
 
 /**
@@ -175,7 +175,7 @@ export function lookModelMap(look: SwitchLook): LoadedMap {
 /** What a script's targets and actions resolve to where it is composed (`withPlacedAccess`). */
 export interface ScriptResolve {
   /** A target's placed path (a map node's own, a piece's owner, a damage trigger's or a gate's copy root); null, not here. */
-  target(t: SwitchTarget): string | null;
+  target(t: ScriptTarget): string | null;
   /** A damage trigger's death action's valve (its copy's); null, not here. */
   barrierValve(i: number): string | null;
   /** A base map action's valve as the map spells it; null, not here. */
@@ -210,6 +210,13 @@ export const SCRIPT_BLAST_AMMO = 'MPBOMB Ammo';
 export const SCRIPT_BLAST_DAMAGE = 50;
 export const SCRIPT_BLAST_RADIUS = 300;
 
+/**
+ * An effect object's script's program flags (the owner, 2026-11-13): it starts with the set (`(flags & 3) === 1`, the
+ * map's own self-starting programs' -- `../mapMeta` AUTOSTART_INITIAL_READING), so the world runs it from the round's
+ * start at its object, as it runs theirs.
+ */
+export const FORGE_SCRIPT_SELF_START_FLAGS = 1;
+
 /** A script flag's valve: one namespace, shared by every switch of the layout (a power switch's flag read by another's `if`). */
 export const scriptFlagValve = (flag: string): string => `forge_flag_${flag}`;
 
@@ -220,14 +227,37 @@ export const scriptFlagValve = (flag: string): string => `forge_flag_${flag}`;
  * references, `FORGE_PATH_REF_ADAPTATION`). An effect at a target is a program of its own rooted there, called (`call`
  * plays a common effect at the calling program's root, COMMON_EFFECT_CALL_READING). A toggle (`second`) tests its own
  * valve (the context's, as the disc's lever programs do): 0 runs `steps` and sets 1, else `second` and sets 0. A step
- * whose object or action is not here is left out.
+ * whose object or action is not here is left out. The one script (the owner, 2026-11-13): a switch's, a damage trigger's
+ * and an effect object's alike -- `flags` the program's set flags (an effect object's `FORGE_SCRIPT_SELF_START_FLAGS`:
+ * it starts with the set, as the map's own ambient programs do).
  */
-export function scriptPrograms(name: string, path: string, script: SwitchScript, r: ScriptResolve): { main: EffectProgram; extra: EffectProgram[] } {
+export function scriptPrograms(name: string, path: string, script: ScriptSteps, r: ScriptResolve, flags = 0): { main: EffectProgram; extra: EffectProgram[] } {
   const nodes = ['NA', path];
   const extra: EffectProgram[] = [];
   const node = (p: string): number => { const i = nodes.indexOf(p); if (i >= 0) return i; nodes.push(p); return nodes.length - 1; };
-  const flagTest = (flag: string, equals: number): EffectCondition => ({ kind: 'valve', valve: scriptFlagValve(flag), operation: 2, operand: equals });
-  const compile = (steps: readonly SwitchStep[]): EffectOp[] => steps.flatMap((st): EffectOp[] => {
+  // VALVE's tests (`valveTest`): 1 !=, 2 ==, 3 >, 4 <, 5 >=, 6 <=.
+  const TEST_OP: Readonly<Record<string, number>> = { '!=': 1, '>': 3, '<': 4, '>=': 5, '<=': 6 };
+  const flagTest = (flag: string, equals: number, test?: string): EffectCondition =>
+    ({ kind: 'valve', valve: scriptFlagValve(flag), operation: (test && TEST_OP[test]) || 2, operand: equals });
+  // A game value (`SCRIPT_GAME_VALUES`): the game's own valve by its own name, read as the disc's `objectives` reads it.
+  const gameTest = (valve: string, equals: number, test?: string): EffectCondition =>
+    ({ kind: 'valve', valve, operation: (test && TEST_OP[test]) || 2, operand: equals });
+  const conditionOf = (st: { flag?: string; game?: string; equals?: number; test?: string; chance?: number }): EffectCondition =>
+    (st.chance !== undefined ? { kind: 'random', p: st.chance }
+      : st.game !== undefined ? gameTest(st.game, st.equals ?? 0, st.test) : flagTest(st.flag ?? '', st.equals ?? 0, st.test));
+  // A test step's whole condition (`ScriptLogic`): the game's own token list -- each test with its brackets and NOT, the
+  // tests joined by AND / OR -- as the disc's IFs carry it: EXPRESSION 1 NOT, 2 AND, 3 OR, 4 (, 5 ) (`FUN_0025e960`).
+  const operator = (n: 1 | 2 | 3 | 4 | 5): EffectCondition => ({ kind: 'operator', operator: n });
+  const conditionsOf = (st: Parameters<typeof conditionOf>[0] & ScriptLogic): EffectCondition[] => {
+    const term = (t: Parameters<typeof conditionOf>[0] & { not?: true; open?: number; close?: number }): EffectCondition[] => [
+      ...Array.from({ length: t.open ?? 0 }, () => operator(4)),
+      ...(t.not ? [operator(1)] : []),
+      conditionOf(t),
+      ...Array.from({ length: t.close ?? 0 }, () => operator(5)),
+    ];
+    return [...term(st), ...(st.more ?? []).flatMap((m) => [operator(m.join === 'and' ? 2 : 3), ...term(m)])];
+  };
+  const compile = (steps: readonly ScriptStep[]): EffectOp[] => steps.flatMap((st): EffectOp[] => {
     switch (st.do) {
       case 'run': {
         const valve = 'action' in st ? r.action(st.action) : r.barrierValve(st.barrier);
@@ -237,11 +267,11 @@ export function scriptPrograms(name: string, path: string, script: SwitchScript,
         const p = r.target(st.target);
         return p ? [{ op: 'active', node: node(p), on: st.do === 'show' }] : [];
       }
-      case 'wait': return [{ op: 'wait', seconds: st.seconds, range: 0, frames: null }];
+      case 'wait': return [{ op: 'wait', seconds: st.seconds, range: st.random ?? 0, frames: null }];
       case 'message': return [{ op: 'message', text: st.text, locId: null, scale: 1, forge: true }];
       case 'sound': {
         const p = st.at ? r.target(st.at) : path;
-        return p ? [{ op: 'sound', sound: st.name, node: node(p), volume: 1, newPlay: true }] : [];
+        return p ? [{ op: 'sound', sound: st.name, node: node(p), volume: st.volume ?? 1, newPlay: true }] : [];
       }
       case 'effect': {
         if (!st.at) return [{ op: 'call', anim: st.name }];
@@ -251,7 +281,18 @@ export function scriptPrograms(name: string, path: string, script: SwitchScript,
         extra.push({ name: fx, root: 1, flags: 0, nodes: ['NA', p], sequences: [{ name: 'run', activation: 1, ops: [{ op: 'call', anim: st.name }] }] });
         return [{ op: 'call', anim: fx }];
       }
-      case 'set': return [{ op: 'valve', valve: scriptFlagValve(st.flag), operation: 0x0b, operand: st.value }];
+      // VALVE's set, add or subtract (0x0b, 0x0c, 0x0d: `valveApply`, a subtract never below 0).
+      case 'set': return [{ op: 'valve', valve: scriptFlagValve(st.flag), operation: st.op === 'add' ? 0x0c : st.op === 'sub' ? 0x0d : 0x0b, operand: st.value }];
+      // CALL_SEQUENCE / STOP_SEQUENCE: one of this program's sequences by its name (`main`: its own steps, `run`).
+      case 'callSequence': return [{ op: 'callSequence', sequence: st.sequence === 'main' ? 'run' : st.sequence }];
+      case 'stopSequence': return [{ op: 'stopSequence', sequence: st.sequence === 'main' ? 'run' : st.sequence }];
+      // OBJECT_OPACITY_FROM_TO (`opacityTick`): `from` written, then the rate a second till its time is spent, `to` at its end.
+      case 'fade': {
+        const p = r.target(st.target);
+        if (!p) return [];
+        const from = st.from ?? 1, seconds = Math.max(0, st.seconds);
+        return [{ op: 'opacity', node: node(p), from, to: st.to, rate: seconds > 0 ? (st.to - from) / seconds : 0, seconds }];
+      }
       // MPBOMB's round at the target (else the script's own root), fired as Crossroads' bridges and Demolition's
       // `base_explosion1` fire it (f1 0.001 and f2 0.01, the round's fuse and second timer: research 332 s0, s7), the
       // record's own numbers, marked a Forge script's (`EffectOp.forge`: the round the world runner hands on).
@@ -260,14 +301,23 @@ export function scriptPrograms(name: string, path: string, script: SwitchScript,
         if (!p) return [];
         return [{ op: 'fireWeapon', weapon: SCRIPT_BLAST_WEAPON, ammo: SCRIPT_BLAST_AMMO, node: node(p), f1: 0.001, f2: 0.01, forge: true }];
       }
-      case 'if': return [{ op: 'if', conditions: [flagTest(st.flag, st.equals)] }];
+      // IF / ELSEIF on a flag (VALVE ==) or on a chance (RANDOM_WEIGHT); ELSE; ENDIF.
+      case 'if': case 'elseif': return [{ op: st.do, conditions: conditionsOf(st) }];
       case 'else': return [{ op: 'else' }];
       case 'end': return [{ op: 'endif' }];
+      // WHILE (for ever) ... END_WHILE; LOOP from the top: a count, a time, or for ever (the disc's LOOP -1).
+      // WHILE: for ever (flag 1), or its condition tested each time round (`FUN_0025e630`; `../effectRunner`).
+      case 'while': return ['game' in st || st.flag !== undefined ? { op: 'while', forever: false, conditions: conditionsOf(st) } : { op: 'while', forever: true }];
+      case 'endWhile': return [{ op: 'endWhile' }];
+      case 'loop': return [{ op: 'loop', count: st.times ?? (st.seconds === undefined ? -1 : null), seconds: st.seconds ?? null }];
       default: return [];
     }
   });
   const ops: EffectOp[] = compile(script.steps);
-  return { main: { name: `${name}_run`, root: 1, flags: 0, nodes, sequences: [{ name: 'run', activation: 1, ops }] }, extra };
+  // Its named sequences (CALL_SEQUENCE / STOP_SEQUENCE's): each one called (activation 2: it waits for its call, the
+  // runner's own rule), beside the script's own steps' `run` (activation 1, from the start).
+  const called = (script.sequences ?? []).map((q) => ({ name: q.name, activation: 2, ops: compile(q.steps) }));
+  return { main: { name: `${name}_run`, root: 1, flags, nodes, sequences: [{ name: 'run', activation: 1, ops }, ...called] }, extra };
 }
 
 /**
@@ -548,7 +598,9 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
   templateOf: (m: AccessMarker) => AccessTemplate | null, switches: readonly SwitchPlacement[] = [],
   lookOf: (id: SwitchLookId) => SwitchLook | null = () => null,
   pieceOwner: (i: number) => string | null = (i) => `forge/piece_${i}`, triggers: readonly PieceTrigger[] = []): { map: LoadedMap; unplaced: number; pastBound: number } {
-  if (!placed?.length && !switches.length && !triggers.length) return { map, unplaced: 0, pastBound: 0 };
+  // The effect objects' scripts (`MapMeta.forgeAmbients`, `./forgeObjects` `withForgeObjects`): programs here as well.
+  const scriptedAmbients = (map.meta?.forgeAmbients?.some((a) => a.script?.length) ?? false) || !!map.meta?.forgeMapScript?.length;
+  if (!placed?.length && !switches.length && !triggers.length && !scriptedAmbients) return { map, unplaced: 0, pastBound: 0 };
   if (!map.ground || !map.meta) return { map, unplaced: (placed?.length ?? 0) + switches.length + triggers.length, pastBound: 0 };
   const polys = groundPolygons(map.ground);
   const owners: CollisionOwner[] = map.ground.owners.map((o) => ({ ...o }));
@@ -841,7 +893,8 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       instanceByPath.set(path, instance);
     }
     const name = `forge_trigger_${n + 1}`;
-    const { main, extra } = scriptPrograms(name, path, { steps: [{ do: 'hide', target: t.node !== undefined ? { map: t.node } : { piece: t.piece! } }, ...(t.script?.steps ?? [])] }, triggerResolve);
+    const { main, extra } = scriptPrograms(name, path, { steps: [{ do: 'hide', target: t.node !== undefined ? { map: t.node } : { piece: t.piece! } }, ...(t.script?.steps ?? [])],
+      ...(t.script?.sequences?.length ? { sequences: t.script.sequences } : {}) }, triggerResolve);
     for (const p of extra) programs.push({ program: p, search: p.nodes.map(() => 0) });
     destructibles.push({
       id: destructibles.length, key: `${name}#0@${path}`, anim: name, instance, targetPath: path,
@@ -849,6 +902,20 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       nodes: main.nodes.map((x) => (x === 'NA' ? null : x)), wreck: `${name}_wreck`,
     });
   });
+  // The effect objects' scripts (the owner, 2026-11-13: one script for all): each a self-starting program at its object
+  // (`FORGE_SCRIPT_SELF_START_FLAGS`), its targets as a trigger's resolve -- run by the world from the round's start.
+  (map.meta.forgeAmbients ?? []).forEach((a, n) => {
+    if (!a.script?.length) return;
+    const { main, extra } = scriptPrograms(`forge_object_${n + 1}`, a.path, { steps: a.script, ...(a.sequences ? { sequences: a.sequences } : {}) }, triggerResolve, FORGE_SCRIPT_SELF_START_FLAGS);
+    for (const p of [main, ...extra]) programs.push({ program: p, search: p.nodes.map(() => 0) });
+  });
+  // The map script (`Layout.mapScript`): one self-starting program at its own place, the map's origin
+  // (`FORGE_MAP_SCRIPT_PATH`), as the disc's `objectives` runs from the round's start.
+  if (map.meta.forgeMapScript?.length) {
+    const { main, extra } = scriptPrograms('forge_map_script', FORGE_MAP_SCRIPT_PATH, { steps: map.meta.forgeMapScript,
+      ...(map.meta.forgeMapSequences ? { sequences: map.meta.forgeMapSequences } : {}) }, triggerResolve, FORGE_SCRIPT_SELF_START_FLAGS);
+    for (const p of [main, ...extra]) programs.push({ program: p, search: p.nodes.map(() => 0) });
+  }
   const ground = packGround(map.ground.grid, polys, owners);
   const meta = { ...map.meta, actions, instances, instanceByPath, initial, scene: { ...scene, destructibles, programs } };
   return {
@@ -858,34 +925,11 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
 }
 
 /**
- * A template's gizmo (`./interactOverlay`; the owner, 2026-11-06), in its library map's world: its C4 prompt's reach and
- * side (`accessShapes`, the death's action's place and range), and a gate's slide and its lever's reach (`gateShapes`)
- * -- the disc lever's own place for the map's own gate (`lever: 'disc'`), the gate itself for a placed copy's (its
- * lever's prompt stands there, `withPlacedAccess`).
+ * A template's gizmo (`./interactOverlay`; the owner, 2026-11-06): none since 2026-11-13 -- a gate's lever ring and a
+ * damage trigger's C4 reach ring both taken out; the arguments kept for the callers.
  */
-export function accessGizmo(t: AccessTemplate, lever: 'disc' | 'atGate'): GuideShapes {
-  const segments: number[] = [], triangles: number[] = [];
-  const action = t.actions[0]?.action;
-  if (action) {
-    const s = accessShapes(t.anchor, action.at, action.range > 0 ? action.range : 0);
-    segments.push(...s.segments); triangles.push(...s.triangles);
-  }
-  if (t.gate) {
-    const g = t.gate.spec;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const { owner, polys } of t.owners) if (under(owner.path, g.path)) for (const p of polys) for (let k = 0; k < p.points.length; k += 3) {
-      minX = Math.min(minX, p.points[k]!); maxX = Math.max(maxX, p.points[k]!); minY = Math.min(minY, p.points[k + 1]!); maxY = Math.max(maxY, p.points[k + 1]!);
-      minZ = Math.min(minZ, p.points[k + 2]!); maxZ = Math.max(maxZ, p.points[k + 2]!);
-    }
-    if (Number.isFinite(minX)) {
-      const centre = [(minX + maxX) / 2, minY + Math.min(FORGE_GATE_LEVER_HEIGHT_ADAPTATION, (maxY - minY) / 2), (minZ + maxZ) / 2];
-      const slide = new Vector3(...g.open).applyMatrix4(new Matrix4().fromArray(g.parent).setPosition(0, 0, 0));
-      const disc = t.gate.levers[0];
-      // A placed copy has no lever of its own (its switch is placed apart): its slide alone.
-      const at = lever === 'disc' && disc ? disc.at : centre;
-      const s = gateShapes(centre, [slide.x, slide.y, slide.z], at, lever === 'disc' && disc && disc.range > 0 ? disc.range : 0);
-      segments.push(...s.segments); triangles.push(...s.triangles);
-    }
-  }
-  return { segments, triangles };
+export function accessGizmo(_t: AccessTemplate, _lever: 'disc' | 'atGate'): GuideShapes {
+  // None for either kind (the owner, 2026-11-13: "just remove the gate gizmo entirely"; "remove the orange circle gizmo
+  // from damage triggers"): a gate or a damage trigger is its billboard (G, X) alone.
+  return { segments: [], triangles: [] };
 }
