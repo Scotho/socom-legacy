@@ -19,7 +19,7 @@ import { GeometryEditor, type GeometrySelectionState, type GeometrySnapshot } fr
 import { decodeGeometry, encodeGeometry, gunzip, gzip } from './geometry/geometryFile';
 import { getGeometry, putGeometry, sweepGeometry } from './geometryStore';
 import { floorLookOf } from './geometry/blank';
-import { findLadders, HOSTAGE_START_LIFT_READING, probeGround, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly, type EffectProgram } from '@s2u/scene';
+import { findLadders, materialTable, HOSTAGE_START_LIFT_READING, probeGround, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly, type EffectProgram } from '@s2u/scene';
 import { ACTION_TYPE_CODES } from '../mapActions';
 import { placeRefs } from '../sceneHealth';
 import { PLAY_CLIPS } from '../animator';
@@ -111,7 +111,7 @@ import {
   createMenuSections, PAD_MENU_INPUT, PadMenu, pagedSections, sectioned, splitAtHeadings, type MenuItem, type MenuSections, type MenuSectionSpec,
 } from './padMenu';
 import { matchBackWords, menuCard, placeMenuCard } from './menuView';
-import { buildHullView, drawHullLegend, HULL_FAINT_OPACITY, hullFaceMaterial, hullLineMaterial, type HullViewPoly } from './hull';
+import { buildHullView, drawHullLegend, HULL_FAINT_OPACITY, hullFaceMaterial, hullLineMaterial, type HullColourBy, type HullViewPoly } from './hull';
 import {
   archiveStem, assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
   serializeLayout, settingsOf, withIds, placementKey, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
@@ -175,6 +175,7 @@ import { holdEarlyPresses } from './shell/earlyPress';
 import { agentModeOf, FORGE_REFUSALS, forgeBusyRefusal, forgeEditRefusal, forgeSurfaceState, type ForgeBusyCause, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
 import { buildTextureInspector } from './panels/textureInspector';
+import { buildSurfaceInspector } from './panels/surfaceInspector';
 import { buildScriptGraph, type FlagUse, type GraphStep, type LegendFlag, type LegendSequence, type ScriptView } from './panels/scriptGraph';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
 // FC2-7 (ours): `FOLLOWER_SIZE_REFUSAL`, `scaleWithinRecord` -- a carried piece kept within the record's size bounds.
@@ -654,6 +655,8 @@ function el<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, cls = 
 }
 
 /** The page's store (`../pageStore` `pageSettings`): its rules on a private window and the quota; the keys its inventory names. */
+/** The material table's names by a polygon's material byte (`@s2u/scene` `materialTable`), for the layout's surfaces. */
+const MATERIAL_TABLE_NAMES: readonly string[] = materialTable().map((m) => m.name);
 const readKey = (key: string): string | null => pageSettings.get(key);
 const writeKey = (key: string, text: string): void => { pageSettings.set(key, text); };
 
@@ -3152,6 +3155,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     previewDetail: (c) => { geometry?.previewDetail(c); if (!c) drawGeoInspector(); },
   });
   geoInspector.body.append(...textureInspector.sections);
+  /**
+   * The Collision layer's Surface (the owner, 2026-11-20): the selected faces' material, indoors, reverb zone, camera
+   * pass-through and region (`./panels/surfaceInspector`), under the Transform while the layer is on; each change one edit.
+   */
+  const surfaceInspector = buildSurfaceInspector(doc, {
+    state: () => geometry?.surfaceStateNow() ?? null,
+    change: (c, label) => { geometry?.setSurface(c, label); drawGeoInspector(); },
+    words: () => hullLegendWords(),
+  });
+  surfaceInspector.section.hidden = true;
+  geoInspector.body.append(surfaceInspector.section);
   const geoRows = [
     ['position', [geoInspector.x, geoInspector.y, geoInspector.z]],
     ['rotation', [geoInspector.pitch, geoInspector.yaw, geoInspector.roll]],
@@ -3167,6 +3181,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const texturing = geometry!.isTexturing();
     if (geoTransform) geoTransform.hidden = texturing;
     for (const sec of textureInspector.sections) sec.hidden = !texturing;
+    const surfacing = geometry!.isCollision();
+    surfaceInspector.section.hidden = !surfacing;
+    if (surfacing) surfaceInspector.refresh();
     if (texturing) { geoInspector.name.textContent = 'Texture'; textureInspector.refresh(); return; }
     const t = geometry!.objectTransform();
     geoInspector.name.textContent = t ? (t.count > 1 ? `${t.count} objects` : t.name)
@@ -3262,10 +3279,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     },
     // Collision editing draws in the one collision view (`./hull`), turning Draw's Collision hull on while it lasts.
     // Only on the mode's turn (`inCollisionMode`): the Collision hull switch held on (`syncViewLocks`), the world's wireframe.
+    // The Collision section's Property (the owner, 2026-11-20): the collision view coloured by it, kept for this browser.
+    onSurfaceProperty: (by) => { hullColourBy = by; scheduleHull(); },
+    defaultMaterial: () => hullLegendWords().defaultMaterial,
     onCollisionView: (on) => {
       editModeSel.value = editModePicked();
       if (on !== inCollisionMode) {
         inCollisionMode = on;
+        if (on) openHullAsType();                       // the Collision layer opens on Collision (the type)
         syncViewLocks();
         applyView();
       }
@@ -4056,6 +4077,42 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let hullView: ReturnType<typeof buildHullView> | null = null;
   let hullLegend: HTMLDivElement | null = null;
   /**
+   * What the collision view colours by (`./hull` `HullColourBy`; the owner, 2026-11-20: the Surface properties shown): the
+   * legend's switch and the Collision section's Property. Collision (the type) each time the view opens -- Display's
+   * Collision hull turned on, or the Collision layer entered (the owner, 2026-11-20: "always make the collision type the
+   * default one you open up to") -- and kept nowhere.
+   */
+  let hullColourBy: HullColourBy = 'type';
+  /** Whether the collision view was on when last looked at (`showHullView`): its turn on puts Collision back. */
+  let hullOpen = false;
+  const openHullAsType = (): void => {
+    if (hullColourBy === 'type') return;
+    hullColourBy = 'type';
+    geometry?.setSurfaceProperty('type', true);
+    scheduleHull();
+  };
+  /**
+   * The materials the layout's hull is made of, by SOILS name (`../soundData` `soundFromDisc` `surfacesIn`; the owner,
+   * 2026-11-20: a material the map does not use was silent): its floors' and every polygon's, material 0 the layout's
+   * default surface (none when the layout keeps the map's, whose sounds the map has).
+   */
+  const layoutSurfaces = (ground: GroundData): { floors: string[]; all: string[] } => {
+    const floors = new Set<string>(), all = new Set<string>();
+    const own = settings.defaultMaterial ?? null;
+    for (const p of groundPolygons(ground)) {
+      const name = p.material === 0 ? own : MATERIAL_TABLE_NAMES[p.material] ?? null;
+      if (!name) continue;
+      all.add(name);
+      if (p.ditype & 1) floors.add(name);
+    }
+    return { floors: [...floors], all: [...all] };
+  };
+  /** The map's default surface and reverb zones as the layout plays them (its own over the map's): the legend's names. */
+  const hullLegendWords = (): { defaultMaterial: string | null; reverb: NonNullable<LoadedMap['reverb']> | null } => {
+    const home = baseMap ?? charMap;
+    return { defaultMaterial: settings.defaultMaterial ?? home?.grenade?.defaultMaterial ?? null, reverb: settings.reverb ?? home?.reverb ?? null };
+  };
+  /**
    * The Draw switches the editor's modes set (the owner, 2026-11-15): the Collision hull on and greyed in Collision mode
    * ("disable toggling off collision hull in collision mode ... always on"); the Wireframe on and greyed in Geometry mode,
    * and off on entering Collision mode, free there ("not lock the wireframe to on in collision mode ... toggled off by
@@ -4101,18 +4158,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** Collision mode on, as `onCollisionView` last saw it: its switch acts on the mode's turn only. */
   let inCollisionMode = false;
   const showHullView = (): void => {
+    if (view.collision && !hullOpen) openHullAsType();
+    hullOpen = view.collision;
     const on = view.collision && !!hullView;
     if (hullView) hullView.group.visible = view.collision;
     if (hullLegend) hullLegend.hidden = !on;
   };
   const drawHullView = (polys: Iterable<HullViewPoly>): void => {
     if (hullView) { scene.remove(hullView.group); hullView.dispose(); }
-    hullView = buildHullView(polys, hullFaces, hullMaterial, hullFaintFaces);
+    hullView = buildHullView(polys, hullFaces, hullMaterial, hullFaintFaces, hullColourBy);
     scene.add(hullView.group);
     if (!hullLegend) hullLegend = el(doc, 'div', 'fx-ai-legend');
     if (!hullLegend.isConnected) legendStack.append(hullLegend);
     if (!legendStack.isConnected) viewport.append(legendStack);
-    drawHullLegend(hullLegend, hullView.counts, geometry?.collisionPolys() ? 'Collision (editing)' : 'Collision');
+    drawHullLegend(hullLegend, hullView.counts, geometry?.collisionPolys() ? 'Collision (editing)' : 'Collision', {
+      by: hullColourBy, ...hullLegendWords(),
+      onBy: (by) => { hullColourBy = by; geometry?.setSurfaceProperty(by, true); scheduleHull(); },
+    });
     showHullView();
   };
 
@@ -13756,7 +13818,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (!c) return null;
         const polys = groundPolygons(c.ground);
         const tops = x === undefined || z === undefined ? null : probeGround(groundGrid(c.ground), x, z).map((h) => h.y);
-        return { polys: polys.length, skipped: polys.filter((p) => (p.cameratype & 1) === 1).length, climb: polys.filter((p) => (p.appflags ?? 0) !== 0).length, tops };
+        return { polys: polys.length, skipped: polys.filter((p) => (p.cameratype & 1) === 1).length, climb: polys.filter((p) => (p.appflags ?? 0) !== 0).length, tops,
+          inside: polys.filter((p) => p.inside === 1).length, zone1: polys.filter((p) => p.reverbZone === 1).length };
       },
       base: () => base?.kind ?? null,
       /** The match's hostage starts as Play composes them, each with the AI cell height under it (a test's: where they stand). */
@@ -15327,7 +15390,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         say('nowhere to stand: place a spawn marker on a floor', true);
         return;
       }
-      const [clips, rawExtras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), c.groundMap, await cueDonorFor(c.groundMap.archive), m.lentAssets)]);
+      const [clips, rawExtras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), c.groundMap, await cueDonorFor(c.groundMap.archive), m.lentAssets, layoutSurfaces(c.ground))]);
       const extras = withExtrasSettings(rawExtras, own).extras;          // the layout's surface and reverb (`./worldSettings`)
       // LATER 456 (H336; FORGE_PLAY_CONTENT_PROPS_ADAPTATION, on by the owner's answer): with the flag on, the composed content
       // props drawn by the editor's own draw, each at its placement; a piece that fails is left out and counted.
@@ -15617,7 +15680,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     try {
       const m = await composeForMatch(false);
       if (!m) throw new Error('this base has no hull to play on');
-      const [clips, rawExtras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), m.c.groundMap, await cueDonorFor(m.c.groundMap.archive), m.lentAssets)]);
+      const [clips, rawExtras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), m.c.groundMap, await cueDonorFor(m.c.groundMap.archive), m.lentAssets, layoutSurfaces(m.c.ground))]);
       const extras = withExtrasSettings(rawExtras, m.own).extras;        // the layout's surface and reverb (`./worldSettings`)
       if (lobby !== l) return;
       const h = l.session.handOff();

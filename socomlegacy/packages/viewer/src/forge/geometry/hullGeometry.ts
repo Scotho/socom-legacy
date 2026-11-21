@@ -292,6 +292,49 @@ export function withCollisionType(s: Surface, type: CollisionType, climb: number
 /** A face's climb flag (0 none). */
 export const climbFlagOf = (s: Surface): number => s[4] & APP_MASK;
 
+/**
+ * The flags word's `m_inside` (surface word bit 23) and reverb zone (bit 27), as the hull carries them (`./collision`
+ * `Surface`: bits 3 and 4 of its fifth word; `../../mover` `packGround`): the camera over the polygon is indoors, and
+ * which `IndoorReverb` / `OutdoorReverb` entry it takes (`FUN_002dc180`, `FUN_002dc150`; research 81 §9).
+ */
+const INSIDE_FLAG = 1 << 3;
+const REVERB_FLAG = 1 << 4;
+/** `m_cameratype` bit 1 (surface word bit 19): the camera's probes pass through it (`@s2u/scene` segment's `CAMERA_SKIP`). */
+const CAMERA_THROUGH = 2;
+
+/**
+ * A collision face's surface properties (the owner, 2026-11-20: the Collision layer's Surface panel, a level editor's
+ * face properties): its material (the table's index, 0 the map's default), whether it is indoors, its reverb zone, whether
+ * the camera passes through it, and its region (the mask of zones drawn from it; regionCull's `WorldPoly.region`).
+ */
+export interface SurfaceFields { material: number; inside: boolean; reverbZone: 0 | 1; cameraThrough: boolean; region: number }
+/** A change of the Surface panel: its fields, or the collision type (and a climbable's flag) as the type tabs set it. */
+export type SurfaceChange = Partial<SurfaceFields> & { type?: CollisionType; climb?: number };
+
+export const surfaceFieldsOf = (s: Surface): SurfaceFields => ({
+  material: s[1] & 0xff, inside: (s[4] & INSIDE_FLAG) !== 0, reverbZone: (s[4] & REVERB_FLAG) !== 0 ? 1 : 0,
+  cameraThrough: (s[2] & CAMERA_THROUGH) !== 0, region: s[3] >>> 0,
+});
+
+/** `s` with `c`'s fields set, every other word and bit kept (its type, climb flag, the flags' bits past the reverb zone). */
+export function withSurfaceChange(s: Surface, c: SurfaceChange): Surface {
+  if (c.type) s = withCollisionType(s, c.type, c.climb ?? CLIMB_FLAG_DEFAULT);
+  let [ditype, material, cameratype, region, flags] = s;
+  if (c.material !== undefined) material = c.material & 0xff;
+  if (c.inside !== undefined) flags = c.inside ? flags | INSIDE_FLAG : flags & ~INSIDE_FLAG;
+  if (c.reverbZone !== undefined) flags = c.reverbZone ? flags | REVERB_FLAG : flags & ~REVERB_FLAG;
+  if (c.cameraThrough !== undefined) cameratype = c.cameraThrough ? cameratype | CAMERA_THROUGH : cameratype & ~CAMERA_THROUGH;
+  if (c.region !== undefined) region = c.region >>> 0;
+  return [ditype, material, cameratype, region, flags >>> 0];
+}
+
+/**
+ * Whether the camera's floor probe can stand on the face, so its indoors, reverb zone and region are read: walkable
+ * ground (`ditype` bit 0) the probe does not skip (`cameratype` bit 0) -- `../../floorPick` `cameraFloor` over
+ * `probeGround` (`FUN_00295b00`, D:L140035-140058). A wall's are never read; its material is (the shots').
+ */
+export const readByCamera = (s: Surface): boolean => (s[0] & 1) === 1 && (s[2] & 1) === 0;
+
 /** A face's corners as a key, order and winding left out, to a sixteenth of a unit (the hull's quantum). */
 const cornersKey = (o: GeoObject, f: number): string =>
   facePoints(o.mesh, f).map((p) => p.map((v) => Math.round(v * 16)).join(',')).sort().join('|');

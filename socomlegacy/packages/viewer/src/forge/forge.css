@@ -1444,6 +1444,9 @@ body.is-playing .fx-axis-widget { display: none; }
 .fx-legend-stack > .fx-ai-legend { position: static; }
 .fx-ai-legend__row.is-empty, .fx-ai-legend__hint.is-empty { opacity: 0.45; }
 .fx-ai-legend__head { margin-bottom: 2px; font: var(--fx-type-caption); color: var(--fx-dim); }
+/* The collision legend's Colour by switch (`./hull` `drawHullLegend`): beside the title, the one part of the legend that takes the pointer. */
+.fx-ai-legend__head:has(.fx-hull-colour-by) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fx-hull-colour-by { pointer-events: auto; height: 22px; padding: 0 var(--s2u-space-1); font: var(--fx-type-caption); }
 .fx-ai-legend__row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px; }
 .fx-ai-legend__swatch { width: 12px; height: 12px; border-radius: 2px; opacity: 0.85; }
 .fx-ai-legend__swatch.is-line { height: 2px; border-radius: 1px; opacity: 1; }
@@ -2767,3 +2770,19 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-prefs-fixedkeys { font: var(--fx-type-mono); color: var(--fx-dim); text-align: right; }
 .fx-prefs-findline { display: flex; align-items: center; gap: var(--s2u-space-2); margin-top: var(--s2u-space-2); font: var(--fx-type-body); color: var(--fx-gold); }
 .fx-prefs-empty { color: var(--fx-dim); }
+/* Geometry mode's Surface section (`./panels/surfaceInspector`, the Collision layer): a caption and its control a row. */
+.fx-surfprops-rows { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; align-items: center; }
+.fx-surfprops-row { display: contents; }
+.fx-surfprops-row > .fx-select { min-width: 0; width: 100%; box-sizing: border-box; height: 26px; }
+.fx-surfprops-note { margin: 8px 0 0; }
+.fx-surfprops-note[hidden] { display: none; }
+.fx-surfprops-area { display: flex; gap: 0; }
+.fx-surfprops-area > .fx-asset-tab { flex: 1 1 0; justify-content: center; }
+/* The Collision section's Property (`./geometry/editor` `propertyUi`; the owner, 2026-11-20: easy to find): first in the
+   section, in the accent's outline, the tabs beside it its values. */
+.fx-geo-prop { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.fx-geo-prop-word { font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-gold); }
+.fx-geo-prop-select { height: 26px; min-width: 112px; border-color: var(--fx-gold); color: var(--fx-text); font-weight: 600; }
+.fx-geo-material { display: inline-flex; align-items: center; gap: 6px; }
+.fx-geo-material[hidden] { display: none; }
+.fx-geo-material > .fx-select { height: 26px; max-width: 180px; }

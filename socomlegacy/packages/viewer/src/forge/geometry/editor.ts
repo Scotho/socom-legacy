@@ -19,8 +19,8 @@ import { buildWorld, type WorldView } from '../../world';
 import { commonGroundSurface, FLOOR_NORMAL_Y_MIN, floorOrWall, floorWordsOf, wallWordsOf } from './collision';
 import { displacementGrid, makeDisplacement, sculpt } from './displacement';
 import { add, cloneMesh, cross, dot, edgeKey, edgeMap, edgeOfKey, faceNormal, normalize, scale, sub, facePoints, faceVerts, length, liveFaces, polygonNormal, triangulate, vertPos, type EditMesh, type TextureMapping, type Vec3 } from './editMesh';
-import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, LADDER_CLIMB_FLAG, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, twinIndexOf, withCollisionType, withTwins, wordsOf, type CollisionType } from './hullGeometry';
-import { HULL_COLOURS, type HullViewPoly } from '../hull';
+import { buildHullWith, CLIMB_FLAG_DEFAULT, CLIMB_FLAGS, LADDER_CLIMB_FLAG, climbFlagOf, COLLISION_TYPES, collisionTypeOf, followersOf, hullGeometryOf, moveFollower, readByCamera, surfaceFieldsOf, twinIndexOf, withCollisionType, withSurfaceChange, withTwins, wordsOf, type CollisionType, type SurfaceChange, type SurfaceFields } from './hullGeometry';
+import { HULL_COLOUR_BY, HULL_COLOURS, HULL_PROPERTY_VALUES, MATERIAL_COUNT, materialColour, materialLabel, materialName, type HullColourBy, type HullViewPoly } from '../hull';
 import { lastRefusal } from './topology';
 /** Why the last tool was undone (`./topology` `transact`), as a message's tail; empty when it was not. */
 const refusedWhy = (): string => (lastRefusal ? ` (refused: ${lastRefusal} -- the mesh is as it was)` : '');
@@ -81,6 +81,10 @@ export interface GeometryEditorDeps {
    * collision view (the Draw menu's Collision hull, which turning collision editing on turns on) draws it.
    */
   onCollisionView?: (on: boolean) => void;
+  /** The Collision section's Property chosen (the owner, 2026-11-20): the page colours the collision view by it. */
+  onSurfaceProperty?: (by: HullColourBy) => void;
+  /** The map's default surface's name (material 0), for the Material list's first entry. */
+  defaultMaterial?: () => string | null;
   /**
    * A drag's collision as it would stand were the drag released now (`previewCollision`), for the collision view to
    * follow the drag; null when the drag ends (the edit's own rebuild then draws it).
@@ -195,6 +199,20 @@ const TEXTURE_GRID_COLOR = 0xffc94a;
 /** A face as it stood before a preview: what `restoreFaces` puts back. */
 interface FaceSnapshot { m: EditMesh; f: number; style: number; mapping: TextureMapping | undefined; uvs: [number, number][]; styles: number }
 /** The Inspector's Texture State: the faces' shared mapping values, and the texture they wear with its size and natural size. */
+/** The Collision layer's selected faces' surface properties (`surfaceStateNow`): each null where the faces differ. */
+export interface SurfaceStateView {
+  count: number;
+  /** Their collision type, a climbable's with its flag (`climbable:4`); null where they differ. */
+  collision: string | null;
+  /** How many of them the camera's floor probe reads (their indoors, reverb zone and region). */
+  read: number;
+  material: number | null;
+  inside: boolean | null;
+  reverbZone: 0 | 1 | null;
+  cameraThrough: boolean | null;
+  region: number | null;
+}
+
 export interface TextureStateView extends TextureState {
   texture: string | null; texSize: [number, number] | null; natural: number | null; metresPerUnit: number;
   /**
@@ -379,6 +397,20 @@ export class GeometryEditor {
   /** The climb flag the Climbable tab paints (its menu, `CLIMB_FLAGS`), shown on the tab. */
   private climbFlag: number = CLIMB_FLAG_DEFAULT;
   private climbFlagLabel: HTMLElement | null = null;
+  /**
+   * The property the Collision section paints (the owner, 2026-11-20: "a way to paint every property type when we switch
+   * the mode ... the top bar changes to what we could paint for that property"): Type (the type tabs above), Area,
+   * Reverb zone, Material or Camera, each with its value tabs; the view is coloured by it (`deps.onSurfaceProperty`),
+   * and Paint, Sample and Apply set it alone, every other word kept (`withSurfaceChange`).
+   */
+  private surfaceProp: HullColourBy = 'type';
+  /** Each property's brush: what Paint and Apply lay for it. */
+  private readonly brush: { inside: boolean; reverbZone: 0 | 1; material: number; cameraThrough: boolean } = { inside: true, reverbZone: 0, material: 0, cameraThrough: true };
+  private propSel: HTMLSelectElement | null = null;
+  private readonly propRows = new Map<HullColourBy, HTMLElement>();
+  private readonly valueTabs: { by: 'indoors' | 'reverb' | 'camera'; value: boolean | number; b: HTMLButtonElement }[] = [];
+  private materialSel: HTMLSelectElement | null = null;
+  private materialSwatch: HTMLElement | null = null;
   /**
    * The cursor's words on the Collision layer (the owner, 2026-11-15: "show the current collision type as a cursor overlay
    * text (especially useful for climbable types)", "also when we are not in paint mode"): the face's type under the
@@ -724,7 +756,8 @@ export class GeometryEditor {
     layerRow.setAttribute('aria-label', 'Layer');
     for (const [v, label, title] of [
       ['geometry', 'Geometry', 'Edit the drawn geometry'],
-      ['collision', 'Collision', 'Edit the collision with the same tools; Collision type sets what a face is'],
+      // Surface/Collision (the owner, 2026-11-20): the layer holds the faces' surface properties as well as the hull.
+      ['collision', 'Surface/Collision', 'Edit the collision with the same tools, and its surfaces: the Property in the Surface section sets what Paint, Sample and Apply change'],
       ['texture', 'Texture', 'Paint textures on the faces: choose a texture, then click or drag over faces (the geometry is not edited here)'],
     ] as const) {
       const b = doc.createElement('button');
@@ -837,6 +870,7 @@ export class GeometryEditor {
       this.typeTabs.set(t.type, b);
       typeRow.append(b);
     }
+    this.propRows.set('type', typeRow);
     this.toolBar = new PaintToolBar(doc, {
       onTool: (t) => this.setTool(t),
       onApply: () => (this.textureOn ? this.texturing('apply') : this.applyCollisionType()),
@@ -862,8 +896,10 @@ export class GeometryEditor {
     // layer"): Select and Create alone; the Collision and Texture layers show the rest (`collisionUi`).
     for (const k of ['paint', 'sample', 'apply']) this.toolBar.setShown(k, false);
     deps.tools.append(
-      (this.surfaceGroup = group('Collision',
+      (this.surfaceGroup = group('Surface',
+        this.propertyUi(),
         typeRow,
+        ...this.propertyRows(),
       )),
       (this.textureGroup = group('Texture',
         this.textureBtn,
@@ -950,7 +986,7 @@ export class GeometryEditor {
       selection: this.selectionState(),
       hover: this.hoverKey, creating: this.blockOn || this.polyOn, texture: this.textureStateNow(),
       createPreview: { solid: this.blockSolid.visible, texture: this.blockSolid.visible && (this.blockSolid.material as MeshBasicMaterial).map ? this.blockTex?.name ?? null : null, start: this.blockStartDot.visible, handles: this.blockHandles.visible ? this.blockHandleAt.length : 0 },
-      active: this.active, collision: this.collisionOn, painting: this.paintOn ? this.collisionType : null, edited: this.edited, stale: this.stale,
+      active: this.active, collision: this.collisionOn, painting: this.paintOn ? (this.surfaceProp === 'type' ? this.collisionType : `${this.surfaceProp}:${this.brushLabel()}`) : null, edited: this.edited, stale: this.stale,
       builtPolys: this.built ? this.built.fields.length / 6 : null,
       objects: (this.geo?.objects ?? []).map((o) => {
         const types: Record<string, number> = {};
@@ -2151,7 +2187,7 @@ export class GeometryEditor {
       const words = wordsOf(o, null);
       for (const f of liveFaces(o.mesh)) {
         const w = words(f);
-        out.push({ points: facePoints(o.mesh, f).flat(), ditype: w[0], cameratype: w[2], appflags: w[4] });
+        out.push({ points: facePoints(o.mesh, f).flat(), ditype: w[0], material: w[1], cameratype: w[2], region: w[3], appflags: w[4], inside: (w[4] >> 3) & 1, reverbZone: (w[4] >> 4) & 1 });
       }
     }
     return out;
@@ -2161,6 +2197,173 @@ export class GeometryEditor {
   private drawHull(): void { this.deps.onCollisionView?.(this.collisionOn); }
 
   private typeLabel(t: CollisionType): string { return (COLLISION_TYPES.find((x) => x.type === t)?.label ?? t).toLowerCase(); }
+
+  /* ---------- the Collision section's Property: what Paint, Sample and Apply set ---------- */
+
+  /** The Property list (`HULL_COLOUR_BY`), first in the Collision section: choosing one changes the tabs beside it. */
+  private propertyUi(): HTMLElement {
+    const doc = this.deps.doc;
+    const wrap = doc.createElement('label');
+    wrap.className = 'fx-geo-prop';
+    wrap.title = 'Property: what Paint, Sample and Apply set, and what the collision view is coloured by';
+    const sel = doc.createElement('select');
+    sel.className = 'fx-select fx-geo-prop-select';
+    sel.setAttribute('aria-label', 'Property');
+    for (const c of HULL_COLOUR_BY) {
+      const o = doc.createElement('option');
+      o.value = c.by;
+      o.textContent = c.label;
+      o.title = c.note;
+      sel.append(o);
+    }
+    sel.value = this.surfaceProp;
+    sel.addEventListener('change', () => { this.setSurfaceProperty(sel.value as HullColourBy); sel.blur(); });
+    this.propSel = sel;
+    const word = doc.createElement('span');
+    word.className = 'fx-geo-prop-word';
+    word.textContent = 'Property';
+    wrap.append(word, sel);
+    return wrap;
+  }
+
+  /** Each property's value tabs (Area, Reverb zone, Camera) and the Material list, all hidden but the chosen one's. */
+  private propertyRows(): HTMLElement[] {
+    const doc = this.deps.doc;
+    const tabsRow = (by: 'indoors' | 'reverb' | 'camera', aria: string): HTMLElement => {
+      const row = doc.createElement('div');
+      row.className = 'fx-asset-tabs fx-geo-layer-tabs';
+      row.setAttribute('role', 'tablist');
+      row.setAttribute('aria-label', aria);
+      for (const v of HULL_PROPERTY_VALUES[by]) {
+        const b = doc.createElement('button');
+        b.type = 'button';
+        b.className = 'fx-asset-tab';
+        b.setAttribute('role', 'tab');
+        b.title = `${v.label}${v.note ? `: ${v.note}` : ''} (Paint lays it as you click; Apply on the selection)`;
+        b.dataset['value'] = String(v.value);
+        const sw = doc.createElement('span');
+        sw.className = 'fx-type-swatch';
+        sw.style.background = hexOf(v.colour);
+        const w = doc.createElement('span');
+        w.textContent = v.label;
+        b.append(sw, w);
+        b.addEventListener('click', () => { this.pickBrush(by, v.value); b.blur(); });
+        this.valueTabs.push({ by, value: v.value, b });
+        row.append(b);
+      }
+      row.hidden = true;
+      this.propRows.set(by, row);
+      return row;
+    };
+    // Material: a list (the table's 46), its colour beside it.
+    const mat = doc.createElement('div');
+    mat.className = 'fx-geo-material';
+    mat.hidden = true;
+    const sw = doc.createElement('span');
+    sw.className = 'fx-type-swatch';
+    const sel = doc.createElement('select');
+    sel.className = 'fx-select';
+    sel.setAttribute('aria-label', 'Material to paint');
+    sel.title = 'The material Paint and Apply lay: footsteps, bullet marks and how far shots go through';
+    for (let i = 0; i < MATERIAL_COUNT; i++) {
+      const o = doc.createElement('option');
+      o.value = String(i);
+      o.textContent = materialLabel(i);
+      sel.append(o);
+    }
+    sel.addEventListener('change', () => { this.pickBrush('material', Number(sel.value)); sel.blur(); });
+    this.materialSel = sel;
+    this.materialSwatch = sw;
+    mat.append(sw, sel);
+    this.propRows.set('material', mat);
+    return [tabsRow('indoors', 'Area'), tabsRow('reverb', 'Reverb zone'), mat, tabsRow('camera', 'Camera')];
+  }
+
+  /** The Property chosen (the Collision section's list, or the legend's): its tabs shown, the view coloured by it. */
+  surfaceProperty(): HullColourBy { return this.surfaceProp; }
+  setSurfaceProperty(by: HullColourBy, quiet = false): void {
+    if (by === this.surfaceProp) return;
+    this.surfaceProp = by;
+    this.hoverKey = '';
+    this.paintUi();
+    this.drawHover();
+    if (quiet) return;
+    this.deps.onSurfaceProperty?.(by);
+    if (this.collisionOn) this.deps.say(`Property: ${HULL_COLOUR_BY.find((c) => c.by === by)?.label ?? by} -- ${this.brushLabel()} (Paint lays it as you click; Apply on the selection)`);
+  }
+
+  /** A value tab clicked (or a material chosen): the brush for that property, what Paint and Apply lay. */
+  private pickBrush(by: 'indoors' | 'reverb' | 'camera' | 'material', value: boolean | number): void {
+    if (by === 'indoors') this.brush.inside = value === true;
+    else if (by === 'reverb') this.brush.reverbZone = value === 1 ? 1 : 0;
+    else if (by === 'camera') this.brush.cameraThrough = value === true;
+    else this.brush.material = Number(value) & 0xff;
+    this.hoverKey = '';
+    this.paintUi();
+    this.drawHover();
+    this.deps.say(`${HULL_COLOUR_BY.find((c) => c.by === by)?.label}: ${this.brushLabel()}${this.paintOn ? '' : ' (Apply lays it on the selection; Paint lays it as you click)'}`);
+  }
+
+  /** The brush's change for a property other than Type. */
+  private brushChange(): SurfaceChange {
+    switch (this.surfaceProp) {
+      case 'indoors': return { inside: this.brush.inside };
+      case 'reverb': return { reverbZone: this.brush.reverbZone };
+      case 'material': return { material: this.brush.material };
+      case 'camera': return { cameraThrough: this.brush.cameraThrough };
+      default: return {};
+    }
+  }
+  /** A face's words as the brush makes them: the type (and climb flag), or the chosen property alone. */
+  private brushWords(s: Surface): Surface {
+    return this.surfaceProp === 'type' ? withCollisionType(s, this.collisionType, this.climbFlag) : withSurfaceChange(s, this.brushChange());
+  }
+  /** A face's chosen property in words (the cursor's tip). */
+  private propWords(s: Surface): string {
+    const f = surfaceFieldsOf(s);
+    switch (this.surfaceProp) {
+      case 'indoors': return HULL_PROPERTY_VALUES.indoors[f.inside ? 1 : 0].label;
+      case 'reverb': return HULL_PROPERTY_VALUES.reverb[f.reverbZone].label;
+      case 'material': return materialName(f.material, this.deps.defaultMaterial?.());
+      case 'camera': return HULL_PROPERTY_VALUES.camera[f.cameraThrough ? 1 : 0].label;
+      default: return this.typeWords(s);
+    }
+  }
+  /** What the brush lays, in words. */
+  private brushLabel(): string {
+    switch (this.surfaceProp) {
+      case 'indoors': return HULL_PROPERTY_VALUES.indoors[this.brush.inside ? 1 : 0].label;
+      case 'reverb': return HULL_PROPERTY_VALUES.reverb[this.brush.reverbZone].label;
+      case 'material': return materialName(this.brush.material, this.deps.defaultMaterial?.());
+      case 'camera': return HULL_PROPERTY_VALUES.camera[this.brush.cameraThrough ? 1 : 0].label;
+      default: return `${this.typeLabel(this.collisionType)}${this.collisionType === 'climbable' ? ` ${this.climbFlag}` : ''}`;
+    }
+  }
+  /** The brush's colour: its value's in the view. */
+  private brushColour(): number {
+    switch (this.surfaceProp) {
+      case 'indoors': return HULL_PROPERTY_VALUES.indoors[this.brush.inside ? 1 : 0].colour;
+      case 'reverb': return HULL_PROPERTY_VALUES.reverb[this.brush.reverbZone].colour;
+      case 'material': return materialColour(this.brush.material);
+      case 'camera': return HULL_PROPERTY_VALUES.camera[this.brush.cameraThrough ? 1 : 0].colour;
+      default: return TYPE_COLOURS[this.collisionType];
+    }
+  }
+  /** Sample on the Collision layer: the face's value of the chosen property as the brush. */
+  private sampleProperty(s: Surface): void {
+    const f = surfaceFieldsOf(s);
+    switch (this.surfaceProp) {
+      case 'indoors': this.brush.inside = f.inside; break;
+      case 'reverb': this.brush.reverbZone = f.reverbZone; break;
+      case 'material': this.brush.material = f.material; break;
+      case 'camera': this.brush.cameraThrough = f.cameraThrough; break;
+      default: {
+        const t = collisionTypeOf(s);
+        if (t === 'climbable') this.climbFlag = climbFlagOf(s);
+        this.collisionType = t;
+      }
+    }
+  }
 
   /** A type's tab clicked (or a climb flag chosen): the active type, what Paint and Apply lay; the mode left as it is. */
   private pickType(t: CollisionType): void {
@@ -2188,9 +2391,9 @@ export class GeometryEditor {
     this.drawHover();
     this.paintUi();
     this.drawBar();
-    const what = this.textureOn ? this.textureName ?? 'the texture' : this.typeLabel(this.collisionType);
+    const what = this.textureOn ? this.textureName ?? 'the texture' : this.brushLabel();
     if (t === 'paint') this.deps.say(`Paint ${what}: click or drag over faces (${this.sel.mode === 'object' ? 'whole objects' : 'one face at a time'}); Shift+click samples; Esc selects`);
-    else if (t === 'sample') this.deps.say(`Sample: click a face to take its ${this.textureOn ? 'texture' : 'collision type'}; Esc selects`);
+    else if (t === 'sample') this.deps.say(`Sample: click a face to take its ${this.textureOn ? 'texture' : this.surfaceProp === 'type' ? 'collision type' : HULL_COLOUR_BY.find((c) => c.by === this.surfaceProp)?.label.toLowerCase()}; Esc selects`);
   }
 
   /** Apply on the Collision layer: the active type (and climb flag) on the selected faces and their twins, one edit. */
@@ -2199,19 +2402,79 @@ export class GeometryEditor {
     const sets = this.selectedFaceSets();
     if (!sets.length) { this.deps.say('Select faces first (Face mode), or objects, to Apply the collision type to', true); return; }
     let faces = 0;
-    this.edit('Set collision type', () => {
+    this.edit(this.surfaceProp === 'type' ? 'Set collision type' : `Set ${HULL_COLOUR_BY.find((c) => c.by === this.surfaceProp)?.label.toLowerCase()}`, () => {
       const twins = this.twinsOf();
       for (const { o, faces: fs } of sets) for (const f0 of fs) for (const { o: to, f } of twins(o, f0)) {
         const face = to.mesh.faces[f];
         if (!face) continue;
-        const next = withCollisionType(wordsOf(to, null)(f), this.collisionType, this.climbFlag);
+        const next = this.brushWords(wordsOf(to, null)(f));
         if (face.surface && face.surface.every((v, i) => v === next[i])) continue;
         face.surface = next;
         to.manual = true;
         faces++;
       }
-      if (!faces) { this.deps.say(`The selection is ${this.typeLabel(this.collisionType)} already`); return false; }
-      this.deps.say(`${faces} face${faces === 1 ? '' : 's'} set ${this.typeLabel(this.collisionType)}`);
+      if (!faces) { this.deps.say(`The selection is ${this.brushLabel()} already`); return false; }
+      this.deps.say(`${faces} face${faces === 1 ? '' : 's'} set ${this.brushLabel()}`);
+      return true;
+    }, { shapeKept: true });
+  }
+
+  /* ---------- the Inspector's Surface (the Collision layer's face properties) ---------- */
+
+  /**
+   * The selected faces' surface properties (the owner, 2026-11-20: the Collision layer's Surface panel, a level editor's
+   * face properties; a browser adaptation, FG.R2): each field the faces share, null where they differ; how many the
+   * camera's floor probe reads (`readByCamera`: their indoors, reverb zone and region heard and seen). Null off the
+   * Collision layer or with nothing selected (Face mode's faces, or every face of the selected objects).
+   */
+  surfaceStateNow(): SurfaceStateView | null {
+    if (!this.active || !this.collisionOn) return null;
+    const sets = this.selectedFaceSets();
+    if (!sets.length) return null;
+    let count = 0, read = 0;
+    let collision: string | null | undefined;
+    const shared: { [K in keyof SurfaceFields]?: SurfaceFields[K] | null } = {};
+    for (const { o, faces } of sets) {
+      const words = wordsOf(o, null);
+      for (const f of faces) {
+        if (!o.mesh.faces[f]) continue;
+        const s = words(f), v = surfaceFieldsOf(s);
+        count++;
+        if (readByCamera(s)) read++;
+        const t = collisionTypeOf(s), tk = t === 'climbable' ? `climbable:${climbFlagOf(s)}` : t;
+        collision = collision === undefined ? tk : collision === tk ? collision : null;
+        for (const k of Object.keys(v) as (keyof SurfaceFields)[]) {
+          const had = shared[k];
+          (shared as Record<string, unknown>)[k] = had === undefined ? v[k] : had === v[k] ? had : null;
+        }
+      }
+    }
+    if (!count) return null;
+    return {
+      count, read, collision: collision ?? null, material: shared.material ?? null, inside: shared.inside ?? null, reverbZone: shared.reverbZone ?? null,
+      cameraThrough: shared.cameraThrough ?? null, region: shared.region ?? null,
+    };
+  }
+
+  /** The Surface panel's change on the selected faces and their twins (`withSurfaceChange`, every other word kept), one edit. */
+  setSurface(change: SurfaceChange, label: string): void {
+    if (!this.geo || !this.collisionOn) return;
+    const sets = this.selectedFaceSets();
+    if (!sets.length) { this.deps.say('Select faces first (Face mode), or objects, to set their surface', true); return; }
+    let faces = 0;
+    this.edit(label, () => {
+      const twins = this.twinsOf();
+      for (const { o, faces: fs } of sets) for (const f0 of fs) for (const { o: to, f } of twins(o, f0)) {
+        const face = to.mesh.faces[f];
+        if (!face) continue;
+        const next = withSurfaceChange(wordsOf(to, null)(f), change);
+        if (face.surface && face.surface.every((v, i) => v === next[i])) continue;
+        face.surface = next;
+        to.manual = true;
+        faces++;
+      }
+      if (!faces) { this.deps.say('The selection has that surface already'); return false; }
+      this.deps.say(`${label}: ${faces} face${faces === 1 ? '' : 's'}`);
       return true;
     }, { shapeKept: true });
   }
@@ -2222,6 +2485,21 @@ export class GeometryEditor {
    */
   private paintUi(): void {
     for (const [t, b] of this.typeTabs) { const on = t === this.collisionType; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+    // The chosen Property's tabs alone, each lit by its brush.
+    if (this.propSel && this.propSel.value !== this.surfaceProp) this.propSel.value = this.surfaceProp;
+    for (const [by, row] of this.propRows) row.hidden = by !== this.surfaceProp;
+    for (const t of this.valueTabs) {
+      const now = t.by === 'indoors' ? this.brush.inside : t.by === 'reverb' ? this.brush.reverbZone : this.brush.cameraThrough;
+      const on = now === t.value;
+      t.b.classList.toggle('is-on', on);
+      t.b.setAttribute('aria-selected', String(on));
+    }
+    if (this.materialSel) {
+      const first = this.materialSel.options[0];
+      if (first) first.textContent = materialLabel(0, this.deps.defaultMaterial?.());
+      if (this.materialSel.value !== String(this.brush.material)) this.materialSel.value = String(this.brush.material);
+    }
+    if (this.materialSwatch) this.materialSwatch.style.background = hexOf(materialColour(this.brush.material));
     this.toolBar?.show(this.blockOn ? 'block' : this.tool);
     // Create's shape always shown beside it (the owner, 2026-11-17: "don't hide the create dropdown when the create button
     // is not active. I want to see the dropdown all the time"): gone with Create's own button on the Texture layer alone.
@@ -2230,7 +2508,7 @@ export class GeometryEditor {
     if (this.climbFlagLabel) this.climbFlagLabel.textContent = CLIMB_FLAGS.find((c) => c.flag === this.climbFlag)?.short ?? String(this.climbFlag);
     if (!this.collisionOn) this.closeClimbMenu();
     if (!this.collisionOn && !this.textureOn) this.showPaintTip(null);
-    this.deps.input.style.cursor = this.blockOn || this.polyOn ? 'crosshair' : this.sampleNow ? sampleCursor() : this.paintOn ? brushCursor(this.textureOn ? HIGHLIGHT : TYPE_COLOURS[this.collisionType]) : '';
+    this.deps.input.style.cursor = this.blockOn || this.polyOn ? 'crosshair' : this.sampleNow ? sampleCursor() : this.paintOn ? brushCursor(this.textureOn ? HIGHLIGHT : this.brushColour()) : '';
   }
 
   /** The face under `n` painted the current type, with its twins; whether anything new was painted. */
@@ -2246,7 +2524,7 @@ export class GeometryEditor {
       st.done.add(`${o.id}:${f}`);
       const face = o.mesh.faces[f];
       if (!face) continue;
-      const next = withCollisionType(wordsOf(o, null)(f), this.collisionType, this.climbFlag);
+      const next = this.brushWords(wordsOf(o, null)(f));
       if (face.surface && face.surface.every((v, i) => v === next[i])) continue;
       face.surface = next;
       o.manual = true;
@@ -2297,7 +2575,7 @@ export class GeometryEditor {
       return;
     }
     this.edit('Paint collision', () => {
-      this.deps.say(`${st.faces} face${st.faces === 1 ? '' : 's'} painted ${this.typeLabel(this.collisionType)}`);
+      this.deps.say(`${st.faces} face${st.faces === 1 ? '' : 's'} painted ${this.brushLabel()}`);
     }, { selectionTouched: false, shapeKept: true });
   }
 
@@ -5340,11 +5618,9 @@ export class GeometryEditor {
     if (!hit) { this.deps.say('Sample: no face there', true); return false; }
     if (this.collisionOn) {
       const words = wordsOf(hit.object, null)(hit.face);
-      const t = collisionTypeOf(words);
-      if (t === 'climbable') this.climbFlag = climbFlagOf(words);
-      this.collisionType = t;
+      this.sampleProperty(words);
       this.paintUi();
-      this.deps.say(`Sampled ${this.typeWords(words)}`);
+      this.deps.say(`Sampled ${this.propWords(words)}`);
       return true;
     }
     const look = sampleFace(hit.object.mesh, hit.face, this.size);
@@ -6283,8 +6559,8 @@ export class GeometryEditor {
     // The face's collision type at the pointer on the Collision layer, painting or not (the owner, 2026-11-15).
     const textureAt = (o: GeoObject, f: number): string => { const face = o.mesh.faces[f]; return (face && o.mesh.styles[face.style]?.style.textureName) || 'no texture'; };
     if (!(hit && (this.collisionOn || this.textureOn))) this.showPaintTip(null);
-    else if (!this.paintOn) this.showPaintTip(this.textureOn ? textureAt(hit.object, hit.face) : this.typeWords(wordsOf(hit.object, null)(hit.face)));
-    if (hit && this.sampleNow) this.showPaintTip(`Sample: ${this.collisionOn ? this.typeWords(wordsOf(hit.object, null)(hit.face)) : textureAt(hit.object, hit.face)}`);
+    else if (!this.paintOn) this.showPaintTip(this.textureOn ? textureAt(hit.object, hit.face) : this.propWords(wordsOf(hit.object, null)(hit.face)));
+    if (hit && this.sampleNow) this.showPaintTip(`Sample: ${this.collisionOn ? this.propWords(wordsOf(hit.object, null)(hit.face)) : textureAt(hit.object, hit.face)}`);
     if (hit && this.paintOn && this.textureOn && this.textureName && !this.sampleNow) {
       // The texture brush: what a click lays, drawn on the dab's faces as laid, with their outline; the tip old -> new.
       const name = this.textureName;
@@ -6299,12 +6575,12 @@ export class GeometryEditor {
         this.hover.add(this.hoverLines(edges, 1, HIGHLIGHT));
       };
     } else if (hit && this.paintOn && this.collisionOn && !this.sampleNow) {
-      const now = this.typeWords(wordsOf(hit.object, null)(hit.face));
-      const to = this.typeWords(withCollisionType(wordsOf(hit.object, null)(hit.face), this.collisionType, this.climbFlag));
+      const now = this.propWords(wordsOf(hit.object, null)(hit.face));
+      const to = this.propWords(this.brushWords(wordsOf(hit.object, null)(hit.face)));
       this.showPaintTip(now === to ? now : `${now} \u2192 ${to}`);
-      // In the painting type's own colour (the owner, 2026-11-15), so the face shows what a click makes it.
-      const colour = TYPE_COLOURS[this.collisionType];
-      key = `p:${hit.object.id}:${hit.face}:${this.collisionType}`;
+      // In the painting value's own colour (the owner, 2026-11-15), so the face shows what a click makes it.
+      const colour = this.brushColour();
+      key = `p:${hit.object.id}:${hit.face}:${this.surfaceProp}:${this.brushLabel()}`;
       draw = () => {
         this.hover.add(this.hoverFaces(Float32Array.from(this.trianglesOf(hit.object, [hit.face])), 0.55, colour));
         const ps = facePoints(hit.object.mesh, hit.face);

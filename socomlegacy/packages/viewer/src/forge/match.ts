@@ -60,7 +60,7 @@ export interface ForgeMatch {
  * `sound` and `soundLoops`): what the match's firearm, marks and sound draw on. Null each where the source has none.
  * `lent`: the layout's switch scripts' sounds and effects from other maps (`./scriptAssets` `lentScriptAssets`), lent in.
  */
-export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
+export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets, surfaces?: { floors: string[]; all: string[] }): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
@@ -84,7 +84,7 @@ export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'p
         const borrow = [...(cuesFrom ? [{ path: cuesFrom.path, names: [BLAST_EFFECT] }] : []), ...(lent?.effects ?? []).map((e) => ({ path: `RUN/${e.from}.ZDB`, names: e.names }))];
         return { kind: 'effects', id, source, path: map.path, archive: map.archive, ...(borrow.length ? { borrow } : {}) };
       }),
-      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}) })),
+      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(surfaces ? { surfaces } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}) })),
     ]);
     const data = s?.kind === 'soundLoops' ? [...sounds.values()][0] ?? null : null;
     return { effects: e?.kind === 'effects' ? e.data : null, sound: data && s?.kind === 'soundLoops' ? { data, loops: s.loops } : null };

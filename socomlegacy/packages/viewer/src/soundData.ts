@@ -349,8 +349,14 @@ function silent(archive: string, missing: string[]): SoundData {
  * it was chosen from (`./forge/scriptAssets`) -- out of that map's own banks (`lendBankSounds`), else, a name none of
  * them holds (a `MUS_` cue, a `^` line), that map's streams (`readSoundStreams` over its blocks, `lentStreams`); one
  * neither holds is named in `missing`.
+ *
+ * `surfaces` (the owner, 2026-11-20: "if I pick say broken glass in desert glory, it doesn't make any sound when I walk on
+ * it"; a browser adaptation, FG.R2): the materials a forge layout's hull is made of beyond the map's own, by SOILS name --
+ * its floors' and all of its polygons'. Their steps, crawls, landings and rounds' impacts are wanted as the map's own
+ * surfaces' are, so one the map's banks lack is borrowed as any missing sound is (`borrowMissing`). The original's map
+ * has only its own surfaces; a layout made of another's would be silent on it.
  */
-export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }, lend: readonly SoundLend[] = []): Promise<SoundData> {
+export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }, lend: readonly SoundLend[] = [], surfacesIn?: LayoutSurfaces): Promise<SoundData> {
   const cues = cuesFrom ?? { path: mapPath, archive };
   const files = [...SOUND_BANK_KINDS.map((k) => `${archive}_${k}.bnk`), ...SOUND_GLOBAL_BANKS];
   let found: Map<string, Uint8Array>;
@@ -545,6 +551,10 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
         if (materials[m]) surfaces.add(materials[m]!.name.toLowerCase());
       }
     }
+    // A forge layout's own surfaces, by name (`surfacesIn`), as the map's.
+    const byName = (n: string): number => materials.findIndex((x) => x.name.toUpperCase() === n.toUpperCase());
+    for (const n of surfacesIn?.floors ?? []) { const m = byName(n); if (m >= 0) floors.add(m); }
+    for (const n of surfacesIn?.all ?? []) if (byName(n) >= 0) surfaces.add(n.toLowerCase());
     const wanted = new Set<string>();
     const grenadeWanted = new Set<string>();
     for (const m of floors) for (const n of [materials[m]?.step, materials[m]?.stealthStep, materials[m]?.crawl, materials[m]?.land]) if (n) wanted.add(n);
@@ -706,6 +716,9 @@ export interface SoundEmitter { anim: string; sound: string; node: string; posit
 /** Sounds a forge switch plays from a map (`soundFromDisc` `lend`): the map's archive stem and the names. */
 export interface SoundLend { from: string; names: readonly string[] }
 
+/** A forge layout's surfaces by SOILS name (`soundFromDisc` `surfacesIn`): its floors', and every polygon's. */
+export interface LayoutSurfaces { floors: readonly string[]; all: readonly string[] }
+
 /** The sound banks of map `archive` (`SOUND_BANK_KINDS`): `MP72_am.bnk`, `MP72_fx.bnk`, `MP72_vc.bnk`. */
 export const mapBankFiles = (archive: string): string[] => SOUND_BANK_KINDS.map((k) => `${archive}_${k}.bnk`);
 
@@ -758,6 +771,13 @@ export async function lendBankSounds(source: AssetSource, banks: SoundData['bank
   return rest;
 }
 
+/**
+ * The most other maps' banks `borrowMissing` reads (a browser adaptation, bounding the reads): 16 (was 6, the owner,
+ * 2026-11-20 -- a forge layout's own surfaces, `soundFromDisc` `surfacesIn`, want more: Desert Glory's own lacks took the
+ * six before Broken Glass's steps were reached). A disc map's own lacks are met within six.
+ */
+const BORROW_BANKS_MAX = 16;
+
 export async function borrowMissing(
   source: AssetSource, banks: SoundData['banks'], sets: ReadonlyMap<string, SoundSet>, wanted: ReadonlySet<string>,
   archive: string, missing: string[],
@@ -776,7 +796,7 @@ export async function borrowMissing(
     return m ? `${m[1]}_${m[2]!.toLowerCase()}.bnk` : null;
   };
   const tried = new Set<string>();
-  for (let guard = 0; guard < 6 && need.length > 0; guard++) {
+  for (let guard = 0; guard < BORROW_BANKS_MAX && need.length > 0; guard++) {
     const cover = new Map<string, string[]>();
     for (const [name, set] of sets) {
       const file = bankOf(name);

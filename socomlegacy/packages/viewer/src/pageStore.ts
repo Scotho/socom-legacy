@@ -71,6 +71,7 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   FORGE_DOCK_LAYOUT_KEY,             // forge/shell/dockShell.ts: the workbench's docking tree (the owner, 2026-11-11)
   'forge.inspector.transform.open',  // forge/panels/inspectorPanel.ts: the Inspector's Transform section open or folded
   'forge.inspector.properties.open', // forge/panels/inspectorPanel.ts: the Inspector's Properties section open or folded
+  'forge.inspector.surface.open',    // forge/panels/surfaceInspector.ts: Geometry mode's Surface section open or folded (Collision layer)
   's2u-forge-favourites',            // forge/favourites.ts FAVOURITES_KEY: the starred props
   's2u-forge-object-favourites',     // forge/favourites.ts OBJECT_FAVOURITES_KEY: the starred tiles of the other tabs
   's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
