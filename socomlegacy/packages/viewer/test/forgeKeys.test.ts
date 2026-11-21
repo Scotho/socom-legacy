@@ -6,142 +6,111 @@ import { FORGE_TOOL_ORDER, forgeKeyAction, forgeToolKeyHelp, forgeToolKeyLabel, 
 
 /**
  * OT.R68 (the owner, 2026-10-21: keyboard and mouse for everything in the forge's creation UI, not once its matches have
- * started): the editor's key map, pure. A browser adaptation (no original); the page wires it in every build.
+ * started): the editor's key map, pure, read from the shortcut list's defaults (`../src/forge/shortcuts`; the owner,
+ * 2026-11-20: Walk, Play and the menu keyless, Duplicate gone). A browser adaptation (no original).
  */
 const at: ForgeKeyState = { typing: false, match: false, menu: false, card: false, playing: false, pointerLocked: false };
 const press = (code: string, mods: Partial<{ ctrl: boolean; meta: boolean; alt: boolean; shift: boolean; repeat: boolean }> = {}, s: Partial<ForgeKeyState> = {}) =>
   forgeKeyAction({ code, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, altKey: !!mods.alt, shiftKey: !!mods.shift, repeat: !!mods.repeat }, { ...at, ...s });
 
-describe('OT.R68: the forge editor\'s keys', () => {
-  // OT.R112 (the Forge's UI is its contributor's): the number keys choose the placing tools in the tools row's order
-  // (`../src/forge/keys` `FORGE_TOOL_ORDER`), Q the Select tool; the Place tool has no key (choosing a prop places).
-  it('the tools (Q Select, the number keys the placing tools in the row\'s order), the gizmo, snap, duplicate, delete, frame, docks, deselect', () => {
-    expect(press('KeyQ')).toEqual({ tool: 'select' });
-    // FC2-4: his order (`FORGE_TOOL_ORDER`, keys.ts:77-80: the switch after the barrier, the flare to Shift+1) and his
-    // Duplicate on Ctrl+D (keys.ts:148; C alone no longer, the walk's and the fly's).
-    expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'].map((c) => press(c)))
-      .toEqual(['spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate'].map((tool) => ({ tool })));
-    expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].map((c) => press(c, { shift: true })))
-      .toEqual(['flare', 'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc'].map((tool) => ({ tool })));
-    expect(press('Digit0', { shift: true }), 'past the last tool, none').toBeNull();
-    expect(['KeyG', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
-      .toEqual(['snap', 'delete', 'delete', 'frame', 'docks', 'deselect']);
-    expect([press('KeyD', { ctrl: true }), press('KeyC')]).toEqual(['duplicate', null]);
+describe('OT.R68: the forge editor\'s keys (the shortcut list\'s defaults)', () => {
+  it('1 the Select tool, then the placing tools in the row\'s order on 2-0 and Shift+1-Shift+0', () => {
+    expect(press('Digit1')).toEqual({ tool: 'select' });
+    expect(['Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'].map((c) => press(c)))
+      .toEqual(FORGE_TOOL_ORDER.slice(0, 9).map((tool) => ({ tool })));
+    expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'].map((c) => press(c, { shift: true })))
+      .toEqual(FORGE_TOOL_ORDER.slice(9).map((tool) => ({ tool })));
   });
 
-  it('the gizmo\'s modes on W, E and R, as an engine editor\'s (move, turn, scale); T and Y no longer', () => {
-    expect(['KeyW', 'KeyE', 'KeyR'].map((c) => press(c))).toEqual(['translate', 'rotate', 'scale']);
-    expect([press('KeyT'), press('KeyY')]).toEqual([null, null]);
+  it('group, delete, frame (F and Shift+A), docks, deselect; no Duplicate', () => {
+    expect(['KeyG', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
+      .toEqual(['group', 'delete', 'delete', 'frame', 'docks', 'deselect']);
+    expect(press('KeyG', { shift: true })).toBe('ungroup');
+    expect(press('KeyA', { shift: true })).toBe('frame');
+    expect(press('KeyD', { ctrl: true }), 'Duplicate is gone (the owner, 2026-11-20)').toBeNull();
+  });
+
+  it('the gizmo\'s modes on W, E, R and its World / Local on Q', () => {
+    expect(['KeyW', 'KeyE', 'KeyR', 'KeyQ'].map((c) => press(c))).toEqual(['translate', 'rotate', 'scale', 'space']);
     for (const c of ['KeyW', 'KeyE', 'KeyR']) expect(press(c, {}, { playing: true }), c).toBeNull();
   });
 
-  it('while the camera navigates (RMB fly, a pan, an orbit, a dolly) its fly letters are not the editor\'s; the rest still are', () => {
+  it('while the camera navigates its fly keys are not the editor\'s; the rest still are', () => {
     for (const c of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyZ', 'KeyC']) expect(press(c, {}, { navigating: true }), c).toBeNull();
-    expect(press('KeyG', {}, { navigating: true })).toBe('snap');
+    expect(press('KeyG', {}, { navigating: true })).toBe('group');
     expect(press('Delete', {}, { navigating: true })).toBe('delete');
     expect(press('KeyZ', { ctrl: true }, { navigating: true })).toBe('undo');
-    expect(press('KeyW', {}, { navigating: false })).toBe('translate');
   });
 
-  // OT.R112: the bomb tools moved with the key rework -- in his order (FC2-4: keys.ts:77-80, the switch in the number
-  // keys pushing the flare to Shift+1) FORGE_TOOL_ORDER's twelfth to fourteenth: Shift with 2, 3, 4.
-  it('FG-51: Shift+2, Shift+3 and Shift+4 the bomb tools -- the start, the SEALs\' site, the Terrorists\' site', () => {
-    expect(['Digit2', 'Digit3', 'Digit4'].map((c) => press(c, { shift: true }))).toEqual(['bomb', 'siteSeal', 'siteTerrorist'].map((tool) => ({ tool })));
-    for (const c of ['Digit2', 'Digit3', 'Digit4']) expect(press(c, { shift: true }, { playing: true }), c).toBeNull();
+  it('[ ] the prop, , . the turn by the step; M no longer the menu (keyless by default)', () => {
+    expect(['BracketLeft', 'BracketRight', 'Comma', 'Period'].map((c) => press(c))).toEqual(['prevAsset', 'nextAsset', 'turnLeft', 'turnRight']);
+    expect(press('KeyM')).toBeNull();
   });
 
-  it('the pad-only actions get keys (the merge controller\'s call (c)): [ ] the prop, , . the turn by the step, M the forge menu', () => {
-    expect(['BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyM'].map((c) => press(c)))
-      .toEqual(['prevAsset', 'nextAsset', 'turnLeft', 'turnRight', 'menu']);
-  });
-
-  it('Ctrl or Cmd: undo, redo (Y or Shift+Z), copy and paste; any other chord is the browser\'s', () => {
+  it('Ctrl or Cmd: undo, redo (Y or Shift+Z), cut, copy, paste, open, saves', () => {
     expect(press('KeyZ', { ctrl: true })).toBe('undo');
     expect(press('KeyZ', { meta: true, shift: true })).toBe('redo');
     expect(press('KeyY', { ctrl: true })).toBe('redo');
+    expect(press('KeyX', { ctrl: true })).toBe('cut');
     expect(press('KeyC', { ctrl: true })).toBe('copy');
     expect(press('KeyV', { meta: true })).toBe('paste');
+    expect([press('KeyO', { ctrl: true }), press('KeyS', { ctrl: true })]).toEqual(['openLayout', 'saves']);
     expect(press('KeyC', { ctrl: true, shift: true })).toBeNull();
-    expect(press('KeyZ', { ctrl: true, alt: true })).toBeNull();
-    expect(press('KeyW', { alt: true })).toBeNull();
     expect(press('KeyW', { ctrl: true })).toBeNull();
   });
 
-  it('V the walk, P the match; walking (the merge controller\'s call (a)): P, V or Escape builds again, X the door', () => {
-    expect(press('KeyV')).toBe('walk');
-    expect(press('KeyP')).toBe('play');
+  it('Walk and Play have no key by default; walking, Escape builds again and X is the door', () => {
+    expect([press('KeyV'), press('KeyP')]).toEqual([null, null]);
     const walking = { playing: true };
-    expect(press('KeyP', {}, walking)).toBe('stopWalk');
-    expect(press('KeyV', {}, walking)).toBe('stopWalk');
     expect(press('Escape', {}, walking)).toBe('stopWalk');
-    expect(press('Escape', {}, { playing: true, pointerLocked: true }), 'the first Escape lets the mouse go (the camera\'s)').toBeNull();
+    expect(press('Escape', {}, { playing: true, pointerLocked: true }), 'the first Escape lets the mouse go').toBeNull();
     expect(press('KeyX', {}, walking)).toBe('door');
     expect(press('KeyX', { repeat: true }, walking)).toBeNull();
-    // The walk's own keys (WASD, Space, C) are the walk's and the camera's: the editor's C does not duplicate.
-    for (const c of ['KeyC', 'KeyW', 'Space', 'Digit1', 'Delete', 'KeyM']) expect(press(c, {}, walking), c).toBeNull();
-    expect(press('KeyZ', { ctrl: true }, walking), 'undo is the editor\'s while walking, as before').toBe('undo');
+    for (const c of ['KeyC', 'KeyW', 'Space', 'Digit1', 'Delete']) expect(press(c, {}, walking), c).toBeNull();
   });
 
-  it('Escape with the mouse captured is the camera\'s (it lets the mouse go), not a deselect', () => {
+  it('Escape: deselect, the camera\'s with the mouse captured, the card\'s, the walk\'s, the menu\'s', () => {
+    expect(press('Escape')).toBe('deselect');
     expect(press('Escape', {}, { pointerLocked: true })).toBeNull();
+    expect(press('Escape', {}, { card: true })).toBe('closeCard');
+    expect(press('Escape', {}, { playing: true })).toBe('stopWalk');
+    expect(press('Escape', {}, { menu: true })).toEqual({ menu: 'back' });
+    expect(press('Escape', {}, { leased: true })).toBeNull();
   });
 
-  it('FUI-22 (D4, the owner 2026-10-27: "Esc to cancel selection" ... "when you have an item queued to place"): Escape cancels the queued placement first, then deselects', () => {
-    expect(press('Escape', {}, { queued: true })).toBe('cancelPlace');
-    expect(press('Escape', {}, { queued: false })).toBe('deselect');
-    // The pointer lock and the card keep their Escape; walking and the menu keep theirs.
-    expect(press('Escape', {}, { queued: true, pointerLocked: true })).toBeNull();
-    expect(press('Escape', {}, { queued: true, card: true })).toBe('closeCard');
-    expect(press('Escape', {}, { queued: true, playing: true })).toBe('stopWalk');
-    expect(press('Escape', {}, { queued: true, menu: true })).toEqual({ menu: 'back' });
-    expect(press('Escape', {}, { queued: true, leased: true })).toBeNull();
-  });
-
-  it('the forge menu open: the arrows move it, Enter or Space runs, Escape or M closes; nothing else', () => {
+  it('the forge menu open: the arrows move it, Enter or Space runs, Escape goes back; nothing else', () => {
     const open = { menu: true };
-    expect(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Space', 'Escape', 'KeyM'].map((c) => press(c, {}, open)))
-      .toEqual([{ menu: 'up' }, { menu: 'down' }, { menu: 'left' }, { menu: 'right' }, { menu: 'select' }, { menu: 'select' }, { menu: 'back' }, { menu: 'back' }]);
-    for (const c of ['Digit1', 'KeyC', 'Delete', 'BracketLeft']) expect(press(c, {}, open), c).toBeNull();
+    expect(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Space', 'Escape'].map((c) => press(c, {}, open)))
+      .toEqual([{ menu: 'up' }, { menu: 'down' }, { menu: 'left' }, { menu: 'right' }, { menu: 'select' }, { menu: 'select' }, { menu: 'back' }]);
+    for (const c of ['Digit1', 'KeyC', 'Delete', 'BracketLeft', 'KeyM']) expect(press(c, {}, open), c).toBeNull();
     expect(press('KeyZ', { ctrl: true }, open)).toBeNull();
   });
 
-  it('a card open (a question, the controls): Escape closes it, nothing else reaches the editor', () => {
-    expect(press('Escape', {}, { card: true })).toBe('closeCard');
-    for (const c of ['Digit1', 'KeyC', 'Delete', 'KeyP', 'KeyV']) expect(press(c, {}, { card: true }), c).toBeNull();
-    expect(press('KeyZ', { ctrl: true }, { card: true })).toBeNull();
-  });
-
-  it('no key while a match runs (the Play match and a lobby\'s: keyless), nor while a field types', () => {
+  it('no key while a match runs, a field types or a card is open (but its Escape)', () => {
     for (const s of [{ match: true }, { typing: true }]) {
-      for (const c of ['KeyP', 'Escape', 'Digit1', 'KeyV', 'KeyM', 'BracketLeft']) expect(press(c, {}, s), `${c} ${JSON.stringify(s)}`).toBeNull();
+      for (const c of ['Escape', 'Digit1', 'KeyW', 'BracketLeft']) expect(press(c, {}, s), `${c} ${JSON.stringify(s)}`).toBeNull();
       expect(press('KeyZ', { ctrl: true }, s)).toBeNull();
     }
+    for (const c of ['Digit1', 'KeyC', 'Delete']) expect(press(c, {}, { card: true }), c).toBeNull();
   });
 
-  it('an unbound key is none', () => {
-    // Q is the Select tool's since the key rework (OT.R112; the first test), and so not here.
-    for (const c of ['Space', 'ShiftLeft', 'ArrowUp', 'KeyK', 'Tab']) expect(press(c), c).toBeNull();
-    // W, E and R are the gizmo's modes, as an engine editor's (the camera's W flies only while the right button is held).
-    expect([press('KeyW'), press('KeyE'), press('KeyR')]).toEqual(['translate', 'rotate', 'scale']);
+  it('a focused Outliner keeps its own key (F2)', () => {
+    expect(press('F2', {}, { outliner: true })).toBeNull();
+    expect(press('Delete', {}, { outliner: true }), 'Delete is still the editor\'s').toBe('delete');
   });
 });
 
-describe("FP-1b: the help card's tool keys read the real order (FORGE_TOOL_ORDER, forgeToolKeyLabel), never a literal list", () => {
+describe("FP-1b: the help card's tool keys read from the shortcut list, never a literal list", () => {
   const NAMES = Object.fromEntries(['select', ...FORGE_TOOL_ORDER].map((t) => [t, `<${t}>`]));
-  it('Q the Select tool, then every placing tool by its key, in the order the keys choose them', () => {
+  it('one Tools row, every keyed tool once beside its key', () => {
     const rows = forgeToolKeyHelp((t) => NAMES[t]!);
-    expect(rows[0]).toEqual(['Q', 'Tool: <select>']);
-    expect(rows[1]).toEqual(['1 … 0', `Tools: ${FORGE_TOOL_ORDER.slice(0, 10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
-    expect(rows[2]).toEqual(['Shift+1 … Shift+9', `Tools: ${FORGE_TOOL_ORDER.slice(10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
-    expect(rows).toHaveLength(3);
-    // Every tool the keys choose is named once; the Place tool, which has no key, is not.
-    const told = rows.map(([, v]) => v).join(', ');
+    expect(rows).toHaveLength(1);
+    const told = rows[0]![1];
+    expect(told.startsWith(`${forgeToolKeyLabel('select')} <select>`)).toBe(true);
     for (const t of FORGE_TOOL_ORDER) expect(told.split(`<${t}>`), t).toHaveLength(2);
-    expect(told).not.toContain('<place>');
   });
-  it("the page's help card builds its tool rows from forgeToolKeyHelp and keeps no literal 1-8 list", () => {
+  it("the page's help card builds its tool rows from forgeToolKeyHelp", () => {
     const page = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/forge/page.ts'), 'utf-8');
-    expect(page).not.toMatch(/\['1-8', 'Tools:/);
     expect(page).toMatch(/\.\.\.forgeToolKeyHelp\(\(t\) => TOOL_NAMES\[t\]\),/);
   });
 });

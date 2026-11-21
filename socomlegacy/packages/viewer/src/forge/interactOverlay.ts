@@ -315,23 +315,65 @@ export const BOMB_SITE_GUIDE_COLOUR = 0xff4d4d;
 export const SWITCH_REACH_COLOUR = 0x7fd1ff;
 
 /**
+ * How rounded a plant site's square gizmo is: its corners' radius as a share of its reach (the owner, 2026-11-14: "a
+ * rounded square that fits the circle radius. Like in game where when we plant the bomb we see that red square
+ * outline"). The look only, an editor's value: the disc's outline is a rounded rectangle round its tent's plant quad
+ * (`./siteOutlines`), the reach itself is still the round `range` the plant's test measures.
+ */
+export const SITE_GIZMO_CORNER_ADAPTATION = 0.3;
+
+/**
+ * A reach's outline on the ground round `at` (y as `at`'s): a circle of radius `range`, or the rounded square whose sides
+ * touch that circle (`SITE_GIZMO_CORNER_ADAPTATION`). A closed loop, `steps` points.
+ */
+function reachOutline(at: readonly number[], range: number, square: boolean, steps: number): [number, number][] {
+  const pts: [number, number][] = [];
+  if (!square) {
+    for (let k = 0; k < steps; k++) { const a = (k / steps) * Math.PI * 2; pts.push([at[0]! + Math.cos(a) * range, at[2]! + Math.sin(a) * range]); }
+    return pts;
+  }
+  const c = range * SITE_GIZMO_CORNER_ADAPTATION, h = range - c, per = Math.max(2, Math.round(steps / 4));
+  // Each corner's quarter arc round its centre (±h, ±h); the straight sides join the arcs' ends.
+  for (let q = 0; q < 4; q++) {
+    const sx = q === 0 || q === 3 ? 1 : -1, sz = q < 2 ? 1 : -1;
+    for (let k = 0; k <= per; k++) {
+      const a = (q + k / per) * (Math.PI / 2);
+      pts.push([at[0]! + sx * h + Math.cos(a) * c, at[2]! + sz * h + Math.sin(a) * c]);
+    }
+  }
+  return pts;
+}
+
+/**
  * A bomb plant site's gizmo (a browser adaptation, FG.R2): the reach a planter must stand inside -- an MPBOMB context
  * action's `range` (horizontal) and `elevation` (above or below; -1 none, `ACTION_ELEVATION_NONE`), the disc's
  * `actions.rdr` 15 each when omitted (`BOMB_SITE_REACH`, research 173 s2). A cylinder of radius `range` round `at`: its
- * floor ring filled, and with a height test its top and bottom rings joined by four uprights.
+ * floor outline filled, and with a height test its top and bottom outlines joined by four uprights. `square` draws the
+ * outline as a rounded square fitting the circle (a plant site's, as the game's red outline looks); a switch's stays round.
  */
-export function bombSiteShapes(at: readonly number[], range: number, elevation: number, steps = 32): GuideShapes {
+export function bombSiteShapes(at: readonly number[], range: number, elevation: number, steps = 32, square = false): GuideShapes {
   if (!(range > 0)) return { segments: [], triangles: [] };
-  const segments = ringSegments(at, range, steps);
-  const triangles: number[] = [];
+  const pts = reachOutline(at, range, square, steps);
+  const loop = (y: number): number[] => {
+    const out: number[] = [];
+    for (let k = 0; k < pts.length; k++) {
+      const a = pts[k]!, b = pts[(k + 1) % pts.length]!;
+      out.push(a[0], y, a[1], b[0], y, b[1]);
+    }
+    return out;
+  };
+  // As `ringSegments`: the floor outline lifted 1 off `at`.
   const y = at[1]! + 1;
-  for (let k = 0; k < steps; k++) {
-    const a = (k / steps) * Math.PI * 2, b = ((k + 1) / steps) * Math.PI * 2;
-    triangles.push(at[0]!, y, at[2]!, at[0]! + Math.cos(a) * range, y, at[2]! + Math.sin(a) * range, at[0]! + Math.cos(b) * range, y, at[2]! + Math.sin(b) * range);
+  const segments = loop(y);
+  const triangles: number[] = [];
+  for (let k = 0; k < pts.length; k++) {
+    const a = pts[k]!, b = pts[(k + 1) % pts.length]!;
+    triangles.push(at[0]!, y, at[2]!, a[0], y, a[1], b[0], y, b[1]);
   }
   if (elevation > 0) {
-    // `ringSegments` lifts its ring 1 off `at`: the top and bottom rings at `at` ± elevation exactly.
-    segments.push(...ringSegments([at[0]!, at[1]! + elevation - 1, at[2]!], range, steps), ...ringSegments([at[0]!, at[1]! - elevation - 1, at[2]!], range, steps));
+    // The top and bottom outlines at `at` ± elevation exactly.
+    segments.push(...loop(at[1]! + elevation), ...loop(at[1]! - elevation));
+    // Four uprights where the outline crosses the axes (a circle's and a square's sides alike lie at `range` there).
     for (let k = 0; k < 4; k++) {
       const a = (k / 4) * Math.PI * 2, x = at[0]! + Math.cos(a) * range, z = at[2]! + Math.sin(a) * range;
       segments.push(x, at[1]! - elevation, z, x, at[1]! + elevation, z);
@@ -341,7 +383,7 @@ export function bombSiteShapes(at: readonly number[], range: number, elevation: 
 }
 
 /**
- * A gate's gizmo: a ring of its lever's `range` round the lever's prompt (`lever`). The circle alone (the owner,
+ * A gate's gizmo: a ring of its lever's `range` round `lever` (the gate's own middle since 2026-11-13). The circle alone (the owner,
  * 2026-11-06): no slide arrow. `centre` and `slide` are kept for the callers' one shape.
  */
 export function gateShapes(_centre: readonly number[], _slide: readonly number[], lever: readonly number[], range: number): GuideShapes {

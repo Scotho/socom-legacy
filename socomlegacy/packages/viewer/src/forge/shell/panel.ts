@@ -118,6 +118,12 @@ export interface ForgeShellPage extends ForgeShell {
   windowItems?(): { id: string; key: string; title: string; docked: boolean }[];
   /** A panel's whole tab out of the docks (the Window menu's close), every section it holds with it. */
   closeTabOf?(id: string): void;
+  /**
+   * The docks' whole layout now (the tree, the closed tabs' ways back, the sections' open states), as text; and one put
+   * back (the editor's modes each keep their own, the owner 2026-11-15). A text that will not read leaves it as it is.
+   */
+  layoutSnapshot?(): string;
+  restoreLayout?(snapshot: string): boolean;
 }
 
 export class ForgePanelError extends Error {
@@ -706,4 +712,18 @@ export function forgeEl<K extends keyof HTMLElementTagNameMap>(doc: Document, ta
 /** A panel's own START row that shows it (listed under the shell's Panels section, FUI-1b, in place of the generic one). */
 export function revealRow(reveal: (id: string) => void, id: string, label: string, value: string | undefined, note: string): MenuItem {
   return { id: `panel-${id}`, label, ...(value === undefined ? {} : { value }), note, act: () => reveal(id) };
+}
+
+/**
+ * A dropdown row with a note set at its right (the owner, 2026-11-13: "move the none / x items text to the right of the
+ * row"; every map list's count): its words, a separator, its note -- in the Forge's own lists (`appearance: base-select`,
+ * `forge.css` `.fx-option-note`) the words left and the note right, the separator unseen; a browser's own list and the
+ * closed field read the three as one line ("BLIZZARD \u00b7 MP1 \u00b7 6 doors").
+ */
+export function optionWithNote(o: HTMLOptionElement, words: string, note: string): void {
+  const doc = o.ownerDocument;
+  const w = doc.createElement('span'); w.className = 'fx-option-words'; w.textContent = words;
+  const sep = doc.createElement('span'); sep.className = 'fx-option-sep'; sep.textContent = ' \u00b7 ';
+  const n = doc.createElement('span'); n.className = 'fx-option-note'; n.textContent = note;
+  o.replaceChildren(w, sep, n);
 }

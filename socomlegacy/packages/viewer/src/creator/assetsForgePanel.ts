@@ -17,14 +17,26 @@ export interface AssetGhostStage extends StagedPiece {
 export type AssetDropProjection = {
   point: [number, number, number]; snapped: [number, number, number]; yaw: number;
 } | { reason: string };
+/** How long a let-go drop may take before the drag is let go regardless (a browser adaptation: no original). */
+const DROP_SETTLE_MS = 15000;
 export interface AssetViewportEditor extends ForgeEditor {
-  stagePiece(asset: string): Promise<AssetGhostStage | null>;
+  stagePiece(asset: string, options?: { background?: boolean }): Promise<AssetGhostStage | null>;
   previewPiece?(asset: string): Promise<Pick<StagedPiece, 'object' | 'dispose'> | null>;
   hoverSound?(asset: string | null): void;
   soundProgress?(asset: string): number | null;
+  /** A sound asset's card (`AssetPreviewOptions.sound`): its name and art; null for any other asset. */
+  soundCard?(asset: string): { name: string; art: string } | null;
   viewport(): HTMLElement;
   projectDrop(clientX: number, clientY: number): AssetDropProjection;
+  projectCentre?(): AssetDropProjection;
   sourceIdentity(asset: string): object | null;
+  /**
+   * A drag over the viewport driven through the page's own Place tool (the owner, 2026-11-14: "when I click an asset the
+   * place tool works smoothly ... the drag and drop is just an interaction abstraction"): `enter` picks the asset as a
+   * click on its tile does (false: not this way -- the staged ghost then), `over` moves the tool's ghost, `drop` places as
+   * a click in the world does, `leave` puts the tool back as it was. Absent: the staged ghost and `place`.
+   */
+  dragPlace?: { enter(asset: string): boolean; over(clientX: number, clientY: number): boolean; drop(clientX: number, clientY: number): boolean; leave(): void };
 }
 
 /**
@@ -49,6 +61,15 @@ export interface AssetTiles extends Required<Pick<ForgePanelInstance, 'update' |
   escape(): void;
   /** A static image rendered by the shared thumbnail preview. */
   thumbnail(asset: string, width: number, height: number): Promise<string | null>;
+  /** The tile drag in flight that can still be dropped (its token, as the drag's data carries it), or null. */
+  dragToken(): string | null;
+  /** The asset of the tile drag in flight that can still be dropped (the Inspector's drop, a browser adaptation), or null. */
+  dragAsset(): string | null;
+  /**
+   * The drag in flight dropped at the centre of the view, as the camera sees it (the Outliner's drop, a browser
+   * adaptation): placed through the same guarded path as a drop on the world, or refused and said.
+   */
+  dropAtCentre(token: string): Promise<boolean>;
   readonly tooltip: AssetTooltip;
 }
 
@@ -69,7 +90,9 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
   let palette: ForgeAgentCatalogue['palette'] = [];
   type Placement = Extract<AssetDropProjection, { snapped: unknown }>;
   type Session = {
-    asset: string; token: string; revision: number; source: object; ready: Promise<AssetGhostStage | null>;
+    asset: string; token: string; revision: number; source: object; ready: Promise<AssetGhostStage | null> | null;
+    /** Over the viewport through the page's Place tool (`dragPlace`), its ghost the tool's own. */
+    viaTool: boolean;
     handle: AssetGhostStage | null; last: Placement | null; projection: AssetDropProjection | null;
     cancelled: boolean; pending: boolean; placing: boolean; consumed: boolean; refused: boolean;
   };
@@ -98,6 +121,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
   const clearHint = (): void => { hint.hidden = true; hint.textContent = ''; if (viewport) delete viewport.dataset.assetDrop; };
   const finish = (s: Session): void => {
     s.cancelled = true;
+    if (s.viaTool) { s.viaTool = false; editor?.dragPlace?.leave(); }
     if (!s.placing && !s.consumed && s.handle) releaseStage(s.handle);
     if (session !== s) return;
     session = null; viewportDepth = 0; drag.cancel(s.token); clearHint();
@@ -106,7 +130,8 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     if (!disposed && !s.refused) { s.refused = true; ctx.ui.refused(reason); }
   };
   const renderProjection = (s: Session): void => {
-    if (!s.projection || session !== s || s.cancelled) return;
+    // Let go (`pending`): no ghost or hint drawn again, though its model arrives now.
+    if (!s.projection || session !== s || s.cancelled || s.pending) return;
     const admitted = !staleReason(s) && !('reason' in s.projection);
     if (s.handle && !s.handle.disposed && s.last) s.handle.show([...s.last.snapped], s.last.yaw, admitted);
     if (viewport) viewport.dataset.assetDrop = admitted ? 'valid' : 'blocked';
@@ -126,7 +151,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     create: async (_asset, point) => {
       const s = session;
       if (!s) return null;
-      const handle = await s.ready;
+      const handle = await (s.ready ??= stageFor(s));
       if (!handle || staleReason(s)) { if (handle) releaseStage(handle); return null; }
       return {
         async commit() {
@@ -165,6 +190,8 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
         source: at > 0 ? asset.slice(0, at) : asset,
         collision: 'Collision checked in the world',
         dispose: shown.dispose,
+        // An effect's own timeline (`ambientPreview`'s), for the tooltip's bar.
+        ...('progress' in shown && typeof shown.progress === 'function' ? { progress: shown.progress as () => number | null } : {}),
       };
     }
     const handle = await editor.stagePiece(asset);
@@ -197,6 +224,9 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     onShown: (asset) => { editor?.hoverSound?.(asset); },
     // Its sound's timeline under the picture while it plays (an ambient effect's).
     progress: (asset) => editor?.soundProgress?.(asset) ?? null,
+    // A sound's card in the picture's stead (a Sound tile has no model).
+    sound: (asset) => editor?.soundCard?.(asset) ?? null,
+    picture: (asset) => editor?.pictureCard?.(asset) ?? null,
     resolve: async asset => {
       const request = ++previewRequest;
       return stagePreview(asset, () => request === previewRequest, source => { previewSource = source; });
@@ -244,12 +274,19 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     tooltip.hide();                                                    // the drag's ghost is the preview now
     const token = drag.begin(asset), source = editor.sourceIdentity(asset);
     if (!token || !source) { event.preventDefault(); ctx.ui.refused('This asset is no longer loaded'); return; }
-    const s: Session = { asset, token, source, revision: ctx.state().revision, ready: Promise.resolve(null), handle: null,
+    const s: Session = { asset, token, source, revision: ctx.state().revision, ready: null, handle: null, viaTool: false,
       last: null, projection: null, cancelled: false, pending: false, placing: false, consumed: false, refused: false };
     session = s;
     event.dataTransfer.setData(ASSET_DRAG_MIME, token); event.dataTransfer.effectAllowed = 'copy';
     try { event.dataTransfer.setDragImage(blankDragImage, 0, 0); } catch { /* a browser without it shows its own */ }
-    s.ready = editor.stagePiece(asset).then(handle => {
+    // Staged at once (without the Place tool's way, `dragPlace`), its model read in the background: the ghost and the drop
+    // never wait on it. With it, staged only when a drop asks (`create`: the Outliner's, the centre's).
+    if (!editor.dragPlace) s.ready = stageFor(s);
+  };
+  const stageFor = (s: Session): Promise<AssetGhostStage | null> => {
+    const asset = s.asset;
+    if (!editor) return Promise.resolve(null);
+    return editor.stagePiece(asset, { background: true }).then(handle => {
       if (!handle) { if (!s.cancelled) refuse(s, ctx.state().reason ?? 'This asset could not be prepared for placement.'); finish(s); return null; }
       if (!ghostCapable(handle)) {
         releaseStage(handle); if (!s.cancelled) refuse(s, 'This page cannot show the prepared placement yet.'); finish(s); return null;
@@ -268,6 +305,11 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
   };
   listen(list, 'dragstart', event => { const tile = tileOf(event.target); if (tile?.dataset['asset']) start(tile.dataset['asset'], event); });
   listen(list, 'dragend', () => { if (session && !session.pending) finish(session); else drag.end(); });
+  // A drag whose tile was redrawn away mid-drag (a list read in meanwhile) gets no dragend: no pointer moves while a drag
+  // runs, so the first one after it -- the drag over, no drop placing -- lets it go (its ghost and hint with it).
+  const strayDrag = (): void => { if (session && !session.pending) finish(session); };
+  doc.addEventListener('pointermove', strayDrag, { signal: events.signal, capture: true });
+  doc.addEventListener('pointerdown', strayDrag, { signal: events.signal, capture: true });
   const update = (): void => {
     if (disposed) return;
     if (session && staleReason(session)) finish(session);
@@ -291,10 +333,16 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     listen(viewport, 'dragenter', event => {
       if (!session || session.pending || !event.dataTransfer?.types.includes(ASSET_DRAG_MIME)) return;
       event.preventDefault(); viewportDepth++;
+      // Through the Place tool: the asset picked as its tile's click picks it, the tool's ghost under the pointer.
+      if (!session.viaTool && editor?.dragPlace && !staleReason(session)) session.viaTool = editor.dragPlace.enter(session.asset);
     });
     listen(viewport, 'dragover', event => {
       if (!event.dataTransfer?.types.includes(ASSET_DRAG_MIME)) return;
       event.preventDefault();
+      if (session?.viaTool && !session.pending) {
+        event.dataTransfer.dropEffect = editor?.dragPlace?.over(event.clientX, event.clientY) ? 'copy' : 'none';
+        return;
+      }
       const point = session && !session.pending ? project(session, event.clientX, event.clientY) : null;
       event.dataTransfer.dropEffect = point ? 'copy' : 'none';
     });
@@ -304,7 +352,13 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
         viewportDepth = Math.max(0, viewportDepth - 1); return;
       }
       viewportDepth = event.relatedTarget ? 0 : Math.max(0, viewportDepth - 1);
-      if (viewportDepth === 0 && session && !session.pending) finish(session);
+      // Out of the view: its ghost and hint put away, the drag kept (it may still drop on the Outliner); `dragend` ends it.
+      if (viewportDepth === 0 && session && !session.pending) {
+        if (session.viaTool) { session.viaTool = false; editor?.dragPlace?.leave(); }
+        if (session.handle && !session.handle.disposed) session.handle.hide();
+        session.projection = null;
+        clearHint();
+      }
     });
     listen(viewport, 'drop', event => {
       if (event.dataTransfer?.types.includes('text/uri-list')) {
@@ -313,15 +367,48 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
       if (!event.dataTransfer?.types.includes(ASSET_DRAG_MIME)) return;
       event.preventDefault(); event.stopPropagation();
       const s = session, token = event.dataTransfer.getData(ASSET_DRAG_MIME);
-      if (!s || s.pending || token !== s.token) return;
+      if (!s || s.pending) return;
+      // Not this drag's: let it go (its ghost and hint with it), never left showing "Release to place".
+      if (token !== s.token) { finish(s); return; }
+      // Through the Place tool: placed as a click in the world places (its own refusals said), the tool put back.
+      if (s.viaTool) {
+        s.pending = true;
+        try { if (editor?.dragPlace?.drop(event.clientX, event.clientY)) ctx.ui.accepted(); } finally { s.pending = false; finish(s); }
+        return;
+      }
       const point = project(s, event.clientX, event.clientY);
       s.pending = true;
+      // Let go: the ghost and the "Release to place" hint put away at once (the owner, 2026-11-14: "even if I let go of my
+      // mouse it still gets stuck"); the placement finishes behind them.
+      if (s.handle && !s.handle.disposed) s.handle.hide();
+      clearHint();
       void drag.drop(token, point ? { at: [...point.snapped], yaw: point.yaw } : null).then(ok => {
         if (disposed) return;
         if (ok) ctx.ui.accepted(); else refuse(s, staleReason(s) ?? ('reason' in (s.projection ?? {}) ? (s.projection as { reason: string }).reason : 'Asset was not placed. Drag it onto a supported surface in Build.'));
-      }, () => refuse(s, 'Asset could not be placed. Try again in Build.')).finally(() => finish(s));
+      }, () => refuse(s, 'Asset could not be placed. Try again in Build.')).finally(() => { clearTimeout(stuck); finish(s); });
+      // A placement that never answers lets the drag go all the same: the next drag is never refused behind it.
+      const stuck = setTimeout(() => { if (session === s) { refuse(s, 'Asset placement took too long. Try again.'); finish(s); } }, DROP_SETTLE_MS);
     });
   }
+  const dropAtCentre = async (token: string): Promise<boolean> => {
+    const s = session;
+    if (!s || s.pending || token !== s.token || !editor) return false;
+    const reason = staleReason(s);
+    const projection = reason ? { reason } : editor.projectCentre ? editor.projectCentre() : { reason: 'Asset placement is not ready on this page' };
+    s.projection = projection;
+    s.pending = true;
+    try {
+      const ok = await drag.drop(token, 'reason' in projection ? null : { at: [...projection.snapped], yaw: projection.yaw });
+      if (!disposed) {
+        if (ok) ctx.ui.accepted();
+        else refuse(s, staleReason(s) ?? ('reason' in projection ? projection.reason : 'Asset was not placed. Try again in Build.'));
+      }
+      return ok;
+    } catch {
+      refuse(s, 'Asset could not be placed. Try again in Build.');
+      return false;
+    } finally { finish(s); }
+  };
   const onVisibility = (): void => { update(); };
   doc.addEventListener('visibilitychange', onVisibility);
   const unsubscribe = ctx.forge.subscribe(update);
@@ -343,6 +430,9 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
       return disposed || !visible || !documentVisible() ? Promise.resolve(null) : thumbnailPreview.capture(asset, width, height);
     },
     redrawn() { if (!disposed) tooltip.reanchor(); },
+    dragToken: () => (session && !session.pending && !session.cancelled ? session.token : null),
+    dragAsset: () => (session && !session.pending && !session.cancelled ? session.asset : null),
+    dropAtCentre,
   };
 }
 

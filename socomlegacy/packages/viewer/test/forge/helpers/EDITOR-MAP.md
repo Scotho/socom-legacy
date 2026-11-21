@@ -96,7 +96,7 @@ default tree shows `assets`, `viewport`, `object` and `inspector`; `map`, `conte
 
 | Row | Old | His | How a test reaches it | Status |
 | --- | --- | --- | --- | --- |
-| V1 | `.fx-viewport-snap-summary` (`is-on` while the snap is on) | two pills, `.fx-snap-pill[aria-label="Grid snap"]` and `[aria-label="Rotation snap"]`, each a `.fx-snap-toggle` (`is-on`, `aria-pressed`) and a step menu `details.fx-viewport-snap` | `snapToggle(doc, 'Grid snap' / 'Rotation snap')` | MOVED |
+| V1 | `.fx-viewport-snap-summary` (`is-on` while the snap is on) | two pills, `.fx-snap-pill[aria-label="Workplane snap"]` and `[aria-label="Rotation snap"]`, each a `.fx-snap-toggle` (`is-on`, `aria-pressed`) and a step menu `details.fx-viewport-snap` | `snapToggle(doc, 'Workplane snap' / 'Rotation snap')` | MOVED |
 
 ## The assets list (page.ts:1047-1186)
 

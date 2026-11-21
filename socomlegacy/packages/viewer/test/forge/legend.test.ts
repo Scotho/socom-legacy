@@ -32,16 +32,11 @@ const tap = (button: number, crossHolds = false): PadAction[] => {
  * contributor's): his pad map gives R3 Frame with a selection and moves the Place tool's Snap to L3.
  */
 const CONTEXTS: [string, LegendContext, [PadGlyphName, string][]][] = [
-  ['Build, the Select tool, nothing selected', { kind: 'build', tool: 'select', selection: 0 },
-    [['cross', 'Select'], ['cross', 'Hold: add'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['lstick', 'Fly'], ['rstick', 'Look'], ['select', 'Undo'], ['start', 'Menu']]],
-  ['Build, the Select tool, a selection', { kind: 'build', tool: 'select', selection: 1 },
-    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['r3', 'Frame'], ['l1r1', 'Tool'], ['start', 'Menu']]],
-  ['Build, the Place tool', { kind: 'build', tool: 'place', selection: 0 },
-    [['cross', 'Place'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['l3', 'Snap'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
-  ['Build, the NPC tool', { kind: 'build', tool: 'npc', selection: 0 },
-    [['cross', 'Place'], ['dpad-v', 'Character'], ['l1r1', 'Tool'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
-  ['Build, a marker tool (spawn, bomb, site)', { kind: 'build', tool: 'spawnA', selection: 0 },
-    [['cross', 'Place'], ['l1r1', 'Tool'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
+  // One tool, Select (the owner, 2026-11-17: an object spawns at once, no placing tool stays armed): no Tool to step.
+  ['Build, nothing selected', { kind: 'build', selection: 0 },
+    [['cross', 'Select'], ['cross', 'Hold: add'], ['dpad-v', 'Prop'], ['lstick', 'Fly'], ['rstick', 'Look'], ['select', 'Undo'], ['start', 'Menu']]],
+  ['Build, a selection', { kind: 'build', selection: 1 },
+    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['r3', 'Frame'], ['start', 'Menu']]],
   ['Walk', { kind: 'walk' },
     [['lstick', 'Move'], ['rstick', 'Look'], ['cross', 'Jump'], ['circle', 'Stance'], ['square', 'Doors'], ['start', 'Build']]],
   ['the menu, a row', { kind: 'menu', depth: 0, sections: 4, item: { id: 'save', label: 'Saves' } },
@@ -86,7 +81,7 @@ describe('FUI-3: the legend, one function of the context', () => {
   });
 
   it('keys, not glyphs, without a pad: the keyboard and mouse words of the same context (OT.R68)', () => {
-    const keys = legendFor({ kind: 'build', tool: 'select', selection: 0 }, 'keys');
+    const keys = legendFor({ kind: 'build', selection: 0 }, 'keys');
     expect(keys.map((p) => [p.key, p.label])).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Shift+drag', 'Box'], ['Right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
     expect(legendFor({ kind: 'menu', depth: 1, sections: 1, item: undefined }, 'keys').map((p) => [p.key, p.label]))
       .toEqual([['↑ ↓', 'Choose'], ['← →', 'Change'], ['Enter', 'Select'], ['PgUp PgDn', 'Section'], ['Esc', 'Back'], ['M', 'Close']]);
@@ -115,7 +110,7 @@ describe('FUI-3: the design system\'s glyphs (padGlyph) and the strip', () => {
   it('draws `.s2u-prompts.fx-legend`: is-pad with a pad; a prompt that presses is a touch button running its action; a note first', () => {
     const host = document.createElement('ul');
     const pressed = vi.fn<(a: PadAction) => void>();
-    const prompts: LegendPrompt[] = legendFor({ kind: 'build', tool: 'select', selection: 1 });
+    const prompts: LegendPrompt[] = legendFor({ kind: 'build', selection: 1 });
     drawLegend(document, host, prompts, { pad: true, onPress: pressed, note: 'Choose a prop first' });
     expect(host.className).toBe('s2u-prompts fx-legend is-pad');
     expect(host.getAttribute('aria-label')).toBe('Controls here');
@@ -132,7 +127,7 @@ describe('FUI-3: the design system\'s glyphs (padGlyph) and the strip', () => {
     expect(pressed).toHaveBeenLastCalledWith('frame');
     (items[7] as HTMLButtonElement).click();                              // L1 / R1: a tap is R1's, the next tool
     expect(pressed).toHaveBeenLastCalledWith('nextTool');
-    drawLegend(document, host, legendFor({ kind: 'build', tool: 'select', selection: 0 }, 'keys'), { pad: false, onPress: pressed });
+    drawLegend(document, host, legendFor({ kind: 'build', selection: 0 }, 'keys'), { pad: false, onPress: pressed });
     expect(host.classList.contains('is-pad')).toBe(false);
     expect(host.querySelector('.fx-legend-note')).toBeNull();
     expect([...host.querySelectorAll('.s2u-prompt__key')].map((k) => k.textContent)[0]).toBe('Click');

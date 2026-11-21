@@ -99,7 +99,7 @@ const lensHex = (lens: readonly number[]): string => byteHex([lens[0]! * 255, le
 const lensOf = (hex: string): [number, number, number] => bytesOf(hex).map((v) => v / 255) as [number, number, number];
 
 export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightRigEditor {
-  const body = forgeEl(doc, 'div', 'fx-light-rig');
+  const body = forgeEl(doc, 'div', 'fx-light-rig fx-prop-table');
   const top = forgeEl(doc, 'div', 'fx-light-rig__top');
   const note = forgeEl(doc, 'p', 'fx-dim fx-setting-note');
   const reset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Reset');
@@ -145,9 +145,15 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
     h.title = source;
     body.append(h, forgeEl(doc, 'p', 'fx-dim fx-setting-note', source));
   };
+  /**
+   * A property row (the owner, 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
+   * largest text in that property table"): its label in the panel's label column (`.fx-prop-table`), its widgets after.
+   */
   const row = (label: string, ...kids: (HTMLElement | string)[]): HTMLElement => {
-    const r = forgeEl(doc, 'div', 'fx-light-rig__row');
-    r.append(forgeEl(doc, 'span', 'fx-light-rig__label', label), ...kids.map((k) => (typeof k === 'string' ? text(k) : k)));
+    const r = forgeEl(doc, 'div', 'fx-light-rig__row fx-prop-row');
+    const value = forgeEl(doc, 'div', 'fx-prop-value');
+    value.append(...kids.map((k) => (typeof k === 'string' ? text(k) : k)));
+    r.append(forgeEl(doc, 'span', 'fx-light-rig__label fx-prop-label', label), value);
     body.append(r);
     return r;
   };
@@ -259,7 +265,12 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
       {
         const want = [['', 'None (the fog colour)'] as const, ...hooks.skyChoices()];
         if (skySel.options.length !== want.length || want.some(([v], i) => skySel.options[i]?.value !== v)) {
-          skySel.replaceChildren(...want.map(([v, w]) => { const o = forgeEl(doc, 'option', '', w); o.value = v; return o; }));
+          // None first, then the maps under their header, as every map list of the Forge (the asset browser's).
+          const opt = ([v, w]: readonly [string, string]): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', w); o.value = v; return o; };
+          const group = forgeEl(doc, 'optgroup', '');
+          group.label = 'Multiplayer';
+          group.append(...want.slice(1).map(opt));
+          skySel.replaceChildren(opt(want[0]!), ...(want.length > 1 ? [group] : []));
         }
         skySel.value = a.sky;
       }

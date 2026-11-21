@@ -2,7 +2,8 @@ import { libraryProps, type LibraryProp } from './library';
 import type { LoadedMap, LoadStage } from '../loadMap';
 import type { PlayClips } from '../play';
 import type { SourceRequest } from '../discSource';
-import type { ForgeRequest, ForgeResponse, ListedArchive } from './forgeWorker';
+import type { DecodedLibraryTexture, ForgeRequest, ForgeResponse, ListedArchive } from './forgeWorker';
+import type { TextureCatalogEntry } from '../mapTextures';
 import { copiesOf, type MapCopies } from './mapCensus';
 import type { WeaponSoundEntry } from '../soundData';
 
@@ -50,6 +51,9 @@ export class Archives {
   /** Each archive's props with their libraries (`libraryProps`), as its census read them: the asset browser's Shared and All. */
   private propLists = new Map<string, LibraryProp[]>();
   onProgress: OnProgress | null = null;
+  /** Each archive's texture catalog (`textureCatalog`), asked once; one at a time after the maps being loaded. */
+  private textureLists = new Map<string, Promise<TextureCatalogEntry[] | null>>();
+  private textureQueue: Promise<unknown> = Promise.resolve();
   /** The archives the source holds, once listed (a path by stem). */
   private paths = new Map<string, string>();
 
@@ -79,6 +83,35 @@ export class Archives {
     this.guns = null;
     this.censusQueue = Promise.resolve();
     this.propLists = new Map();
+    this.textureLists = new Map();
+    this.textureQueue = Promise.resolve();
+  }
+
+  /**
+   * Every texture archive `stem`'s asset libraries hold (`../mapTextures` `textureCatalog`), each with its library and
+   * scope (the guns', a common library's, the map's own): the asset browser's Textures tab. Asked once, one map at a time
+   * and after any map being loaded for use. Null where it will not read.
+   */
+  textureCatalog(stem: string): Promise<TextureCatalogEntry[] | null> {
+    let p = this.textureLists.get(stem);
+    if (!p) {
+      const path = this.paths.get(stem) ?? `RUN/${stem}.ZDB`;
+      p = this.textureQueue.then(async () => {
+        while (this.loading.size) await Promise.allSettled([...this.loading]);
+        return this.ask((id) => ({ kind: 'textureCatalog', id, source: this.source, path, stem }))
+          .then((r) => (r.kind === 'textureCatalog' ? r.textures : null), () => null);
+      });
+      this.textureQueue = p;
+      this.textureLists.set(stem, p);
+    }
+    return p;
+  }
+
+  /** Texture `name` of archive `stem` decoded (its levels and flags); `thumb` its largest edge for a picture. Null where it will not. */
+  texture(stem: string, name: string, thumb?: number): Promise<DecodedLibraryTexture | null> {
+    const path = this.paths.get(stem) ?? `RUN/${stem}.ZDB`;
+    return this.ask((id) => ({ kind: 'texture', id, source: this.source, path, stem, name, ...(thumb ? { thumb } : {}) }))
+      .then((r) => (r.kind === 'texture' ? r.texture : null), () => null);
   }
 
   /** The guns' sounds (`../soundData` `weaponSoundCatalog`): the Sound choice's Weapons category, asked once. */

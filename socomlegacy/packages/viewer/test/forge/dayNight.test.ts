@@ -44,7 +44,7 @@ describe('saved Forge day/night adaptation', () => {
   });
   it('lives in the Settings panel and its START menu section (#520\'s one row list): Night -> Day slider, Original, label', () => {
     const row = MAP_SETTING_ROWS.find((r) => r.control === 'range')!;
-    expect(row).toMatchObject({ id: 'timeOfDay', menuId: 'setting-timeOfDay', label: 'Day / night', menuAct: 'original' });
+    expect(row).toMatchObject({ id: 'timeOfDay', menuId: 'setting-timeOfDay', label: 'Night / day', menuAct: 'original' });
     expect(formatSetting('timeOfDay', DEFAULT_SETTINGS, 4000)).toBe('Original');
     expect(formatSetting('timeOfDay', { ...DEFAULT_SETTINGS, timeOfDay: 0.25 }, 4000)).toBe('25%');
     expect(formatSetting('timeOfDay', { ...DEFAULT_SETTINGS, light: 0.4 }, 4000)).toBe('40% · legacy brightness');
@@ -63,7 +63,7 @@ describe('saved Forge day/night adaptation', () => {
       step: (key, dir) => calls.push(`step ${key} ${dir}`), resetFog: () => calls.push('fog'), resetLighting: () => calls.push('original'), locked: () => locked,
     };
     const item = settingsMenuSection(hooks).find((i) => i.id === 'setting-timeOfDay')!;
-    expect(item).toMatchObject({ label: 'Day / night', value: '50%', note: '← → Night to Day · ✕ Original' });
+    expect(item).toMatchObject({ label: 'Night / day', value: '50%', note: '← → Night to Day · ✕ Original' });
     expect(item.disabled).toBeUndefined();
     item.left!(); item.right!(); item.act!();
     expect(calls).toEqual(['step timeOfDay -1', 'step timeOfDay 1', 'original']);
@@ -71,8 +71,7 @@ describe('saved Forge day/night adaptation', () => {
     expect(settingsMenuSection(hooks).find((i) => i.id === 'setting-timeOfDay')!.disabled).toBe(true);
   });
   it('the legend always assigns look to a right drag', () => {
-    const words = (tool = 'select') => legendFor({ kind: 'build', tool, selection: 0 }, 'keys').map((p) => [p.key, p.label]);
+    const words = () => legendFor({ kind: 'build', selection: 0 }, 'keys').map((p) => [p.key, p.label]);
     expect(words()).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Shift+drag', 'Box'], ['Right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
-    expect(words('place')).toContainEqual(['Right-drag', 'Look']);
   });
 });

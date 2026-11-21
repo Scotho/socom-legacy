@@ -354,6 +354,8 @@ type WorldRunContext = SceneRunContext & {
    * its sounds, calls and particles stay there; this run still applies `OBJECT_ACTIVE_STATE` to the world nodes.
    */
   autostartName?: string;
+  /** A Forge layout's own script (`isForgeOwnScript`): its Show and Hide turn the node's flag (FORGE_SCRIPT_ACTIVE_ADAPTATION). */
+  forgeScript?: boolean;
   /**
    * P8 (`SWITCH_PREDICT_ADAPTATION`; the P8 review's F2): the predicted press this run belongs to -- the token
    * `executeAction` was given, carried to every run it starts (a `CALL_ANIMATION` of the map's set, an
@@ -378,6 +380,18 @@ export function bareMeta(stem = ''): MapMeta {
 export function forkGround(g: GroundData): GroundData {
   return { grid: { ...g.grid }, owners: g.owners.map((o) => ({ ...o })), points: Float32Array.from(g.points), fields: Uint32Array.from(g.fields) };
 }
+
+/**
+ * A Forge layout's own self-starting script (`./forge/placedAccess`: the map script `forge_map_script`, an effect
+ * object's `forge_object_<n>`). FORGE_SCRIPT_ACTIVE_ADAPTATION (the owner, 2026-11-13: "when I have a hide in a sequence
+ * ... it doesn't work"; a browser adaptation, FG.R2): an autostart runs for the drawing (`display`, PF.R26), where a hide
+ * only takes back what the run itself showed -- the disc's ambients never hide a node -- so a script's Hide of a prop
+ * did nothing. A Forge script's Show and Hide turn the node's own flag instead, as `FORGE_SCRIPT_VALVE_ADAPTATION` keeps
+ * its flags: every page runs the same script from the round's start (its random draws the autostarts' seeded ones). A
+ * disc program's autostart is as before.
+ */
+// The program's own name is its main's (`scriptPrograms`: `<name>_run`) -- `forge_map_script_run`, `forge_object_<n>_run`.
+export const isForgeOwnScript = (name: string): boolean => /^forge_(map_script|object_\d+)_run$/.test(name);
 
 /** A Forge switch's own valve or a script's flag (`./forge/placedAccess`: `forge_switch_<n>_valve`, `forge_flag_<name>`). */
 export const isForgeScriptValve = (name: string): boolean => /^forge_switch_\d+_valve$/.test(name) || name.startsWith('forge_flag_');
@@ -445,6 +459,13 @@ export class WorldState {
    */
   runAutostartPrograms = false;
   /**
+   * FORGE_SCRIPT_ROOM_ADAPTATION (the owner, 2026-11-13: a map script's Hide "still doesn't work"; a browser adaptation,
+   * FG.R2): the room runs a Forge layout's own self-starting scripts (`isForgeOwnScript`), as it runs a switch's press,
+   * so their Show, Hide and blasts are the round's -- a page's own Hide was laid over by the room's next state
+   * (`apply`). The room runs no disc autostart (`runAutostartPrograms` stays false there).
+   */
+  runForgeScripts = false;
+  /**
    * The unit draw those programs' `RANDOM_WEIGHT` and ranged `WAIT`s take (`FUN_0025dcf0` D:L107783-107792, `rand() /
    * 2^31`). Other scene programs keep 0.5, the draw their tests were written against.
    */
@@ -503,7 +524,7 @@ export class WorldState {
     for (const [path, on] of this.own) this.initialOwn.set(path, on);
     this.save();
     this.sync(was, changed, changed.length > 0);
-    if (this.runAutostartPrograms) this.startAutostarts();
+    if (this.runAutostartPrograms || this.runForgeScripts) this.startAutostarts();
   }
 
   /** Saves the active state of every node a reference saves (bit 28; `FUN_0026b5e0`). */
@@ -524,6 +545,7 @@ export class WorldState {
     // before the saved references come back -- each stop runs its cleanup (`EffectRun.stop`): a base's pulse turns its
     // outline off.
     for (const r of [...this.runs]) r.run.stop();
+    this.deferredStarts = [];
     this.displayed.clear();
     this.unfly();
     const was = new Map(this.own);
@@ -539,21 +561,37 @@ export class WorldState {
       this.own.set(path, on);
       changed.push(path);
     }
+    // GAME_VALVES_KEPT_ADAPTATION: the game's round valves told by the room stay; the rest cleared.
+    const keep = [...this.kept].flatMap((n) => (this.valves.has(n) ? [[n, this.valves.get(n)!] as const] : []));
     this.valves.clear();
+    for (const [n, v] of keep) this.valves.set(n, v);
     this.used.clear();
     this.invalidated.clear();                // DF-6: the sets' start clears +0x34 bit 0 (INVALIDATE_ANIMATION_READING)
     this.runs = [];
     this.health.reset();
     this.sync(was, changed, true);
     // AS-1: the sets started again (`FUN_0026c600`), the page's programs with them. The opening commands above are the
-    // room's; the programs are not (`runAutostartPrograms`).
-    if (this.runAutostartPrograms) this.startAutostarts();
+    // room's; the programs are not (`runAutostartPrograms`) -- but a Forge layout's own scripts are (`runForgeScripts`).
+    if (this.runAutostartPrograms || this.runForgeScripts) this.startAutostarts();
   }
 
   /** An action valve's value (the short at `CValve+4`); 0 when never set. */
   valve(name: string): number {
     return this.valves.get(name) ?? 0;
   }
+
+  /**
+   * The game's own round valves (`./gameValves`: `mp_game_type`, `player_team`, `mp_bomb` ...), each written from the
+   * room's facts and kept across the round's reset (`reset` clears the action valves): GAME_VALVES_KEPT_ADAPTATION (the
+   * owner, 2026-11-13: "a lot of game valves values are wrong or not updating"; a browser adaptation, FG.R2) -- the
+   * game's `objectives` writes them again at each round's start; here no script does, so a value told once (the game
+   * type, at the welcome) was 0 from the first round's reset on.
+   */
+  setKeptValve(name: string, v: number): void {
+    this.kept.add(name);
+    this.setValve(name, v);
+  }
+  private readonly kept = new Set<string>();
 
   setValve(name: string, v: number): void {
     this.valves.set(name, v);
@@ -663,6 +701,8 @@ export class WorldState {
 
   /** One step of the world's running programs (MAP-06: the deaths' sequences, the actions' animations). */
   step(dt: number): void {
+    // FORGE_SCRIPT_START_AFTER_HUD_ADAPTATION: the Forge programs the round's reset started, now the HUD's round has.
+    if (this.deferredStarts.length) { const starts = this.deferredStarts; this.deferredStarts = []; for (const s of starts) s(); }
     for (const r of [...this.runs]) r.run.update(dt);
     this.runs = this.runs.filter((r) => !r.run.finished);
     this.stepFades(dt);
@@ -883,14 +923,33 @@ export class WorldState {
       if (!AUTOSTART_INITIAL_READING.startsWithSet(lib.program.flags)) continue;
       if (lib.program.name.toLowerCase() === 'objectives') continue;
       if (this.running(lib.program.name)) continue;
+      const forge = isForgeOwnScript(lib.program.name);
       const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, null, lib.parents);
-      this.runProgram(lib.program, {
+      if (!this.runAutostartPrograms) {
+        // The room (FORGE_SCRIPT_ROOM_ADAPTATION): a Forge script alone, run as the round's own (no display, no presentation).
+        if (!forge || !this.runForgeScripts) continue;
+        this.runProgram(lib.program, {
+          root: nodes[lib.program.root] ?? null, nodes, caller: null, valve: null, silent: this.skipEffects,
+          autostart: true, autostartName: lib.program.name,
+        });
+        continue;
+      }
+      const start = (): void => { this.runProgram(lib.program, {
         root: nodes[lib.program.root] ?? null, nodes, caller: null, valve: null, silent: false,
         display: true, presentation: true, autostart: true,
         autostartName: lib.program.name,
-      });
+        ...(forge ? { forgeScript: true } : {}),
+      }); };
+      // FORGE_SCRIPT_START_AFTER_HUD_ADAPTATION (the owner, 2026-11-14: a map program's first MESSAGE "doesn't run" unless
+      // it waits a few seconds; a browser adaptation, FG.R2): the page resets its world as the round's start arrives, then
+      // the HUD starts the round, which clears its message window (`Hud.startRound`) -- a Forge program's message posted
+      // in between was gone at once. A Forge program starts on the page's next step instead, after the HUD's round start.
+      // The room's own run (above) is untouched; a disc program's autostart starts at once, as before.
+      if (forge) this.deferredStarts.push(start); else start();
     }
   }
+  /** The page's Forge programs waiting for its next step (FORGE_SCRIPT_START_AFTER_HUD_ADAPTATION). */
+  private deferredStarts: (() => void)[] = [];
 
   /**
    * LATER 409 F1: the effect runner's ambient effects (`EffectData.ambient`), or null (none landed). Read at each
@@ -929,6 +988,7 @@ export class WorldState {
         // XR-04 (DEBRIS_NODE_READING, PF.R29): a silent run never turns flown debris on.
         case 'active': {
           const p = at(op.node);
+          if (p !== null && ctx.forgeScript) { this.setActive(p, op.on); return; }    // FORGE_SCRIPT_ACTIVE_ADAPTATION
           if (p !== null && ctx.display) { this.display(p, op.on); return; }
           if (p !== null && !ctx.presentation && !(ctx.silent && op.on && this.debris.has(p))) this.setActive(p, op.on);
           return;
@@ -1123,6 +1183,14 @@ export class WorldState {
     const world = path === null ? undefined : this.meta.worlds?.get(path);
     if (!world) {
       if (name?.toLowerCase() === 'camera') return null;                // SCENE_SOUND_CAMERA_NODE_PLACEHOLDER
+      // FORGE_OBJECT_PLACE_ADAPTATION (as `placeOf`'s): a Forge object is no node of the disc's scene, its place is its
+      // own (`MapMeta.forgePlaces`) -- a Forge program's SOUND at "The object" sounds there, not unplaced (the owner,
+      // 2026-11-14: "it doesn't sound like it is coming from the object but feels global"). The disc's own never hit it.
+      const forge = path === null ? undefined : this.meta.forgePlaces?.[path];
+      if (forge) {
+        const [x, y, z] = op.offset ?? [0, 0, 0];
+        return [forge[0] + x!, forge[1] + y!, forge[2] + z!];
+      }
       return op.offset ? [op.offset[0]!, op.offset[1]!, op.offset[2]!] : null;
     }
     const [x, y, z] = op.offset ?? [0, 0, 0];

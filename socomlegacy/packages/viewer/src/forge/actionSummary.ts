@@ -123,7 +123,7 @@ export function linkSegments(from: readonly number[], to: readonly (readonly num
 
 /** How a record is used: a typed one by the Action button; a type-less one (8) never prompts (research 209 s3, 176 s7.1). */
 export function actionTriggerText(r: { type: string; typeCode: number }): string {
-  return r.typeCode === 8 ? 'no prompt (run by damage or a script)' : `Action button (${r.type.toUpperCase()})`;
+  return r.typeCode === 8 ? 'no prompt (run by damage or a program)' : `Action button (${r.type.toUpperCase()})`;
 }
 
 /**

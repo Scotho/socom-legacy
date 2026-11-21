@@ -13,6 +13,17 @@
  * its `step` a pixel at the step's decimals (`scrubOptionsOf`).
  */
 
+/**
+ * Whether a number field is being dragged now: the page's and the editor's own keys stand aside meanwhile (an Escape is
+ * the drag's, putting the value back -- never a deselect under it).
+ */
+export const scrubbing = (doc: Document): boolean => doc.documentElement.classList.contains('fx-scrubbing');
+
+/**
+ * How far in from a number field's right edge, in CSS pixels, the browser draws its up / down arrows (Chromium's and
+ * Firefox's are some 15 wide): a press there is the arrows' (a browser adaptation, FG.R2).
+ */
+export const SPIN_BUTTONS_PX = 18;
 /** How far a press must travel, in CSS pixels, before it is a drag and not a click. */
 export const SCRUB_THRESHOLD_PX = 3;
 /** Shift's and Ctrl's factors on the rate. */
@@ -152,6 +163,8 @@ export function scrubAllNumbers(root: Document | HTMLElement): () => void {
 /** A press on `input`: a scrub at `options` if it drags, a click to type if it does not. */
 function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): void {
   const doc = input.ownerDocument;
+  // Escape heard on the window, ahead of every document listener (the geometry editor's deselect is one, in capture).
+  const keys: Window = doc.defaultView ?? (globalThis as unknown as Window);
   const digits = options.digits ?? 0;
   let press: { x: number; start: number; dragging: boolean; pointerId: number | undefined } | null = null;
 
@@ -169,7 +182,7 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
     doc.removeEventListener('pointermove', onMove);
     doc.removeEventListener('pointerup', onUp);
     doc.removeEventListener('pointercancel', onCancel);
-    doc.removeEventListener('keydown', onKey, true);
+    keys.removeEventListener('keydown', onKey, true);
     doc.documentElement.classList.remove('fx-scrubbing');
     if (press?.pointerId !== undefined) { try { input.releasePointerCapture(press.pointerId); } catch { /* not captured */ } }
     press = null;
@@ -205,11 +218,16 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
   const onKey = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape' || !press) return;
     e.preventDefault();
-    e.stopPropagation();                                      // the editor's Escape (deselect) is not this one
+    e.stopImmediatePropagation();                             // the editor's Escape (deselect) is not this one
     onCancel();
   };
   const m = e as MouseEvent;
   if (m.button !== 0 || input.disabled || input.readOnly || doc.activeElement === input) return;
+  // A press on the field's own up / down arrows is theirs (the owner, 2026-11-17: "When I click on these little spinners
+  // it is a bit buggy. It clicks and selects every other click. it should not select, just click it"): the browser steps
+  // the value -- its `input` and `change` as a typed one's -- never a scrub nor a click to type.
+  const box = input.getBoundingClientRect();
+  if (box.width > SPIN_BUTTONS_PX * 2 && m.clientX >= box.right - SPIN_BUTTONS_PX) return;
   const start = Number(input.value);
   if (input.value.trim() === '' || !Number.isFinite(start)) return;
   m.preventDefault();                                         // no focus, no caret: a press is a scrub until it is a click
@@ -220,5 +238,5 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
   doc.addEventListener('pointermove', onMove);
   doc.addEventListener('pointerup', onUp);
   doc.addEventListener('pointercancel', onCancel);
-  doc.addEventListener('keydown', onKey, true);
+  keys.addEventListener('keydown', onKey, true);
 }

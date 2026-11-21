@@ -50,11 +50,13 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   userSiteTerrorist: { glyph: '!', colour: '#e0e0e0', word: 'Site · Terrorist (MPBOMB)' },
   // A placed gate's switch: a context action (SWITCH), the map's ! mark.
   userSwitches: { glyph: '!', colour: '#e0e0e0', word: 'Switch (SWITCH)' },
-  // The Forge objects (`./forgeObjects`): an ambient effect (a map's fire, water, weather).
-  // Cyan, apart from the damage triggers' orange (the owner, 2026-11-11: "too close of color"); called an Effect.
-  userAmbients: { glyph: '~', colour: '#38d0e8', word: 'Effect' },
-  // The map's own ambient effects (`./mapData` `ambients`), round as the map's data is.
-  ambients: { glyph: '~', colour: '#38d0e8', word: 'Effect (the map\'s)' },
+  // An emitter (the owner, 2026-11-14: "use emitters ... a nice new icon/letter for the billboard"; "we basically
+  // replaced the effect asset"): every Forge object (`./forgeObjects`) -- a disc map's self-starting program copied
+  // (`flags & 3 == 1`, research 89 s12), a sound's or an effect's tile, your own program -- and the map's own (`./mapData`
+  // `ambients`): E, in the cyan the old Effect mark had (no other kind's: not the hostages' yellow, the views' pink or
+  // the turrets' purple).
+  userEmitters: { glyph: 'E', colour: '#38d0e8', word: 'Emitter' },
+  ambients: { glyph: 'E', colour: '#38d0e8', word: 'Emitter (the map\'s)' },
   // The base map's own props (M, map prop): they draw themselves, so their marks start switched off.
   mapProps: { glyph: 'M', colour: '#9aa5b1', word: 'Map prop' },
   // A spawn slot by its side: Ss the SEALs' (side A, 0 -- `bombMarkers`' team 0 is the SEALs), St the Terrorists' (side
@@ -105,7 +107,7 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
   // Under Objects, with the Triggers dropdown that places them (the owner, 2026-11-08).
   { id: 'damage', label: 'Damage triggers', kinds: ['damage', 'userBarriers'] },
   { id: 'cranes', label: 'Cranes', kinds: ['cranes'] },
-  { id: 'ambients', label: 'Effects', kinds: ['ambients', 'userAmbients'] },
+  { id: 'ambients', label: 'Emitters', kinds: ['ambients', 'userEmitters'] },
   { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'] },
 ];
 
@@ -113,8 +115,8 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
 export const isUserMarkKind = (kind: string): boolean => kind.startsWith('user');
 
 /** A user placement's mark kind by what it is (the page's `userData`: a piece, a spawn's team, an NPC, a bomb marker's kind). */
-export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: 'ambient' }): string | null {
-  if (r.object) return 'userAmbients';   // a Forge object (`./forgeObjects`)
+export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: boolean }): string | null {
+  if (r.object) return 'userEmitters';   // a Forge object (`./forgeObjects`): an emitter, whatever it plays
   if (r.hostage) return 'userEscortees';
   if (r.zone) return 'userTacZones';
   if (r.point) return 'userTacPoints';
@@ -219,6 +221,14 @@ function markTexture(mark: { glyph: string; colour: string }, selected: boolean)
   ctx.fillText(mark.glyph, size / 2, size / 2 + 2);
   return new CanvasTexture(canvas);
 }
+
+/** The perspective camera's vertical field of view, degrees (`../camera` FOV): a mark's size on screen in every view. */
+const BILLBOARD_REFERENCE_FOV = 49;
+
+/**
+ * A camera a mark is fitted to (`fit`): three's perspective or orthographic camera, as much as the size reads of it.
+ */
+type MarkCamera = Object3D & { projectionMatrix: { elements: number[] }; matrixWorldInverse: { elements: number[] }; isPerspectiveCamera?: boolean };
 
 /** The billboards in a scene: replaced whole by `set`, shown or not by `setVisible`, picked by `pick`. */
 export class MapDataBillboards {
@@ -325,15 +335,39 @@ export class MapDataBillboards {
    * The shown mark the ray meets first (its key) and how far along, or null; nothing while the marks are hidden. Drawn
    * on top, a mark is picked wherever it is (`distance` 0: nearer than any geometry, as it is drawn).
    */
-  pick(ray: Raycaster): { key: string; distance: number } | null {
-    if (!this.group.visible) return null;
-    const hits: Intersection[] = [];
-    for (const sprite of this.sprites.values()) if (sprite.visible) sprite.raycast(ray, hits);
-    hits.sort((a, b) => a.distance - b.distance);
-    const first = hits[0];
-    const key = first?.object.userData['mapData'];
-    return first && typeof key === 'string' ? { key, distance: this.onTop ? 0 : first.distance } : null;
+  pick(ray: Raycaster, hidden = false): { key: string; distance: number } | null {
+    const hits: { object: Sprite; distance: number }[] = [];
+    // `hidden` (the Select setting "Select hidden overlays"; a browser adaptation, FG.R2): a mark switched off is still
+    // found where it would be drawn -- at its true distance, so it is never picked through a wall.
+    // A prop's hidden M is never found: a prop is picked by its own model.
+    const byModel = (s: Sprite): boolean => s.userData['mapDataKind'] === 'mapProps' || s.userData['mapDataKind'] === 'userProps';
+    // Each mark at the size the ray's camera draws it (`fit`), so a click meets what is on the screen in every view.
+    if (ray.camera) this.fit(ray.camera as MarkCamera);
+    for (const sprite of this.sprites.values()) {
+      if (!this.drawnSprite(sprite) && !(hidden && !byModel(sprite))) continue;
+      const found: Intersection[] = [];
+      sprite.raycast(ray, found);
+      if (found[0]) hits.push({ object: sprite, distance: found[0].distance });
+    }
+    // A drawn mark before any hidden one, wherever they stand (the owner, 2026-11-13: a click on a billboard always picks
+    // it): a hidden mark nearer the camera took the click, then lost it to the wall in front. Drawn on top, a drawn
+    // mark is nearer than any geometry (`distance` 0), in every view; Always on top off, at its true distance.
+    const ranked = hits.map((h) => {
+      const drawn = this.drawnSprite(h.object);
+      return { h, drawn, distance: this.onTop && drawn ? 0 : h.distance };
+    }).sort((a, b) => Number(b.drawn) - Number(a.drawn) || a.distance - b.distance || a.h.distance - b.h.distance);
+    const first = ranked[0];
+    const key = first?.h.object.userData['mapData'];
+    return first && typeof key === 'string' ? { key, distance: first.distance } : null;
   }
+
+  /** Whether a mark is drawn now (the billboards shown and its kind switched on). */
+  drawn(key: string): boolean {
+    const sprite = this.sprites.get(key);
+    return !!sprite && this.drawnSprite(sprite);
+  }
+
+  private drawnSprite(sprite: Sprite): boolean { return this.group.visible && sprite.visible; }
 
   /**
    * Where a mark is drawn now, world space (its place lifted `BILLBOARD_LIFT`), or null for a mark not drawn: what a
@@ -350,11 +384,44 @@ export class MapDataBillboards {
     const keys = new Set(this.selected);
     for (const [k, sprite] of this.sprites) {
       const on = keys.has(k);
-      const size = BILLBOARD_SCREEN_SIZE * (on ? BILLBOARD_SELECTED_SCALE : 1);
-      sprite.scale.set(size, size, 1);
+      sprite.userData['markScale'] = on ? BILLBOARD_SELECTED_SCALE : 1;
       sprite.renderOrder = (this.onTop ? BILLBOARD_ON_TOP_ORDER : 0) + (on ? 1 : 0);
       const material = this.material(sprite.userData['mapDataKind'] as string, on);
       if (material) sprite.material = material;
+    }
+    if (this.camera) this.fit(this.camera);
+  }
+
+  /** The camera the marks were last fitted to (`fit`). */
+  private camera: MarkCamera | null = null;
+
+  /**
+   * Every mark sized for `camera`'s draw (a browser adaptation, FG.R2; the owner, 2026-11-13): the same size on screen
+   * in every view -- `BILLBOARD_SCREEN_SIZE` of its depth under a perspective camera, as a screen-size sprite was drawn,
+   * and the same share of the picture under an orthographic one. Sized here, not by three's screen-size sprites
+   * (`sizeAttenuation` off): the renderer builds that program once for the first camera it meets, so a page that first
+   * drew a Top view drew every mark a speck in Perspective, and three's own click test sized them by the other rule.
+   * Run before each view's draw and each pick.
+   */
+  fit(camera: MarkCamera): void {
+    this.camera = camera;
+    camera.updateMatrixWorld();                                 // its view matrix as it will draw (`matrixWorldInverse`)
+    const p = camera.projectionMatrix.elements;
+    const perspective = camera.isPerspectiveCamera === true;
+    // An orthographic view's world size for the share of the picture a perspective mark takes (its NDC height).
+    const ndc = BILLBOARD_SCREEN_SIZE / Math.tan((BILLBOARD_REFERENCE_FOV * Math.PI) / 360);
+    const orthoSize = p[5] ? ndc / p[5] : BILLBOARD_SCREEN_SIZE;
+    const m = camera.matrixWorldInverse.elements;
+    for (const sprite of this.sprites.values()) {
+      const factor = (sprite.userData['markScale'] as number | undefined) ?? 1;
+      let size: number;
+      if (perspective) {
+        // Its depth before the camera: the view matrix's third row on its place (its groups never move: its place is the world's).
+        const x = sprite.position.x, y = sprite.position.y, z = sprite.position.z;
+        const depth = Math.max(1e-3, -(m[2]! * x + m[6]! * y + m[10]! * z + m[14]!));
+        size = BILLBOARD_SCREEN_SIZE * depth;
+      } else size = orthoSize;
+      sprite.scale.set(size * factor, size * factor, 1);
     }
   }
 
@@ -387,8 +454,9 @@ export class MapDataBillboards {
  * behind what stands in front; never fogged (the owner, 2026-11-09) -- the map's fog is the world's, a mark is read through
  * it at any distance -- the same size on screen at any distance, written to no depth.
  */
-export function billboardMaterialParams(onTop: boolean): { transparent: true; depthWrite: false; depthTest: boolean; sizeAttenuation: false; fog: false } {
-  return { transparent: true, depthWrite: false, depthTest: !onTop, sizeAttenuation: false, fog: false };
+export function billboardMaterialParams(onTop: boolean): { transparent: true; depthWrite: false; depthTest: boolean; sizeAttenuation: true; fog: false } {
+  // Sized in the world per camera (`MapDataBillboards.fit`): three's screen-size sprites follow the first camera drawn.
+  return { transparent: true, depthWrite: false, depthTest: !onTop, sizeAttenuation: true, fog: false };
 }
 
 type KindToggle = (typeof MAP_DATA_KIND_TOGGLES)[number];

@@ -60,6 +60,9 @@ export class History<T> {
 
   /** AX-15: every state an undo can reach, oldest first, and the current one last (the redo branch not included). */
   states(): readonly T[] { return [...this.past, this.now]; }
+
+  /** Every state held, the redo branch included (what a step's side data must be kept for: bug 20's geometry). */
+  allStates(): readonly T[] { return [...this.past, this.now, ...[...this.future].reverse()]; }
 }
 
 /**
@@ -81,13 +84,24 @@ export interface HistoryStep {
   domain?: HistoryDomain;
   /** The agent's request the step was made by (its receipt's ID), when it carried one. */
   requestId?: string;
+  /**
+   * Bug 20 (one history across the modes): the geometry's revision this state shows -- the page keeps each revision's
+   * geometry beside the history (`page.ts` `geoSnaps`). Absent: revision 0, the geometry as the layout opened it.
+   */
+  geo?: number;
+  /**
+   * The whole selection this state shows (the owner, 2026-11-15: "any selection pattern should be part of the undo"):
+   * the page's own record of it (`page.ts` `selRecord`: placements, map props, map data, a rules entity, the geometry's
+   * points, edges, faces or objects), opaque here. Absent: `picked` alone, as before.
+   */
+  sel?: string;
 }
 
 /** FUI-6: who made a step -- a person at this page, or a paired agent (its session, when the connection names it). */
 export type HistoryActor = { kind: 'human' } | { kind: 'agent'; sessionId: string | null };
 /** FUI-6: the history a step belongs to: the layout's (every step today); the packs', missions' and campaigns' to come. */
-export type HistoryDomain = 'layout' | 'packs' | 'mission' | 'campaign';
-export const HISTORY_DOMAINS: readonly HistoryDomain[] = ['layout', 'packs', 'mission', 'campaign'];
+export type HistoryDomain = 'layout' | 'packs' | 'mission' | 'campaign' | 'geometry';
+export const HISTORY_DOMAINS: readonly HistoryDomain[] = ['layout', 'packs', 'mission', 'campaign', 'geometry'];
 /** FUI-6: the words, the actor and the domain of one step (`encodeHistoryStep`'s `meta`). */
 export interface HistoryMeta {
   label: string;
@@ -137,8 +151,9 @@ const metaFields = (v: { label?: unknown; actor?: unknown; domain?: unknown; req
 const PLACEMENT_ID = /^(?:(?:piece|spawn|npc)|bomb:(?:start|seal|terrorist)):\d+$/;
 
 /** A step: the layout's text and its selection, and (FUI-6) the edit's meta when given; a step without one reads as before. */
-export function encodeHistoryStep(text: string, picked: readonly string[], meta?: Partial<HistoryMeta>): string {
-  return JSON.stringify({ text, picked: picked.filter((id) => PLACEMENT_ID.test(id)), ...(meta ? metaFields(meta) : {}) });
+export function encodeHistoryStep(text: string, picked: readonly string[], meta?: Partial<HistoryMeta>, geo?: number, sel?: string): string {
+  return JSON.stringify({ text, picked: picked.filter((id) => PLACEMENT_ID.test(id)), ...(meta ? metaFields(meta) : {}), ...(geo === undefined ? {} : { geo }),
+    ...(sel === undefined ? {} : { sel }) });
 }
 
 /**
@@ -148,9 +163,10 @@ export function encodeHistoryStep(text: string, picked: readonly string[], meta?
  */
 export function decodeHistoryStep(raw: string): HistoryStep {
   try {
-    const v = JSON.parse(raw) as { text?: unknown; picked?: unknown; forge?: unknown; label?: unknown; actor?: unknown; domain?: unknown; requestId?: unknown };
+    const v = JSON.parse(raw) as { text?: unknown; picked?: unknown; forge?: unknown; label?: unknown; actor?: unknown; domain?: unknown; requestId?: unknown; geo?: unknown; sel?: unknown };
     if (v && v.forge === undefined && typeof v.text === 'string' && Array.isArray(v.picked)) {
-      return { text: v.text, picked: v.picked.filter((id): id is string => typeof id === 'string' && PLACEMENT_ID.test(id)), ...metaFields(v) };
+      return { text: v.text, picked: v.picked.filter((id): id is string => typeof id === 'string' && PLACEMENT_ID.test(id)), ...metaFields(v),
+        ...(Number.isInteger(v.geo) ? { geo: v.geo as number } : {}), ...(typeof v.sel === 'string' ? { sel: v.sel } : {}) };
     }
   } catch { /* a layout's own text */ }
   return { text: raw, picked: [] };
@@ -169,11 +185,52 @@ const sameIds = (a: readonly string[], b: readonly string[]): boolean => {
  */
 export function recordEdit(history: History<string>, text: string, before: readonly string[], after: readonly string[], meta?: Partial<HistoryMeta>): boolean {
   const cur = decodeHistoryStep(history.current());
-  history.retarget(encodeHistoryStep(cur.text, before, metaFields(cur)));
+  history.retarget(encodeHistoryStep(cur.text, before, metaFields(cur), cur.geo, cur.sel));
   // FUI-6: the same state as now is no step, whatever its meta says (the meta is not the state), as before the meta.
   if (cur.text === text && sameIds(before, after)) return false;
-  history.record(encodeHistoryStep(text, after, meta));
+  // Bug 20: a layout edit leaves the geometry as it stands (the current step's revision).
+  history.record(encodeHistoryStep(text, after, meta, cur.geo));
   return true;
+}
+
+/**
+ * Bug 20: a geometry edit, a step of its own (one undo, one geometry operation): the layout and its selection as the
+ * current step has them, the geometry's new revision `geo`, tagged `geometry` and named `label`.
+ */
+export function recordGeometryEdit(history: History<string>, geo: number, label: string): void {
+  const cur = decodeHistoryStep(history.current());
+  history.record(encodeHistoryStep(cur.text, cur.picked, { label, actor: HUMAN_ACTOR, domain: 'geometry' }, geo, cur.sel));
+}
+
+/**
+ * A geometry edit made by the same gesture as the layout edit just recorded (Object mode's gizmo moving placements and
+ * geometry objects together, the owner, 2026-11-16: "ok to have mixed selection"): no step of its own -- the current step
+ * names the geometry's new revision `geo`, so one undo takes back both, and one redo makes both again.
+ */
+export function foldGeometryEdit(history: History<string>, geo: number): void {
+  const cur = decodeHistoryStep(history.current());
+  history.retarget(encodeHistoryStep(cur.text, cur.picked, metaFields(cur), geo, cur.sel));
+}
+
+/** The words of a selection's step (what Undo and Redo name). */
+export const SELECT_LABEL = 'Select';
+
+/**
+ * A selection made (the owner, 2026-11-15: "any selection pattern should be part of the undo", as Unreal's selection is
+ * a transaction): a step of its own, the layout and the geometry as the current step has them, the selection `sel`
+ * (`picked`, its placements). No step when the current one shows the same selection already; true when one was made.
+ */
+export function recordSelection(history: History<string>, picked: readonly string[], sel: string): boolean {
+  const cur = decodeHistoryStep(history.current());
+  if (cur.sel === sel) return false;
+  history.record(encodeHistoryStep(cur.text, picked, { label: SELECT_LABEL, actor: HUMAN_ACTOR, domain: 'layout' }, cur.geo, sel));
+  return true;
+}
+
+/** The current step's selection set to the one shown now (after an edit, an open, an undo): no step. */
+export function stampSelection(history: History<string>, picked: readonly string[], sel: string): void {
+  const cur = decodeHistoryStep(history.current());
+  history.retarget(encodeHistoryStep(cur.text, picked, metaFields(cur), cur.geo, sel));
 }
 
 /**
@@ -182,7 +239,8 @@ export function recordEdit(history: History<string>, text: string, before: reado
  * back past every edit of the operation.
  */
 export function amendEdit(history: History<string>, text: string, after: readonly string[]): void {
-  history.retarget(encodeHistoryStep(text, after, metaFields(decodeHistoryStep(history.current()))));
+  const cur = decodeHistoryStep(history.current());
+  history.retarget(encodeHistoryStep(text, after, metaFields(cur), cur.geo, cur.sel));
 }
 
 /** FUI-6: the meta of the step an undo takes back (the current one), or null with nothing to undo. */

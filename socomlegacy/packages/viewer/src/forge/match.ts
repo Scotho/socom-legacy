@@ -1,5 +1,6 @@
 import type { ForgeLightingOptions } from './lighting';
 import { BLAST_EFFECT } from '../bombPage';
+import { kbmAllowed } from '../kbmScope';
 import { Group, type Object3D } from 'three';
 import type { AssetSource } from '@s2u/archive';
 import type { UiSoundCues } from '@s2u/ui';
@@ -59,7 +60,7 @@ export interface ForgeMatch {
  * `sound` and `soundLoops`): what the match's firearm, marks and sound draw on. Null each where the source has none.
  * `lent`: the layout's switch scripts' sounds and effects from other maps (`./scriptAssets` `lentScriptAssets`), lent in.
  */
-export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
+export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets, surfaces?: { floors: string[]; all: string[] }): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
@@ -83,7 +84,7 @@ export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'p
         const borrow = [...(cuesFrom ? [{ path: cuesFrom.path, names: [BLAST_EFFECT] }] : []), ...(lent?.effects ?? []).map((e) => ({ path: `RUN/${e.from}.ZDB`, names: e.names }))];
         return { kind: 'effects', id, source, path: map.path, archive: map.archive, ...(borrow.length ? { borrow } : {}) };
       }),
-      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}) })),
+      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(surfaces ? { surfaces } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}) })),
     ]);
     const data = s?.kind === 'soundLoops' ? [...sounds.values()][0] ?? null : null;
     return { effects: e?.kind === 'effects' ? e.data : null, sound: data && s?.kind === 'soundLoops' ? { data, loops: s.loops } : null };
@@ -224,6 +225,12 @@ export async function startForgeMatch(target: HTMLElement, o: {
   /** FG-21: the player's side (`./npcs` `playerSideOf` of the whole layout's, as `o.map`'s slots were composed for). */
   side?: 'seal' | 'terrorist';
   /**
+   * The Play settings' Spectator (the owner, 2026-11-13: "a setting in the play settings, to play as spectator"; a
+   * browser adaptation): this page's hello a watcher's (`watch`), as an online spectator joins -- the room seats no
+   * body for it; the NPCs play the round.
+   */
+  watch?: boolean;
+  /**
    * FG-24 (FG.R18; an adaptation, no original): the layout's room options (`./settings` `roomOptionsOf`) -- the room's
    * own `maxRounds`, `roundSeconds`, `allowFriendlyFire` and `maxPlayers`, passed through to the page's room unchanged.
    * `onRoundStart` is the page's (FG-50 puts the layout's slot back after round 1 has spawned).
@@ -289,6 +296,9 @@ export async function startForgeMatch(target: HTMLElement, o: {
     kits: o.map.arsenal ?? null,
     ...(o.room ?? {}),
     ...(playSeats ? { soloSide: playSeats.sideOf } : soloSideOption(markers, o.side)),
+    // RB-47 (RB.R4, RB.R6; OT.R114, a browser adaptation): the test room's -- the mouse's turn cap off for the page's player
+    // (`../net/lookGate` 'free'; an NPC seat keeps the law), where the page reads the mouse (`kbm: 'forge'` below).
+    ...(kbmAllowed('forge', 'loopback:') ? { lookRate: 'free' as const } : {}),
     beforeStep: () => { playSeats?.flush(); brain?.step(); },
     beforeRoundStart: (newMatch) => { playSeats?.beforeRound(); o.room?.beforeRoundStart?.(newMatch); },
     ...(ruleHost ? { ruleHost } : {}),
@@ -301,7 +311,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     const nav = await fetchNpcNavigation(import.meta.env.BASE_URL, stem);
     if (nav) { try { brain = await NpcBrain.create(loop.room, [], nav); } catch { brain = null; } }
   }
-  const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket }, IDLE_WALK);
+  const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket, ...(o.watch ? { watch: true } : {}) }, IDLE_WALK);
   const events: ServerEvent[] = [];
   // FCW-32 round 2: the rules' wires, outside `ServerEvent` (the room's additive types), handed to the page as they come.
   const offRules = o.onRules ? client.on((ev) => { const t = (ev as { type?: unknown }).type; if (t === 'rulesPresent' || t === 'rulesPurchase') o.onRules!(ev); }) : () => {};
@@ -373,6 +383,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
   try {
     mounted = mountMatch(target, {
       ...(o.normalInput ? { normalInput: o.normalInput } : {}),
+      kbm: 'forge',                                   // OT.R114: the test room's keys and mouse, read while the client is the loopback
       client, events, handOff, holds: () => {}, audio,
       ...player.mountDeps(o.map.name, cueSource, () => cues.audio() ?? game),   // RB-10 (PS-2): the player's settings
       ...(o.forgeLighting ? { forgeLighting: o.forgeLighting } : {}),

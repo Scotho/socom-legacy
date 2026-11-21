@@ -65,3 +65,24 @@ export function assetsShown(palette: readonly PaletteEntry[], favs: ReadonlySet<
   const shown = palette.filter((p) => hit(p.model)).map(of);
   return [...shown.filter((s) => s.fav), ...shown.filter((s) => !s.fav)];
 }
+
+/**
+ * The other tabs' starred tiles (the owner, 2026-11-13: "add the favorite button for all the asset types, not just
+ * props"; a browser adaptation): each tile's own id as the asset browser gives it (`door.MP2:bdoor_4`, a sound's
+ * `ambient.MP1:=sound:...`, a ladder's prop id), kept apart from the props' so neither list takes the other's.
+ */
+export const OBJECT_FAVOURITES_KEY = 's2u-forge-object-favourites';
+
+export function readObjectFavourites(store: Store = pageSettings): Set<string> {
+  try {
+    const raw = store.get(OBJECT_FAVOURITES_KEY);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 200) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeObjectFavourites(favs: ReadonlySet<string>, store: Store = pageSettings): void {
+  try { store.set(OBJECT_FAVOURITES_KEY, JSON.stringify([...favs].sort())); } catch { /* the store says why once (`pageReport`) */ }
+}

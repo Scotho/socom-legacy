@@ -1,4 +1,4 @@
-import { flattenScene, toColumnMajor, type PlacedModel, type SceneNode } from '@s2u/scene';
+import { flattenScene, toColumnMajor, worldDi, type PlacedModel, type SceneNode } from '@s2u/scene';
 
 /**
  * Level-piece ids for the test-room model pack (`TEST_ROOM_MODEL_PACK_ADAPTATION`).
@@ -213,6 +213,25 @@ function inspect(models: readonly SceneNode[]): { catalog: CatalogPiece[]; tagge
     });
   }
   return { catalog, tagged };
+}
+
+/**
+ * The Forge's world nodes (a browser adaptation, FG.R2; `LoadMapOptions.worldNodes`): every direct child of the world
+ * model, disc order, and per world placement the one it hangs under (null for the root's own visuals and a turret part
+ * joined after the walk) -- what tags each world triangle with its node (`LoadedMesh.triNodes`), so the editor's object
+ * mode picks a building or a terrain piece as the scene graph has it.
+ */
+export function worldNodesOf(models: readonly SceneNode[], world: readonly PlacedModel[]): { nodes: { key: string; name: string; anchor: number[] }[]; of: (number | null)[]; owners: number[] } {
+  const { catalog, tagged } = inspect(models);
+  // The hull's owners' nodes: `collisionOwners` makes an owner each node of this same walk with polygons (`worldDi`),
+  // so the k-th such node is owner k -- a node's own, or one of a prop placed under it (its polygons move with it).
+  const owners: number[] = [];
+  let piece = -1;
+  for (const inst of flattenScene(models as SceneNode[], WORLD_ROOT)) {
+    if (directChild(inst.path)) piece++;
+    if (worldDi(inst).length > 0) owners.push(piece);
+  }
+  return { nodes: catalog.map((c) => ({ key: c.key, name: c.name, anchor: Array.from(c.anchor) })), of: assignPieceIndex(tagged, world), owners };
 }
 
 function samePlace(tag: TaggedPlacement, placed: PlacedModel): boolean {

@@ -2,7 +2,7 @@ import { parseRdr, rdrGet, Zar, zdbMember, type RdrNode, type ZdbEntry } from '@
 import { decodeEffectProgram, flattenScene, missionNameOf, NODE_ROOT, parseAnimSets, type EffectProgram, type SceneNode, type ZAnimArchive, type ZAnimNodeRef } from '@s2u/scene';
 import { readMapActions, type MapAction } from './mapActions';
 import { sceneOf, type SceneMeta } from './sceneHealth';
-import type { AudioStep } from '@s2u/creator-contracts';
+import type { ScriptSequence, ScriptStep } from '@s2u/creator-contracts';
 import { runsProfileStroke, runsScroll } from './sceneScroll';
 
 export { actionAtPick } from './mapActions';
@@ -51,10 +51,15 @@ export interface MapInitial {
 
 /** A Forge ambient effect placed (`./forge/forgeObjects`): its program of map `source`, at its path's place, turned `yaw`. */
 /**
- * A placed ambient effect (`./forge/forgeObjects` `withForgeObjects`): `source` its map, `name` its program; `audio` its
- * audio script (the game's own commands), standing in for its program's own sounds.
+ * A placed ambient effect (`./forge/forgeObjects` `withForgeObjects`): `source` its map, `name` its program; `script` its
+ * steps (the one script, `ScriptStep`), standing in for its program's own sounds -- made a self-starting program at its
+ * place (`./forge/placedAccess` `withPlacedAccess`).
  */
-export interface ForgeAmbient { path: string; source: string; name: string; at: [number, number, number]; yaw: number; audio?: AudioStep[] }
+export interface ForgeAmbient {
+  path: string; source: string; name: string; at: [number, number, number]; yaw: number; script?: ScriptStep[];
+  /** Its script's named sequences (`ScriptSteps.sequences`): each one called by a step. */
+  sequences?: ScriptSequence[];
+}
 
 export interface MapMeta {
   stem: string;
@@ -65,6 +70,10 @@ export interface MapMeta {
   forgePlaces?: Record<string, [number, number, number]>;
   /** The Forge ambient effects to play from the map's start (`./forge/forgeObjects` `playForgeAmbients`). Absent: none. */
   forgeAmbients?: ForgeAmbient[];
+  /** The layout's map script's steps (`Layout.mapScript`; `./forge/forgeObjects` `withMapScript`): run from the round's start. */
+  forgeMapScript?: ScriptStep[];
+  /** The map script's named sequences (`ScriptSteps.sequences`). */
+  forgeMapSequences?: ScriptSequence[];
   /** Every placed record, typed: `typeCode` 8 for a type-less one. */
   actions: MapAction[];
   /** `flattenScene` order; `id` is the index. */

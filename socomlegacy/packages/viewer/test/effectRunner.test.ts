@@ -252,6 +252,35 @@ describe('the effect sequencer', () => {
     expect(run.finished).toBe(true);
   });
 
+  // `FUN_0025e630` (decomp 108131): without flag 1 a WHILE tests its condition (an IF's tokens) each time it is reached;
+  // END_WHILE jumps back to it and yields the tick. A Forge script's "While a flag is ..." is this form.
+  it('a conditional WHILE runs its body while its condition holds, once a tick, then goes on past END_WHILE', () => {
+    let count = 0;
+    const log: string[] = [];
+    const h: EffectHost = {
+      begin: (op) => { if (op.op === 'call') log.push(op.anim); if (op.op === 'valve') count += op.operand; },
+      test: (c) => c.kind === 'valve' && count < c.operand,
+      random: () => 0.5,
+    };
+    const cond: EffectCondition = { kind: 'valve', valve: 'count', operation: 4, operand: 3 };
+    const run = new EffectRun(program({ ops: [
+      { op: 'while', forever: false, conditions: [cond] }, mark(1), { op: 'valve', valve: 'count', operation: 0x0c, operand: 1 }, { op: 'endWhile' }, mark(2),
+    ] }), h);
+    for (let i = 0; i < 6; i++) run.update(0.1);
+    expect(log).toEqual(['m1', 'm1', 'm1', 'm2']);
+    expect(run.finished).toBe(true);
+  });
+
+  it('a conditional WHILE whose condition fails at once skips its body', () => {
+    const h = host();                                   // `test` answers false
+    const run = new EffectRun(program({ ops: [
+      { op: 'while', forever: false, conditions: [{ kind: 'valve', valve: 'x', operation: 2, operand: 1 }] }, mark(1), { op: 'endWhile' }, mark(2),
+    ] }), h);
+    run.update(0);
+    expect(h.log).toEqual(['m2']);
+    expect(run.finished).toBe(true);
+  });
+
   it('a called sequence of activation 2 waits for its CALL_SEQUENCE; a self-pause keeps the run alive', () => {
     const h = host();
     const p: EffectProgram = {

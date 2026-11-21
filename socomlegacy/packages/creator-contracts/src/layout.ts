@@ -148,6 +148,30 @@ export interface Layout {
    */
   hiddenData?: string[];
   /**
+   * The base map's own data objects this layout moves (the owner, 2026-11-12: "allow all map objects to be moveable";
+   * a browser adaptation, FG.R2), each by its key (`MOVED_DATA_KEY`: `slot:A1`, `respawn:B3`, `hostage:<name>`,
+   * `bomb:start`, `tacpoint:<i>`, `taczone:<name>`, `view:<i>`) to its new place. The disc's map is untouched; this
+   * layout's editor and match read them there (`viewer/src/forge/mapDataMove`). Absent: none. Online refused.
+   */
+  movedData?: Record<string, MovedMapData>;
+  /**
+   * The base map's AI cells this layout paints (the owner, 2026-11-16: "a similar workflow to the collision paint but for
+   * ai navigation tiles"; a browser adaptation, FG.R2): each stored cell of its `AIMAPS.MPS` by `AI_SOIL_KEY` (`map:x:z`,
+   * the sub-map's index in the file and the cell's column and row, research 75 section 4) to the soil it takes -- bits
+   * 0-4 of the cell's word, one of the original's soils (research 200 section 2). A blank floor's are its own grid's
+   * (`viewer/src/forge/floorAi`). The disc's map is untouched; this layout's editor and match read them
+   * (`viewer/src/forge/aiSoil`). Absent: none. Online refused.
+   */
+  aiSoil?: Record<string, number>;
+  /**
+   * The base's world geometry as this layout edits it (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits
+   * aren't saved"; a browser adaptation, FG.R2): a reference (`GEOMETRY_REF`, `geometry:` and the content's SHA-256) to
+   * the edited meshes kept as an asset in this browser's store (`viewer/src/forge/geometryStore`), as a level editor keeps a map's
+   * mesh edits in its `.vmap`. The disc's map is untouched. Absent: the base's own geometry. Online refused (another
+   * player's browser has no such asset).
+   */
+  geometry?: string;
+  /**
    * The placements' tree (the owner, 2026-11-10: "implement the tree layout"): each `[child, parent]` pair a placement's
    * parent, both by their place in the layout (`TREE_REF`: `piece:3`, `door:0`, `bomb:seal:0`) -- the engine's own
    * model (a node's matrix local to its parent's, `@s2u/scene` `flattenScene`). Every placement keeps its own world place
@@ -235,6 +259,12 @@ export interface Layout {
   triggers?: PieceTrigger[];
   /** The layout's Forge objects (`ForgeObject`): ambient effects, cranes. Absent: none. A crane refused online. */
   objects?: ForgeObject[];
+  /**
+   * The map's own script (the owner, 2026-11-13: "the native style map script"; a browser adaptation, FG.R2): run from the
+   * round's start at the map's origin, as the disc's `objectives` runs a round -- its loops and its ifs testing the
+   * game's own valves (`SCRIPT_GAME_VALUES`) and the layout's flags. Absent: none.
+   */
+  mapScript?: ScriptSteps;
   /**
    * FG-24 (FG.R18; the owner, 2026-10-14: "a map settings that includes day/night slider, fog distance slider, max
    * players (up to 32 max)"; an adaptation, no original): the layout's settings, each optional -- absent, the disc's
@@ -776,15 +806,16 @@ export interface PieceTrigger { piece?: number; node?: string; health: number; a
  *   its particles, its sound, its light) -- played here from the round's start, rooted at this place;
  * - `crane`: a copy of a disc map's crane (`source`, `name` its node: Chain Reaction's).
  *
- * `audio` (an ambient's; the owner, 2026-11-10: "keep ambient, but make it fully scriptable ... I don't want to have any
- * custom behaviour"): its program's sounds written as a script of the game's own commands (`AudioStep`), standing in for
- * the program's own (its particles and light as ever).
+ * `script` (an ambient's; the owner, 2026-11-13: "one script format ... a fully generic scripting way of doing things that
+ * is unified"): its steps (`ScriptStep`, the switches' and the triggers' own), run from the round's start at the object
+ * as the map's own self-starting programs run -- standing in for its program's sounds (its particles and light as ever).
+ * A file's older `audio` (`AudioStep`) is read into it (`scriptOfAudio`).
  */
 export type ForgeObjectKind = "ambient" | "crane";
-export interface ForgeObject { kind: ForgeObjectKind; source: string; name: string; at: [number, number, number]; yaw: number; locked?: boolean; audio?: AudioStep[] }
+export interface ForgeObject { kind: ForgeObjectKind; source: string; name: string; at: [number, number, number]; yaw: number; locked?: boolean; script?: ScriptSteps }
 export const FORGE_OBJECT_KINDS: readonly ForgeObjectKind[] = ["ambient", "crane"];
 /**
- * An ambient's audio script step: each one of the game's own program commands as its ambient programs use them (the
+ * The older ambient audio script step (before 2026-11-13; read into `ScriptStep`s by `scriptOfAudio`, never written): each one of the game's own program commands as its ambient programs use them (the
  * disc's: Sujo's `lightning_flashes`, the Fish Hook crickets, Desert Glory's `mp6_battlesounds`), run as the game runs them:
  * - `play`: `SOUND` at the object (`FUN_002659c0`): `sound` from the disc map `from` (absent, the base map's), at the
  *   command's `volume` (flag 0x10; absent 1), heard by the sound's own RANGE. A `~` sound is one of the game's loops: as
@@ -794,20 +825,26 @@ export const FORGE_OBJECT_KINDS: readonly ForgeObjectKind[] = ["ambient", "crane
  *   ever with neither (the disc's `LOOP -1`);
  * - `while` ... `endWhile`: `WHILE` (for ever) and `END_WHILE`;
  * - `if` / `elseif` (`chance`) ... `else` ... `endif`: `IF` / `ELSEIF` on `RANDOM_WEIGHT` (`FUN_0025dcf0`: taken when
- *   `rand() <= chance`, 0 to 1), `ELSE`, `ENDIF`.
+ *   `rand() <= chance`, 0 to 1), `ELSE`, `ENDIF`;
+ * - `effect`: `CALL_ANIMATION` of the effect program `effect` from the disc map `from` (absent, the base map's) at the
+ *   object, as the disc's own ambient programs call theirs (the owner, 2026-11-13: one effect object, its sounds and
+ *   its effects alike; a browser adaptation, FG.R2 -- the game has no editor).
  */
 export type AudioStep =
   | { do: "play"; sound: string; from?: string; volume?: number }
   | { do: "wait"; seconds: number; random?: number }
   | { do: "loop"; times?: number; seconds?: number }
   | { do: "while" } | { do: "endWhile" }
-  | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "endif" };
+  | { do: "if" | "elseif"; chance: number } | { do: "else" } | { do: "endif" }
+  | { do: "effect"; effect: string; from?: string };
 /** The checks on a file's audio script (not game values): its steps, a wait's or a loop's seconds, a volume, a count. */
 export const AUDIO_STEPS_MAX = 64;
 export const AUDIO_WAIT_MAX = 600;
 export const AUDIO_VOLUME_MAX = 4;
 export const AUDIO_LOOP_MAX = 1000;
 const AUDIO_SOUND = /^[A-Za-z0-9_.~!^ -]{1,48}$/;
+/** An effect program's name a script may call (the switches' own rule, `viewer/src/forge/scriptAssets` SCRIPT_ASSET_NAME). */
+const AUDIO_EFFECT = /^[A-Za-z0-9_. -]{1,48}$/;
 /** Whether `v` is an audio script (`AudioStep[]`): known steps, in bounds, each `while` and `if` closed in order. */
 export function audioScriptOk(v: unknown): boolean {
   if (!Array.isArray(v) || v.length > AUDIO_STEPS_MAX) return false;
@@ -823,6 +860,10 @@ export function audioScriptOk(v: unknown): boolean {
         if (!keys("sound", "from", "volume") || typeof s["sound"] !== "string" || !AUDIO_SOUND.test(s["sound"])) return false;
         if (s["from"] !== undefined && (typeof s["from"] !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(s["from"]))) return false;
         if (s["volume"] !== undefined && !num(s["volume"], 0, AUDIO_VOLUME_MAX)) return false;
+        break;
+      case "effect":
+        if (!keys("effect", "from") || typeof s["effect"] !== "string" || !AUDIO_EFFECT.test(s["effect"])) return false;
+        if (s["from"] !== undefined && (typeof s["from"] !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(s["from"]))) return false;
         break;
       case "wait":
         if (!keys("seconds", "random") || !num(s["seconds"], 0, AUDIO_WAIT_MAX) || (s["random"] !== undefined && !num(s["random"], 0, AUDIO_WAIT_MAX))) return false;
@@ -843,16 +884,47 @@ export function audioScriptOk(v: unknown): boolean {
   }
   return open.length === 0;
 }
+/**
+ * An older audio script (`AudioStep[]`) as script steps (`ScriptStep`): `play` a `sound` (its `name`), `effect` its `name`,
+ * `endif` an `end`; the rest as they were. A step already a script step is kept, so a list of either reads.
+ */
+export function scriptOfAudio(steps: readonly unknown[]): ScriptStep[] {
+  return steps.map((raw): ScriptStep => {
+    const s = raw as Record<string, unknown>;
+    switch (s["do"]) {
+      case "play": return { do: "sound", name: s["sound"] as string, ...(s["from"] !== undefined ? { from: s["from"] as string } : {}), ...(s["volume"] !== undefined ? { volume: s["volume"] as number } : {}) };
+      case "effect": return s["effect"] !== undefined ? { do: "effect", name: s["effect"] as string, ...(s["from"] !== undefined ? { from: s["from"] as string } : {}) } : JSON.parse(JSON.stringify(s)) as ScriptStep;
+      case "endif": return { do: "end" };
+      default: return JSON.parse(JSON.stringify(s)) as ScriptStep;
+    }
+  });
+}
+/** Whether a step list is the older audio script's (`AudioStep`): a `play`, an `endif`, or an `effect` by `effect`. */
+const isAudioSteps = (v: unknown): boolean => Array.isArray(v) && v.some((x) => isObj(x) && (x["do"] === "play" || x["do"] === "endif" || (x["do"] === "effect" && x["effect"] !== undefined)));
+/** An object's steps as a file holds them, either form (`script`'s `{ steps }`, or an older `audio` list), as script steps; null, none or bad. */
+export function objectScriptOf(v: { script?: unknown; audio?: unknown }, c: SwitchCounts): ScriptSteps | null | false {
+  if (v.script !== undefined) return switchScriptOk(v.script, c) ? JSON.parse(JSON.stringify(v.script)) as ScriptSteps : false;
+  if (v.audio === undefined) return null;
+  if (isAudioSteps(v.audio) ? !audioScriptOk(v.audio) : !Array.isArray(v.audio)) return false;
+  const script = { steps: scriptOfAudio(v.audio as unknown[]) };
+  return switchScriptOk(script, c) ? script : false;
+}
 const OBJECT_NAME = /^[A-Za-z0-9_ .=-]{1,48}$/;
 const OBJECT_SOURCE = /^[A-Z]{1,3}\d{1,3}$/;
-/** Whether `v` is a `ForgeObject` as a file holds one (its map, its name there, its place; an ambient's audio script). */
-export function forgeObjectOk(v: unknown): boolean {
-  if (!isObj(v) || !Object.keys(v).every((k) => ["kind", "source", "name", "at", "yaw", "locked", "audio"].includes(k))) return false;
+/** No list of the layout's: a script whose steps name none of its objects (a check before the lists are known). */
+const NO_COUNTS: SwitchCounts = { pieces: 0, barriers: 0, gates: 0, objects: 0 };
+/**
+ * Whether `v` is a `ForgeObject` as a file holds one (its map, its name there, its place; an ambient's script, `script`,
+ * or an older file's `audio`), its script's targets in `c`'s lists.
+ */
+export function forgeObjectOk(v: unknown, c: SwitchCounts = NO_COUNTS): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => ["kind", "source", "name", "at", "yaw", "locked", "audio", "script"].includes(k))) return false;
   if (typeof v["kind"] !== "string" || !(FORGE_OBJECT_KINDS as readonly string[]).includes(v["kind"])) return false;
   if (typeof v["name"] !== "string" || !OBJECT_NAME.test(v["name"])) return false;
   if (!(typeof v["source"] === "string" && OBJECT_SOURCE.test(v["source"]))) return false;
   if (!Array.isArray(v["at"]) || v["at"].length !== 3 || !v["at"].every(isNum) || !isNum(v["yaw"])) return false;
-  if (v["audio"] !== undefined && (v["kind"] !== "ambient" || !audioScriptOk(v["audio"]))) return false;
+  if (v["audio"] !== undefined && v["script"] !== undefined) return false;
+  if ((v["audio"] !== undefined || v["script"] !== undefined) && (v["kind"] !== "ambient" || objectScriptOf(v, c) === false)) return false;
   return v["locked"] === undefined || v["locked"] === true;
 }
 /** A trigger's health, armour and shield: a check on the file's, not a game value. */
@@ -877,7 +949,14 @@ export function pieceTriggerOk(v: unknown, c: SwitchCounts): boolean {
  */
 export type SwitchTarget = { map: string } | { piece: number } | { barrier: number } | { gate: number } | { object: number };
 /**
- * A script step (the owner, 2026-11-08; a browser adaptation, FG.R2): each one of the original's own program commands
+ * A script step -- the one script of the Forge (the owner, 2026-11-13: "one script format ... replace our weird home made
+ * formats"): a switch's pull, a damage trigger's death and an effect object's round all run these. Since 2026-11-13 also
+ * the game's own flow commands: `wait` with a `random` range (WAIT flag 0x20); `if` / `elseif` on a `chance`
+ * (`RANDOM_WEIGHT`, `FUN_0025dcf0`: taken when `rand() <= chance`) as well as on a flag; `while` ... `endWhile` (`WHILE`
+ * for ever, `END_WHILE`); `loop` (`LOOP`: from the first step again, `times` in all, for `seconds`, or for ever); a
+ * `sound`'s `volume` (SOUND flag 0x10). A `~` sound is one of the game's loops.
+ *
+ * As before (the owner, 2026-11-08; a browser adaptation, FG.R2): each one of the original's own program commands
  * (`@s2u/scene` `EffectOp`; research 209): `run` an action -- a base map's by its valve, or a damage trigger's death
  * (`EXECUTE_ACTION`); `show`/`hide` a node (`OBJECT_ACTIVE_STATE`); `wait` (`WAIT`); a `message` (`MESSAGE`); a `sound`
  * (`SOUND`) or an `effect` (a common effect, `CALL_ANIMATION`) at a target -- `from` the disc map whose sound or effect
@@ -888,25 +967,100 @@ export type SwitchTarget = { map: string } | { piece: number } | { barrier: numb
  * 332 s0-s2) -- the record's own Explosion_Damage 50 and Explosion_Radius 300 u, its fuse 0.001 and second timer 0.01,
  * nothing of the Forge's (the owner, 2026-11-10: "no custom stuff ... if we can support damage without custom, do it").
  */
-export type SwitchStep =
+export type ScriptStep =
   | { do: "run"; action: string } | { do: "run"; barrier: number }
   | { do: "show" | "hide"; target: SwitchTarget }
-  | { do: "wait"; seconds: number }
+  | { do: "wait"; seconds: number; random?: number }
   | { do: "message"; text: string }
-  | { do: "sound" | "effect"; name: string; at?: SwitchTarget; from?: string }
-  | { do: "set"; flag: string; value: number }
-  | { do: "if"; flag: string; equals: number } | { do: "else" } | { do: "end" }
+  | { do: "sound"; name: string; at?: SwitchTarget; from?: string; volume?: number }
+  | { do: "effect"; name: string; at?: SwitchTarget; from?: string }
+  // A flag set, or added to or taken from (VALVE's 0x0b, 0x0c, 0x0d; a take never below 0).
+  | { do: "set"; flag: string; value: number; op?: "add" | "sub" }
+  // An if on a flag: `equals` the value it is tested against, `test` how (VALVE's tests 1-6; absent: equal).
+  | ({ do: "if" | "elseif"; flag: string; equals: number; test?: ScriptFlagTest } & ScriptLogic) | ({ do: "if" | "elseif"; chance: number } & ScriptLogic)
+  // An if on a game value (`SCRIPT_GAME_VALUES`): the game's own valve, read, never written by a script.
+  | ({ do: "if" | "elseif"; game: ScriptGameValue; equals: number; test?: ScriptFlagTest } & ScriptLogic) | { do: "else" } | { do: "end" }
+  // An object faded (OBJECT_OPACITY_FROM_TO): from `from` (absent: 1) to `to`, over `seconds`, the script held till done.
+  | { do: "fade"; target: SwitchTarget; to: number; from?: number; seconds: number }
+  // A sequence of the script's own started from its top, or stopped (CALL_SEQUENCE, STOP_SEQUENCE): one of its
+  // `sequences` by its name, or `main` (the script's own steps).
+  | { do: "callSequence" | "stopSequence"; sequence: string }
+  // A while for ever, or while a flag's test holds (WHILE without flag 1: its condition each time round).
+  | ({ do: "while"; flag?: string; equals?: number; test?: ScriptFlagTest } & ScriptLogic) | ({ do: "while"; game: ScriptGameValue; equals: number; test?: ScriptFlagTest } & ScriptLogic) | { do: "endWhile" }
+  | { do: "loop"; times?: number; seconds?: number }
   | { do: "blast"; at?: SwitchTarget };
 /**
- * A switch's script: the `steps` a pull runs -- once a round, as the disc's switches are (the room's `used`, cleared at the
- * round by `FUN_002b5510`; the owner, 2026-11-10: "no custom stuff").
+ * A test step's logic (the owner, 2026-11-13: "and, or, and all the logical operators"; the game's own: an IF's
+ * conditions are its operands with the EXPRESSION operators between them -- 1 NOT, 2 AND, 3 OR, 4 (, 5 ) -- folded left
+ * to right, no precedence, `FUN_0025e960`, research 106 s3): its first test's NOT and brackets (`open` before it,
+ * `close` after it), then each further test (`more`), joined to what came before by AND or OR.
  */
-export interface SwitchScript { steps: SwitchStep[] }
+export interface ScriptLogic { not?: true; open?: number; close?: number; more?: ScriptTerm[] }
+/** A further test of an if, an else if or a while (`ScriptLogic.more`): its join, its NOT and brackets, its test. */
+export type ScriptTerm = { join: "and" | "or"; not?: true; open?: number; close?: number } & (
+  | { flag: string; equals: number; test?: ScriptFlagTest }
+  | { game: ScriptGameValue; equals: number; test?: ScriptFlagTest }
+  | { chance: number });
+/** A test step's further tests at most, and its brackets at one test (a check on the file's, not a game value). */
+export const SCRIPT_TERMS_MAX = 8;
+export const SCRIPT_BRACKETS_MAX = 3;
+/** The older name of `ScriptStep` (a switch's, before the one script). */
+export type SwitchStep = ScriptStep;
+/**
+ * The game's own valves a script may test (read-only), by the names the disc's `objectives` tests them (research 91,
+ * 192 s2, 175): the bomb (`mp_bomb`: 0 reset, 1 on the ground, 2 carried, 3 planted, 4 defused, 5 detonated; research
+ * 214); the teams (`player_team` 0 SEAL, 8 Terrorist, 16 spectator; `aiteam_00` / `aiteam_08` each side's living); the
+ * clock and the rounds (`mp_timer` 1 running, 0 at 00:00; `mp_round_count`, `mp_max_rounds`); the score and the result
+ * (`mp_score00`, `mp_score08`, `mp_winner` 0 / 8 / 99 a draw, `mp_game_over`); the settings (`mp_game_type` 1 BREACH
+ * .. 5 SUPPRESSION, `mp_allow_respawn`); EXTRACTION's hostages (`rescuecount`, `hostages_rescued`,
+ * `mp_hostages_by_seals`, `mp_hostages_by_turds`, `mp_penalty`); ESCORT's VIPs (`VIP1_valve_alive` .. `VIP3_valve_alive`,
+ * `killcount`). Each one written by the page from the room's facts (viewer `bombPage`, `gameValves`).
+ */
+export const SCRIPT_GAME_VALUES = [
+  "mp_bomb",
+  "player_team", "aiteam_00", "aiteam_08",
+  "mp_timer", "mp_round_count", "mp_max_rounds",
+  "mp_score00", "mp_score08", "mp_winner", "mp_game_over",
+  "mp_game_type", "mp_allow_respawn",
+  "rescuecount", "hostages_rescued", "mp_hostages_by_seals", "mp_hostages_by_turds", "mp_penalty",
+  "VIP1_valve_alive", "VIP2_valve_alive", "VIP3_valve_alive", "killcount",
+] as const;
+export type ScriptGameValue = (typeof SCRIPT_GAME_VALUES)[number];
+/** An if's test on a flag other than equal (VALVE's tests: 1 !=, 3 >, 4 <, 5 >=, 6 <=). */
+export type ScriptFlagTest = "!=" | ">" | "<" | ">=" | "<=";
+export const SCRIPT_FLAG_TESTS: readonly ScriptFlagTest[] = ["!=", ">", "<", ">=", "<="];
+/** What a script step acts on: `SwitchTarget`, by its general name. */
+export type ScriptTarget = SwitchTarget;
+/**
+ * A script: its `steps`, run top to bottom by the game's own commands. A switch's pull runs it -- once a round, as the
+ * disc's switches are (the room's `used`, cleared at the round by `FUN_002b5510`); a damage trigger's death; an effect
+ * object's round, from its start.
+ */
+export interface ScriptSteps {
+  steps: ScriptStep[];
+  /**
+   * Its named sequences (the owner, 2026-11-13: "call sequence and end sequence"; the game's own: a program's other
+   * sequences, CALL_SEQUENCE / STOP_SEQUENCE, research 89): each one waits until a step calls it (activation 2), then
+   * runs beside the rest. Absent: none.
+   */
+  sequences?: ScriptSequence[];
+}
+/** A script's named sequence (`ScriptSteps.sequences`): its name (never `main`), its steps. */
+export interface ScriptSequence { name: string; steps: ScriptStep[] }
+/** A sequence's name: a letter, then letters, digits or `_` (24 at most); `main` the script's own steps. */
+export const SCRIPT_SEQUENCE_NAME = /^[A-Za-z][A-Za-z0-9_]{0,23}$/;
+export const SCRIPT_MAIN_SEQUENCE = "main";
+/** A script's sequences at most (a check on the file's, not a game value). */
+export const SCRIPT_SEQUENCES_MAX = 16;
+/** The older name of `ScriptSteps` (a switch's). */
+export type SwitchScript = ScriptSteps;
 /** A script's bounds: steps a list, the wait, the message and the names -- a check on the file's, not a game value. */
 export const SWITCH_SCRIPT_STEPS_MAX = 64;
 export const SWITCH_WAIT_MAX = 600;
 const SWITCH_MESSAGE = /^[^\u0000-\u001f]{1,80}$/;
 const SWITCH_SOUND = /^[A-Za-z0-9_. -]{1,48}$/;
+/** A sound's name: an effect's rule, and the game's loops' `~` and its other marks (`!`, `^`). */
+const SCRIPT_SOUND = /^[A-Za-z0-9_.~!^ -]{1,48}$/;
 /** A step's `from`: a disc map's archive stem (`MP72`, `M51`). */
 const SWITCH_FROM = /^[A-Z]{1,3}\d{1,3}$/;
 const SWITCH_FLAG = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
@@ -925,36 +1079,100 @@ function switchTargetOk(t: unknown, c: SwitchCounts): boolean {
   if ("object" in t) return isIndex(t["object"], c.objects ?? 0);   // a Forge object (`Layout.objects`): an ambient's place
   return false;
 }
+/** A test step's logic (`ScriptLogic`): its NOT, its brackets, each further test, the brackets balanced. */
+function logicOk(st: Record<string, unknown>): boolean {
+  const count = (x: unknown): boolean => x === undefined || (Number.isInteger(x) && (x as number) >= 1 && (x as number) <= SCRIPT_BRACKETS_MAX);
+  if ((st["not"] !== undefined && st["not"] !== true) || !count(st["open"]) || !count(st["close"])) return false;
+  let depth = ((st["open"] as number | undefined) ?? 0) - ((st["close"] as number | undefined) ?? 0);
+  if (depth < 0) return false;
+  const more = st["more"];
+  if (more !== undefined) {
+    if (!Array.isArray(more) || more.length === 0 || more.length > SCRIPT_TERMS_MAX) return false;
+    for (const t of more) {
+      if (!isObj(t) || (t["join"] !== "and" && t["join"] !== "or") || (t["not"] !== undefined && t["not"] !== true) || !count(t["open"]) || !count(t["close"])) return false;
+      const keys = Object.keys(t).filter((k) => !["join", "not", "open", "close"].includes(k));
+      const only = (...k: string[]): boolean => keys.every((x) => k.includes(x));
+      const tested = t["test"] === undefined || SCRIPT_FLAG_TESTS.includes(t["test"] as ScriptFlagTest);
+      const ok = t["game"] !== undefined ? only("game", "equals", "test") && SCRIPT_GAME_VALUES.includes(t["game"] as ScriptGameValue) && isPoints10k(t["equals"]) && tested
+        : t["chance"] !== undefined ? only("chance") && isNum(t["chance"]) && (t["chance"] as number) >= 0 && (t["chance"] as number) <= 1
+        : only("flag", "equals", "test") && typeof t["flag"] === "string" && SWITCH_FLAG.test(t["flag"]) && isPoints10k(t["equals"]) && tested;
+      if (!ok) return false;
+      depth += ((t["open"] as number | undefined) ?? 0);
+      depth -= ((t["close"] as number | undefined) ?? 0);
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
 function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
   if (!Array.isArray(list) || list.length > SWITCH_SCRIPT_STEPS_MAX) return false;
-  const open: boolean[] = [];   // each open `if`: whether its `else` was seen
+  // The open blocks, innermost last: a while, an if before its else, an if after it.
+  const open: ("while" | "if" | "else")[] = [];
+  const num = (x: unknown, lo: number, hi: number): boolean => isNum(x) && (x as number) >= lo && (x as number) <= hi;
   for (const st of list) {
     if (!isObj(st) || typeof st["do"] !== "string") return false;
     const has = (...k: string[]) => Object.keys(st).every((x) => x === "do" || k.includes(x));
+    // An if or an else if: on a flag (`flag` is `equals`) or on a chance (0 to 1).
+    const testOk = (): boolean => st["test"] === undefined || SCRIPT_FLAG_TESTS.includes(st["test"] as ScriptFlagTest);
+    const LOGIC = ["not", "open", "close", "more"];
+    const gameOk = (): boolean => has("game", "equals", "test", ...LOGIC) && SCRIPT_GAME_VALUES.includes(st["game"] as ScriptGameValue) && isPoints10k(st["equals"]) && testOk();
+    const test = (): boolean => (st["game"] !== undefined ? gameOk() : st["chance"] !== undefined
+      ? has("chance", ...LOGIC) && num(st["chance"], 0, 1)
+      : has("flag", "equals", "test", ...LOGIC) && typeof st["flag"] === "string" && SWITCH_FLAG.test(st["flag"]) && isPoints10k(st["equals"])
+        && (st["test"] === undefined || SCRIPT_FLAG_TESTS.includes(st["test"] as ScriptFlagTest))) && logicOk(st);
     switch (st["do"]) {
       case "run":
         if (!(has("action") && typeof st["action"] === "string" && SWITCH_ACTION.test(st["action"]))
           && !(has("barrier") && isIndex(st["barrier"], c.barriers))) return false;
         break;
       case "show": case "hide": if (!has("target") || !switchTargetOk(st["target"], c)) return false; break;
-      case "wait": if (!has("seconds") || !isNum(st["seconds"]) || st["seconds"] < 0 || st["seconds"] > SWITCH_WAIT_MAX) return false; break;
+      case "wait":
+        if (!has("seconds", "random") || !num(st["seconds"], 0, SWITCH_WAIT_MAX) || (st["random"] !== undefined && !num(st["random"], 0, SWITCH_WAIT_MAX))) return false;
+        break;
       case "message":
         if (!has("text") || typeof st["text"] !== "string" || !SWITCH_MESSAGE.test(st["text"])) return false;
         break;
       case "sound": case "effect":
-        if (!has("name", "at", "from") || typeof st["name"] !== "string" || !SWITCH_SOUND.test(st["name"]) || (st["at"] !== undefined && !switchTargetOk(st["at"], c))
-          || (st["from"] !== undefined && (typeof st["from"] !== "string" || !SWITCH_FROM.test(st["from"])))) return false;
+        if (!(st["do"] === "sound" ? has("name", "at", "from", "volume") : has("name", "at", "from")) || typeof st["name"] !== "string"
+          || !(st["do"] === "sound" ? SCRIPT_SOUND : SWITCH_SOUND).test(st["name"]) || (st["at"] !== undefined && !switchTargetOk(st["at"], c))
+          || (st["from"] !== undefined && (typeof st["from"] !== "string" || !SWITCH_FROM.test(st["from"])))
+          || (st["volume"] !== undefined && !num(st["volume"], 0, AUDIO_VOLUME_MAX))) return false;
         break;
       case "blast":
         if (!has("at") || (st["at"] !== undefined && !switchTargetOk(st["at"], c))) return false;
         break;
-      case "set": if (!has("flag", "value") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["value"])) return false; break;
-      case "if":
-        if (!has("flag", "equals") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["equals"])) return false;
-        open.push(false);
+      case "set":
+        if (!has("flag", "value", "op") || typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["value"])
+          || (st["op"] !== undefined && st["op"] !== "add" && st["op"] !== "sub")) return false;
         break;
-      case "else": if (!has() || open.length === 0 || open[open.length - 1]) return false; open[open.length - 1] = true; break;
-      case "end": if (!has() || open.length === 0) return false; open.pop(); break;
+      case "callSequence": case "stopSequence":
+        if (!has("sequence") || typeof st["sequence"] !== "string" || !SCRIPT_SEQUENCE_NAME.test(st["sequence"])) return false;
+        break;
+      case "fade":
+        if (!has("target", "to", "from", "seconds") || !switchTargetOk(st["target"], c) || !num(st["to"], 0, 1)
+          || (st["from"] !== undefined && !num(st["from"], 0, 1)) || !num(st["seconds"], 0, SWITCH_WAIT_MAX)) return false;
+        break;
+      case "if": if (!test()) return false; open.push("if"); break;
+      case "elseif": if (!test() || open[open.length - 1] !== "if") return false; break;
+      case "else": if (!has() || open[open.length - 1] !== "if") return false; open[open.length - 1] = "else"; break;
+      case "end": { if (!has()) return false; const top = open.pop(); if (top !== "if" && top !== "else") return false; break; }
+      case "while":
+        if (st["game"] !== undefined) { if (!gameOk() || !logicOk(st)) return false; open.push("while"); break; }
+        if (!has("flag", "equals", "test", "not", "open", "close", "more") || !logicOk(st)) return false;
+        // For ever: no test, so no logic.
+        if (st["flag"] === undefined && ["not", "open", "close", "more"].some((x) => st[x] !== undefined)) return false;
+        if (st["flag"] !== undefined || st["equals"] !== undefined || st["test"] !== undefined) {
+          if (typeof st["flag"] !== "string" || !SWITCH_FLAG.test(st["flag"]) || !isPoints10k(st["equals"])
+            || (st["test"] !== undefined && !SCRIPT_FLAG_TESTS.includes(st["test"] as ScriptFlagTest))) return false;
+        }
+        open.push("while");
+        break;
+      case "endWhile": if (!has() || open.pop() !== "while") return false; break;
+      case "loop":
+        if (!has("times", "seconds") || (st["times"] !== undefined && st["seconds"] !== undefined)) return false;
+        if (st["times"] !== undefined && !(Number.isInteger(st["times"]) && num(st["times"], 1, AUDIO_LOOP_MAX))) return false;
+        if (st["seconds"] !== undefined && !num(st["seconds"], 0, SWITCH_WAIT_MAX * 6)) return false;
+        break;
       default: return false;
     }
   }
@@ -963,8 +1181,21 @@ function switchStepsOk(list: unknown, c: SwitchCounts): boolean {
 const isPoints10k = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 9999;
 /** Null when `v` is a good `SwitchScript` for a layout of `c`; else why. */
 export function switchScriptOk(v: unknown, c: SwitchCounts): boolean {
-  if (!isObj(v) || !Object.keys(v).every((k) => k === "steps")) return false;
-  return switchStepsOk(v["steps"], c);
+  if (!isObj(v) || !Object.keys(v).every((k) => k === "steps" || k === "sequences")) return false;
+  if (!switchStepsOk(v["steps"], c)) return false;
+  if (v["sequences"] === undefined) return true;
+  const seqs = v["sequences"];
+  if (!Array.isArray(seqs) || seqs.length > SCRIPT_SEQUENCES_MAX) return false;
+  const names = new Set<string>();
+  for (const q of seqs) {
+    if (!isObj(q) || !Object.keys(q).every((k) => k === "name" || k === "steps") || typeof q["name"] !== "string"
+      || !SCRIPT_SEQUENCE_NAME.test(q["name"]) || q["name"] === SCRIPT_MAIN_SEQUENCE || names.has(q["name"]) || !switchStepsOk(q["steps"], c)) return false;
+    names.add(q["name"]);
+  }
+  // Every call and stop names one of them, or `main`.
+  const lists = [v["steps"] as unknown[], ...seqs.map((q) => (q as Record<string, unknown>)["steps"] as unknown[])];
+  return lists.every((l) => l.every((st) => !isObj(st) || (st["do"] !== "callSequence" && st["do"] !== "stopSequence")
+    || st["sequence"] === SCRIPT_MAIN_SEQUENCE || names.has(st["sequence"] as string)));
 }
 
 /** A switch's map action: a valve's name as `actions.rdr` writes one. */
@@ -1419,14 +1650,23 @@ export function parseLayout(text: string): Layout {
     }),
     ...(raw["objects"] === undefined ? {} : {
       objects: (Array.isArray(raw["objects"]) ? raw["objects"] as unknown[] : [null]).map((o, i): ForgeObject => {
-        if (!forgeObjectOk(o)) throw new Error(`object ${i} is not an ambient effect or a crane: a kind, a map, a name, a place and a turn, an audio script on an ambient`);
+        const counts: SwitchCounts = { pieces: Array.isArray(raw["pieces"]) ? (raw["pieces"] as unknown[]).length : 0,
+          barriers: Array.isArray(raw["barriers"]) ? (raw["barriers"] as unknown[]).length : 0, gates: Array.isArray(raw["gates"]) ? (raw["gates"] as unknown[]).length : 0, objects: Array.isArray(raw["objects"]) ? (raw["objects"] as unknown[]).length : 0 };
+        if (!forgeObjectOk(o, counts)) throw new Error(`object ${i} is not an ambient effect or a crane: a kind, a map, a name, a place and a turn, a script on an ambient`);
         const v = o as Record<string, unknown>;
         const at = v["at"] as number[];
+        const script = objectScriptOf(v, counts);
         return { kind: v["kind"] as ForgeObjectKind, source: v["source"] as string, name: v["name"] as string,
           at: [at[0]!, at[1]!, at[2]!], yaw: v["yaw"] as number, ...(v["locked"] === true ? { locked: true } : {}),
-          ...(v["audio"] !== undefined ? { audio: JSON.parse(JSON.stringify(v["audio"])) as AudioStep[] } : {}) };
+          ...(script ? { script } : {}) };
       }),
     }),
+    ...(raw["mapScript"] === undefined ? {} : (() => {
+      const counts: SwitchCounts = { pieces: Array.isArray(raw["pieces"]) ? (raw["pieces"] as unknown[]).length : 0,
+        barriers: Array.isArray(raw["barriers"]) ? (raw["barriers"] as unknown[]).length : 0, gates: Array.isArray(raw["gates"]) ? (raw["gates"] as unknown[]).length : 0, objects: Array.isArray(raw["objects"]) ? (raw["objects"] as unknown[]).length : 0 };
+      if (!switchScriptOk(raw["mapScript"], counts)) throw new Error("mapScript is not a script of the layout's");
+      return { mapScript: JSON.parse(JSON.stringify(raw["mapScript"])) as ScriptSteps };
+    })()),
     ...(raw["turrets"] === undefined ? {} : {
       turrets: (Array.isArray(raw["turrets"]) ? raw["turrets"] : [null]).map((t, i): TurretMarker => {
         if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
@@ -1507,6 +1747,21 @@ export function parseLayout(text: string): Layout {
         return h;
       }),
     }),
+    ...(raw["movedData"] === undefined ? {} : (() => {
+      const why = movedDataWhy(raw["movedData"]);
+      if (why) throw new Error(why);
+      return { movedData: movedDataOf(raw["movedData"] as Record<string, MovedMapData>) };
+    })()),
+    ...(raw["aiSoil"] === undefined ? {} : (() => {
+      const why = aiSoilWhy(raw["aiSoil"]);
+      if (why) throw new Error(why);
+      return { aiSoil: aiSoilOf(raw["aiSoil"] as Record<string, number>) };
+    })()),
+    ...(raw["geometry"] === undefined ? {} : (() => {
+      const why = geometryRefWhy(raw["geometry"]);
+      if (why) throw new Error(why);
+      return { geometry: raw["geometry"] as string };
+    })()),
     ...(raw["settings"] === undefined ? {} : { settings: parseSettings(raw["settings"]) }),
     ...(raw["objectives"] === undefined ? {} : { objectives: parseObjectives(raw["objectives"]) }),
     ...(raw["ids"] === undefined ? {} : objectiveIdsOf(raw["ids"])),
@@ -1784,7 +2039,7 @@ export type SwitchRow = [gate: number, x: number, y: number, z: number, yaw: num
  */
 export type TriggerRow = [piece: number, health: number, armor: number, shield: number, script: SwitchScript | null, node: string, x: number | null, y: number | null, z: number | null];
 /** A Forge object's record row (`Layout.objects`): its kind, its map ('' an empty's), its name, its place and turn (degrees). */
-export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, audio?: AudioStep[]];
+export type ObjectRow = [kind: ForgeObjectKind, source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: boolean, steps?: ScriptStep[] | AudioStep[], sequences?: ScriptSequence[]];
 /** A placed flare's record row (`Layout.flares`): its source and node name, its place. */
 export type FlareRow = [source: string, name: string, x: number, y: number, z: number, locked?: true];
 /** A placed spectator view's record row (`Layout.scenicViews`): yaw and pitch in degrees, on the lattice. */
@@ -1868,6 +2123,12 @@ export interface CreatorLayoutRecord {
   hidden?: string[];
   /** The base map's own objectives the layout takes out (`Layout.hiddenData`), present only when it has some. */
   hiddenData?: string[];
+  /** The base map's own data objects the layout moves (`Layout.movedData`), present only when it moves some. */
+  movedData?: Record<string, MovedMapData>;
+  /** The base map's AI cells the layout paints (`Layout.aiSoil`), present only when it paints some. */
+  aiSoil?: Record<string, number>;
+  /** The edited world geometry's asset (`Layout.geometry`), present only when the layout edits the base's geometry. */
+  geometry?: string;
   /** The placements' tree (`Layout.tree`), present only when some placement has a parent. */
   tree?: [string, string][];
   /** The Outliner's folders (`Layout.folders`) and its order (`Layout.order`), present only when the layout has some. */
@@ -1898,6 +2159,8 @@ export interface CreatorLayoutRecord {
   triggers?: TriggerRow[];
   /** The Forge objects (`Layout.objects`), present only when the layout has some. */
   objects?: ObjectRow[];
+  /** The map's own script (`Layout.mapScript`): its steps and its sequences, present only when it has some. */
+  mapScript?: ScriptSteps;
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
   missing?: number[];
@@ -1987,10 +2250,66 @@ export function withoutTree<L extends { tree?: unknown; folders?: unknown; order
 /** A taken-out map objective's key (`Layout.hiddenData`): its kind and its name (a node, a hostage, a zone). */
 const HIDDEN_DATA_KEY = /^(hostage|site|zone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:start$|^(slot|respawn):[AB]\d{1,3}$/;
 
+/** A moved map data object's new place (`Layout.movedData`), world units. */
+export interface MovedMapData { at: [number, number, number] }
+/** A moved map data object's key (`Layout.movedData`): its kind and its name or its place among the map's. */
+export const MOVED_DATA_KEY = /^(hostage|taczone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:start$|^(slot|respawn):[AB]\d{1,3}$|^(tacpoint|view):\d{1,4}$/;
+/** The bound on a moved object's place (world units): the record's own sanity bound, as a placement's. */
+const MOVED_DATA_BOUND = 1e6;
+/** Why `raw` is not a `movedData` map, or null. */
+function movedDataWhy(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return "movedData is not a map of moved objects";
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > RECORD_LIMITS.pieces) return "movedData is not a map of moved objects";
+  for (const [key, v] of entries) {
+    if (!MOVED_DATA_KEY.test(key)) return `movedData ${key} is not a map data object's key`;
+    const at = (v as { at?: unknown } | null)?.at;
+    if (typeof v !== "object" || v === null || Object.keys(v).some((k) => k !== "at") || !Array.isArray(at) || at.length !== 3
+      || at.some((n) => typeof n !== "number" || !Number.isFinite(n) || Math.abs(n) > MOVED_DATA_BOUND)) return `movedData ${key} is not a place`;
+  }
+  return null;
+}
+/**
+ * A painted AI cell's key (`Layout.aiSoil`): the sub-map's index (bits 0-5 of a loc, research 75 section 4: 0-63), the
+ * cell's column and row (13 bits each: 0-8191), as `map:x:z`.
+ */
+export const AI_SOIL_KEY = /^(\d{1,2}):(\d{1,4}):(\d{1,4})$/;
+/** The most cells a layout paints: the record's own bound (a blank floor's grid is 800 x 800). */
+export const AI_SOIL_CELLS_MAX = 100_000;
+/** Why `raw` is not an `aiSoil` map, or null: each key a cell's (`AI_SOIL_KEY`, in range), each value a soil (0-31). */
+function aiSoilWhy(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return "aiSoil is not a map of painted cells";
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > AI_SOIL_CELLS_MAX) return "aiSoil is not a map of painted cells";
+  for (const [key, v] of entries) {
+    const m = AI_SOIL_KEY.exec(key);
+    if (!m || Number(m[1]) > 63 || Number(m[2]) > 8191 || Number(m[3]) > 8191) return `aiSoil ${key} is not an AI cell's key`;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 31) return `aiSoil ${key} is not a soil`;
+  }
+  return null;
+}
+/**
+ * An edited geometry's reference (`Layout.geometry`): `geometry:` and its content's SHA-256, 64 lower-case hex digits
+ * (`viewer/src/forge/geometryStore` names each asset so, so the same edits are one asset).
+ */
+export const GEOMETRY_REF = /^geometry:[0-9a-f]{64}$/;
+/** Why `raw` is not a geometry reference, or null. */
+function geometryRefWhy(raw: unknown): string | null {
+  return typeof raw === "string" && GEOMETRY_REF.test(raw) ? null : "geometry is not an edited geometry's reference";
+}
+/** A checked `aiSoil` map, copied. */
+function aiSoilOf(raw: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v]));
+}
+/** A checked `movedData` map, copied. */
+function movedDataOf(raw: Record<string, MovedMapData>): Record<string, MovedMapData> {
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { at: [v.at[0], v.at[1], v.at[2]] as [number, number, number] }]));
+}
+
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
-  "poses"];
+  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "movedData", "aiSoil", "geometry", "tree", "folders", "order", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers", "switches", "triggers", "objects",
+  "poses", "mapScript"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -2154,6 +2473,9 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   };
   if (l.hidden?.length) record.hidden = [...l.hidden];
   if (l.hiddenData?.length) record.hiddenData = [...l.hiddenData];
+  if (l.movedData && Object.keys(l.movedData).length) record.movedData = movedDataOf(l.movedData);
+  if (l.aiSoil && Object.keys(l.aiSoil).length) record.aiSoil = aiSoilOf(l.aiSoil);
+  if (l.geometry) record.geometry = l.geometry;
   if (l.tree?.length) record.tree = l.tree.map(([c, p]) => [c, p] as [string, string]);
   if (l.folders?.length) record.folders = l.folders.map((f) => ({ name: f.name }));
   if (l.order?.length) record.order = [...l.order];
@@ -2198,9 +2520,11 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   if (l.objects?.length) record.objects = l.objects.map((o): ObjectRow => {
     const row: ObjectRow = [o.kind, o.source, o.name, tenth(o.at[0]), tenth(o.at[1]), tenth(o.at[2]), wholeDeg(o.yaw)];
     if (o.locked === true) row[7] = true;
-    if (o.audio) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.audio)) as AudioStep[]; }
+    if (o.script) { row[7] = o.locked === true; row[8] = JSON.parse(JSON.stringify(o.script.steps)) as ScriptStep[]; }
+    if (o.script?.sequences?.length) row[9] = JSON.parse(JSON.stringify(o.script.sequences)) as ScriptSequence[];
     return row;
   });
+  if (l.mapScript?.steps.length || l.mapScript?.sequences?.length) record.mapScript = JSON.parse(JSON.stringify(l.mapScript)) as ScriptSteps;
   if (l.turrets?.length) record.turrets = l.turrets.map((t): TurretRow => {
     const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
     if (t.locked === true) row[6] = true;
@@ -2283,6 +2607,9 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   };
   if (r.hidden?.length) layout.hidden = [...r.hidden];
   if (!isV2(r) && r.hiddenData?.length) layout.hiddenData = [...r.hiddenData];
+  if (!isV2(r) && r.movedData && Object.keys(r.movedData).length) layout.movedData = movedDataOf(r.movedData);
+  if (!isV2(r) && r.aiSoil && Object.keys(r.aiSoil).length) layout.aiSoil = aiSoilOf(r.aiSoil);
+  if (!isV2(r) && r.geometry) layout.geometry = r.geometry;
   if (!isV2(r) && r.tree?.length) layout.tree = r.tree.map(([c, p]) => [c, p] as [string, string]);
   if (!isV2(r) && r.folders?.length) layout.folders = r.folders.map((f) => ({ name: f.name }));
   if (!isV2(r) && r.order?.length) layout.order = [...r.order];
@@ -2310,10 +2637,12 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   if (!isV2(r) && r.triggers?.length) layout.triggers = r.triggers.map(([piece, health, armor, shield, script, node, x, y, z]): PieceTrigger => ({
     ...(node ? { node } : piece >= 0 ? { piece } : {}), ...(x !== null && y !== null && z !== null ? { at: [x, y, z] as [number, number, number] } : {}), health, armor, shield, ...(script ? { script: JSON.parse(JSON.stringify(script)) as SwitchScript } : {}),
   }));
-  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, audio]): ForgeObject => ({
+  // An object's steps (row 8): the one script's, or an older record's audio script read into it (`scriptOfAudio`).
+  if (!isV2(r) && r.objects?.length) layout.objects = r.objects.map(([kind, source, name, x, y, z, yaw, locked, steps, sequences]): ForgeObject => ({
     kind, source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
-    ...(audio ? { audio: JSON.parse(JSON.stringify(audio)) as AudioStep[] } : {}),
+    ...(steps ? { script: { steps: scriptOfAudio(steps as unknown[]), ...(sequences?.length ? { sequences: JSON.parse(JSON.stringify(sequences)) as ScriptSequence[] } : {}) } } : {}),
   }));
+  if (!isV2(r) && r.mapScript) layout.mapScript = JSON.parse(JSON.stringify(r.mapScript)) as ScriptSteps;
   if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
     source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
   }));
@@ -2465,6 +2794,9 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
     if (!Array.isArray(keys) || keys.length === 0 || keys.length > RECORD_LIMITS.pieces) return "hiddenData is not a list of map objectives";
     for (const [i, h] of keys.entries()) if (typeof h !== "string" || !HIDDEN_DATA_KEY.test(h)) return `hiddenData ${i} is not a map objective's key`;
   }
+  if (r["movedData"] !== undefined) { const why = movedDataWhy(r["movedData"]); if (why) return why; }
+  if (r["aiSoil"] !== undefined) { const why = aiSoilWhy(r["aiSoil"]); if (why) return why; }
+  if (r["geometry"] !== undefined) { const why = geometryRefWhy(r["geometry"]); if (why) return why; }
   if (r["npcs"] !== undefined) {
     const npcs = r["npcs"];
     if (!Array.isArray(npcs) || npcs.length === 0 || npcs.length > RECORD_LIMITS.spawns) return "npcs is not a list";
@@ -2526,14 +2858,22 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
       }
     }
   }
+  if (r["mapScript"] !== undefined) {
+    const counts: SwitchCounts = { pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0,
+      barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0, gates: Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0, objects: Array.isArray(r["objects"]) ? (r["objects"] as unknown[]).length : 0 };
+    if (!switchScriptOk(r["mapScript"], counts)) return "mapScript is not a script";
+  }
   if (r["objects"] !== undefined) {
     const rows = r["objects"];
     if (!Array.isArray(rows) || rows.length === 0 || rows.length > RECORD_LIMITS.pieces) return "objects is not a list";
     for (const [i, t] of rows.entries()) {
-      if (!Array.isArray(t) || t.length < 7 || t.length > 9 || (t.length === 8 && t[7] !== true) || (t.length === 9 && typeof t[7] !== "boolean")
+      if (!Array.isArray(t) || t.length < 7 || t.length > 10 || (t.length === 8 && t[7] !== true) || (t.length >= 9 && typeof t[7] !== "boolean")
         || ![t[3], t[4], t[5]].every(inBound) || !isDeg(t[6])
-        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0, ...(t.length === 9 ? { audio: t[8] } : {}) })) {
-        return `object ${i} is not [kind, source, name, x, y, z, yaw, locked?, audio?] of an ambient effect or a crane`;
+        || !forgeObjectOk({ kind: t[0], source: t[1], name: t[2], at: [t[3], t[4], t[5]], yaw: 0,
+          ...(t.length === 10 ? { script: { steps: t[8], sequences: t[9] } } : t.length === 9 ? { audio: t[8] } : {}) }, {
+          pieces: Array.isArray(r["pieces"]) ? (r["pieces"] as unknown[]).length : 0, barriers: Array.isArray(r["barriers"]) ? (r["barriers"] as unknown[]).length : 0,
+          gates: Array.isArray(r["gates"]) ? (r["gates"] as unknown[]).length : 0, objects: rows.length })) {
+        return `object ${i} is not [kind, source, name, x, y, z, yaw, locked?, steps?] of an ambient effect or a crane`;
       }
     }
   }
@@ -2974,6 +3314,9 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
   // objective taken out, a switch, a damage trigger on a prop, a crane (the Forge branch's own) -- still play locally only.
   return [...onlineRefusal(r.requires ?? [], r.mode, r.contentBase),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", r.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(r.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "aiSoil", Object.keys(r.aiSoil ?? {}).length, "AI cells (this layout paints some of the map's)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "geometry", r.geometry ? 1 : 0, "edited world geometry (kept in this browser)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", r.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", r.triggers?.length ?? 0, "damage triggers on props"),
     ...placedRefusal(RECORD_CODES.onlineObjects, "objects", r.objects?.filter((o) => o[0] !== "ambient").length ?? 0, "cranes"),
@@ -3049,6 +3392,9 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
   // FP-1a (main): the placed kinds the room composes admitted; the branch's own kinds it does not, refused (as the record's).
   return [...onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", l.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(l.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "aiSoil", Object.keys(l.aiSoil ?? {}).length, "AI cells (this layout paints some of the map's)"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "geometry", l.geometry ? 1 : 0, "edited world geometry (kept in this browser)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", l.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", l.triggers?.length ?? 0, "damage triggers on props"),
     // An ambient effect plays online (the owner, 2026-11-10: "make it ... such that they will load in online games"): the

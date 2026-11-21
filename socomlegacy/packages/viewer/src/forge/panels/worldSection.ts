@@ -33,7 +33,7 @@ const FOV_MIN_DEG = Math.ceil(verticalDegrees(FOV_HALF_MIN)), FOV_MAX_DEG = Math
 const ZONES_SHOWN = 2;
 
 export function buildWorldSection(doc: Document): WorldSection {
-  const body = forgeEl(doc, 'div', 'fx-world');
+  const body = forgeEl(doc, 'div', 'fx-world fx-prop-table');
   let listeners: ((p: Partial<LayoutSettings>) => void)[] = [];
   let stamp = '';
   const tell = (p: Partial<LayoutSettings>): void => { for (const l of listeners) l(p); };
@@ -130,7 +130,7 @@ export function buildWorldSection(doc: Document): WorldSection {
         }
         const depthValue = forgeEl(doc, 'span', 'fx-setting-value', pct(depth));
         d.addEventListener('input', () => { depthValue.textContent = pct(Number(d.value)); });   // follows the drag
-        grid.append(forgeEl(doc, 'span', 'fx-dim', word), withEnds(d, 'Dry', 'Echoey'), depthValue, t);
+        grid.append(forgeEl(doc, 'span', 'fx-dim', word), withEnds(d, 'Dry', 'Wet'), depthValue, t);
       });
     }
     reverbRow.append(grid);
@@ -145,7 +145,11 @@ export function buildWorldSection(doc: Document): WorldSection {
     const from = forgeEl(doc, 'select', 'fx-select');
     from.dataset['world'] = 'loading-from';
     from.setAttribute('aria-label', 'Loading screen map');
-    from.append(option('', 'Map’s own'), ...v.maps.map(([stem, label]) => option(stem, label)));
+    // Under its header, as every map list of the Forge (the asset browser's): the multiplayer maps.
+    const group = forgeEl(doc, 'optgroup', '');
+    group.label = 'Multiplayer';
+    group.append(...v.maps.map(([stem, label]) => option(stem, label)));
+    from.append(option('', 'Map’s own'), group);
     from.value = l.from ?? '';
     from.disabled = v.locked;
     from.addEventListener('change', () => write({ from: from.value === '' ? null : from.value }));
