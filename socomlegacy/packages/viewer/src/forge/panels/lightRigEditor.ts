@@ -1,5 +1,6 @@
 import type { LightRigSetting } from '../layout';
 import { forgeEl } from '../shell/panel';
+import { ownButton, presetButton, subsection } from './propGrid';
 
 /**
  * A new empty map's environment, edited (the owner, 2026-11-06; a browser adaptation, FG.R2 -- the game has no editor):
@@ -15,6 +16,8 @@ export interface Atmosphere {
   rig: LightRigSetting;
   /** The disc map whose sky dome is copied over the floor ('' none: the fog colour clears the sky). */
   sky: string;
+  /** The clouds' drift, times the map's own (1 its own; `LayoutSettings.cloudSpeed`). */
+  clouds: number;
   fog: { on: boolean; colour: [number, number, number]; near: number; far: number; height: { on: boolean; top: number; bottom: number } };
   /**
    * `NightMission` and `LensFX_NVG`: four floats 0..1, the disc's range (research 84 s14; FP-1b, REVIEW-A 12) -- the
@@ -25,28 +28,30 @@ export interface Atmosphere {
   shadow: [number, number, number];
 }
 
+/** The editor's two groups: the lights, shadows and night; the sky and the fog. */
+export type AtmospherePart = 'lighting' | 'skyFog';
+
 export interface LightRigHooks {
   /** The environment as it plays now: the layout's own, else the built-from map's. */
   get(): Atmosphere;
-  /** Whether the layout holds an environment of its own (Reset shown). */
-  own(): boolean;
+  /** Whether the layout holds its own values for a group (its Reset pressable). */
+  own(part: AtmospherePart): boolean;
   /** The map it is built from (its words). */
   from(): string;
-  /** The disc maps a sky may be copied from. */
-  skyChoices(): readonly (readonly [string, string])[];
-  /** How many flares the layout places. */
-  flares(): number;
+  /** The disc maps a sky may be copied from: stem, words, and whether it is greyed (no dome to copy). */
+  skyChoices(): readonly (readonly [string, string, boolean?])[];
+  /** Whether the sky shown scrolls (its Cloud speed has something to move). */
+  skyScrolls(): boolean;
   preview(a: Atmosphere): void;
   commit(a: Atmosphere): void;
-  reset(): void;
-  /** Preset: a disc map's whole environment copied over this one (the page asks which; one edit). */
-  preset(): void;
+  /** A group back to the map's own values (one edit). */
+  reset(part: AtmospherePart): void;
+  /** Preset: a disc map's values for a group copied over this one's (the page asks which; one edit). */
+  preset(part: AtmospherePart): void;
 }
 
 export interface LightRigEditor {
   body: HTMLDivElement;
-  /** Its note and its Preset and Reset buttons: the page puts them at the panel's top. */
-  top: HTMLDivElement;
   /** Where the page puts the layout's Day / night row (under Light rig) and its Fog distance row (under Fog). */
   slots: { dayNight: HTMLDivElement; fogDistance: HTMLDivElement };
   /** Redrawn from the hooks; `force` (a preset, a reset) redraws even the number field being typed in. */
@@ -99,19 +104,22 @@ const lensHex = (lens: readonly number[]): string => byteHex([lens[0]! * 255, le
 const lensOf = (hex: string): [number, number, number] => bytesOf(hex).map((v) => v / 255) as [number, number, number];
 
 export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightRigEditor {
-  const body = forgeEl(doc, 'div', 'fx-light-rig fx-prop-table');
-  const top = forgeEl(doc, 'div', 'fx-light-rig__top');
-  const note = forgeEl(doc, 'p', 'fx-dim fx-setting-note');
-  const reset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Reset');
-  reset.type = 'button';
-  reset.addEventListener('click', () => hooks.reset());
-  const preset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Preset…');
-  preset.type = 'button';
-  preset.title = "Copy a disc map's light rig, fog, night, shadows and sky into this map";
-  preset.addEventListener('click', () => hooks.preset());
-  const buttons = forgeEl(doc, 'span', 'fx-light-rig__buttons');
-  buttons.append(preset, reset);
-  top.append(note, buttons);
+  // Sub-sections only (the owner, 2026-11-25: "merge some groups, remove some groups that are not needed"): Lighting
+  // (the lights, the shadows, the night) and Sky & fog -- each a foldable group of name and control rows.
+  const body = forgeEl(doc, 'div', 'fx-light-rig fx-subfolds');
+  // Each group's Preset and Reset in its heading (the owner, 2026-11-25).
+  const WORDS: Record<AtmospherePart, string> = { lighting: 'lights, shadows and night', skyFog: 'sky and fog' };
+  const resets = new Map<AtmospherePart, HTMLButtonElement>();
+  const buttonsOf = (part: AtmospherePart): { preset: HTMLButtonElement; reset: HTMLButtonElement } => {
+    const preset = presetButton(doc, `Copy a disc map's ${WORDS[part]} into this map`, false);
+    preset.dataset['rigPreset'] = part;
+    preset.addEventListener('click', () => hooks.preset(part));
+    const reset = ownButton(doc, `Back to the map's own ${WORDS[part]}`, true, false);
+    reset.dataset['rigReset'] = part;
+    reset.addEventListener('click', () => hooks.reset(part));
+    resets.set(part, reset);
+    return { preset, reset };
+  };
 
   // The fields, each telling the editor when it moves (`input`) and when it is set (`change`).
   const fields: HTMLElement[] = [];
@@ -140,10 +148,13 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
     return i;
   };
   const text = (t: string): HTMLSpanElement => forgeEl(doc, 'span', 'fx-dim', t);
-  const section = (title: string, source: string): void => {
-    const h = forgeEl(doc, 'h3', '', title);
-    h.title = source;
-    body.append(h, forgeEl(doc, 'p', 'fx-dim fx-setting-note', source));
+  /** The sub-section the rows that follow go into (`section` opens the next). */
+  let table: HTMLDivElement = forgeEl(doc, 'div', 'fx-prop-table');
+  const section = (title: string, source: string, part: AtmospherePart): void => {
+    const sub = subsection(doc, title, buttonsOf(part));
+    sub.fold.title = source;                                   // where the values come from: on hover, not drawn
+    body.append(sub.fold);
+    table = sub.table;
   };
   /**
    * A property row (the owner, 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
@@ -154,66 +165,59 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
     const value = forgeEl(doc, 'div', 'fx-prop-value');
     value.append(...kids.map((k) => (typeof k === 'string' ? text(k) : k)));
     r.append(forgeEl(doc, 'span', 'fx-light-rig__label fx-prop-label', label), value);
-    body.append(r);
+    table.append(r);
     return r;
   };
 
   // LIGHT RIG: the layout's Day / night first (the page's row, `slots.dayNight`), then each light's colour and strength
   // and where it shines from, and the ambient's colour and strength.
-  section('Light rig', 'GlobalLighting: three directional lights and an ambient');
+  section('Lighting', "GlobalLighting: three directional lights and an ambient; the world root's ShadowVector, NightMission and LensFX_NVG", 'lighting');
   const dayNight = forgeEl(doc, 'div', 'fx-light-rig__slot');
-  body.append(dayNight);
+  table.append(dayNight);
   const lights = [0, 1, 2].map((k) => {
     const l = {
       colour: colour(`Light ${k + 1} colour`), intensity: num(`Light ${k + 1} intensity`, 0, 2, 0.05),
       heading: num(`Light ${k + 1} heading (°)`, 0, 359, 1), elevation: num(`Light ${k + 1} elevation (°)`, -90, 90, 1),
     };
-    row(`Light ${k + 1}`, l.colour, l.intensity, 'from', l.heading, '°,', l.elevation, '° up');
+    row(`Light ${k + 1}`, l.colour, l.intensity, l.heading, l.elevation);   // each field named on hover (no words between)
     return l;
   });
   const ambient = { colour: colour('Ambient colour'), intensity: num('Ambient intensity', 0, 2, 0.05) };
   row('Ambient', ambient.colour, ambient.intensity);
 
-  // SKY: a disc map's own dome over the floor (`../skyDome`), or none.
-  section('Sky', "A disc map's own sky dome, copied over the floor");
-  const skySel = forgeEl(doc, 'select', 'fx-select fx-light-rig__sky');
-  skySel.setAttribute('aria-label', 'Sky');
-  fields.push(skySel);
-  row('Sky from', skySel);
-
-  // FOG: the camera record's -- on, its colour, its distance (near - far), its height band.
-  section('Fog', "cameras/camera: the map's own fog");
-  const fogOn = check('Fog on');
-  row('On', fogOn);
-  const fogColour = colour('Fog colour');
-  row('Colour', fogColour);
-  // The layout's Fog distance (the page's row, `slots.fogDistance`), then its near - far.
-  const fogDistance = forgeEl(doc, 'div', 'fx-light-rig__slot');
-  body.append(fogDistance);
-  const fogNear = num('Fog near (u)', 0, 100000, 10), fogFar = num('Fog far (u)', 100, 100000, 100);
-  row('Distance', fogNear, '–', fogFar, 'u');
-  const heightOn = check('Height fog on');
-  const fogBottom = num('Height fog bottom (u)', -10000, 10000, 1), fogTop = num('Height fog top (u)', -10000, 10000, 1);
-  row('Height fog', heightOn, fogBottom, '–', fogTop, 'u');
+  // SHADOWS: the world root's ShadowVector -- the way the characters' shadows fall.
+  const castHeading = num('Shadows fall toward (heading °)', 0, 359, 1), castDown = num('Shadows fall this steeply (° down)', 1, 90, 1);
+  row('Shadows', castHeading, castDown);
 
   // NIGHT: NightMission (night vision offered) and LensFX_NVG (its lens).
-  section('Night', 'the world root: NightMission, LensFX_NVG');
   const nightOn = check('Night mission');
   row('Night mission', nightOn);
   const lensColour = colour('Night vision lens colour'), lensAlpha = num('Night vision lens alpha', 0, 1, 0.01);
-  row('Night vision lens', lensColour, 'alpha', lensAlpha);
+  row('Night vision lens', lensColour, lensAlpha);
 
-  // SHADOWS: the world root's ShadowVector -- the way the characters' shadows fall.
-  section('Shadows', "the world root's ShadowVector: how the characters' shadows fall");
-  const castHeading = num('Shadows fall toward (heading °)', 0, 359, 1), castDown = num('Shadows fall this steeply (° down)', 1, 90, 1);
-  row('Cast', 'toward', castHeading, '°,', castDown, '° down');
+  // SKY & FOG: a disc map's own dome over the floor (`../skyDome`), or none; then the camera record's fog.
+  section('Sky & fog', "A disc map's own sky dome, copied over the floor; cameras/camera: the map's own fog", 'skyFog');
+  const skySel = forgeEl(doc, 'select', 'fx-select fx-light-rig__sky');
+  skySel.setAttribute('aria-label', 'Sky');
+  fields.push(skySel);
+  row('Sky', skySel);
+  const cloudSpeed = num('Cloud speed (%)', 0, 400, 10);
+  row('Cloud speed', cloudSpeed, '%');
 
-  // REFLECTIONS and FLARES: read here, set elsewhere.
-  section('Reflections', "the world root's Material_Palette: the environment-map pass");
-  row('Materials', "each piece's own map's");
-  section('Flares', 'the scene graph: facade placements (lamp glows, the sun, the moon, the stars)');
-  const flareCount = forgeEl(doc, 'span', 'fx-dim');
-  row('Flares', flareCount);
+  // The fog: on, its colour, its distance (near - far), its height band.
+  const fogOn = check('Fog on');
+  row('Fog', fogOn);
+  const fogColour = colour('Fog colour');
+  row('Fog colour', fogColour);
+  // The layout's Fog distance (the page's row, `slots.fogDistance`), then its near - far.
+  const fogDistance = forgeEl(doc, 'div', 'fx-light-rig__slot');
+  table.append(fogDistance);
+  const fogNear = num('Fog near (u)', 0, 100000, 10), fogFar = num('Fog far (u)', 100, 100000, 100);
+  row('Fog near – far', fogNear, '–', fogFar);
+  const heightOn = check('Height fog on');
+  const fogBottom = num('Height fog bottom (u)', -10000, 10000, 1), fogTop = num('Height fog top (u)', -10000, 10000, 1);
+  row('Height fog', heightOn, fogBottom, '–', fogTop);
+
 
   /** The environment the fields hold now. */
   const read = (): Atmosphere => {
@@ -231,6 +235,7 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
         ambient: rgbOf(ambient.colour.value, n(ambient.intensity, 0, 2, 0.3)),
       },
       sky: skySel.value,
+      clouds: n(cloudSpeed, 0, 400, was.clouds * 100) / 100,
       fog: {
         on: fogOn.checked, colour: bytesOf(fogColour.value),
         near: n(fogNear, 0, 100000, was.fog.near), far: n(fogFar, 100, 100000, was.fog.far),
@@ -247,7 +252,6 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
 
   return {
     body,
-    top,
     slots: { dayNight, fogDistance },
     draw(force = false) {
       const a = hooks.get();
@@ -263,17 +267,27 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
       const amb = colourOf(a.rig.ambient);
       put(ambient.colour, amb.hex); put(ambient.intensity, String(round2(amb.intensity)));
       {
-        const want = [['', 'None (the fog colour)'] as const, ...hooks.skyChoices()];
-        if (skySel.options.length !== want.length || want.some(([v], i) => skySel.options[i]?.value !== v)) {
+        const want: (readonly [string, string, boolean?])[] = [['', 'None (the fog colour)'], ...hooks.skyChoices()];
+        const opts = [...skySel.options];
+        if (opts.length !== want.length || want.some(([v, w, off], i) => opts[i]?.value !== v || (i > 0 && (opts[i]?.textContent !== w || opts[i]?.disabled !== !!off)))) {
           // None first, then the maps under their header, as every map list of the Forge (the asset browser's).
-          const opt = ([v, w]: readonly [string, string]): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', w); o.value = v; return o; };
+          const opt = ([v, w, off]: readonly [string, string, boolean?]): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', w); o.value = v; o.disabled = !!off; return o; };
           const group = forgeEl(doc, 'optgroup', '');
           group.label = 'Multiplayer';
           group.append(...want.slice(1).map(opt));
           skySel.replaceChildren(opt(want[0]!), ...(want.length > 1 ? [group] : []));
         }
         skySel.value = a.sky;
+        // No disc map's sky offered (an official map keeps its own dome, its world's): the field says so, unchangeable.
+        const none = hooks.skyChoices().length === 0;
+        skySel.options[0]!.textContent = none ? 'The map’s own sky' : 'None (the fog colour)';
+        skySel.disabled = none;
       }
+      put(cloudSpeed, String(Math.round(a.clouds * 100)));
+      // A still sky has no drift to speed up (none is made up): the field says so.
+      const scrolls = hooks.skyScrolls();
+      cloudSpeed.disabled = !scrolls;
+      cloudSpeed.title = scrolls ? 'Cloud speed (%) · drag to change, click to type' : 'This sky’s clouds do not move';
       fogOn.checked = a.fog.on;
       put(fogColour, byteHex(a.fog.colour));
       put(fogNear, String(Math.round(a.fog.near))); put(fogFar, String(Math.round(a.fog.far)));
@@ -284,11 +298,11 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
       put(lensColour, lensHex(a.night.lens)); put(lensAlpha, String(round2(a.night.lens[3])));
       const cast = headingOf(a.shadow);
       put(castHeading, String(round1(cast.heading))); put(castDown, String(round1(Math.max(1, -cast.elevation))));
-      flareCount.textContent = `${hooks.flares()} placed · the Flare tool places them`;
-      const own = hooks.own(), from = hooks.from();
-      reset.hidden = !own;
-      reset.title = `Back to ${from}'s own environment`;
-      note.textContent = own ? `This map's own environment · Reset: ${from}'s again` : `${from}'s environment: change any value to make it this map's own`;
+      const from = hooks.from();
+      for (const [part, b] of resets) {
+        b.disabled = !hooks.own(part);
+        b.title = `Back to ${from}'s own ${WORDS[part]}`;
+      }
     },
   };
 }

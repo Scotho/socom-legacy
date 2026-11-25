@@ -107,7 +107,8 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     // D6, D8), where the old right dock's Object tab held it after the Inspector.
     showTab(document, 'map');
     const drawn = [...dockOf(document, 'map').querySelectorAll<HTMLElement>(':scope > .fx-dg-body > details.fx-panel')].map((d) => d.dataset['forgePanel']);
-    expect(drawn.slice(drawn.indexOf('environment'), drawn.indexOf('environment') + 2)).toEqual(['environment', 'rules']);
+    // The light rig is Map Settings' own now (no panel of its own, 2026-11-25): Rules right after the settings.
+    expect(drawn.slice(drawn.indexOf('settings'), drawn.indexOf('settings') + 2)).toEqual(['settings', 'rules']);
     expect(panel().querySelector(':scope > summary')!.textContent).toBe('Rules');
     expect(panel().open).toBe(false);
     expect(panel().querySelectorAll(':scope > .fx-section')).toHaveLength(1);

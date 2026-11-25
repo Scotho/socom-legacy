@@ -1,3 +1,4 @@
+import { ownButton, propRow, subsection } from './propGrid';
 import type { EnvironmentSection } from '../environment';
 import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
 
@@ -14,48 +15,64 @@ export interface EnvironmentDom {
   /** The read-only sections, redrawn by `drawEnvironment` with each base. */
   info: HTMLDivElement;
   /**
-   * The layout lighting (its heading and the Day / night and Fog distance rows) on a disc map; on a new empty map the page
-   * moves the rows into the light rig's own sections (`../panels/lightRigEditor` slots) and hides this (the owner, 2026-11-06).
+   * Where the layout's Day / night and Fog distance rows go on a disc map: first in Lighting, and in Fog before its
+   * distance (the owner, 2026-11-25: no Layout lighting group of their own). On a new empty map the page puts them in
+   * the light rig's own groups (`../panels/lightRigEditor` slots).
    */
-  layout: HTMLDivElement;
+  slots: { dayNight: HTMLDivElement; fogDistance: HTMLDivElement };
+  /** The Lighting and Fog groups' Resets on a disc map (Night / day and Fog distance back to the map's own): the page's. */
+  resets: { lighting: HTMLButtonElement; fog: HTMLButtonElement };
 }
 
 export function buildEnvironment(doc: Document, lightingRows: readonly HTMLElement[]): EnvironmentDom {
-  const body = forgeEl(doc, 'div', 'fx-environment fx-section');
-  const info = forgeEl(doc, 'div', 'fx-environment-info');
-  const layout = forgeEl(doc, 'div', 'fx-environment-layout');
-  layout.append(forgeEl(doc, 'h3', '', 'Layout lighting'), ...lightingRows);
-  body.append(layout, info);
-  return { body, info, layout };
+  // Sub-sections only (the owner, 2026-11-25): the layout's lighting, then the map's own read-only groups.
+  const body = forgeEl(doc, 'div', 'fx-environment fx-section fx-subfolds');
+  const info = forgeEl(doc, 'div', 'fx-environment-info fx-subfolds');
+  const dayNight = forgeEl(doc, 'div', 'fx-light-rig__slot');
+  const fogDistance = forgeEl(doc, 'div', 'fx-light-rig__slot');
+  const [dayNightRow, fogRow] = lightingRows;
+  if (dayNightRow) dayNight.append(dayNightRow);
+  if (fogRow) fogDistance.append(fogRow);
+  body.append(info);
+  const lighting = ownButton(doc, 'Back to the map’s own night / day', false, false);
+  lighting.dataset['envReset'] = 'lighting';
+  const fog = ownButton(doc, 'Back to the map’s own fog distance', false, false);
+  fog.dataset['envReset'] = 'fog';
+  return { body, info, slots: { dayNight, fogDistance }, resets: { lighting, fog } };
 }
 
 /** The read-only sections drawn: a heading and its source each, then its rows (a swatch where a row has a colour). */
 export function drawEnvironment(dom: EnvironmentDom, sections: readonly EnvironmentSection[]): void {
   const doc = dom.info.ownerDocument;
   if (sections.length === 0) {
-    dom.info.replaceChildren(forgeEl(doc, 'h3', '', 'Map'), forgeEl(doc, 'p', 'fx-dim fx-setting-note', 'Load a map to see its light rig, fog and the rest.'));
+    const none = subsection(doc, 'Map');
+    none.table.append(propRow(doc, 'Map', forgeEl(doc, 'span', 'fx-dim', 'None loaded')));
+    dom.info.replaceChildren(none.fold);
     return;
   }
   const out: HTMLElement[] = [];
   for (const s of sections) {
-    const head = forgeEl(doc, 'h3', '', s.title);
-    head.title = s.source;
-    const list = forgeEl(doc, 'dl', 'fx-env-rows');
-    list.dataset['envSection'] = s.title;
+    // A read-only group: a sub-section of name and value rows, its source on hover (no line of explanation).
+    const reset = s.title === 'Lighting' ? dom.resets.lighting : s.title === 'Fog' ? dom.resets.fog : null;
+    const sub = subsection(doc, s.title, { reset });
+    sub.fold.title = `Read only · ${s.source}`;
+    sub.table.dataset['envSection'] = s.title;
+    if (s.title === 'Lighting') sub.table.append(dom.slots.dayNight);
     for (const r of s.rows) {
-      const dt = forgeEl(doc, 'dt', '', r.label);
-      const dd = forgeEl(doc, 'dd', '');
+      if (s.title === 'Fog' && r.label === 'Distance') sub.table.append(dom.slots.fogDistance);
+      const parts: HTMLElement[] = [];
       if (r.swatch) {
         const sw = forgeEl(doc, 'span', 'fx-env-swatch');
         sw.style.background = r.swatch;
         sw.title = r.swatch;
-        dd.append(sw);
+        parts.push(sw);
       }
-      dd.append(forgeEl(doc, 'span', '', r.value));
-      if (r.note) dd.title = r.note;
-      list.append(dt, dd);
+      parts.push(forgeEl(doc, 'span', '', r.value));
+      const row = propRow(doc, r.label, ...parts);
+      if (r.note) row.title = r.note;
+      sub.table.append(row);
     }
-    out.push(head, forgeEl(doc, 'p', 'fx-dim fx-setting-note', `Read only · ${s.source}`), list);
+    out.push(sub.fold);
   }
   dom.info.replaceChildren(...out);
 }

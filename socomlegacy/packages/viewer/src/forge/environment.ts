@@ -19,10 +19,6 @@ export interface EnvironmentSource {
   night?: { mission: boolean; lens: readonly [number, number, number, number] | null };
   /** `LoadedMap.shadowVector`: the world root's `ShadowVector`, the way the characters' shadows are cast. */
   shadowVector?: V3;
-  /** `LoadedMap.envMaterials`: the world root's reflection materials (`Material_Palette`). */
-  envMaterials?: readonly { texture: string }[];
-  /** How many flares the drawn world holds (`../world` `WorldView.flares`). */
-  flares: number;
   /** The layout's retired dimmer (`LayoutSettings.light`) when it is below 1, else null: shown, not offered. */
   legacyLight: number | null;
 }
@@ -63,6 +59,7 @@ function castWords(d: V3): string {
 /** The panel's read-only sections for one map, only those it has; none with no map. */
 export function environmentSections(src: EnvironmentSource): EnvironmentSection[] {
   const out: EnvironmentSection[] = [];
+  const lighting: EnvironmentRow[] = [];
   if (src.rig) {
     const rows: EnvironmentRow[] = src.rig.directions.map((d, k): EnvironmentRow => {
       const c = src.rig!.colours[k] ?? [0, 0, 0];
@@ -72,7 +69,23 @@ export function environmentSections(src: EnvironmentSource): EnvironmentSection[
         : { label: `Light ${k + 1}`, value: directionWords(d), swatch: rgbHex(c), note: `rgb ${fixed(c)}` };
     });
     rows.push({ label: 'Ambient', value: `rgb ${fixed(src.rig.ambient)}`, swatch: rgbHex(src.rig.ambient) });
-    out.push({ title: 'Light rig', source: 'GlobalLighting (MP*.ZED): three directional lights and an ambient', rows });
+    lighting.push(...rows);
+  }
+  // The shadows and the night in the same group (the owner, 2026-11-25: "merge some groups").
+  if (src.shadowVector) lighting.push({ label: 'Shadows', value: castWords(src.shadowVector) });
+  if (src.night) {
+    const lens = src.night.lens;
+    lighting.push(
+      { label: 'Night mission', value: src.night.mission ? 'Yes' : 'No' },
+      // The lens is the disc's 0..1 floats (FP-1b, REVIEW-A 12): shown as a colour, never read as bytes.
+      lens ? { label: 'Night vision lens', value: `${rgbHex([lens[0], lens[1], lens[2]])} · alpha ${lens[3]}`, swatch: rgbHex([lens[0], lens[1], lens[2]]) } : { label: 'Night vision lens', value: 'None' },
+    );
+  }
+  if (src.legacyLight !== null) {
+    lighting.push({ label: 'Legacy brightness', value: `${Math.round(src.legacyLight * 100)}%`, note: "This layout's retired brightness dimmer, kept as it was saved · moving Day / night clears it" });
+  }
+  if (lighting.length) {
+    out.unshift({ title: 'Lighting', source: "GlobalLighting (MP*.ZED): three directional lights and an ambient; the world root's ShadowVector, NightMission and LensFX_NVG", rows: lighting });
   }
   if (src.camera) {
     const f = src.camera;
@@ -83,34 +96,7 @@ export function environmentSections(src: EnvironmentSource): EnvironmentSection[
       { label: 'Height fog', value: f.fogAltitude ? `${Math.round(f.fogBottom)} – ${Math.round(f.fogTop)} u` : 'Off' },
     ] });
   }
-  if (src.night) {
-    const lens = src.night.lens;
-    out.push({ title: 'Night', source: 'the world root: NightMission, LensFX_NVG', rows: [
-      { label: 'Night mission', value: src.night.mission ? 'Yes' : 'No' },
-      // The lens is the disc's 0..1 floats (FP-1b, REVIEW-A 12): shown as a colour, never read as bytes.
-      lens ? { label: 'Night vision lens', value: `${rgbHex([lens[0], lens[1], lens[2]])} · alpha ${lens[3]}`, swatch: rgbHex([lens[0], lens[1], lens[2]]) } : { label: 'Night vision lens', value: 'None' },
-    ] });
-  }
-  if (src.shadowVector) {
-    out.push({ title: 'Shadows', source: "the world root's ShadowVector: how the characters' shadows fall", rows: [
-      { label: 'Cast', value: castWords(src.shadowVector) },
-    ] });
-  }
-  if (src.envMaterials) {
-    const names = src.envMaterials.map((m) => m.texture);
-    out.push({ title: 'Reflections', source: "the world root's Material_Palette: the environment-map pass", rows: [
-      { label: 'Materials', value: names.length ? `${names.length} · ${names.join(', ')}` : 'None' },
-    ] });
-  }
-  if (src.rig || src.camera) {
-    out.push({ title: 'Flares', source: 'the scene graph: facade placements (lamp glows, the sun, the moon, stars)', rows: [
-      { label: 'Flares', value: `${src.flares} · Outliner: Map Data › Flares`, note: 'Their glows: Billboards › Flare glows' },
-    ] });
-  }
-  if (src.legacyLight !== null) {
-    out.push({ title: 'Layout', source: "this layout's retired brightness dimmer, kept as it was saved", rows: [
-      { label: 'Legacy brightness', value: `${Math.round(src.legacyLight * 100)}%`, note: 'Moving Day / night clears it' },
-    ] });
-  }
+  // No Reflections and no Flares group (the owner, 2026-11-25: "flares and reflections is not useful (unless I can
+  // change them)"): neither is set here -- the flares are placed and listed in the Outliner.
   return out;
 }

@@ -422,6 +422,26 @@ describe('Build: the hull from the edited geometry', () => {
     expect(Array.from(built.points)).toEqual(Array.from(m.ground.points));
   });
 
+  it('a hidden node (its m_active off at the load, the Outliner’s eye): its owner’s flag bit 0 clear, its polygons kept, the other node’s owner as read', () => {
+    const m = map();
+    const g = geometryOfMap(m);
+    g.objects[0]!.hidden = true;
+    const built = buildHull(g)!;
+    expect(Array.from(built.points)).toEqual(Array.from(m.ground.points));
+    expect((built.owners[0]!.flags ?? 0) & 1).toBe(0);
+    expect(built.owners[1]!.flags).toBe(m.ground.owners[1]!.flags);
+    expect(compileDraws(g).reduce((n, d) => n + d.indices.length, 0)).toBeLessThan(compileDraws(geometryOfMap(m)).reduce((n, d) => n + d.indices.length, 0));
+  });
+
+  it('a hidden made solid builds no hull of its own', () => {
+    const g = geometryOfMap(map());
+    const before = buildHull(g)!.fields.length;
+    const o = addObject(g, { name: 'Box', kind: 'box', mesh: box([0, 0, 0], [1, 1, 1], OPTS), solid: [3, 0, 0, 0, 0] });
+    expect(buildHull(g)!.fields.length).toBeGreaterThan(before);
+    o.hidden = true;
+    expect(buildHull(g)!.fields.length).toBe(before);
+  });
+
   it('a node moved whole carries its own hull, the other node’s left', () => {
     const g = geometryOfMap(map());
     transformObject(g.objects[0]!, translation([10, 0, 0]));

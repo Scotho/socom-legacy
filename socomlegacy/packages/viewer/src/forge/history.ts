@@ -220,10 +220,10 @@ export const SELECT_LABEL = 'Select';
  * a transaction): a step of its own, the layout and the geometry as the current step has them, the selection `sel`
  * (`picked`, its placements). No step when the current one shows the same selection already; true when one was made.
  */
-export function recordSelection(history: History<string>, picked: readonly string[], sel: string): boolean {
+export function recordSelection(history: History<string>, picked: readonly string[], sel: string, label: string = SELECT_LABEL): boolean {
   const cur = decodeHistoryStep(history.current());
   if (cur.sel === sel) return false;
-  history.record(encodeHistoryStep(cur.text, picked, { label: SELECT_LABEL, actor: HUMAN_ACTOR, domain: 'layout' }, cur.geo, sel));
+  history.record(encodeHistoryStep(cur.text, picked, { label, actor: HUMAN_ACTOR, domain: 'layout' }, cur.geo, sel));
   return true;
 }
 

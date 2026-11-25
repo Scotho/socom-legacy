@@ -1,3 +1,4 @@
+import { SKY_DOME_TEXTURE_ADAPTATION } from './skyDome';
 import type { GlobalLighting } from '@s2u/scene';
 import type { LoadedMap } from '../loadMap';
 import type { LayoutBase, LayoutSettings } from './layout';
@@ -16,6 +17,17 @@ import type { skyDomeFor } from './skyDome';
  * 2026-11-13, MISSION OT.R112): FP-1b's "a disc map keeps its own" holds for a match NOT started from the Forge, which
  * never comes through this chain (pinned, `test/forge/ownEnvironment.test.ts`).
  */
+/**
+ * The sky's clouds at `speed` times the map's own drift (`LayoutSettings.cloudSpeed`): each world part of a sky or cloud
+ * texture (`SKY_DOME_TEXTURE_ADAPTATION`) that scrolls, its band scaled; null or 1, the map as it is.
+ */
+export function withCloudSpeed(map: LoadedMap, speed: number | null | undefined): LoadedMap {
+  if (speed === null || speed === undefined || speed === 1) return map;
+  const sky = (m: LoadedMap['world'][number]): boolean => !!m.scroll && m.textureName !== null && SKY_DOME_TEXTURE_ADAPTATION.test(m.textureName);
+  if (!map.world.some(sky)) return map;
+  return { ...map, world: map.world.map((m) => (sky(m) ? { ...m, scroll: [m.scroll![0] * speed, m.scroll![1] * speed] as [number, number] } : m)) };
+}
+
 export function withLayoutEnvironment(
   aimed: LoadedMap, own: LayoutSettings, base: LayoutBase['kind'], skyDome: ReturnType<typeof skyDomeFor> | null,
 ): LoadedMap {
@@ -32,7 +44,7 @@ export function withLayoutEnvironment(
     // A colour chosen is a fog to see: on, whatever the built-from map's camera had.
     ...(own.fogColor && aimed.camera ? { camera: { ...aimed.camera, fogEnabled: true, fogColor: [...own.fogColor] as [number, number, number] } } : {}),
   };
-  const m = withSettings(lit, own);
+  const m = withCloudSpeed(withSettings(lit, own), own.cloudSpeed);
   const f = own.fog, cam = m.camera;
   return {
     ...m,

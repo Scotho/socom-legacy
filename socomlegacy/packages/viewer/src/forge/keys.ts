@@ -95,9 +95,9 @@ export function forgeToolKeyHelp(nameOf: (tool: ForgeToolKey) => string): [strin
 }
 
 export type ForgeKeyAction =
-  | 'undo' | 'redo' | 'copy' | 'paste' | 'cut' | 'openLayout' | 'saves' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
+  | 'undo' | 'redo' | 'copy' | 'paste' | 'cut' | 'openLayout' | 'saves' | 'saveAs' | 'closeLayout' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
   | { tool: ForgeToolKey } | 'translate' | 'rotate' | 'scale' | 'snap'
-  | 'delete' | 'frame' | 'docks' | 'deselect' | 'space' | 'group' | 'ungroup' | 'selectAll' | 'invert'
+  | 'delete' | 'frame' | 'docks' | 'hide' | 'hideOthers' | 'unhideAll' | 'deselect' | 'space' | 'group' | 'ungroup' | 'selectAll' | 'invert'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
   | { menu: MenuInput };
 
@@ -115,8 +115,9 @@ function flyKey(e: ForgeKeyEvent): boolean {
 
 /** The General commands' actions, in the list's order (each tried where it applies, Geometry mode too). */
 const GENERAL: readonly [string, ForgeKeyAction][] = [
-  ['app.undo', 'undo'], ['app.redo', 'redo'], ['app.open', 'openLayout'], ['app.saves', 'saves'],
-  ['app.docks', 'docks'], ['app.translate', 'translate'], ['app.rotate', 'rotate'], ['app.scale', 'scale'], ['app.space', 'space'],
+  ['app.undo', 'undo'], ['app.redo', 'redo'], ['app.open', 'openLayout'], ['app.saves', 'saves'], ['app.saveAs', 'saveAs'], ['app.close', 'closeLayout'],
+  ['app.docks', 'docks'], ['app.hide', 'hide'], ['app.hideOthers', 'hideOthers'], ['app.unhideAll', 'unhideAll'],
+  ['app.translate', 'translate'], ['app.rotate', 'rotate'], ['app.scale', 'scale'], ['app.space', 'space'],
   ['app.menu', 'menu'],
 ];
 /** The Forge editor's own (outside Geometry mode). */

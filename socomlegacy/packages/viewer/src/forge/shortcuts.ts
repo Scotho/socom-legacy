@@ -59,8 +59,18 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommand[] = [
   c('app.copy', 'Copy', 'General', EVERYWHERE, ['Ctrl+KeyC']),
   c('app.paste', 'Paste', 'General', EVERYWHERE, ['Ctrl+KeyV']),
   c('app.open', 'Open…', 'General', EVERYWHERE, ['Ctrl+KeyO']),
-  c('app.saves', 'Saves…', 'General', EVERYWHERE, ['Ctrl+KeyS']),
-  c('app.docks', 'Show / hide the docks', 'General', EVERYWHERE, ['KeyH']),
+  // File > Save, Save as and Close (the owner, 2026-11-25); the id `app.saves` kept, so a person's own keys for it stay.
+  c('app.saves', 'Save', 'General', EVERYWHERE, ['Ctrl+KeyS']),
+  c('app.saveAs', 'Save as…', 'General', EVERYWHERE, ['Ctrl+Shift+KeyS']),
+  c('app.close', 'Close layout', 'General', EVERYWHERE, []),
+  c('app.docks', 'Show / hide the docks', 'General', EVERYWHERE, []),   // H given to Hide selected (the owner, 2026-11-24)
+  // The quick hide (the owner, 2026-11-24: "the same quick hide/isolate objects, same shortcuts as" the reference editor's;
+  // the editor's view alone, never the layout's or a match's: `./quickHide`).
+  c('app.hide', 'Hide selected (for now)', 'General', EVERYWHERE, ['KeyH'], 'mode', 'Editor only: not saved, never in a match'),
+  // Ctrl+H beside Shift+H (the owner, 2026-11-24: "press ctrl + h, I expect ... hidden except for my object selected"):
+  // the page takes it over from the browser's History while it has the keys (`keyIssues` says so in the editor).
+  c('app.hideOthers', 'Hide unselected (isolate)', 'General', EVERYWHERE, ['Shift+KeyH', 'Ctrl+KeyH'], 'mode', 'Editor only: not saved, never in a match'),
+  c('app.unhideAll', 'Unhide all', 'General', EVERYWHERE, ['KeyU']),
   c('app.translate', 'Gizmo: Move', 'General', EVERYWHERE, ['KeyW']),
   c('app.rotate', 'Gizmo: Rotate', 'General', EVERYWHERE, ['KeyE']),
   c('app.scale', 'Gizmo: Scale', 'General', EVERYWHERE, ['KeyR']),

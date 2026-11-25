@@ -9,7 +9,7 @@ import type { BombSite, Layout, LayoutBase, LayoutSettings, NpcMarker } from './
 import { composeMatchMap } from './matchMap';
 import { breachReady } from './objectives';
 import { withLayoutEnvironment } from './ownEnvironment';
-import { withPieceInstances, withPlacedAccess, type AccessTemplate, type SwitchLook, type SwitchLookId } from './placedAccess';
+import { withInactivePieces, withPieceInstances, withPlacedAccess, type AccessTemplate, type SwitchLook, type SwitchLookId } from './placedAccess';
 import { withPlacedDoors, type DoorTemplate } from './placedDoors';
 import { withPlacedFlares, type FlareTemplate } from './placedFlares';
 import { withPlacedPoints, withPlacedViews } from './placedPoints';
@@ -92,6 +92,8 @@ export function composeLayoutObjects(i: LayoutObjectsInput) {
   // The map script's and a scripted Forge object's hides reach the pieces too.
   if (layout.switches?.some((sw) => sw.script || sw.piece !== undefined) || layout.triggers?.length || layout.mapScript
     || layout.objects?.some((o) => o.script)) accessed.map = withPieceInstances(accessed.map, i.pieceOwners);
+  // The pieces whose node is off at the load (`Piece.active`, the Outliner's eye): placed nodes inactive from the start.
+  accessed.map = withInactivePieces(accessed.map, layout.pieces, pieceOwner);
   const flared = withPlacedFlares(accessed.map, layout.flares, i.flareOf).map;
   return { composed, played, why: played.why, turreted, doored, accessed, flared };
 }

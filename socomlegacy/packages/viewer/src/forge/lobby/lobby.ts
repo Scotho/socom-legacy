@@ -55,6 +55,8 @@ export interface ForgeLobby {
   notice(text: string): void;
   /** FG-26: the window shown or hidden (the forge's START menu and toolbar): hidden, it stays mounted and the voice runs. */
   setShown(on: boolean): void;
+  /** A key pressed while the ARMORY shows (`ForgeLobbyArmory.key`): true when it took it. */
+  key(code: string): boolean;
   /** Everything let go: the seam's listeners, the voice, the ARMORY, the window. */
   dispose(): void;
 }
@@ -252,6 +254,7 @@ export function mountForgeLobby(host: HTMLElement, deps: ForgeLobbyDeps, o: Forg
     talk: (down) => { voice.talk('pad', down); },
     notice: (text) => { if (!gone) view.notice(text); },
     setShown: (on) => { if (gone) return; win.root.hidden = !on; prev = null; },
+    key: (code) => !gone && screen === 'armory' && armory.key(code),
     dispose: () => {
       if (gone) return;
       gone = true;

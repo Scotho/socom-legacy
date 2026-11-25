@@ -29,23 +29,20 @@ const map: MapArsenal = {
 const kits = { table: { arsenal }, map } as unknown as SimKits;
 
 describe('Map Settings: the match rows', () => {
-  it('RESPAWN and EQlimit are rows of the dock and the START menu, with the game\'s words', () => {
-    expect(MAP_SETTING_ROWS.map((r) => r.id)).toEqual(expect.arrayContaining(['respawn', 'eqLimit']));
+  it('the lobby creator\'s own settings are no rows of the dock or the START menu (the owner, 2026-11-25); their words still format', () => {
+    const lobbys = ['players', 'rounds', 'roundSeconds', 'friendlyFire', 'respawn', 'eqLimit', 'npcBehaviour'];
+    expect(MAP_SETTING_ROWS.map((r) => r.id).filter((id) => lobbys.includes(id))).toEqual([]);
     expect(formatSetting('respawn', { ...DEFAULT_SETTINGS, respawn: true }, 0)).toBe('On');
     expect(['None', 'Pistols only', 'Shotguns only', 'Snipers only', 'No bombs'].map((_, i) => formatSetting('eqLimit', { ...DEFAULT_SETTINGS, eqLimit: i }, 0)))
       .toEqual(['None', 'Pistols only', 'Shotguns only', 'Snipers only', 'No bombs']);
     const dom = buildSettings(document);
-    expect(dom.body.contains(dom.respawnIn) && dom.body.contains(dom.eqSel)).toBe(true);
-    expect([...dom.eqSel.options].map((o) => o.value)).toEqual(['0', '1', '2', '3', '4']);
-    const calls: string[] = [];
+    expect(dom.body.contains(dom.respawnIn) || dom.body.contains(dom.eqSel)).toBe(false);
     const hooks: SettingsMenuHooks = {
       settings: () => DEFAULT_SETTINGS, discFar: () => 0, gameTypeLabel: () => '', cycleGameType: () => {}, resetFog: () => {}, resetLighting: () => {},
-      locked: () => false, step: (k, d) => { calls.push(`${k} ${d}`); },
+      locked: () => false, step: () => {},
     };
-    const items = settingsMenuSection(hooks);
-    items.find((i) => i.id === 'setting-respawn')!.act!();
-    items.find((i) => i.id === 'setting-eqLimit')!.right!();
-    expect(calls).toEqual(['respawn 1', 'eqLimit 1']);
+    const ids = settingsMenuSection(hooks).map((i) => i.id);
+    for (const id of lobbys) expect(ids, id).not.toContain(`setting-${id}`);
   });
 });
 

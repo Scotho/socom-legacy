@@ -356,7 +356,7 @@ function silent(archive: string, missing: string[]): SoundData {
  * surfaces' are, so one the map's banks lack is borrowed as any missing sound is (`borrowMissing`). The original's map
  * has only its own surfaces; a layout made of another's would be silent on it.
  */
-export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }, lend: readonly SoundLend[] = [], surfacesIn?: LayoutSurfaces): Promise<SoundData> {
+export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }, lend: readonly SoundLend[] = [], surfacesIn?: LayoutSurfaces, ambienceFrom?: { path: string; archive: string }): Promise<SoundData> {
   const cues = cuesFrom ?? { path: mapPath, archive };
   const files = [...SOUND_BANK_KINDS.map((k) => `${archive}_${k}.bnk`), ...SOUND_GLOBAL_BANKS];
   let found: Map<string, Uint8Array>;
@@ -470,6 +470,7 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     }
     // The camera-state scripts' start/stop walk (research 81 §10): the beds and the replayed one-shots of each side.
     layers = ambienceLayers(archives, payload);
+    if (ambienceFrom && ambienceFrom.archive !== archive) layers = await lentAmbience(source, ambienceFrom, banks, layers, missing);
     for (const side of ['outside', 'inside'] as const) {
       for (const l of layers[side]) if (l.kind === 'loop' && !beds[side].includes(l.sound)) beds[side].push(l.sound);
     }
@@ -715,6 +716,53 @@ export interface SoundEmitter { anim: string; sound: string; node: string; posit
 
 /** Sounds a forge switch plays from a map (`soundFromDisc` `lend`): the map's archive stem and the names. */
 export interface SoundLend { from: string; names: readonly string[] }
+
+/**
+ * `ambienceFrom` (the owner, 2026-11-25: "add the ambient sound"; a browser adaptation, FG.R2 -- `LayoutSettings.ambience`):
+ * another disc map's ambience -- its camera-state scripts' layers (`ambienceLayers` over its `CZANIM.ZAR` and
+ * `MZANIM.ZAR`), their sounds out of its own banks, put ahead of the map's (`banks`: the first bank holding a name is the
+ * one played, `GameAudio`'s lookup and `renderAmbienceLoops` alike), since every map names its beds alike
+ * (`~OUTDOOR_AMB`, `~INDOOR_AMB`). The map's own layers back where the donor's will not read, or name none (`missing`).
+ */
+async function lentAmbience(source: AssetSource, from: { path: string; archive: string }, banks: SoundData['banks'], own: AmbienceLayers, missing: string[]): Promise<AmbienceLayers> {
+  const zars: Zar[] = [];
+  const archives: ZAnimArchive[] = [];
+  for (const member of ['CZANIM.ZAR', 'MZANIM.ZAR'] as const) {
+    try {
+      const zar = Zar.parse(await readZdbMember(source, from.path, member));
+      archives.push(parseAnimSets(zar));
+      zars.push(zar);
+    } catch (e) { missing.push(`${from.path} ${member} (the ambience): ${why(e)}`); }
+  }
+  const payload: ZAnimPayload = (set, anim, offset, length) => {
+    for (const z of zars) {
+      const key = z.find(`Anim_Sets/${set}/Animation_List/${anim}/Seq_Data`);
+      if (key && offset + length <= key.size) return z.data(key).subarray(offset, offset + length);
+    }
+    return null;
+  };
+  const layers = archives.length ? ambienceLayers(archives, payload) : { outside: [], inside: [] };
+  const names = [...new Set([...layers.outside, ...layers.inside].map((l) => l.sound))];
+  if (!names.length) { missing.push(`${from.archive}: no ambience to lend`); return own; }
+  const files = mapBankFiles(from.archive);
+  let read: Map<string, Uint8Array>;
+  try { read = await readZarMembers(source, SOUND_BANKS_PATH, files); } catch (e) { missing.push(`${from.archive} banks (the ambience): ${why(e)}`); return own; }
+  const lent: SoundData['banks'] = [];
+  const left = new Set(names);
+  for (const file of files) {
+    const bytes = read.get(file);
+    if (!bytes || !left.size) continue;
+    let held: string[] = [];
+    try { held = [...parseBankFile(bytes).names.keys()].filter((n) => left.has(n) || left.has(n.trim())); } catch { continue; }
+    if (!held.length) continue;
+    for (const n of held) left.delete(n.trim());
+    lent.push({ file, bytes: bytes.slice(), only: held });
+  }
+  if (!lent.length) { missing.push(`${from.archive}: its ambience's sounds are in none of its banks`); return own; }
+  for (const n of left) missing.push(`${from.archive} ambience: no ${n}`);
+  banks.unshift(...lent);
+  return layers;
+}
 
 /** A forge layout's surfaces by SOILS name (`soundFromDisc` `surfacesIn`): its floors', and every polygon's. */
 export interface LayoutSurfaces { floors: readonly string[]; all: readonly string[] }

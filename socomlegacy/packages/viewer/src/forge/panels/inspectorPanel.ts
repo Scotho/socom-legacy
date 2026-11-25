@@ -36,6 +36,8 @@ export interface InspectorDom {
   resetRotation: HTMLButtonElement;
   resetScale: HTMLButtonElement;
   lock: HTMLButtonElement;
+  /** The selection's eye (the owner, 2026-11-24): its nodes off or on at the map's load, as the Outliner's eye. */
+  vis: HTMLButtonElement;
   /** The selection's own record, read only, under the transform (`showInspectorData`); hidden with none. */
   data: HTMLDListElement;
 }
@@ -95,6 +97,9 @@ export function buildInspector(doc: Document, resetIcon = ''): InspectorDom {
   lock.type = 'button';
   lock.title = 'Lock the selection: it cannot be selected or moved until it is unlocked in the outliner';
   lock.disabled = true;
+  const vis = forgeEl(doc, 'button', 'fx-lock fx-lock-icon fx-vis-icon', '');
+  vis.type = 'button';
+  vis.hidden = true;
   const data = forgeEl(doc, 'dl', 'fx-inspect-data');
   data.hidden = true;
   /**
@@ -116,8 +121,9 @@ export function buildInspector(doc: Document, resetIcon = ''): InspectorDom {
   };
   // The lock in the head, left of the kind at its right, on the same line (the owner, 2026-11-11); an icon (the page's).
   name.after(lock);
+  lock.before(vis);                                            // the eye left of the lock (the owner, 2026-11-24)
   body.append(head, section('transform', 'Transform', fields), section('properties', 'Properties', data));
-  return { body, head, name, kind, fields, x, y, z, pitch, yaw, roll, sx, sy, sz, resetPosition, resetRotation, resetScale, lock, data };
+  return { body, head, name, kind, fields, x, y, z, pitch, yaw, roll, sx, sy, sz, resetPosition, resetRotation, resetScale, lock, vis, data };
 }
 
 /** A data row's value: a number to three places, a list of numbers on one line, anything else as text. */
@@ -318,6 +324,16 @@ function holdWhileOpen(data: HTMLElement, s: HTMLSelectElement): void {
   s.addEventListener('keydown', (k) => { if (k.key === 'Escape' || k.key === 'Enter' || k.key === 'Tab') close(); });
 }
 
+/**
+ * A record's key as words (the owner, 2026-11-25: every object's properties exposed, read as a person reads them):
+ * `modelName` "Model name", `bombFile.range` "Bomb file · range", `kit.0.slot` "Kit 1 · slot"; the key on hover.
+ */
+export function propertyWords(key: string): string {
+  const parts = key.split('.').map((p) => (/^\d+$/.test(p) ? String(Number(p) + 1) : p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase()));
+  const joined = parts.reduce((out, p, i) => (i === 0 ? p : /^\d+$/.test(p) ? `${out} ${p}` : `${out} · ${p}`), '');
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
 export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonly (readonly [string, string])[], editors: readonly InspectorEditor[] = []): void {
   const doc = dom.data.ownerDocument;
   const held = heldOpen.get(dom.data);
@@ -469,13 +485,42 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
     }
     return spaced(e, [dt, dd]);
   });
-  const shown = rows.filter(([k]) => !covered.has(k));
-  const readOnly = shown.flatMap(([k, v]) => [forgeEl(doc, 'dt', '', k), forgeEl(doc, 'dd', '', v)]);
+  // A field shown once (the owner, 2026-11-25: every property exposed, none twice): a read-only row whose words an editor
+  // already shows, or an earlier row does (a record's `team` beside the placement's own), left out.
+  const seenWords = new Set(editors.map((e) => propertyWords(e.label).toLowerCase()));
+  const shown = rows.filter(([k]) => {
+    if (covered.has(k)) return false;
+    const w = propertyWords(k).toLowerCase();
+    if (seenWords.has(w)) return false;
+    seenWords.add(w);
+    return true;
+  });
+  const pair = ([k, v]: readonly [string, string]): HTMLElement[] => { const dt = forgeEl(doc, 'dt', '', propertyWords(k)); dt.title = k; return [dt, forgeEl(doc, 'dd', '', v)]; };
+  // The object's id first of all (the owner, 2026-11-25: "for objects that have an id, move the id at the top of the
+  // list"), the rest of the read-only rows where they were.
+  const idRow = shown.filter(([k]) => k === 'id').flatMap(pair);
+  const readOnly = shown.filter(([k]) => k !== 'id').flatMap(pair);
   // The read-only rows before a script's steps (`stepsStart`), else after every field.
   const at = editors.findIndex((e) => e.stepsStart);
   const fields = perEditor.flat();
-  const ordered = at < 0 ? [...fields, ...readOnly] : [...perEditor.slice(0, at).flat(), ...readOnly, ...perEditor.slice(at).flat()];
-  dom.data.replaceChildren(...ordered);
+  const ordered = [...idRow, ...(at < 0 ? [...fields, ...readOnly] : [...perEditor.slice(0, at).flat(), ...readOnly, ...perEditor.slice(at).flat()])];
+  // Each name and its value one row (the owner, 2026-11-25: a two-column property grid, every other row shaded): a
+  // `div` holding its `dt` and `dd` (a definition list's own grouping), carrying the pair's marks (a gap, a group, the
+  // script's focus) so the sheet lays out and stripes whole rows.
+  const rowsOf = (els: readonly HTMLElement[]): HTMLElement[] => {
+    const out: HTMLElement[] = [];
+    let row: HTMLElement | null = null;
+    for (const el of els) {
+      if (el.tagName === 'DT' || !row) {
+        row = forgeEl(doc, 'div', 'fx-prop-row');
+        for (const c of ['fx-inspect-gap', 'fx-inspect-group', 'is-script-focus']) if (el.classList.contains(c)) row.classList.add(c);
+        out.push(row);
+      }
+      row.append(el);
+    }
+    return out;
+  };
+  dom.data.replaceChildren(...rowsOf(ordered));
   // The step chosen in the Script panel brought into view.
   dom.data.querySelector('.is-script-focus')?.scrollIntoView?.({ block: 'nearest' });
   dom.data.hidden = fields.length + shown.length === 0;

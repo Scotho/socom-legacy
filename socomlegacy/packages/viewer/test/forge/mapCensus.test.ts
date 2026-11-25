@@ -14,8 +14,8 @@ describe('the map census', () => {
   // `scriptEffectsOf([])` as those two): a map with no programs counts effect 2, ambient 0.
   it("counts a map's doors, turrets and hostage characters", () => {
     const map = { doors: [{}, {}], turrets: [{}], props: [], types: { seal: [], terrorist: [], escortees: [{ character: 'a' }, { character: 'a' }, { character: 'b' }, null] } };
-    expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0 });
-    expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0 });
+    expect(censusOf(map as never)).toEqual({ door: 2, turret: 1, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0, sky: 0 });
+    expect(censusOf({} as never)).toEqual({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0, sky: 0 });
   });
 
   it("a map's copies: its hostage characters each once, by name; none of a kind, an empty list; their counts the census", () => {
@@ -24,12 +24,12 @@ describe('the map census', () => {
     const copies = copiesOf(map as never);
     const common = [['dust_explode_long', 'dust_explode_long'], ['fire_explode_med', 'fire_explode_med']];   // FC2 (ours): as above
     expect(copies).toEqual({ door: [], turret: [], hostage: [['a', 'a'], ['b', 'b']], ladder: [], gate: [], barrier: [], flare: [], sound: [], effect: common, ambient: [] });
-    expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0 });
+    expect(censusOfCopies(copies)).toEqual({ door: 0, turret: 0, hostage: 2, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 2, ambient: 0, sky: 0 });
   });
 
   it('lists every map at all times, each with what it has: a count, "counting..." until read, greyed "none"; the current never greyed', () => {
     const maps = [['MP2', 'MP2 · FROSTFIRE'], ['MP6', 'MP6 · DESERT GLORY'], ['MP72', 'MP72 · CROSSROADS'], ['M51', 'M51 · TIGER BAY (campaign)']] as const;
-    const count = (o: Partial<Record<string, number>>) => ({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0, ambient: 0, ...o });
+    const count = (o: Partial<Record<string, number>>) => ({ door: 0, turret: 0, hostage: 0, ladder: 0, gate: 0, barrier: 0, flare: 0, sound: 0, effect: 0, ambient: 0, sky: 0, ...o });
     const known = new Map([['MP2', count({ door: 3 })], ['MP72', count({ turret: 3, barrier: 1 })]]);
     const at = (s: string) => known.get(s) ?? null;
     expect(censusOptions(maps, at, 'door', 'MP2')).toEqual([

@@ -131,7 +131,9 @@ describe('R7-1: the mounted toolbar', () => {
     // FC2-4: New left the base group for his File menu (page.ts:12207, 12233; EDITOR-MAP T2, T11): its row is there.
     expect(baseGroup.querySelector('button[title^="Start a new layout"]')).toBeNull();
     expect(menubarRow(document, 'File', 'New…').disabled).toBe(false);
-    expect(baseGroup.querySelector<HTMLInputElement>('input.fx-name')?.readOnly).toBe(true);
+    // The layout's name is plain text, no field (the owner, 2026-11-25).
+    expect(baseGroup.querySelector('input.fx-name')).toBeNull();
+    expect(baseGroup.querySelector('.fx-name-text')?.textContent).toBe('Untitled layout');
     // The brand's badge keeps its text.
     expect(top.querySelector('.fx-badge')?.textContent).toBe('EXPERIMENT');
   }, 90_000);

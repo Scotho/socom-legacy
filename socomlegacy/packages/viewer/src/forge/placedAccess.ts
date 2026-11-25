@@ -201,6 +201,27 @@ export function withPieceInstances(map: LoadedMap, owners: readonly string[]): L
 }
 
 /**
+ * `map` with the layout's pieces whose node is off at the load (`Piece.active` false; the owner, 2026-11-24: the
+ * Outliner's eye) inactive from the round's start: each a placed node (`withPieceInstances`) made inactive at
+ * initialisation (`MapInitial.deactivate`), so the world state (`../worldState` `applyInitial`) opens it off -- neither
+ * drawn nor in the hull's gate -- and the round's reset puts it off again, while a script's show still reaches it.
+ * The engine has it as the node's flag word bit 0 clear at the load (research 318 section 1.3); the port's world state
+ * takes its opening from `MapMeta.initial` (research 318 D4: the drawing never reads the disc's bit), so the bit is
+ * carried as an opening deactivation. A map with no metadata (a blank floor's) is given an empty one first.
+ */
+export function withInactivePieces(map: LoadedMap, pieces: readonly { active?: false }[], ownerOf: (index: number) => string): LoadedMap {
+  const off = pieces.flatMap((p, i) => (p.active === false ? [ownerOf(i)] : []));
+  if (!off.length) return map;
+  const metaOf = map.meta ?? { stem: map.archive, actions: [], instances: [], instanceByPath: new Map<string, number>(), initial: [], diagnostics: [] };
+  const placed = withPieceInstances({ ...map, meta: metaOf }, off);
+  const meta = placed.meta!;
+  const already = new Set(meta.initial.filter((e) => e.deactivate).map((e) => e.path));
+  const initial: MapInitial[] = [...meta.initial, ...off.filter((path) => !already.has(path))
+    .map((path) => ({ path, deactivate: true, saveActive: false, saveTransform: false, saveParent: false }))];
+  return { ...placed, meta: { ...meta, initial } };
+}
+
+/**
  * A script blast's round (FORGE_SCRIPT_BLAST_ADAPTATION): MPBOMB's, the one ZWEAPON record with no muzzle velocity and
  * no model -- the one a program fires in place (Demolition's `base_explosion1`); Explosion_Damage 50, Explosion_Radius
  * 300 u, its look the `satchel` effect.

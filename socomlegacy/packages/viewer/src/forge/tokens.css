@@ -7,7 +7,10 @@
  * agent dock sits outside the Forge's body, hence the three scopes). `test/forge/tokens.test.ts` refuses a colour
  * literal here and in those three sheets, and holds the contrast pairs below.
  */
-body.forge-page, .agent-panel, .agent-testroom-dock {
+/* The agent's card and dock declare them only outside the Forge (the test room's page): inside it they inherit the page's,
+   so they wear its theme -- Dark, Light, a custom one (the owner, 2026-11-25: "fix the agent tab to be more consistent
+   with the rest of the styling and theming"). */
+body.forge-page, body:not(.forge-page) .agent-panel, body:not(.forge-page) .agent-testroom-dock {
   /* surfaces, darkest to lit (shared/ds README, "Tokens": surface-raised, -card, -hover) */
   --fx-deep: var(--s2u-ground-deep);
   --fx-bg: var(--s2u-ground);
@@ -15,6 +18,16 @@ body.forge-page, .agent-panel, .agent-testroom-dock {
   --fx-panel: var(--s2u-panel);
   --fx-panel-2: var(--s2u-surface-card);
   --fx-hover: var(--s2u-surface-hover);
+  /* The alternate row of a striped table (the Inspector, Map Settings, the light rig, the Surface; the owner, 2026-11-25:
+     "make the alternative color a bit more distinct ... app wide"): the panel with a share of the text's ink, so it reads
+     in every theme -- lighter on a dark panel, darker on a light one. */
+  --fx-stripe: color-mix(in srgb, var(--fx-text) 7%, var(--fx-panel));
+  /* The headings (the owner, 2026-11-25: "make the section headers more visible, they blend in with the alternative colors";
+     "there is two different things. Sections (top level sections) Transform/Properties/Map Settings, etc. And sub sections
+     (sections under the sections) Map, Characters, etc."): the panel tinted with the accent -- never the stripes' grey --
+     a section (every dock panel's and the Inspector's) strongly, a sub-section lightly; a touch more under the pointer. */
+  --fx-header: color-mix(in srgb, var(--fx-gold) 24%, var(--fx-panel));
+  --fx-header-hover: color-mix(in srgb, var(--fx-gold) 32%, var(--fx-panel));
   /* The one selected fill (VP-1: `#1d3038` six times before), under a gold label and edge. */
   --fx-selected: var(--s2u-surface-card);
   --fx-veil: var(--s2u-veil);

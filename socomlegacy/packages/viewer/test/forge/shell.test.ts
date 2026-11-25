@@ -631,7 +631,8 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     // FUI-22 (D5): the Local files panel (the creator's pack loading) joins the right-hand docks last. View controls live
     // in the viewport dropdown, not a World panel. FC2-4: in the contributor's order and words (OT.R112; each panel's own
     // `order` and `title`): Map Settings (was Settings, order 25), the Light rig (35), then Rules (36).
-    expect(summaries(shell)).toEqual(['Outliner', 'Inspector', 'Map Settings', 'Light rig', 'Rules', 'Starter experiences', 'Local files']);
+    // The light rig is no panel of its own (2026-11-25): its groups are Map Settings' last.
+    expect(summaries(shell)).toEqual(['Outliner', 'Inspector', 'Map Settings', 'Rules', 'Starter experiences', 'Local files']);
     // The Object tab shows at mount, with the Inspector's own; the Map tab's (Settings, the Light rig, Rules, the
     // starters) and Content's wait till their tab shows; Rules starts folded (FC2-4: was "World", EDITOR-MAP D6, D8).
     expect(drawnPanels(document)).toEqual(['asset-browser', 'viewport', 'outliner', 'inspector']);
@@ -670,7 +671,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
       menuSection: () => [{ id: 'panel-agent', label: 'Connect your agent' }],
       mount: (host, ctx) => { expect(ctx.forge.status().mode).toBe('forge-editor'); host.append(document.createElement('section')); return { dispose: () => undefined }; } };
     const shell = await mountForge(document, { panels: [Promise.resolve(late)] });
-    await vi.waitFor(() => expect(summaries(shell)).toEqual(['Outliner', 'Inspector', 'Map Settings', 'Light rig', 'Rules', 'Connect your agent', 'Starter experiences', 'Local files']));
+    await vi.waitFor(() => expect(summaries(shell)).toEqual(['Outliner', 'Inspector', 'Map Settings', 'Rules', 'Connect your agent', 'Starter experiences', 'Local files']));
     expect((panelMounted(document, 'agent') as HTMLDetailsElement).open).toBe(false);
     expect(drawn(panelMounted(document, 'agent')), 'its tab waits till pressed').toBe(false);
     // FUI.R5: the panels draw the tabs, Object open (the e2e specs' Outliner, and the Inspector in its own group). FC2-4:

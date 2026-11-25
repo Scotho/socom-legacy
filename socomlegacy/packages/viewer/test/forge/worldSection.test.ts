@@ -22,22 +22,17 @@ describe('Map Settings: surface, sound & view', () => {
     surface.value = 'SAND'; surface.dispatchEvent(new Event('change'));
     expect(patches.pop()).toEqual({ defaultMaterial: 'SAND' });
 
-    const fov = q<HTMLInputElement>('[data-world="fov"]');
-    expect(Math.round(Number(fov.value))).toBe(49);
-    // The readout follows the drag (`input`), before the setting is written (`change`); each end says what it does.
-    const fovRow = fov.closest('.fx-setting')!;
-    fov.value = '60'; fov.dispatchEvent(new Event('input'));
-    expect(fovRow.querySelector('.fx-setting-value')!.textContent).toBe('60°');
-    expect(patches).toEqual([]);
-    expect([...fovRow.querySelectorAll('.fx-world-ends span')].map((e) => e.textContent)).toEqual(['Narrow (zoomed in)', 'Wide']);
-    fov.dispatchEvent(new Event('change'));
-    expect(patches.pop()!.fov!.v).toBeCloseTo((60 * Math.PI) / 360, 6);
+    // No field of view row (the owner, 2026-11-25): no slider, no reset of it.
+    expect(s.body.querySelector('[data-world="fov"]')).toBeNull();
+    expect(s.body.querySelector('[data-world-reset="fov"]')).toBeNull();
 
     const depth = q<HTMLInputElement>('[data-world="reverb"][data-list="indoor"][data-zone="1"][data-part="depth"]');
     expect(depth.value).toBe('0.2');
     depth.value = '0.5'; depth.dispatchEvent(new Event('input'));
-    expect(depth.closest('.fx-world-slider')!.nextElementSibling!.textContent).toBe('50%');
-    expect([...depth.closest('.fx-world-slider')!.querySelectorAll('.fx-world-ends span')].map((e) => e.textContent)).toEqual(['Dry', 'Wet']);
+    // A zone one row: its name, the depth slider, the percent beside it, the ease-in seconds.
+    expect(depth.nextElementSibling!.textContent).toBe('50%');
+    expect(depth.closest('.fx-prop-row')!.querySelector('.fx-prop-label')!.textContent).toBe('Indoor 2');
+    expect(depth.title).toMatch(/dry to wet/i);
     depth.dispatchEvent(new Event('change'));
     expect(patches.pop()).toEqual({ reverb: { indoor: [[0.45, 1], [0.5, 1]], outdoor: [[0.07, 1], [0, 1]] } });
 
@@ -63,8 +58,6 @@ describe('Map Settings: surface, sound & view', () => {
     const patches: Partial<LayoutSettings>[] = [];
     s.onChange((p) => patches.push(p));
     s.draw(view({ fov: { h: 0.7, v: 0.5 }, reverb: { indoor: [], outdoor: [] } }));
-    s.body.querySelector<HTMLButtonElement>('[data-world-reset="fov"]')!.click();
-    expect(patches.pop()).toEqual({ fov: null });
     s.body.querySelector<HTMLButtonElement>('[data-world-reset="reverb"]')!.click();
     expect(patches.pop()).toEqual({ reverb: null });
     s.draw(view({}, true));

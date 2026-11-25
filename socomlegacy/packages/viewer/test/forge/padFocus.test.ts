@@ -4,6 +4,7 @@ import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import type { ForgePanel, ForgeShellPage } from '../../src/forge/shell/panel';
 import type { ForgePageContext, ForgePanelContext } from '../../src/forge/shell/context';
 import { forgeKeyAction, type ForgeKeyState } from '../../src/forge/keys';
+import { resetAllKeys, setKeys } from '../../src/forge/shortcuts';
 import type { LoadedMap } from '../../src/loadMap';
 import { pressForgeMenu, menuOpen as menuCardOpen } from './helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
@@ -180,7 +181,7 @@ describe('the focus lease (FUI-2 for FUI-1b: ctx.ui.focus.take)', () => {
     const state: ForgeKeyState = { typing: false, match: false, menu: false, card: false, playing: false, pointerLocked: false, leased: true };
     const key = (code: string) => ({ code, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, repeat: false });
     for (const code of ['KeyH', 'Digit2', 'Delete', 'KeyM', 'Escape', 'KeyP']) expect(forgeKeyAction(key(code), state), code).toBeNull();
-    expect(forgeKeyAction(key('KeyH'), { ...state, leased: false })).toBe('docks');
+    expect(forgeKeyAction(key('KeyH'), { ...state, leased: false })).toBe('hide');
     expect(forgeKeyAction(key('Escape'), { ...state, card: true })).toBe('closeCard');
   });
 });
@@ -200,7 +201,8 @@ const press = (button: number): void => {
 };
 const SQUARE = 2, DOWN = 13;
 const docksOff = (): boolean => document.body.classList.contains('fx-docks-off');
-const keyH = (): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH', key: 'h', bubbles: true })); };
+/** The docks' key: none by default since H is Hide selected (2026-11-24), so this file gives it F9 (`beforeEach`). */
+const keyH = (): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F9', key: 'F9', bubbles: true })); };
 
 describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
   beforeEach(() => {
@@ -210,9 +212,11 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [pad] });
     history.replaceState(null, '', '/forge?floor');
     localStorage.clear();
+    setKeys('app.docks', ['F9']);
     archiveLoad.mockReset().mockRejectedValue(new Error('No disc supplied'));
   });
   afterEach(() => {
+    resetAllKeys();
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     vi.unstubAllGlobals();
     Reflect.deleteProperty(navigator, 'getGamepads');

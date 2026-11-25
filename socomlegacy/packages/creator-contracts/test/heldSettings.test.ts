@@ -18,6 +18,7 @@ const ONE: Readonly<Record<(typeof ONLINE_HELD_SETTINGS_ADAPTATION)[number], Par
   reverb: { reverb: { indoor: [[0.5, 1]], outdoor: [] } },
   fov: { fov: { h: 0.6109, v: 0.4276 } },
   loading: { loading: { from: "MP2", title: "Night", description: null } },
+  ambience: { ambience: "MP2" },
   eqLimit: { eqLimit: 2 },
   respawn: { respawn: true },
 };
@@ -29,7 +30,7 @@ const withSettings = (settings: Partial<LayoutSettings>): Layout => frozen({ ...
 
 describe("FC2.R8: the Map Settings held back from an online lobby", () => {
   it("the list is the eight the match server does not apply yet, in order, and frozen", () => {
-    expect([...ONLINE_HELD_SETTINGS_ADAPTATION]).toEqual(["arsenal", "characters", "defaultMaterial", "reverb", "fov", "loading", "eqLimit", "respawn"]);
+    expect([...ONLINE_HELD_SETTINGS_ADAPTATION]).toEqual(["arsenal", "characters", "defaultMaterial", "reverb", "fov", "loading", "ambience", "eqLimit", "respawn"]);
     expect(Object.isFrozen(ONLINE_HELD_SETTINGS_ADAPTATION)).toBe(true);
   });
 

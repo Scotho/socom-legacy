@@ -307,7 +307,13 @@ export interface GeometrySelectionState { mode: SelectMode; objects: string[]; i
  * objects of collision editing (`./hullGeometry`) as they stood, null before it was opened.
  */
 /** An Outliner row of a geometry layer: an object, its kind ('world' a map section), and whether it is selected. */
-export interface OutlineRow { id: string; name: string; kind: GeoObject['kind'] | 'world'; selected: boolean }
+export interface OutlineRow {
+  id: string; name: string; kind: GeoObject['kind'] | 'world'; selected: boolean;
+  /** Its node off at the load (`GeoObject.hidden`, saved). Absent: on. */
+  hidden?: true;
+  /** Quick-hidden in this editor (`quickHidden`, not saved). Absent: no. */
+  quickHidden?: true;
+}
 
 /** `authored`: a person's edit made it (bug 1's `savedGeometry`); absent, as `edited` says. */
 export interface GeometrySnapshot { map: LoadedMap; geo: WorldGeometry; edited: boolean; authored?: boolean; hull?: WorldGeometry | null }
@@ -533,6 +539,41 @@ export class GeometryEditor {
   private layerGroup!: HTMLElement;
   /** The drawn geometry, in either mode. */
   private get drawGeometry(): WorldGeometry | null { return this.collisionOn ? this.drawGeo : this.geo; }
+  /**
+   * Quick hide (the owner, 2026-11-24: "quick hide/isolate objects ... editor only(temp)"; a browser adaptation, the game
+   * has no editor): the objects hidden in this editor for now, by id, on either layer -- undrawn, unpicked, their edges
+   * gone. Never written into the geometry (`GeoObject.hidden`), its file, its Build or a match; a new base clears it.
+   */
+  private readonly quickHidden = new Set<string>();
+  /**
+   * Whether an object is out of the editor's view: hidden in the geometry, or quick-hidden here -- on the Collision layer
+   * a hull object with its drawn object's (its node's, `hullNode`; its solid's, `hullOf`), so switching layers keeps the
+   * same objects out (the owner, 2026-11-24: "when we switch geometry layer, it should all work seamlessly").
+   */
+  private readonly isHidden = (o: GeoObject): boolean => {
+    if (o.hidden || this.quickHidden.has(o.id)) return true;
+    if (!this.collisionOn || !this.quickHidden.size) return false;
+    const drawn = this.quickDrawnHidden();
+    return (o.hullNode !== undefined && o.hullNode >= 0 && drawn.groups.has(o.hullNode)) || (o.hullOf !== undefined && drawn.ids.has(o.hullOf));
+  };
+  /** The drawn layer's quick-hidden objects, by node and by id (kept while neither the hide nor the layer changes). */
+  private quickDrawnCache: { key: string; groups: Set<number>; ids: Set<string> } | null = null;
+  private quickDrawnHidden(): { groups: Set<number>; ids: Set<string> } {
+    const drawn = this.collisionOn ? this.drawGeo : this.geo;
+    const key = `${[...this.quickHidden].join('|')}#${drawn?.objects.length ?? 0}`;
+    if (this.quickDrawnCache?.key === key) return this.quickDrawnCache;
+    const groups = new Set<number>(), ids = new Set<string>();
+    for (const o of drawn?.objects ?? []) if (this.quickHidden.has(o.id)) { ids.add(o.id); if (o.group !== undefined) groups.add(o.group); }
+    this.quickDrawnCache = { key, groups, ids };
+    return this.quickDrawnCache;
+  }
+  /** The pick index over the objects shown (`quickHidden` left out with the hidden). */
+  private buildIndex(g: WorldGeometry): PickIndex { return PickIndex.build(g, this.isHidden); }
+  /** `g` as drawn: each quick-hidden object flagged hidden on a copy (its mesh shared), the geometry itself untouched. */
+  private shownGeometry(g: WorldGeometry): WorldGeometry {
+    if (!this.quickHidden.size) return g;
+    return { ...g, objects: g.objects.map((o) => (this.quickHidden.has(o.id) && !o.hidden ? { ...o, hidden: true } : o)) };
+  }
   private forMap: LoadedMap | null = null;
   private sel: Selection = emptySelection('object');
   /** The object the last pick landed on: its points and edges drawn in point and edge mode, to pick from. */
@@ -951,6 +992,7 @@ export class GeometryEditor {
     if (this.drawn) this.deps.onViewSwap(null);
     this.disposeView();
     this.geo = null;
+    this.quickHidden.clear();                                  // the quick hide is this base's view's
     this.forMap = null;
     this.draws = null;
     this.built = null;
@@ -1035,11 +1077,11 @@ export class GeometryEditor {
   }
 
   /**
-   * View > Props (the owner, 2026-11-15): props cannot be edited in Geometry mode and stand in the way, so the mode hides
-   * them, and the box shows them again to judge the geometry among them. The choice is kept while the page is open; out
-   * of the mode the props are always drawn.
+   * View > Props (the owner, 2026-11-15): props cannot be edited in Geometry mode; the box hides them to see the geometry
+   * alone. Shown by default (the owner, 2026-11-25: "when switching to geometry mode, don't default hide the props"). The
+   * choice is kept while the page is open; out of the mode the props are always drawn.
    */
-  private showProps = false;
+  private showProps = true;
   /** View > Props again over the page's own drawing (a Display switch redraws the props). */
   applyProps(): void { if (this.active && !this.showProps) this.deps.propsShown(false); }
   private propsBox: HTMLInputElement | null = null;
@@ -1093,7 +1135,7 @@ export class GeometryEditor {
     const refMeshes: EditMesh[] = [], meshOf: number[] = [], vertOf: number[] = [];
     const meshes = new Map<EditMesh, Set<number | undefined> | null>();
     for (const o of this.geo.objects) {
-      if (o.hidden) continue;
+      if (this.isHidden(o)) continue;
       const groups = meshes.get(o.mesh);
       if (o.group === undefined) meshes.set(o.mesh, null);
       else if (groups !== null) meshes.set(o.mesh, new Set([...(groups ?? []), o.group]));
@@ -1370,6 +1412,7 @@ export class GeometryEditor {
   outlineObjects(layer: 'geometry' | 'collision' = this.collisionOn ? 'collision' : 'geometry'): OutlineRow[] {
     const row = (o: GeoObject, on: boolean): OutlineRow => ({
       id: o.id, name: o.name, kind: o.hullNode !== undefined ? 'world' as const : o.kind, selected: on && this.active && this.sel.objects.has(o.id),
+      ...(o.hidden ? { hidden: true as const } : {}), ...(this.quickHidden.has(o.id) ? { quickHidden: true as const } : {}),
     });
     if (this.geo) {
       if (layer === (this.collisionOn ? 'collision' : 'geometry')) return this.geo.objects.map((o) => row(o, true));
@@ -1408,7 +1451,7 @@ export class GeometryEditor {
   /** Onto the layer that holds `id`, when it is the other one. */
   private toLayerOf(id: string): void {
     const l = this.layerOf(id);
-    if (l && (l === 'collision') !== this.collisionOn) this.setCollision(l === 'collision');
+    if (l && (l === 'collision') !== this.collisionOn) { this.setCollision(l === 'collision'); this.collisionUi(); this.deps.onLayer?.(); }
   }
 
   /** The map's world sections, read once a map (`outlineObjects`). */
@@ -1518,6 +1561,140 @@ export class GeometryEditor {
    * in the same position"). Each an edit of its own (`edit`); the page folds one into the placements' step of the same
    * command where it can.
    */
+
+  /* ---------- quick hide (`quickHidden`: the editor's view alone) ---------- */
+
+  /**
+   * The objects Geometry mode's selection is on, whole (a point, edge or face selection's objects), or none while the
+   * mode is off: what the quick hide's H hides there.
+   */
+  selectedObjectIds(): string[] {
+    return this.active ? [...this.sel.objects] : [];
+  }
+
+  /**
+   * How many geometry objects the quick hide has out of the view: the drawn layer's (the notice's count -- the Collision
+   * layer's objects follow theirs and are not counted again); every id while the drawn layer is not open.
+   */
+  quickHiddenCount(): number {
+    const drawn = this.collisionOn ? this.drawGeo : this.geo;
+    return drawn ? drawn.objects.filter((o) => this.quickHidden.has(o.id)).length : this.quickHidden.size;
+  }
+  /** Whether the object `id` is quick-hidden. */
+  isQuickHidden(id: string): boolean { return this.quickHidden.has(id); }
+  /**
+   * A test instrument (a development build's `__forgeQuickHide`, no game behaviour): the quick hide as the editor draws it
+   * -- the hidden ids, its own view's drawn triangles (none: no view of its own), the wireframe's edge segments, the
+   * layer, the mode.
+   */
+  quickHideDebug(): { hidden: string[]; viewTris: number | null; edgeSegments: number; collision: boolean; active: boolean; objects: number } {
+    let viewTris: number | null = null;
+    if (this.drawn?.group.parent) {
+      viewTris = 0;
+      this.drawn.group.traverseVisible((o) => {
+        if (!(o instanceof Mesh)) return;
+        const ix = o.geometry.getIndex();
+        viewTris! += (ix ? ix.count : o.geometry.getAttribute('position')?.count ?? 0) / 3;
+      });
+    }
+    let edgeSegments = 0;
+    this.edges.traverseVisible((o) => { const a = (o as Mesh).geometry?.getAttribute?.('position'); if (a) edgeSegments += a.count / 2; });
+    return { hidden: this.quickHiddenIds(), viewTris, edgeSegments, collision: this.collisionOn, active: this.active, objects: this.geo?.objects.length ?? 0 };
+  }
+  /** The quick-hidden objects' ids, sorted (a history step's record of them). */
+  quickHiddenIds(): string[] { return [...this.quickHidden].sort(); }
+  /** The quick hide set to exactly `ids` (an undo or a redo putting a step's back); drawn again only when it changed. */
+  setQuickHidden(ids: readonly string[]): void {
+    const want = new Set(ids);
+    if (want.size === this.quickHidden.size && [...want].every((id) => this.quickHidden.has(id))) return;
+    this.quickHidden.clear();
+    for (const id of want) this.quickHidden.add(id);
+    this.quickHideChanged();
+  }
+
+  /** The objects `ids` quick-hidden (they leave the selection); how many were newly hidden. */
+  quickHide(ids: readonly string[]): number {
+    let n = 0;
+    for (const id of ids) if (this.objectById(id) && !this.quickHidden.has(id)) { this.quickHidden.add(id); n++; }
+    if (n) this.quickHideChanged();
+    return n;
+  }
+
+  /** Every shown object on the layer but `keep` quick-hidden (isolate); how many were newly hidden. */
+  quickHideOthers(keep: readonly string[]): number {
+    if (!this.geo) return 0;
+    const kept = new Set(keep);
+    // Both layers (the owner, 2026-11-24: switching layers "should all work seamlessly"): the drawn layer's objects not
+    // kept, and the Collision layer's -- a hull object stays only with a kept drawn object (its node's, `hullNode`; its
+    // solid's, `hullOf`) or kept itself; one of a node with no drawn faces (a clip, a ladder's hull) goes, as no pick could
+    // have kept it.
+    const drawnLayer = this.collisionOn ? this.drawGeo : this.geo;
+    const hullLayer = this.collisionOn ? this.geo : this.collisionLayerNow();
+    const keptGroups = new Set((drawnLayer?.objects ?? []).filter((o) => kept.has(o.id) && o.group !== undefined).map((o) => o.group!));
+    const drawnIds = (drawnLayer?.objects ?? []).filter((o) => !kept.has(o.id) && !o.hidden && !this.quickHidden.has(o.id) && !this.isBaseFloor(o)).map((o) => o.id);
+    const hullIds = (hullLayer?.objects ?? []).filter((o) => !kept.has(o.id) && !this.quickHidden.has(o.id)
+      && !(o.hullNode !== undefined && o.hullNode >= 0 && keptGroups.has(o.hullNode)) && !(o.hullOf !== undefined && kept.has(o.hullOf))
+      // A blank base's own floor's hull stays with its floor.
+      && !(o.hullOf !== undefined && (drawnLayer?.objects ?? []).some((d) => d.id === o.hullOf && this.isBaseFloor(d)))).map((o) => o.id);
+    let n = 0;
+    for (const id of [...drawnIds, ...hullIds]) if (!this.quickHidden.has(id)) { this.quickHidden.add(id); n++; }
+    if (n) this.quickHideChanged();
+    return n;
+  }
+
+  /** Every quick-hidden object shown again; how many. */
+  quickUnhideAll(): number {
+    const n = this.quickHidden.size;
+    if (!n) return 0;
+    this.quickHidden.clear();
+    this.quickHideChanged();
+    return n;
+  }
+
+  /**
+   * The Outliner's eye on the drawn layer's objects `ids` (the owner, 2026-11-24): each one's node off (`hidden`) or on
+   * at the map's load -- `GeoObject.hidden`, saved with the geometry; Build leaves its hull passed over. One step of the
+   * history. The Collision layer's objects follow their nodes and take no eye. False when nothing turned.
+   */
+  setObjectsHidden(ids: readonly string[], hidden: boolean): boolean {
+    if (this.collisionOn) { this.deps.say('The Collision layer follows the geometry: hide its object on the Geometry layer', true); return false; }
+    if (!this.openBase() || !this.geo) return false;
+    const turn = ids.flatMap((id) => { const o = this.objectById(id); return o && !!o.hidden !== hidden && !this.isBaseFloor(o) ? [o] : []; });
+    if (!turn.length) return false;
+    this.edit(hidden ? 'Hide geometry' : 'Show geometry', () => {
+      for (const o of turn) { if (hidden) o.hidden = true; else delete o.hidden; }
+      if (hidden) for (const o of turn) { this.sel.objects.delete(o.id); this.sel.items.delete(o.id); }
+      return true;
+    }, { selectionTouched: false, shapeKept: true });
+    return true;
+  }
+
+  /** The view drawn again without (or with) the quick-hidden objects, the selection let go of any hidden. */
+  private quickHideChanged(): void {
+    if (this.sel.objects.size && [...this.sel.objects].some((id) => this.quickHidden.has(id))) {
+      const mode = this.sel.mode;
+      const keep = [...this.sel.objects].filter((id) => !this.quickHidden.has(id));
+      const items = this.sel.items;
+      this.sel = emptySelection(mode);
+      for (const id of keep) { this.sel.objects.add(id); const it = items.get(id); if (it) this.sel.items.set(id, it); }
+    }
+    if (this.focus && this.quickHidden.has(this.focus)) this.focus = null;
+    if (!this.geo) return;
+    // Either layer: the drawn world's view follows the hide too (on the Collision layer it stands under the hull view, and
+    // a quick hide let go there -- a layer switch's Unhide all -- must bring the world back with it).
+    if (!this.quickHidden.size && !this.edited) {
+      // Nothing hidden and nothing edited: the base's own world drawn again, as before any of it.
+      if (this.drawn) this.deps.onViewSwap(null);
+      this.disposeView();
+      this.deps.baseWorldShown(true);
+      if (this.collisionOn) { this.redraw(); return; }       // the hull objects, their index and edges, on the base's world
+      this.index = this.buildIndex(this.geo);
+      this.drawEdges();
+      this.drawSelection();
+      return;
+    }
+    this.redrawWorld();                                        // from the drawn geometry, on either layer
+  }
 
   /** The objects `ids` deleted: a made one taken out, a map section's faces taken away (its hull with them at Build). */
   deleteObjects(ids: readonly string[]): void {
@@ -1772,7 +1949,7 @@ export class GeometryEditor {
     this.hullGeo = null;
     this.collisionOutline = null;
     this.geo = geometryOfMap(map);
-    this.index = PickIndex.build(this.geo);
+    this.index = this.buildIndex(this.geo);
     this.forMap = map;
     this.draws = null;
     this.built = null;
@@ -1975,7 +2152,8 @@ export class GeometryEditor {
       if (!this.forMap || this.forMap !== map) return;
       if (this.drawn) this.deps.onViewSwap(null);
       this.open(this.forMap);                                  // the map's geometry as read (a blank base: its floor again)
-      if (!this.edited) this.deps.baseWorldShown(true);
+      if (this.quickHidden.size) this.redrawWorld();           // the quick hide's still out: the editor's own view stays
+      else if (!this.edited) this.deps.baseWorldShown(true);
       if (onCollision) this.setCollision(true, true);
     } else {
       if (s.map !== map) return;
@@ -2023,7 +2201,7 @@ export class GeometryEditor {
     this.trisCache.clear();
     this.cageCache.clear();
     this.hoverKey = '';
-    if (this.geo) this.index = PickIndex.build(this.geo);
+    if (this.geo) this.index = this.buildIndex(this.geo);
     this.collisionUi();
     this.drawHull();
     this.drawEdges();
@@ -2140,7 +2318,7 @@ export class GeometryEditor {
     if (this.collisionOn) {
       this.hullGeo = this.geo; this.geo = this.drawGeo; this.drawGeo = null; this.collisionOn = false;
       this.sel = emptySelection(this.sel.mode);
-      if (this.geo) this.index = PickIndex.build(this.geo);
+      if (this.geo) this.index = this.buildIndex(this.geo);
     }
     if (!this.forMap) this.hullGeo = null;
     this.collisionUi();
@@ -2183,7 +2361,7 @@ export class GeometryEditor {
     if (!this.collisionOn || !this.geo) return null;
     const out: HullViewPoly[] = [];
     for (const o of this.geo.objects) {
-      if (o.hidden) continue;
+      if (this.isHidden(o)) continue;
       const words = wordsOf(o, null);
       for (const f of liveFaces(o.mesh)) {
         const w = words(f);
@@ -2609,7 +2787,7 @@ export class GeometryEditor {
       this.cageCache.clear();
       this.hoverKey = '';
       if (!this.geo) return;
-      this.index = PickIndex.build(this.geo);
+      this.index = this.buildIndex(this.geo);
       this.drawHull();
       this.drawEdges();
       this.drawSelection();
@@ -2627,10 +2805,14 @@ export class GeometryEditor {
     const dg = this.drawGeometry;
     if (!this.geo || !dg || !map) return;
     this.sources = new Map();
-    this.draws = compileDraws(dg, this.sources, map.grid);                // bug 16: a moved draw refiled in its cells
-    this.index = PickIndex.build(this.geo);
+    // The quick hide is the view's alone: the draws Play and the save read (`editedMap`) keep every object; the view's
+    // own draws (and the sources its live drag reads) leave the quick-hidden out.
+    const quick = this.quickHidden.size > 0;
+    this.draws = compileDraws(dg, quick ? undefined : this.sources, map.grid);                // bug 16: a moved draw refiled in its cells
+    const viewDraws = quick ? compileDraws(this.shownGeometry(dg), this.sources, map.grid) : this.draws;
+    this.index = this.buildIndex(this.geo);
     this.drawHull();
-    const v = buildWorld({ ...map, world: this.draws, props: [], lines: null });
+    const v = buildWorld({ ...map, world: viewDraws, props: [], lines: null });
     for (const task of v.revealWorld) task();
     this.deps.prepareView(v);
     this.deps.onViewSwap(v);
@@ -2822,7 +3004,7 @@ export class GeometryEditor {
   private toolBlocked(id: string): string | null {
     if (id === 'knife') return null;                           // a tool clicked on the mesh: no selection needed
     // Select All and Invert in Object mode need no selection: every object on the layer is theirs.
-    if ((id === 'selectall' || id === 'invert') && this.sel.mode === 'object') return this.geo?.objects.some((o) => !o.hidden) ? null : 'nothing on this layer';
+    if ((id === 'selectall' || id === 'invert') && this.sel.mode === 'object') return this.geo?.objects.some((o) => !this.isHidden(o)) ? null : 'nothing on this layer';
     const picked: { o: GeoObject; item: number | string }[] = [];
     for (const oid of this.sel.objects) {
       const o = this.objectById(oid);
@@ -5783,7 +5965,7 @@ export class GeometryEditor {
    */
   selectSimilar(how: 'coplanar' | 'texture' | 'floors' | 'walls' | 'ceilings'): void {
     if (!this.geo || !this.active) return;
-    const visible = this.geo.objects.filter((o) => !o.hidden);
+    const visible = this.geo.objects.filter((o) => !this.isHidden(o));
     const seeds = this.selectedFaceSets();
     let pool = visible;
     if (how === 'floors' || how === 'walls' || how === 'ceilings') { if (seeds.length) pool = seeds.map((x) => x.o); }
@@ -6992,7 +7174,7 @@ export class GeometryEditor {
     if (!this.geo || !this.active) return;
     const mode = this.sel.mode;
     if (mode === 'object') {
-      const all = this.geo.objects.filter((o) => !o.hidden).map((o) => o.id);
+      const all = this.geo.objects.filter((o) => !this.isHidden(o)).map((o) => o.id);
       const next = invert ? all.filter((id) => !this.sel.objects.has(id)) : all;
       this.sel = emptySelection('object');
       for (const id of next) this.sel.objects.add(id);

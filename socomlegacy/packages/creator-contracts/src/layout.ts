@@ -94,6 +94,13 @@ export interface Piece {
   m: number[];
   /** FG-49: a locked placement is not selected or moved. Absent: unlocked. */
   locked?: boolean;
+  /**
+   * The placement's node inactive at the map's load (the owner, 2026-11-24: the Outliner's eye, saved): the node's
+   * `m_active` clear -- `tag_NODE_PARAMS`' flag word bit 0 (research 318 section 1.2): the game draws none of it and its
+   * hull is passed over, until a script's `OBJECT_ACTIVE_STATE` turns it on; the round's reset turns it off again.
+   * Absent: active, as every node of the disc's 34 maps is (research 318 section 3.1).
+   */
+  active?: false;
   /** FCW-07a: the stable authored id. Absent: its row's default (`layoutIds`). */
   id?: string;
   /** FCW-07a: a creator pack's asset, in place of a disc prototype. */
@@ -389,7 +396,13 @@ export const ROSTER_COLUMNS_MAX = 4;
  * - `fov`: the camera record's `m_hfov` / `m_vfov` half-angles, radians (Frostfire 0.6109 / 0.4276).
  * - `loading`: the loading screen (research 125) -- the disc map whose `LoadingScreenAssets` and `UiVars` it shows (null:
  *   the base's), and its `mission_title` / `mission_description` (null: that map's).
+ * - `ambience`: the disc MP map whose ambience plays (the owner, 2026-11-25: "add the ambient sound"; a browser
+ *   adaptation, FG.R2) -- its camera-state scripts' layers (research 81 §10: the `~OUTDOOR_AMB` / `~INDOOR_AMB` beds of
+ *   `outside_noise` / `inside_noise`, Frostfire's wind gusts) out of its own banks; null, the map's own. Its placed
+ *   emitters (a node's loop) stay the map's: they belong to its scene.
  */
+/** The cloud speed's top, times the map's own drift (an editor's bound, no game value). */
+export const CLOUD_SPEED_MAX = 4;
 export interface LoadingSetting { from: string | null; title: string | null; description: string | null }
 export interface ReverbSetting { indoor: [number, number][]; outdoor: [number, number][] }
 /** The bounds (an editor's, no game value): zones a list, ramp seconds, the half-angles, the words' lengths. */
@@ -400,6 +413,7 @@ export interface LayoutSettings {
   reverb?: ReverbSetting | null;
   fov?: { h: number; v: number } | null;
   loading?: LoadingSetting | null;
+  ambience?: string | null;
   /** The ARMORY's character types over the map's (`CharacterRoster`); absent or null, the map's own. */
   characters?: CharacterRoster | null;
   /** The match's arsenal over the map's (`ArsenalSetting`); absent or null, the map's own. */
@@ -427,6 +441,12 @@ export interface LayoutSettings {
    * over the floor (`viewer/src/forge/skyDome`); absent or null, none -- the sky the fog colour clears.
    */
   skyFrom?: string | null;
+  /**
+   * The sky's clouds' drift as a share of the map's own (the owner, 2026-11-25: "add a cloud speed"; a browser
+   * adaptation, FG.R2): every `TextureScroll_Object` band of a sky or cloud texture (`SKY_DOME_TEXTURE_ADAPTATION`)
+   * times this, 0 still .. `CLOUD_SPEED_MAX`; null, the map's own (1). A still sky stays still: no direction is made up.
+   */
+  cloudSpeed?: number | null;
   /**
    * A new empty map's own fog beyond its colour and far distance (`fogColor`, `fogFar`; as `fogColor`): the camera
    * record's on/off (`fogEnabled`), its near distance (`m_fog_near`), and its height band (`fogAltitude`, `m_fog_top` /
@@ -463,7 +483,7 @@ export const SETTINGS_BOUNDS = Object.freeze({
   eqLimit: { min: 0, max: 4, step: 1 },
 } as const);
 
-const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night", "arsenal", "eqLimit", "respawn", "characters", "defaultMaterial", "reverb", "fov", "loading"]);
+const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "cloudSpeed", "fog", "night", "arsenal", "eqLimit", "respawn", "characters", "defaultMaterial", "reverb", "fov", "loading", "ambience"]);
 
 /**
  * A night lens (`settings.night.lens`): four floats 0..1, the disc's `LensFX_NVG` range (research 84 s14). The migration
@@ -609,6 +629,11 @@ export function parseSettings(raw: unknown): Partial<LayoutSettings> {
       out.night = { mission: v["mission"], lens };
     }
   }
+  if (raw["cloudSpeed"] !== undefined) {
+    const v = raw["cloudSpeed"];
+    if (v !== null && (!isNum(v) || v < 0 || v > CLOUD_SPEED_MAX)) throw new Error(`settings.cloudSpeed is not 0..${CLOUD_SPEED_MAX}`);
+    out.cloudSpeed = v as number | null;
+  }
   if (raw["skyFrom"] !== undefined) {
     const v = raw["skyFrom"];
     if (v !== null && (typeof v !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(v))) throw new Error("settings.skyFrom is not a disc map's archive");
@@ -672,6 +697,11 @@ export function parseSettings(raw: unknown): Partial<LayoutSettings> {
       };
       out.loading = { from: l["from"] as string | null, title: words("title", LOADING_TITLE_MAX), description: words("description", LOADING_DESCRIPTION_MAX) };
     }
+  }
+  if (raw["ambience"] !== undefined) {
+    const v = raw["ambience"];
+    if (v !== null && (typeof v !== "string" || !/^MP\d{1,3}$/.test(v))) throw new Error("settings.ambience is not a disc MP map");
+    out.ambience = v as string | null;
   }
   if (raw["eqLimit"] !== undefined) out.eqLimit = bounded("eqLimit", raw["eqLimit"], true);
   if (raw["respawn"] !== undefined) {
@@ -1469,6 +1499,8 @@ function parsePiece(p: unknown, i: number): Piece {
   const m = p["m"];
   if (!Array.isArray(m) || m.length !== 16 || !m.every(isNum)) throw new Error(`piece ${i} matrix is not a column-major 4x4 of finite numbers`);
   const locked = lockedFlag(p["locked"], `piece ${i} lock`);
+  if (p["active"] !== undefined && p["active"] !== false) throw new Error(`piece ${i} active is not false (absent: active)`);
+  const inactive = p["active"] === false;
   const id = authoredId(p["id"], `piece ${i}`);
   let content: ContentRef | undefined;
   if (p["content"] !== undefined) {
@@ -1477,7 +1509,7 @@ function parsePiece(p: unknown, i: number): Piece {
     content = cloneContent(p["content"] as unknown as ContentRef);
     if (p["asset"] !== contentAssetKey(content)) throw new Error(`piece ${i} asset is not its content's key`);
   }
-  return { asset: p["asset"], m: [...m], ...(locked ? { locked: true as const } : {}), ...(id ? { id } : {}), ...(content ? { content } : {}) };
+  return { asset: p["asset"], m: [...m], ...(locked ? { locked: true as const } : {}), ...(inactive ? { active: false as const } : {}), ...(id ? { id } : {}), ...(content ? { content } : {}) };
 }
 
 function parseRequires(raw: unknown): PackRef[] {
@@ -3339,7 +3371,7 @@ function placedRefusal(code: string, field: string, count: number, words: string
  * setting (FC2-5), with a test that page and server agree on it.
  */
 export const ONLINE_HELD_SETTINGS_ADAPTATION = Object.freeze(
-  ["arsenal", "characters", "defaultMaterial", "reverb", "fov", "loading", "eqLimit", "respawn"] as const,
+  ["arsenal", "characters", "defaultMaterial", "reverb", "fov", "loading", "ambience", "eqLimit", "respawn"] as const,
 );
 export type HeldSetting = (typeof ONLINE_HELD_SETTINGS_ADAPTATION)[number];
 
@@ -3395,6 +3427,9 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "movedData", Object.keys(l.movedData ?? {}).length, "map objects (this layout moves some of the map's)"),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "aiSoil", Object.keys(l.aiSoil ?? {}).length, "AI cells (this layout paints some of the map's)"),
     ...placedRefusal(RECORD_CODES.onlineHiddenData, "geometry", l.geometry ? 1 : 0, "edited world geometry (kept in this browser)"),
+    // A piece's node off at the load (`Piece.active`, 2026-11-24): the record's piece row has no place for it, so the room
+    // would open it on.
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "pieces", l.pieces.filter((p) => p.active === false).length, "props all shown (this layout hides some of its own)"),
     ...placedRefusal(RECORD_CODES.onlineSwitches, "switches", l.switches?.length ?? 0, "switches"),
     ...placedRefusal(RECORD_CODES.onlineTriggers, "triggers", l.triggers?.length ?? 0, "damage triggers on props"),
     // An ambient effect plays online (the owner, 2026-11-10: "make it ... such that they will load in online games"): the

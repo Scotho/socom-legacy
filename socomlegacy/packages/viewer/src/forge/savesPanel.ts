@@ -19,6 +19,8 @@ export interface SavesPanelHandlers {
   onOpen(id: string): void;
   onRename(id: string): void;
   onDelete(id: string): void;
+  /** A save downloaded as a layout file (the owner, 2026-11-25: "add download button as well next to the open/rename/delete"); absent, no button. */
+  onDownloadSave?(id: string): void;
   /** A saved list this build cannot read: moved aside, as it was, so saving works again. */
   onSetAside?(): void;
   /** LATER 214: the copies kept aside (`./saves` `keptAside`); none, no section. */
@@ -26,6 +28,10 @@ export interface SavesPanelHandlers {
   onKeptDownload?(k: KeptAside): void;
   onKeptDelete?(k: KeptAside): void;
   onSaveAs(): void;
+  /** File > Open's "Open from file…" (the owner, 2026-11-25): a layout file chosen from the computer; absent, no button. */
+  onOpenFile?(): void;
+  /** The card's title; absent, "Saves". */
+  title?: string;
   onDownload(): void;
   onShare(): void;
   onClose(): void;
@@ -43,7 +49,7 @@ export function savesCard(doc: Document, h: SavesPanelHandlers): HTMLElement {
   const card = doc.createElement('div');
   card.className = 'fx-card fx-saves';
   const title = doc.createElement('h2');
-  title.textContent = 'Saves';
+  title.textContent = h.title ?? 'Saves';
   const note = doc.createElement('p');
   note.textContent = 'Named layouts kept in this browser. The one you are editing is also kept as you go.';
   const list = doc.createElement('ul');
@@ -73,6 +79,7 @@ export function savesCard(doc: Document, h: SavesPanelHandlers): HTMLElement {
       return b;
     };
     li.append(name, time, padRole(button('Open', () => h.onOpen(s.id)), 'act'), padRole(button('Rename', () => h.onRename(s.id)), 'secondary'),
+      ...(h.onDownloadSave ? [button('Download', () => h.onDownloadSave!(s.id))] : []),
       padRole(button('Delete', () => h.onDelete(s.id)), 'remove'));
     list.append(li);
   }
@@ -155,7 +162,8 @@ export function savesCard(doc: Document, h: SavesPanelHandlers): HTMLElement {
     return b;
   };
   foot.append(
-    footButton('Save as', true, () => h.onSaveAs()),
+    ...(h.onOpenFile ? [footButton('Open from file…', true, () => h.onOpenFile!())] : []),
+    footButton('Save as', !h.onOpenFile, () => h.onSaveAs()),
     footButton('Download', false, () => h.onDownload()),
     footButton('Share link', false, () => h.onShare()),
     footButton('Close', false, () => h.onClose()),

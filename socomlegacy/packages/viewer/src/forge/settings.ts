@@ -146,6 +146,7 @@ export function settingsDelta(s: LayoutSettings): Partial<LayoutSettings> {
   if (s.fogColor) out.fogColor = s.fogColor;                 // its fog colour and shadow direction likewise
   if (s.shadowVector) out.shadowVector = s.shadowVector;
   if (s.skyFrom) out.skyFrom = s.skyFrom;
+  if (s.cloudSpeed !== null && s.cloudSpeed !== undefined) out.cloudSpeed = s.cloudSpeed;   // 0 (still) is kept too
   if (s.fog) out.fog = s.fog;
   if (s.night) out.night = s.night;
   if (s.arsenal) out.arsenal = s.arsenal;                    // the match's arsenal over the map's (`./arsenalSetting`)
@@ -155,6 +156,7 @@ export function settingsDelta(s: LayoutSettings): Partial<LayoutSettings> {
   if (s.reverb) out.reverb = s.reverb;
   if (s.fov) out.fov = s.fov;
   if (s.loading) out.loading = s.loading;
+  if (s.ambience) out.ambience = s.ambience;                 // another disc map's ambience (`../soundData` `ambienceFrom`)
   return out;
 }
 

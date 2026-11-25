@@ -176,7 +176,8 @@ export function rulesPanel(hooks: RulesPanelHooks): RulesForgePanel {
     return rows;
   };
   return {
-    id: 'rules', title: 'Rules', dock: 'right', order: 36, defaultOpen: false, tab: 'Map',
+    // Under Content with the local files (the owner, 2026-11-25: "can we just move this to the content panel"): authoring, not a map setting.
+    id: 'rules', title: 'Rules', dock: 'right', order: 36, defaultOpen: false, tab: 'Content',
     padLegend: [{ button: 'dpad', label: 'Move' }, { button: 'cross', label: 'Press' }, { button: 'circle', label: 'Back' }],
     menuRows,
     menuSection: () => {

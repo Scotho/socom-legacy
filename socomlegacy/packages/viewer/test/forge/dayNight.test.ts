@@ -53,7 +53,8 @@ describe('saved Forge day/night adaptation', () => {
     expect([dom.lightIn.min, dom.lightIn.max, dom.lightIn.step]).toEqual(['0', '1', '0.05']);
     expect(dom.lightReset.textContent).toBe('Original');
     // The layout's lighting rows are the Environment panel's (built here, mounted there): not in Settings' own body.
-    expect(dom.lightingRows.some((r) => r.contains(dom.lightControls)) && dom.lightControls.contains(dom.lightIn) && dom.lightControls.contains(dom.lightReset)).toBe(true);
+    // No reset in the row (the owner, 2026-11-25): the group's Reset, and the START menu's Cross, put it back.
+    expect(dom.lightingRows.some((r) => r.contains(dom.lightControls)) && dom.lightControls.contains(dom.lightIn) && !dom.lightControls.contains(dom.lightReset)).toBe(true);
     expect(dom.lightingRows.some((r) => r.contains(dom.fogIn))).toBe(true);
     expect(dom.body.contains(dom.lightControls) || dom.body.contains(dom.fogIn)).toBe(false);
     const calls: string[] = [];

@@ -1,0 +1,153 @@
+/*
+ * The Forge's Dark theme (`./theme`; the owner, 2026-11-24: "a dark mode setting in the preferences ... look really nice
+ * and cohesive ... feel modern"; a browser adaptation, the game has no editor). The SOCOM theme is `./tokens.css` itself;
+ * this block re-points the same `--fx-*` aliases, so every rule of `./forge.css` follows without a rule of its own. Its
+ * palette is the Forge's alone -- a graphite ladder, one blue accent in the gold's every role, the system's UI type --
+ * written here as values because the shared design system (`shared/ds`) has no neutral ladder to alias, and it must not
+ * gain one the launcher and the game's screens would read. Nothing outside the Forge's chrome changes: the `--s2u-*`
+ * tokens the match's HUD and the menus read are untouched, and so are the placed things' hues (teams, sides, axes).
+ */
+body.forge-page[data-forge-theme="dark"], .fx-theme-swatch[data-theme="dark"] {
+  /* surfaces, darkest to lit: a graphite ladder, a breath of blue in the darks so the accent sits in it */
+  --fx-deep: #0c0d10;
+  --fx-bg: #111216;
+  --fx-bar: #16171b;
+  --fx-panel: #1a1b20;
+  --fx-panel-2: #212228;
+  --fx-hover: #2a2c33;
+  --fx-selected: #1d2b45;
+  --fx-veil: #111216d9;
+  --fx-veil-strong: #111216f5;
+  --fx-scrim: #05060899;
+  /* ink: three steps, the dim one at 4.6:1 on the panel */
+  --fx-text: #d4d7de;
+  --fx-text-strong: #f3f4f6;
+  --fx-dim: #8b909b;
+  /* the accent: one blue where the SOCOM theme has gold -- the selection, the active tab, a hovered edge, a primary */
+  --fx-gold: #5d9bff;
+  --fx-gold-hi: #8ab7ff;
+  --fx-on-accent: #07111f;
+  /* edges: a hairline between regions, a quiet one round a control, a brighter one under the pointer */
+  --fx-divider: #26282e;
+  --fx-control-edge: #2c2e35;
+  --fx-edge: var(--fx-divider);
+  --fx-edge-hi: #3d4049;
+  --fx-scroll-thumb: #3a3d45;
+  /* states keep their meaning; the danger red a touch softer on graphite */
+  --fx-danger: #ff6b63;
+  --fx-focus: #5d9bff;
+  --fx-axis-shadow: #000000a6;
+  --fx-checker-light: #5a5e68;
+  --fx-checker-dark: #34363d;
+  /* type: the system's UI face (Segoe UI, SF, Roboto) for the editor's own roles; the readouts keep their mono */
+  --fx-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fx-type-title: 600 14px/20px var(--fx-font-ui);
+  --fx-type-body: 400 13px/18px var(--fx-font-ui);
+  --fx-type-control: 500 12px/16px var(--fx-font-ui);
+  --fx-type-caption: 600 11px/16px var(--fx-font-ui);
+  /* shape: softer corners and a deeper, quieter lift */
+  --fx-radius: 6px;
+  --fx-lift: 0 12px 32px #00000080, 0 1px 0 #ffffff08 inset;
+  --fx-ico-quiet: #aeb2bb;
+  color-scheme: dark;
+}
+
+/*
+ * The Light theme (the owner, 2026-11-25: "add a light mode"; then "instead of having a bright white, make it a more
+ * neutral gray palette"): the same roles as Dark on soft neutral greys -- no white panel -- one blue accent, the system's
+ * UI type; Dark's chrome rules below (hairlines, lifted menus, the UI face) apply to it too.
+ */
+body.forge-page[data-forge-theme="light"], .fx-theme-swatch[data-theme="light"] {
+  /* surfaces: plain neutral greys, no tint (the owner, 2026-11-25: "a more neutral gray, similar to" a classic light
+     editor skin): mid-grey panels, a lighter bar and fields, darker gaps */
+  --fx-deep: #a3a3a3;
+  --fx-bg: #b4b4b4;
+  --fx-bar: #cbcbcb;
+  --fx-panel: #c2c2c2;
+  --fx-panel-2: #d4d4d4;
+  --fx-hover: #b6b6b6;
+  --fx-selected: #a7bedf;
+  --fx-veil: #c2c2c2d9;
+  --fx-veil-strong: #c2c2c2f5;
+  --fx-scrim: #00000059;
+  /* ink: near black, the dim one at 5.6:1 on the panel */
+  --fx-text: #1b1b1b;
+  --fx-text-strong: #000000;
+  --fx-dim: #474747;
+  --fx-gold: #3a72b0;
+  --fx-gold-hi: #2d5f99;
+  --fx-on-accent: #ffffff;
+  --fx-divider: #999999;
+  --fx-control-edge: #8e8e8e;
+  --fx-edge: var(--fx-divider);
+  --fx-edge-hi: #666666;
+  --fx-scroll-thumb: #969696;
+  --fx-danger: #c0362c;
+  --fx-focus: #3a72b0;
+  --fx-axis-shadow: #ffffffb3;
+  --fx-checker-light: #e2e2e2;
+  --fx-checker-dark: #b0b0b0;
+  --fx-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fx-type-title: 600 14px/20px var(--fx-font-ui);
+  --fx-type-body: 400 13px/18px var(--fx-font-ui);
+  --fx-type-control: 500 12px/16px var(--fx-font-ui);
+  --fx-type-caption: 600 11px/16px var(--fx-font-ui);
+  --fx-radius: 6px;
+  --fx-lift: 0 12px 32px #0f172a26, 0 1px 2px #0f172a14;
+  --fx-ico-quiet: #3c3c3c;
+  color-scheme: light;
+}
+
+/* The toolbar and the status bar: a hairline under and over them, as a modern editor's chrome. */
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) :is(.fx-top, .fx-toolbar) { border-bottom: 1px solid var(--fx-divider); }
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) .fx-status { border-top: 1px solid var(--fx-divider); }
+
+/* The editor's labels in the UI face, not the condensed display one (the logo keeps the brand's). */
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) :is(.fx-badge, .fx-menu-label, .fx-loading-title) { font-family: var(--fx-font-ui); font-style: normal; }
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) .fx-loading-title { letter-spacing: 0.02em; text-transform: none; }
+
+/* Small caps-style captions: kept upper case (they mark sections), but tighter, as a modern inspector's. */
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) :is(.fx-label, .fx-section h3, .fx-field-caption, .fx-inspect-kind, .fx-mode-section__label,
+  .fx-tool-popup-title, .fx-snap-panel-title, .fx-light-rig__title, .fx-billboards-section, .fx-geo-prop-word, .fx-prefs-group,
+  .fx-workspace-crumb, .fx-help h3) { letter-spacing: 0.06em; }
+
+/* Controls: a quiet face with a hairline edge, lifting on hover; the accent's edge under the pointer and when chosen. */
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) :is(.fx-tool, .fx-chip, .fx-select, .fx-search, .fx-num) { border-color: var(--fx-control-edge); }
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) :is(.fx-tool, .fx-chip):hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-edge-hi); }
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) .fx-chip.is-on { background: var(--fx-selected); }
+
+/* The menus, popups and cards: a lifted panel with a hairline edge, the way a modern app floats them. */
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) :is(.fx-card, .fx-menubar-list, .fx-viewport-modes-list, .fx-viewport-snap-panel, .fx-more-popup) {
+  border: 1px solid var(--fx-control-edge);
+  box-shadow: var(--fx-lift);
+}
+
+/* Lists: a selected row as a soft accent fill, its words full ink, not the accent itself (the accent marks the edge). */
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) .fx-outliner li.is-on { color: var(--fx-text-strong); background: var(--fx-selected); }
+body.forge-page:is([data-forge-theme="dark"], [data-forge-theme="light"]) .fx-outliner li.is-on::before { background: var(--fx-gold); }
+
+/* The Preferences' SOCOM miniature (`./shortcutEditor`): the design system's own aliases (`./tokens.css`), whatever the
+   page wears, so each card shows its own theme. */
+.fx-theme-swatch[data-theme="socom"] {
+  --fx-deep: var(--s2u-ground-deep);
+  --fx-bg: var(--s2u-ground);
+  --fx-bar: var(--s2u-surface-raised);
+  --fx-panel: var(--s2u-panel);
+  --fx-panel-2: var(--s2u-surface-card);
+  --fx-selected: var(--s2u-surface-card);
+  --fx-text: var(--s2u-text);
+  --fx-dim: var(--s2u-text-dim);
+  --fx-gold: var(--s2u-gold);
+  --fx-divider: var(--s2u-highlight);
+  --fx-radius: var(--s2u-radius-lx-row);
+  /* the rest of a custom theme's tokens (`./theme` `CUSTOM_TOKENS`), so a SOCOM-based custom theme reads its base here */
+  --fx-hover: var(--s2u-surface-hover);
+  --fx-text-strong: var(--s2u-text-strong);
+  --fx-gold-hi: var(--s2u-gold-display);
+  --fx-on-accent: var(--s2u-ground-deep);
+  --fx-control-edge: transparent;
+  --fx-edge-hi: var(--s2u-text-dim);
+  --fx-scroll-thumb: var(--s2u-text-dim);
+  --fx-danger: var(--s2u-glyph-circle);
+  --fx-focus: var(--s2u-focus);
+}

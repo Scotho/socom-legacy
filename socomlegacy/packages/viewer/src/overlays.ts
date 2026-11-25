@@ -105,7 +105,11 @@ export class Overlays {
    * The new map's spawns, under the one spawns toggle: its two measured spawns, or none when none were
    * measured for it, and the disc's spawn slots (`LoadedMap.slots`), which every map has.
    */
-  placeSpawns(spawns: Spawns | null, slots: readonly SpawnSlot[] = []): void {
+  /**
+   * `sides`: which team's measured spawn marker is drawn (both by default) -- the forge's quick hide leaves a side's out
+   * once every slot of that side is hidden (a browser adaptation: the editor's view alone).
+   */
+  placeSpawns(spawns: Spawns | null, slots: readonly SpawnSlot[] = [], sides: { a: boolean; b: boolean } = { a: true, b: true }): void {
     this.dropSpawns();
     if (!spawns && slots.length === 0) return;
     const group = new Object3D();
@@ -131,7 +135,7 @@ export class Overlays {
       drawn.renderOrder = Number.MAX_SAFE_INTEGER;
       group.add(drawn);
     }
-    for (const [side, feet] of (spawns ? [['a', spawns.a], ['b', spawns.b]] : []) as ['a' | 'b', [number, number, number]][]) {
+    for (const [side, feet] of (spawns ? [['a', spawns.a], ['b', spawns.b]] : []).filter(([side]) => sides[side as 'a' | 'b']) as ['a' | 'b', [number, number, number]][]) {
       const colour = SPAWN_COLOURS[side];
       const ball = new Mesh(
         new SphereGeometry(SPAWN_RADIUS, 16, 12),

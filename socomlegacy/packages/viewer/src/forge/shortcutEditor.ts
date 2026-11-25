@@ -12,6 +12,11 @@ import {
   keysOf, onShortcutsChange, pauseKeys, resetAllKeys, setKeysTogether, SHORTCUT_COMMANDS, undoKeyChange, canUndoKeyChange,
   type ShortcutCommand, type ShortcutScope,
 } from './shortcuts';
+import {
+  baseOf, CUSTOM_TOKENS, customTheme, exportCustomTheme, FORGE_THEMES, forgeTheme, importCustomTheme, onForgeThemeChange,
+  paintCustom, setCustomTheme, setForgeTheme, tokenValueOk, type BaseTheme, type CustomTheme, type ForgeTheme,
+} from './theme';
+import { propRow, subsection } from './panels/propGrid';
 
 /** Where a command applies, as the list says it. */
 const SCOPE_WORDS: Record<ShortcutScope, string> = {
@@ -54,9 +59,181 @@ export function openShortcutEditor(doc: Document): void {
   card.setAttribute('aria-label', 'Preferences');
   const head = el('header');
   const title = el('h2', '', 'Preferences');
-  const tab = el('span', 'fx-prefs-tab', 'Shortcuts');
+  // Two pages (the owner, 2026-11-24: "a dark mode setting in the preferences"): Appearance, then the shortcuts.
+  const tabs = el('div', 'fx-prefs-tabs');
+  tabs.setAttribute('role', 'tablist');
+  const tabButton = (label: string): HTMLButtonElement => {
+    const b = el('button', 'fx-prefs-tab', label);
+    b.type = 'button';
+    b.setAttribute('role', 'tab');
+    tabs.append(b);
+    return b;
+  };
+  const appearanceTab = tabButton('Appearance');
+  const shortcutsTab = tabButton('Shortcuts');
   const changed = el('span', 'fx-prefs-count');
-  head.append(title, tab, changed);
+  head.append(title, tabs, changed);
+
+  // Appearance: the themes, each a card with the editor drawn small in its own colours (`./themes.css`).
+  const appearance = el('div', 'fx-prefs-pane fx-prefs-appearance');
+  appearance.setAttribute('role', 'tabpanel');
+  appearance.append(el('h3', 'fx-prefs-group', 'Theme'));
+  const themeRow = el('div', 'fx-theme-cards');
+  themeRow.setAttribute('role', 'radiogroup');
+  themeRow.setAttribute('aria-label', 'Theme');
+  const themeCards = new Map<ForgeTheme, HTMLButtonElement>();
+  const swatches = new Map<ForgeTheme, HTMLDivElement>();
+  for (const t of FORGE_THEMES) {
+    const c = el('button', 'fx-theme-card');
+    c.type = 'button';
+    c.setAttribute('role', 'radio');
+    c.title = t.note;
+    const sw = el('div', 'fx-theme-swatch');
+    sw.dataset['theme'] = t.id === 'custom' ? baseOf('custom') : t.id;
+    sw.setAttribute('aria-hidden', 'true');
+    swatches.set(t.id, sw);
+    // A toolbar, a dock of rows (one selected), the viewport with a selected box, a dock of fields.
+    const top = el('div', 'sw-top');
+    top.append(el('i', 'sw-logo'), el('i', 'sw-pill'), el('i', 'sw-pill'), el('i', 'sw-pill sw-accent'));
+    const left = el('div', 'sw-dock');
+    for (let i = 0; i < 6; i++) left.append(el('i', i === 2 ? 'sw-row is-on' : 'sw-row'));
+    const view = el('div', 'sw-view');
+    view.append(el('i', 'sw-box'));
+    const right = el('div', 'sw-dock');
+    for (let i = 0; i < 4; i++) right.append(el('i', 'sw-field'));
+    const body = el('div', 'sw-body');
+    body.append(left, view, right);
+    sw.append(top, body);
+    const words = el('div', 'fx-theme-words');
+    words.append(el('span', 'fx-theme-name', t.label), el('span', 'fx-theme-note', t.note));
+    c.append(sw, words);
+    c.addEventListener('click', () => { setForgeTheme(doc, t.id); });
+    themeCards.set(t.id, c);
+    themeRow.append(c);
+  }
+  appearance.append(themeRow, el('p', 'fx-theme-help', 'Kept in this browser, never in a map. The game\u2019s own screens (Play, the menus) keep their look.'));
+
+  // The custom theme's editor (the owner, 2026-11-25: "a custom mode where we can edit our own custom styles for colors,
+  // etc. Like the shortcuts allow the user to import/export their stylesheet via json"): its base, then a row a token --
+  // its colour picked or typed, its reset -- and Import, Export and Reset all. Shown while Custom is the theme.
+  const customPane = el('div', 'fx-theme-custom');
+  const customHead = el('div', 'fx-prefs-bar');
+  const baseSel = el('select', 'fx-select');
+  baseSel.setAttribute('aria-label', 'Custom theme: start from');
+  for (const t of FORGE_THEMES.filter((x) => x.id !== 'custom')) { const o = el('option', '', t.label); o.value = t.id; baseSel.append(o); }
+  baseSel.addEventListener('change', () => { setCustomTheme(doc, { ...customTheme(), base: baseSel.value as BaseTheme }); });
+  const themeFile = el('input');
+  themeFile.type = 'file';
+  themeFile.accept = '.json,application/json';
+  themeFile.hidden = true;
+  const themeMsg = el('p', 'fx-theme-msg');
+  themeMsg.setAttribute('role', 'status');
+  const tell = (text: string, kind: 'info' | 'error' = 'info'): void => { themeMsg.textContent = text; themeMsg.dataset['kind'] = kind; };
+  themeFile.addEventListener('change', () => {
+    const f = themeFile.files?.[0];
+    themeFile.value = '';
+    if (!f) return;
+    void f.text().then((text) => {
+      const r = importCustomTheme(text);
+      if (!r.ok) { tell(r.error, 'error'); return; }
+      setCustomTheme(doc, r.theme);
+      setForgeTheme(doc, 'custom');
+      const n = Object.keys(r.theme.vars).length;
+      tell(`Imported: ${n} value${n === 1 ? '' : 's'} over ${nameOf(r.theme.base)}${r.dropped ? ` (${r.dropped} not recognised, left out)` : ''}`);
+    });
+  });
+  const themeImport = button('Import…', 'Read a theme from a file you exported (it becomes your custom theme)', () => themeFile.click());
+  const themeExport = button('Export…', 'Save your custom theme to a file, to keep it or use it in another browser', () => {
+    const blob = new Blob([exportCustomTheme()], { type: 'application/json' });
+    const a = el('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'forge-theme.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    tell('Exported to forge-theme.json');
+  });
+  const themeReset = button('Reset all', 'Every value back to the base theme\u2019s', () => { setCustomTheme(doc, { ...customTheme(), vars: {} }); tell('Every value back to the base theme\u2019s'); }, 'fx-tool fx-danger');
+  const startLabel = el('label', 'fx-prefs-filter', 'Start from ');
+  startLabel.append(baseSel);
+  customHead.append(startLabel, el('span', 'fx-prefs-spacer'), themeImport, themeExport, themeReset, themeFile);
+  const customGroups = el('div', 'fx-subfolds fx-theme-tokens');
+  /** The base theme's own values, read off a hidden miniature of it (`./themes.css` swatch scopes), never the page's. */
+  const probe = el('div', 'fx-theme-swatch fx-theme-probe');
+  probe.setAttribute('aria-hidden', 'true');
+  customPane.append(el('h3', 'fx-prefs-group', 'Custom theme'), customHead, themeMsg, customGroups, probe);
+  appearance.append(customPane);
+  const nameOf = (b: BaseTheme): string => FORGE_THEMES.find((t) => t.id === b)?.label ?? b;
+  const baseValue = (name: string): string => getComputedStyle(probe).getPropertyValue(name).trim();
+  /** A colour as the picker's `#rrggbb` (its alpha dropped), through the canvas's own parser. */
+  const ctx = doc.createElement('canvas').getContext('2d');
+  const hexOf = (v: string): string => {
+    if (!ctx) return '#000000';
+    ctx.fillStyle = '#000000';
+    ctx.fillStyle = v;
+    const f = String(ctx.fillStyle);
+    if (f.startsWith('#')) return f.slice(0, 7);
+    const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(f);
+    return m ? `#${[m[1], m[2], m[3]].map((x) => Math.round(Number(x)).toString(16).padStart(2, '0')).join('')}` : '#000000';
+  };
+  const setVar = (name: string, value: string | null): void => {
+    const c: CustomTheme = customTheme();
+    const vars = { ...c.vars };
+    if (value === null) delete vars[name]; else vars[name] = value;
+    setCustomTheme(doc, { ...c, vars });
+  };
+  const drawCustom = (): void => {
+    const c = customTheme();
+    baseSel.value = c.base;
+    probe.dataset['theme'] = c.base;
+    const tables = new Map<string, HTMLElement>();
+    customGroups.replaceChildren();
+    for (const t of CUSTOM_TOKENS) {
+      let table = tables.get(t.group);
+      if (!table) { const sub = subsection(doc, t.group); customGroups.append(sub.fold); table = sub.table; tables.set(t.group, table); }
+      const own = c.vars[t.name];
+      const value = own ?? baseValue(t.name);
+      const text = el('input', 'fx-search fx-theme-value');
+      text.type = 'text';
+      text.value = value;
+      text.spellcheck = false;
+      text.setAttribute('aria-label', `${t.label}: value`);
+      text.title = t.kind === 'length' ? 'A length in px, as 6px' : 'Any CSS colour: #rrggbb, #rrggbbaa, rgb(), hsl()';
+      text.addEventListener('change', () => {
+        const v = text.value.trim();
+        if (!tokenValueOk(t, v)) { text.classList.add('is-bad'); tell(`${t.label}: ${t.kind === 'length' ? 'a length in px, as 6px' : 'not a colour'}`, 'error'); return; }
+        text.classList.remove('is-bad');
+        setVar(t.name, v);
+      });
+      const controls: HTMLElement[] = [];
+      if (t.kind === 'colour') {
+        const pick = el('input', 'fx-theme-colour');
+        pick.type = 'color';
+        pick.value = hexOf(value);
+        pick.setAttribute('aria-label', t.label);
+        // A preview while it moves; kept on its release.
+        pick.addEventListener('input', () => { text.value = pick.value; doc.body.style.setProperty(t.name, pick.value); });
+        pick.addEventListener('change', () => setVar(t.name, pick.value));
+        controls.push(pick);
+      }
+      const reset = button('Reset', `Back to ${nameOf(c.base)}\u2019s value`, () => setVar(t.name, null), 'fx-chip fx-setting-reset fx-theme-reset');
+      reset.disabled = own === undefined;
+      controls.push(text, reset);
+      const row = propRow(doc, t.label, ...controls);
+      row.classList.toggle('is-own', own !== undefined);
+      table.append(row);
+    }
+  };
+  const drawThemes = (): void => {
+    const now = forgeTheme();
+    for (const [id, c] of themeCards) { c.classList.toggle('is-on', id === now); c.setAttribute('aria-checked', String(id === now)); }
+    // The Custom card's miniature in its own colours: its base's, its values over them.
+    const sw = swatches.get('custom');
+    if (sw) { sw.dataset['theme'] = baseOf('custom'); paintCustom(sw, customTheme()); }
+    customPane.hidden = now !== 'custom';
+    if (now === 'custom') drawCustom();
+  };
+  drawThemes();
+  const offTheme = onForgeThemeChange(drawThemes);
 
   // The bar: search, find by key, filters, then Undo, Import, Export, Reset all.
   const bar = el('div', 'fx-prefs-bar');
@@ -135,7 +312,28 @@ export function openShortcutEditor(doc: Document): void {
   const list = el('div', 'fx-prefs-list');
   const footer = el('footer');
   footer.append(button('Close', 'Close (Esc)', () => close(), 'fx-tool fx-primary'));
-  card.append(head, bar, msg, list, footer);
+  const shortcutsPane = el('div', 'fx-prefs-pane fx-prefs-shortcuts');
+  shortcutsPane.setAttribute('role', 'tabpanel');
+  shortcutsPane.append(bar, msg, list);
+  /** A page shown: its tab marked, the other page hidden; the shortcuts' key recording only while they show. */
+  const showPage = (page: 'appearance' | 'shortcuts'): void => {
+    const shortcuts = page === 'shortcuts';
+    appearance.hidden = shortcuts;
+    shortcutsPane.hidden = !shortcuts;
+    // No veil and no blur over the editor while Appearance shows (the owner, 2026-11-25: "I want to see the changes in the
+    // editor"): a theme chosen or a colour edited shows on the page behind at once.
+    modal.classList.toggle('is-appearance', !shortcuts);
+    changed.hidden = !shortcuts;
+    appearanceTab.classList.toggle('is-on', !shortcuts);
+    shortcutsTab.classList.toggle('is-on', shortcuts);
+    appearanceTab.setAttribute('aria-selected', String(!shortcuts));
+    shortcutsTab.setAttribute('aria-selected', String(shortcuts));
+    // The search field on the shortcuts' page; the Appearance tab itself on its own (a card focused would ring it as chosen).
+    if (shortcuts) search.focus(); else appearanceTab.focus({ focusVisible: false } as FocusOptions);
+  };
+  appearanceTab.addEventListener('click', () => showPage('appearance'));
+  shortcutsTab.addEventListener('click', () => showPage('shortcuts'));
+  card.append(head, appearance, shortcutsPane, footer);
   modal.append(card);
   doc.body.append(modal);
 
@@ -314,13 +512,14 @@ export function openShortcutEditor(doc: Document): void {
     doc.removeEventListener('pointerdown', onPointer, true);
     pauseKeys(false);
     off();
+    offTheme();
     modal.remove();
     open = null;
   }
   modal.addEventListener('pointerdown', (e) => { if (e.target === modal) close(); });
   open = { close };
   draw();
-  search.focus();
+  showPage('appearance');
 }
 
 /** The editor closed, where it is open (a page torn down). */

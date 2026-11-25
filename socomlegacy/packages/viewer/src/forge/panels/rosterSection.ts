@@ -2,6 +2,7 @@ import type { Side } from '@s2u/scene';
 import type { CharacterRoster } from '../layout';
 import { ROSTER_SIDES, rosterColumns, setRosterColumn } from '../rosterSetting';
 import { forgeEl } from '../shell/panel';
+import { ownButton, presetButton, propRow, subsection } from './propGrid';
 
 /**
  * The Map Settings panel's Characters section (a browser adaptation over `../rosterSetting`; the owner, 2026-11-10):
@@ -26,6 +27,8 @@ export interface RosterSection {
   body: HTMLElement;
   draw(view: RosterView): void;
   onChange(cb: (next: CharacterRoster | null) => void): void;
+  /** Preset pressed: the page asks which disc map's characters to copy in. */
+  onPreset(cb: () => void): void;
 }
 
 const SIDE_LABEL: Readonly<Record<Side, string>> = { seal: 'SEAL', terrorist: 'Terrorist' };
@@ -34,6 +37,7 @@ const NONE = '';
 export function buildRosterSection(doc: Document): RosterSection {
   const body = forgeEl(doc, 'div', 'fx-roster');
   let listeners: ((next: CharacterRoster | null) => void)[] = [];
+  let presetListeners: (() => void)[] = [];
   let view: RosterView | null = null;
   const tell = (next: CharacterRoster | null): void => { for (const l of listeners) l(next); };
   const option = (value: string, label: string): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', label); o.value = value; return o; };
@@ -41,28 +45,23 @@ export function buildRosterSection(doc: Document): RosterSection {
   const draw = (v: RosterView): void => {
     if (view && v.setting === view.setting && v.home === view.home && v.locked === view.locked && v.rev === view.rev && v.maps === view.maps) return;
     view = v;
-    body.replaceChildren(forgeEl(doc, 'h3', '', 'Characters'));
-    const top = forgeEl(doc, 'div', 'fx-arsenal-presets');
-    const reset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Map’s own');
-    reset.type = 'button';
-    reset.title = 'The map’s own ARMORY characters, from the disc';
+    // One sub-section (the owner, 2026-11-25: "make sure everything is two columns ... make it consistent"): its Map's own
+    // in the heading, a row a character column -- `SEAL 1`, `Terrorist 2` -- its map and its type side by side.
+    const reset = ownButton(doc, 'Back to the map’s own ARMORY characters', !!v.setting, v.locked);
     reset.dataset['rosterReset'] = '';
-    reset.disabled = v.locked || !v.setting;
     reset.addEventListener('click', () => tell(null));
-    top.append(reset);
-    body.append(top);
-
-    const grid = forgeEl(doc, 'div', 'fx-arsenal-kits');
+    const preset = presetButton(doc, "Copy a disc map's ARMORY characters into this map", v.locked);
+    preset.dataset['rosterPreset'] = '';
+    preset.addEventListener('click', () => { for (const l of presetListeners) l(); });
+    const { fold, table } = subsection(doc, 'Characters', { preset, reset });
+    body.replaceChildren(fold);
     for (const side of ROSTER_SIDES) {
-      const col = forgeEl(doc, 'div', 'fx-arsenal-kit');
-      col.append(forgeEl(doc, 'span', 'fx-setting-head', `${SIDE_LABEL[side]} characters`));
       const cols = rosterColumns(v.setting, side, v.home, v.homeCounts[side]);
       const set = (column: number, pick: { map: string; index: number } | null): void =>
         tell(setRosterColumn(v.setting, side, column, pick, v.home, v.homeCounts[side]));
       const rows = cols.length < 4 ? cols.length + 1 : cols.length;               // one more row adds a column
       for (let column = 0; column < rows; column++) {
         const pick = cols[column] ?? null;
-        const row = forgeEl(doc, 'div', 'fx-roster-row');
         const mapSel = forgeEl(doc, 'select', 'fx-select');
         Object.assign(mapSel.dataset, { rosterSide: side, rosterColumn: String(column), rosterPart: 'map' });
         mapSel.setAttribute('aria-label', `${SIDE_LABEL[side]} column ${column + 1}: map`);
@@ -89,14 +88,12 @@ export function buildRosterSection(doc: Document): RosterSection {
         typeSel.value = pick ? String(pick.index) : NONE;
         typeSel.disabled = v.locked || !pick || choices === null;
         typeSel.addEventListener('change', () => { if (pick) set(column, { map: pick.map, index: Number(typeSel.value) }); });
-        row.append(mapSel, typeSel);
-        col.append(row);
+        const row = propRow(doc, pick || column === 0 ? `${SIDE_LABEL[side]} ${column + 1}` : `${SIDE_LABEL[side]} +`, mapSel, typeSel);
+        row.classList.add('fx-roster-row');
+        table.append(row);
       }
-      grid.append(col);
     }
-    body.append(grid, forgeEl(doc, 'p', 'fx-dim fx-setting-note',
-      'Each column is a character type from a disc map, with that map’s body and kit, in Play here. The lobby’s ARMORY and its server match keep the map’s own.'));
   };
 
-  return { body, draw, onChange: (cb) => { listeners = [...listeners, cb]; } };
+  return { body, draw, onChange: (cb) => { listeners = [...listeners, cb]; }, onPreset: (cb) => { presetListeners = [...presetListeners, cb]; } };
 }

@@ -125,7 +125,7 @@ export const pressNew = (page: Page, press: Press = 'click'): Promise<void> => p
 export const pressOpen = (page: Page, press: Press = 'click'): Promise<void> => pressMenubar(page, 'File', 'Open…', press);
 
 /** EDITOR-MAP T4, C1: Saves (the old toolbar's `[data-forge="saves"]`): File > Saves..., the same button's listener. */
-export const openSaves = (page: Page, press: Press = 'click'): Promise<void> => pressMenubar(page, 'File', 'Saves…', press);
+export const openSaves = (page: Page, press: Press = 'click'): Promise<void> => pressMenubar(page, 'File', 'Open…', press);
 
 /** EDITOR-MAP T7: Duplicate (the old toolbar's `button[title^="Duplicate"]`): Edit > Duplicate. */
 export const pressDuplicate = (page: Page, press: Press = 'click'): Promise<void> => pressMenubar(page, 'Edit', 'Duplicate', press);

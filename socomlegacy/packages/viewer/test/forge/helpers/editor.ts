@@ -177,7 +177,7 @@ export const pressNew = (doc: Document): void => pressMenubar(doc, 'File', 'New�
 /** Map T3, C3: Open (File > Open...). */
 export const pressOpen = (doc: Document): void => pressMenubar(doc, 'File', 'Open…');
 /** Map T4, C1: Saves (File > Saves...). */
-export const pressSaves = (doc: Document): void => pressMenubar(doc, 'File', 'Saves…');
+export const pressSaves = (doc: Document): void => pressMenubar(doc, 'File', 'Open…');
 
 /* ---------------- the forge menu (map T1, M1-M3) ---------------- */
 

@@ -31,7 +31,7 @@ import type { ForgeLobbyArmorySource } from './deps';
  */
 
 /** What the window's part asks of the screen (`Armory`'s own methods; a test's stand-in has the same). */
-export type ArmoryLike = Pick<Armory, 'setData' | 'setWorld' | 'open' | 'isOpen' | 'frame' | 'pad' | 'input' | 'taking' | 'tap' | 'close' | 'quads' | 'models'>;
+export type ArmoryLike = Pick<Armory, 'setData' | 'setWorld' | 'open' | 'isOpen' | 'frame' | 'pad' | 'input' | 'taking' | 'tap' | 'close' | 'quads' | 'models'> & Partial<Pick<Armory, 'key'>>;
 
 /** The render step: the data's bitmaps and models taken, each frame's quads and models drawn to the canvas. */
 export interface ArmoryPaint {
@@ -138,6 +138,11 @@ export class ForgeLobbyArmory {
   }
 
   isOpen(): boolean { return this.armory.isOpen(); }
+  /**
+   * A key pressed on the screen (`../../armory` `ARMORY_MENU_KEYS_READING`: the arrows or WASD, Enter, Backspace, R, V; Esc
+   * left alone), as the test room's keyboard reaches it (the owner, 2026-11-25: the Play settings' local lobby). True when taken.
+   */
+  key(code: string): boolean { return this.armory.isOpen() && (this.armory.key?.(code) ?? false); }
 
   /** Reads the source's data and opens the screen over it; false when it cannot (no source, no world, let go). */
   async open(): Promise<boolean> {

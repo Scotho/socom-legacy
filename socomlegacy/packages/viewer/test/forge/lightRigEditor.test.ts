@@ -15,6 +15,7 @@ const ATMOSPHERE: Atmosphere = {
     ambient: [0.3, 0.3, 0.3],
   },
   sky: 'MP6',
+  clouds: 1,
   fog: { on: true, colour: [10, 20, 30], near: 100, far: 5000, height: { on: false, top: 50, bottom: 0 } },
   night: { mission: true, lens: [0.2, 0.898, 0.2, 0.24] },   // the disc's LensFX_NVG, 0..1 (research 84 s14)
   shadow: [0, -2, 0.0001],
@@ -24,11 +25,12 @@ function editor(over: Partial<LightRigHooks> = {}) {
   let now = structuredClone(ATMOSPHERE);
   const hooks: LightRigHooks = {
     get: () => now, own: () => false, from: () => 'MP2',
+    skyScrolls: () => true,
     skyChoices: () => [['MP6', 'Crossroads · MP6'], ['MP51', 'Desert · MP51']],
-    flares: () => 3, preview: vi.fn(), commit: vi.fn((a: Atmosphere) => { now = a; }), reset: vi.fn(), preset: vi.fn(), ...over,
+    preview: vi.fn(), commit: vi.fn((a: Atmosphere) => { now = a; }), reset: vi.fn(), preset: vi.fn(), ...over,
   };
   const e = buildLightRigEditor(document, hooks);
-  document.body.replaceChildren(e.top, e.body);
+  document.body.replaceChildren(e.body);
   e.draw(true);
   const field = (label: string): HTMLInputElement => e.body.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
   return { e, hooks, field };
@@ -64,10 +66,12 @@ describe('the light rig editor (lightRigEditor)', () => {
     expect(field('Night vision lens colour').value).toBe('#33e533');           // the disc's 0..1, shown as a colour
     expect(field('Night vision lens alpha').value).toBe('0.24');
     expect(field('Shadows fall this steeply (° down)').value).toBe('90');
-    expect(e.body.textContent).toContain('3 placed · the Flare tool places them');
-    // Not its own yet: Reset hidden, the note names the built-from map.
-    expect(e.top.querySelector<HTMLButtonElement>('.fx-setting-reset:not([title^="Copy"])')!.hidden).toBe(true);
-    expect(e.top.textContent).toContain("MP2's environment");
+    // Two groups (the owner, 2026-11-25): Lighting and Sky & fog, no Reflections or Flares.
+    expect([...e.body.querySelectorAll('.fx-subfold-title')].map((t) => t.textContent)).toEqual(['Lighting', 'Sky & fog']);
+    // Not its own yet: each Reset not pressable, named for the built-from map.
+    const resets = [...e.body.querySelectorAll<HTMLButtonElement>('[data-rig-reset]')];
+    expect(resets.map((b) => b.disabled)).toEqual([true, true]);
+    expect(resets[0]!.title).toContain("MP2's own");
   });
 
   it('a field moved previews, a field set commits, the whole environment each time', () => {
@@ -93,12 +97,13 @@ describe('the light rig editor (lightRigEditor)', () => {
   });
 
   it('Reset and Preset are the hooks\'; Reset shows once the map holds its own', () => {
-    const { e, hooks } = editor({ own: () => true });
-    const [preset, reset] = [...e.top.querySelectorAll<HTMLButtonElement>('.fx-setting-reset')];
-    expect(reset!.hidden).toBe(false);
-    reset!.click();
-    preset!.click();
-    expect(hooks.reset).toHaveBeenCalledTimes(1);
-    expect(hooks.preset).toHaveBeenCalledTimes(1);
+    // Each group's own (the owner, 2026-11-25): a Reset pressable only where that group holds its own values.
+    const { e, hooks } = editor({ own: (part) => part === 'skyFog' });
+    const q = (sel: string): HTMLButtonElement => e.body.querySelector<HTMLButtonElement>(sel)!;
+    expect([q('[data-rig-reset="lighting"]').disabled, q('[data-rig-reset="skyFog"]').disabled]).toEqual([true, false]);
+    q('[data-rig-reset="skyFog"]').click();
+    q('[data-rig-preset="lighting"]').click();
+    expect(hooks.reset).toHaveBeenCalledWith('skyFog');
+    expect(hooks.preset).toHaveBeenCalledWith('lighting');
   });
 });

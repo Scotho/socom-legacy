@@ -298,10 +298,11 @@ export type { EditMesh };
 export class PickIndex {
   private constructor(private readonly entries: { object: GeoObject; min: Vec3; max: Vec3; tris: Float32Array; faces: Int32Array }[]) {}
 
-  static build(world: WorldGeometry): PickIndex {
+  /** `skip`: an object left out besides a hidden one (the editor's quick hide: `./editor` `quickHidden`). */
+  static build(world: WorldGeometry, skip?: (o: GeoObject) => boolean): PickIndex {
     const entries: { object: GeoObject; min: Vec3; max: Vec3; tris: Float32Array; faces: Int32Array }[] = [];
     for (const object of world.objects) {
-      if (object.hidden) continue;
+      if (object.hidden || skip?.(object)) continue;
       const m = object.mesh;
       const tris: number[] = [], faces: number[] = [];
       for (const f of objectFaces(object)) {

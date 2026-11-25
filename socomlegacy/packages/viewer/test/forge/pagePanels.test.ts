@@ -197,21 +197,21 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     outlinerSection(document, 'map').click();
     expect(outlinerSection(document, 'map').getAttribute('aria-expanded')).toBe('true');
     showTab(document, 'map');
-    // Map (the old World): the settings, the environment (the layout's lighting and the map's own), the rules, the starters.
-    expect(drawnIn('map'), 'view controls are in the viewport dropdown').toEqual(['settings', 'environment', 'rules', 'starters']);
+    // Map (the old World): the settings -- the light rig (the layout's lighting and the map's own) its last sub-sections
+    // (the owner, 2026-11-25: no top-level Light rig) -- the rules, the starters.
+    expect(drawnIn('map'), 'view controls are in the viewport dropdown').toEqual(['settings', 'rules', 'starters']);
     const settings = panel(document, 'settings').querySelector<HTMLElement>('.fx-settings')!;
     expect(settings.querySelector('input[aria-label="Grid step"], input[aria-label="Turn step (°)"], input[aria-label="Snap"]')).toBeNull();
     expect(settings.querySelector('[data-forge-setting="assetTips"]')).toBeNull();
-    const environment = panel(document, 'environment').querySelector<HTMLElement>('.fx-environment')!;
-    expect(environment.querySelector('input[aria-label="Night to day"]')).not.toBeNull();   // Day / night, moved from Settings
-    expect(panel(document, 'settings').querySelector('input[aria-label="Night to day"]')).toBeNull();
+    const environment = panel(document, 'settings').querySelector<HTMLElement>('.fx-environment')!;
+    expect(environment.querySelector('input[aria-label="Night to day"]')).not.toBeNull();   // Day / night, in the light rig's groups
     showTab(document, 'content');
     expect(drawnIn('content')).toEqual(['creator-assets']);
     showTab(document, 'object');
     // The menu's Panels row brings the starters' tab (Map) forward, the starters open.
     openMenu(document);
     menuRow(document, 'panel-starters').click();
-    expect(drawnIn('map')).toEqual(['settings', 'environment', 'rules', 'starters']);
+    expect(drawnIn('map')).toEqual(['settings', 'rules', 'starters']);
     expect((panel(document, 'starters') as HTMLDetailsElement).open).toBe(true);
     // One section style: every open section's body is the one .fx-section, its padding and gap on the tokens.
     for (const t of ['object', 'map', 'content']) {
@@ -227,7 +227,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     for (const old of ['.fx-inspector', '.fx-view', '.fx-settings']) expect(ruleOf(old), `${old}'s own padding gone`).not.toMatch(/padding/);
     expect(ruleOf('.fx-section h3'), 'one sub-heading').toMatch(/text-transform:\s*uppercase/);
     // Every number field of the docked panels is the one stepper control.
-    const numbers = ['outliner', 'inspector', 'settings', 'environment', 'rules', 'starters', 'creator-assets']
+    const numbers = ['outliner', 'inspector', 'settings', 'rules', 'starters', 'creator-assets']
       .flatMap((id) => [...panelMounted(document, id).querySelectorAll<HTMLInputElement>('input[type="number"]')]);
     expect(numbers.length).toBeGreaterThanOrEqual(7);
     // A field named by its title, its data-label, else its aria-label (his reverb fields carry only the last).

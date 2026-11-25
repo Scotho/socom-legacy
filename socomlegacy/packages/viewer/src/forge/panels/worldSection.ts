@@ -2,6 +2,7 @@ import { FOV_HALF_MAX, FOV_HALF_MIN, LOADING_DESCRIPTION_MAX, LOADING_TITLE_MAX,
 import type { LayoutSettings, LoadingSetting, ReverbSetting } from '../layout';
 import { fovForVertical, SURFACE_CHOICES, verticalDegrees } from '../worldSettings';
 import { forgeEl } from '../shell/panel';
+import { ownButton, presetButton, propRow, subsection } from './propGrid';
 
 /**
  * The Map Settings panel's Surface, sound & view section (a browser adaptation over `../worldSettings`; the owner,
@@ -25,6 +26,8 @@ export interface WorldSection {
   body: HTMLElement;
   draw(view: WorldView): void;
   onChange(cb: (patch: Partial<LayoutSettings>) => void): void;
+  /** Reverb's Preset pressed: the page asks which disc map's reverb to copy in. */
+  onPreset(cb: (group: 'reverb') => void): void;
 }
 
 /** The slider's ends, full vertical degrees (from the contract's half-angle bounds). */
@@ -32,41 +35,59 @@ const FOV_MIN_DEG = Math.ceil(verticalDegrees(FOV_HALF_MIN)), FOV_MAX_DEG = Math
 /** The zones the panel shows a list at least (the disc's maps name one or two). */
 const ZONES_SHOWN = 2;
 
-export function buildWorldSection(doc: Document): WorldSection {
-  const body = forgeEl(doc, 'div', 'fx-world fx-prop-table');
+/**
+ * `mapTable`: the Map group's rows, where the Default surface and the loading screen's rows go (the owner, 2026-11-25:
+ * no Surface & view group of one row; "move the loading screen group into the map group"); without one, they are the
+ * section's first.
+ */
+export function buildWorldSection(doc: Document, mapTable?: HTMLElement): WorldSection {
+  const body = forgeEl(doc, 'div', 'fx-world fx-subfolds');
+  let mapRows: HTMLElement[] = [];
   let listeners: ((p: Partial<LayoutSettings>) => void)[] = [];
+  let presetListeners: ((group: 'reverb') => void)[] = [];
   let stamp = '';
   const tell = (p: Partial<LayoutSettings>): void => { for (const l of listeners) l(p); };
   const option = (value: string, label: string): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', label); o.value = value; return o; };
-  const head = (label: string, reset: string | null, on: boolean, locked: boolean, value?: string): HTMLElement => {
-    const h = forgeEl(doc, 'span', 'fx-setting-head');
-    h.append(forgeEl(doc, 'span', '', label));
-    if (value !== undefined) h.append(forgeEl(doc, 'span', 'fx-setting-value', value));
-    if (reset) {
-      const b = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Map’s own');
-      b.type = 'button';
-      b.dataset['worldReset'] = reset;
-      b.disabled = locked || !on;
-      b.addEventListener('click', () => tell({ [reset]: null }));
-      h.append(b);
-    }
-    return h;
+  /** A Map's own reset for setting `reset` (cleared to the map's own on its press). */
+  const own = (reset: 'fov' | 'reverb' | 'loading', on: boolean, locked: boolean, title: string): HTMLButtonElement => {
+    const b = ownButton(doc, title, on, locked);
+    b.dataset['worldReset'] = reset;
+    b.addEventListener('click', () => tell({ [reset]: null }));
+    return b;
   };
-  /** A slider with its two ends' words under it (what moving it each way does), as the Day / night row's. */
-  const withEnds = (input: HTMLInputElement, left: string, right: string): HTMLElement => {
-    const w = forgeEl(doc, 'div', 'fx-world-slider');
-    const ends = forgeEl(doc, 'div', 'fx-setting-head fx-world-ends');
-    ends.append(forgeEl(doc, 'span', '', left), forgeEl(doc, 'span', '', right));
-    w.append(input, ends);
-    return w;
-  };
+  /** A value read beside its control (a slider's degrees or percent): the readout's face, a fixed width. */
+  const readout = (text: string): HTMLSpanElement => forgeEl(doc, 'span', 'fx-setting-value fx-prop-readout', text);
 
   const draw = (v: WorldView): void => {
     const s = v.settings;
-    const next = JSON.stringify([s.defaultMaterial, s.reverb, s.fov, s.loading, v.own, v.locked, v.maps.length]);
+    const next = JSON.stringify([s.defaultMaterial, s.reverb, s.ambience, s.fov, s.loading, v.own, v.locked, v.maps.length]);
     if (next === stamp) return;                                    // unchanged: focus and typing kept
     stamp = next;
-    body.replaceChildren(forgeEl(doc, 'h3', '', 'Surface, sound & view'));
+    // One sub-section of its own (the owner, 2026-11-25): Reverb; the Default surface and the loading screen rows of the
+    // Map group.
+    // Sound (the owner, 2026-11-25: "add the ambient sound"): the ambience, then the reverb zones; its Reset both.
+    const reverbPreset = presetButton(doc, "Use a disc map's ambience and reverb zones in this map", v.locked);
+    reverbPreset.dataset['worldPreset'] = 'reverb';
+    reverbPreset.addEventListener('click', () => { for (const l of presetListeners) l('reverb'); });
+    const soundReset = ownButton(doc, 'Back to the map’s own ambience and reverb zones', !!s.reverb || !!s.ambience, v.locked);
+    soundReset.dataset['worldReset'] = 'reverb';
+    soundReset.addEventListener('click', () => tell({ reverb: null, ambience: null }));
+    const reverbFold = subsection(doc, 'Sound', { preset: reverbPreset, reset: soundReset });
+    const ambience = forgeEl(doc, 'select', 'fx-select');
+    ambience.dataset['world'] = 'ambience';
+    ambience.setAttribute('aria-label', 'Ambience');
+    ambience.title = 'The background sound outdoors and indoors: a disc map’s, played in Play';
+    {
+      const g = forgeEl(doc, 'optgroup', '');
+      g.label = 'Multiplayer';
+      g.append(...v.maps.map(([stem, label]) => option(stem, label)));
+      ambience.append(option('', 'Map’s own'), g);
+    }
+    ambience.value = s.ambience ?? '';
+    ambience.disabled = v.locked;
+    ambience.addEventListener('change', () => tell({ ambience: ambience.value === '' ? null : ambience.value }));
+    reverbFold.table.append(propRow(doc, 'Ambience', ambience));
+    body.replaceChildren(reverbFold.fold);
 
     // The default surface (`DefaultMaterial`).
     const surface = forgeEl(doc, 'select', 'fx-select');
@@ -76,46 +97,31 @@ export function buildWorldSection(doc: Document): WorldSection {
     surface.value = s.defaultMaterial ?? '';
     surface.disabled = v.locked;
     surface.addEventListener('change', () => tell({ defaultMaterial: surface.value === '' ? null : surface.value }));
-    const surfaceRow = forgeEl(doc, 'label', 'fx-setting');
-    surfaceRow.append(head('Default surface', null, false, v.locked), surface);
-    body.append(surfaceRow, forgeEl(doc, 'p', 'fx-dim fx-setting-note', 'What a floor with no material of its own sounds and marks like: steps, bullet impacts, C4.'));
+    const surfaceRow = propRow(doc, 'Default surface', surface);
 
-    // The field of view (`m_hfov` / `m_vfov`), as a full vertical angle at the map's own frame.
-    const own = v.own.fov;
-    const vNow = s.fov?.v ?? own?.vfov ?? null;
-    const fov = forgeEl(doc, 'input', 'fx-range');
-    fov.type = 'range';
-    fov.dataset['world'] = 'fov';
-    fov.min = String(FOV_MIN_DEG); fov.max = String(FOV_MAX_DEG); fov.step = '1';
-    fov.value = vNow === null ? '49' : String(verticalDegrees(vNow));
-    fov.setAttribute('aria-label', 'Field of view, vertical degrees');
-    fov.disabled = v.locked || !own;
-    fov.addEventListener('change', () => { if (own) tell({ fov: fovForVertical(Number(fov.value), own) }); });
-    const fovHead = head('Field of view', 'fov', !!s.fov, v.locked, vNow === null ? '—' : `${Math.round(verticalDegrees(vNow))}°`);
-    // The readout follows the drag; the setting is written when it is let go.
-    const fovValue = fovHead.querySelector<HTMLElement>('.fx-setting-value')!;
-    fov.addEventListener('input', () => { fovValue.textContent = `${Math.round(Number(fov.value))}°`; });
-    const fovRow = forgeEl(doc, 'div', 'fx-setting');
-    fovRow.append(fovHead, withEnds(fov, 'Narrow (zoomed in)', 'Wide'));
-    body.append(fovRow, forgeEl(doc, 'p', 'fx-dim fx-setting-note', 'In Play. It also sets the aim’s spread, as the game derives it from the view.'));
+    // No field of view row (the owner, 2026-11-25: "remove the field of view property from the surface and view section"):
+    // a layout's own value, where it has one, is kept as it was read; nothing here sets it.
 
-    // The reverb (`IndoorReverb` / `OutdoorReverb`): each zone's depth and ramp seconds.
+    // The reverb (`IndoorReverb` / `OutdoorReverb`): a row a zone -- its depth (dry to wet), the percent, its echo fade-in seconds.
     const lists: ReverbSetting = s.reverb ?? v.own.reverb ?? { indoor: [], outdoor: [] };
     const padded = (l: [number, number][]): [number, number][] => [...l, ...Array.from({ length: Math.max(0, ZONES_SHOWN - l.length) }, () => [0, 1] as [number, number])];
     const shown: ReverbSetting = { indoor: padded(lists.indoor), outdoor: padded(lists.outdoor) };
-    const reverbRow = forgeEl(doc, 'div', 'fx-setting');
-    reverbRow.append(head('Reverb', 'reverb', !!s.reverb, v.locked));
-    const grid = forgeEl(doc, 'div', 'fx-world-reverb');
-    grid.append(forgeEl(doc, 'span', ''), forgeEl(doc, 'span', 'fx-dim', 'Depth'), forgeEl(doc, 'span', ''), forgeEl(doc, 'span', 'fx-dim', 'Ease-in (s)'));
     const pct = (n: number): string => `${Math.round(n * 100)}%`;
-    for (const list of ['indoor', 'outdoor'] as const) {
-      shown[list].forEach(([depth, seconds], zone) => {
+    // Zone by zone, indoor then outdoor (the owner, 2026-11-25: "Indoor 1, Outdoor 1, Indoor 2, Outdoor 2").
+    const zones = Math.max(shown.indoor.length, shown.outdoor.length);
+    for (let zone = 0; zone < zones; zone++) for (const list of ['indoor', 'outdoor'] as const) {
+      const at = shown[list][zone];
+      if (!at) continue;
+      {
+        const [depth, seconds] = at;
         const word = `${list === 'indoor' ? 'Indoor' : 'Outdoor'} ${zone + 1}`;
         const d = forgeEl(doc, 'input', 'fx-range');
         d.type = 'range'; d.min = '0'; d.max = '1'; d.step = '0.01'; d.value = String(depth);
+        d.title = 'Depth: dry to wet';
         // FC2 (ours; the dock's one stepper control, FUI-22 D2, as every docked number field): `fx-stepper`.
-        const t = forgeEl(doc, 'input', 'fx-num fx-setting-num fx-stepper');
+        const t = forgeEl(doc, 'input', 'fx-num fx-setting-num fx-stepper fx-prop-num');
         t.type = 'number'; t.min = '0'; t.max = String(REVERB_SECONDS_MAX); t.step = '0.1'; t.value = String(seconds);
+        t.title = 'Echo fade-in, seconds: how long the echo takes to reach this zone’s depth when you step into it (the background sound is not faded by it)';
         for (const [input, part] of [[d, 'depth'], [t, 'seconds']] as const) {
           Object.assign(input.dataset, { world: 'reverb', list, zone: String(zone), part });
           input.setAttribute('aria-label', `${word} reverb ${part}`);
@@ -128,15 +134,19 @@ export function buildWorldSection(doc: Document): WorldSection {
             tell({ reverb: out });
           });
         }
-        const depthValue = forgeEl(doc, 'span', 'fx-setting-value', pct(depth));
+        const depthValue = readout(pct(depth));
         d.addEventListener('input', () => { depthValue.textContent = pct(Number(d.value)); });   // follows the drag
-        grid.append(forgeEl(doc, 'span', 'fx-dim', word), withEnds(d, 'Dry', 'Wet'), depthValue, t);
-      });
+        depthValue.classList.add('fx-prop-readout--pct');           // its whole percent shown, never clipped
+        // The fade-in seconds named beside its field (the owner, 2026-11-25: "add an ease in label"; renamed "Echo fade-in":
+        // it times the reverb's depth alone, `snd_AutoReverb`'s ramp, not the ambience's change).
+        const easeLabel = forgeEl(doc, 'span', 'fx-prop-unit', 'Echo fade-in');
+        easeLabel.title = t.title;
+        const seconds_ = forgeEl(doc, 'span', 'fx-prop-unit', 's');
+        reverbFold.table.append(propRow(doc, word, d, depthValue, easeLabel, t, seconds_));
+      }
     }
-    reverbRow.append(grid);
-    body.append(reverbRow, forgeEl(doc, 'p', 'fx-dim fx-setting-note', 'The echo where the camera stands: depth 0 to 1 and the seconds it eases in. Zones are the map’s own areas.'));
 
-    // The loading screen (research 125): its map, title and description.
+    // The loading screen (research 125): its map, title and description, and the custom picture's button.
     const l: LoadingSetting = s.loading ?? { from: null, title: null, description: null };
     const write = (patch: Partial<LoadingSetting>): void => {
       const n = { ...l, ...patch };
@@ -180,12 +190,21 @@ export function buildWorldSection(doc: Document): WorldSection {
       unsupported.textContent = 'Custom loading pictures are not supported yet. Ask a developer to implement it.';
       unsupported.hidden = false;
     });
-    const loadRow = forgeEl(doc, 'div', 'fx-setting');
-    loadRow.append(head('Loading screen', 'loading', !!s.loading, v.locked), from,
-      text('title', LOADING_TITLE_MAX, v.own.title ?? 'The map’s own title'), text('description', LOADING_DESCRIPTION_MAX, 'The map’s own description'),
-      custom, unsupported);
-    body.append(loadRow, forgeEl(doc, 'p', 'fx-dim fx-setting-note', 'Shown when Play starts through the loading screen (Play settings › Start).'));
+    // The Map group's rows from this section, put back in place of the last draw's (the group has no Reset: a loading
+    // screen field cleared is the map's own again).
+    const rowsForMap = [
+      surfaceRow,
+      propRow(doc, 'Loading screen', from),
+      propRow(doc, 'Loading title', text('title', LOADING_TITLE_MAX, v.own.title ?? 'The map’s own title')),
+      propRow(doc, 'Loading description', text('description', LOADING_DESCRIPTION_MAX, 'The map’s own description')),
+      propRow(doc, 'Loading picture', custom),
+      unsupported,
+    ];
+    for (const r of mapRows) r.remove();
+    if (mapTable) mapTable.append(...rowsForMap);
+    else body.prepend(...rowsForMap);
+    mapRows = rowsForMap;
   };
 
-  return { body, draw, onChange: (cb) => { listeners = [...listeners, cb]; } };
+  return { body, draw, onChange: (cb) => { listeners = [...listeners, cb]; }, onPreset: (cb) => { presetListeners = [...presetListeners, cb]; } };
 }

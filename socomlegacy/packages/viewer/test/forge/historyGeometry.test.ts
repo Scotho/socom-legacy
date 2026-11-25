@@ -57,6 +57,19 @@ describe('the shared history', () => {
     expect(decodeHistoryStep(h.current()).sel).toBe('none');
   });
 
+  it('a quick hide is a named view step (2026-11-24): make a box, hide it, undo -- the step before the hide, the box geometry kept', () => {
+    const h = start();
+    recordGeometryEdit(h, 1, 'Create box');
+    stampSelection(h, [], '{"h":null}');
+    expect(recordSelection(h, [], '{"h":["box"]}', 'Hide selected')).toBe(true);
+    expect(undoMeta(h)).toMatchObject({ label: 'Hide selected' });
+    expect(geoOf(h)).toBe(1);
+    h.undo();
+    expect(decodeHistoryStep(h.current())).toMatchObject({ sel: '{"h":null}', geo: 1 });
+    h.redo();
+    expect(decodeHistoryStep(h.current()).sel).toBe('{"h":["box"]}');
+  });
+
   it('keeps the selection through an edit until it is stamped, and the geometry through a selection', () => {
     const h = start();
     recordGeometryEdit(h, 1, 'Create box');

@@ -60,7 +60,7 @@ export interface ForgeMatch {
  * `sound` and `soundLoops`): what the match's firearm, marks and sound draw on. Null each where the source has none.
  * `lent`: the layout's switch scripts' sounds and effects from other maps (`./scriptAssets` `lentScriptAssets`), lent in.
  */
-export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets, surfaces?: { floors: string[]; all: string[] }): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
+export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets, surfaces?: { floors: string[]; all: string[] }, ambienceFrom?: { path: string; archive: string }): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
@@ -84,7 +84,7 @@ export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'p
         const borrow = [...(cuesFrom ? [{ path: cuesFrom.path, names: [BLAST_EFFECT] }] : []), ...(lent?.effects ?? []).map((e) => ({ path: `RUN/${e.from}.ZDB`, names: e.names }))];
         return { kind: 'effects', id, source, path: map.path, archive: map.archive, ...(borrow.length ? { borrow } : {}) };
       }),
-      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(surfaces ? { surfaces } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}) })),
+      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(surfaces ? { surfaces } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}), ...(ambienceFrom ? { ambienceFrom } : {}) })),
     ]);
     const data = s?.kind === 'soundLoops' ? [...sounds.values()][0] ?? null : null;
     return { effects: e?.kind === 'effects' ? e.data : null, sound: data && s?.kind === 'soundLoops' ? { data, loops: s.loops } : null };
@@ -272,6 +272,14 @@ export async function startForgeMatch(target: HTMLElement, o: {
   rulesCueStats?: () => unknown;
   /** RB-10 (`../playerSettings` `PageMatchDeps`; a browser adaptation): the player's settings for the match; unset, the page card's (`pageMatchDeps()`). Stopped at the close. */
   player?: PageMatchDeps;
+  /**
+   * The Play settings' Start: Simulate Lobby (the owner, 2026-11-25: "spawn in a lobby so that I can browse the menus and see
+   * the armory and weapon list"): the character type and kit chosen in the local lobby's ARMORY (`./lobby/lobby`). The
+   * hello asks the room to hold the first spawn (`NetClientOptions.armory`, ARMORY_SEAT_READING) and seats the type
+   * (`types`); the kit goes as the room's `loadout` before the match's own `ready` (the dormant seat ARMORY's,
+   * `../matchArmory` `openOrDone`) spawns it -- as a lobby's ARMORY choice reaches the room. Unset, as before.
+   */
+  kit?: { type: number; picks: readonly { slot: number; id: number }[] };
 }): Promise<ForgeMatch> {
   const markers = o.npcs ?? [];
   // NPB-5: the brain steps with the room (`RoomOptions.beforeStep`, the lobby's own hook), once it is ready.
@@ -311,7 +319,9 @@ export async function startForgeMatch(target: HTMLElement, o: {
     const nav = await fetchNpcNavigation(import.meta.env.BASE_URL, stem);
     if (nav) { try { brain = await NpcBrain.create(loop.room, [], nav); } catch { brain = null; } }
   }
-  const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket, ...(o.watch ? { watch: true } : {}) }, IDLE_WALK);
+  const kit = o.watch ? undefined : o.kit;
+  const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket, ...(o.watch ? { watch: true } : {}),
+    ...(kit ? { armory: true, types: () => ({ seal: kit.type, terrorist: kit.type }) } : {}) }, IDLE_WALK);
   const events: ServerEvent[] = [];
   // FCW-32 round 2: the rules' wires, outside `ServerEvent` (the room's additive types), handed to the page as they come.
   const offRules = o.onRules ? client.on((ev) => { const t = (ev as { type?: unknown }).type; if (t === 'rulesPresent' || t === 'rulesPurchase') o.onRules!(ev); }) : () => {};
@@ -332,6 +342,8 @@ export async function startForgeMatch(target: HTMLElement, o: {
     loop.stop();
     throw e;
   }
+  // The lobby's kit (`kit`): the room's `loadout` while the seat is held, before the match's `ready` spawns it.
+  if (kit) client.send({ type: 'loadout', picks: kit.picks.map((p) => ({ slot: p.slot, id: p.id })), char: kit.type });
   // The NPCs join after the player's welcome: the player holds client index 0, NPC i index i + 1 (`seatSlots`).
   if (markers.length) {
     npcs = new ForgeNpcs(loop, markers, simMap);

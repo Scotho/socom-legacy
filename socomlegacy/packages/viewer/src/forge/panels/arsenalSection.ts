@@ -3,6 +3,7 @@ import type { SimKits } from '../../loadout';
 import type { ArsenalSetting } from '../layout';
 import { ARSENAL_PRESETS, arsenalWith, EMPTY_ARSENAL, kitSlotOf, setKitSlot, setSideBit, valveOf } from '../arsenalSetting';
 import { forgeEl } from '../shell/panel';
+import { ownButton, propRow, subsection } from './propGrid';
 
 /**
  * The Map Settings panel's Weapons & equipment section (a browser adaptation over `../arsenalSetting`; the owner,
@@ -42,7 +43,7 @@ function listed(kits: SimKits): ArsenalItem[] {
 }
 
 export function buildArsenalSection(doc: Document): ArsenalSection {
-  const body = forgeEl(doc, 'div', 'fx-arsenal');
+  const body = forgeEl(doc, 'div', 'fx-arsenal fx-subfolds');
   let listeners: ((next: ArsenalSetting | null) => void)[] = [];
   let view: ArsenalView = { setting: null, kits: null, locked: false };
   let drawn = false, listsOpen = false;
@@ -58,50 +59,49 @@ export function buildArsenalSection(doc: Document): ArsenalSection {
     if (drawn && v.setting === view.setting && v.kits === view.kits && v.locked === view.locked) return;
     drawn = true;
     view = v;
-    body.replaceChildren(forgeEl(doc, 'h3', '', 'Weapons & equipment'));
+    // Sub-sections only (the owner, 2026-11-25: "there should be no mix, only sub sections as header titles"): Weapons &
+    // equipment (its Map's own in the heading, the presets a row), each side's spawn kit, the ARMORY lists (folded).
+    const reset = ownButton(doc, 'Back to the map’s own weapons, kits and ARMORY lists', !!v.setting, v.locked);
+    reset.dataset['arsenalReset'] = '';
+    reset.addEventListener('click', () => tell(null));
+    const main = subsection(doc, 'Weapons & equipment', { reset });
+    body.replaceChildren(main.fold);
     if (!v.kits?.map) {
-      body.append(forgeEl(doc, 'p', 'fx-dim fx-setting-note', 'This map has no arsenal: its players carry the baked M4A1 SD and Mark 23.'));
+      main.table.append(propRow(doc, 'Arsenal', forgeEl(doc, 'span', 'fx-dim', 'None on this map')));
       return;
     }
     const items = listed(v.kits);
     const s = current(), mapValves = valves();
 
-    // The presets and Map's own.
-    const chips = forgeEl(doc, 'div', 'fx-arsenal-presets');
+    // The presets: a row each with its switch (one row's height, as every setting), on while what it does holds -- by its
+    // switch or by hand; turned off, it is undone.
     for (const p of ARSENAL_PRESETS) {
-      const b = forgeEl(doc, 'button', 'fx-chip', p.label);
-      b.type = 'button';
-      b.title = p.title;
-      b.dataset['preset'] = p.id;
-      b.disabled = v.locked;
-      // A toggle: lit (the panel's `.fx-chip.is-on`, gold) while what it does holds -- by its click or by hand -- and a
-      // click on a lit one undoes it.
+      const box = forgeEl(doc, 'input');
+      box.type = 'checkbox';
+      box.title = p.title;
+      box.dataset['preset'] = p.id;
+      box.disabled = v.locked;
       const on = p.isOn(s, mapValves);
-      b.classList.toggle('is-on', on);
-      b.setAttribute('aria-pressed', String(on));
-      b.addEventListener('click', () => tell(on ? p.remove(current(), valves()) : p.apply(current(), valves())));
-      chips.append(b);
+      box.checked = on;
+      box.setAttribute('aria-label', p.label);
+      box.addEventListener('change', () => tell(on ? p.remove(current(), valves()) : p.apply(current(), valves())));
+      const sw = forgeEl(doc, 'label', 'fx-toggle');
+      sw.append(box);
+      main.table.append(propRow(doc, p.label, sw));
     }
-    const reset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Map’s own');
-    reset.type = 'button';
-    reset.title = 'The map’s own weapons and kits, from the disc';
-    reset.dataset['arsenalReset'] = '';
-    reset.disabled = v.locked || !v.setting;
-    reset.addEventListener('click', () => tell(null));
-    chips.append(reset);
-    body.append(chips);
+    const refused = arsenalWith(v.kits, v.setting).refused;
+    if (refused.length) main.table.append(forgeEl(doc, 'p', 'fx-dim fx-setting-note fx-arsenal-refused', `Not played: ${refused.join('; ')}.`));
 
-    // Each side's kit: a pick a slot over every type's own.
-    const kitsEl = forgeEl(doc, 'div', 'fx-arsenal-kits');
+    // Each side's spawn kit in the same group (the owner, 2026-11-25: "merge some groups"): its side's name a row of its
+    // own, then a row a slot, a pick over every type's own.
     for (const side of SIDES) {
-      const col = forgeEl(doc, 'div', 'fx-arsenal-kit');
-      col.append(forgeEl(doc, 'span', 'fx-setting-head', `${SIDE_LABEL[side]} spawn kit`));
+      main.table.append(forgeEl(doc, 'div', 'fx-prop-group', `${SIDE_LABEL[side]} spawn kit`));
       for (let slot = 0; slot < 5; slot++) {
         const sel = forgeEl(doc, 'select', 'fx-select');
         sel.dataset['kitSide'] = side;
         sel.dataset['kitSlot'] = String(slot);
         sel.setAttribute('aria-label', `${SIDE_LABEL[side]} ${SLOT_LABEL[slot]}`);
-        const own = forgeEl(doc, 'option', '', `${SLOT_LABEL[slot]}: type’s own`);
+        const own = forgeEl(doc, 'option', '', 'Type’s own');
         own.value = '';
         sel.append(own, ...items.filter((it) => slotKindOf(it.id) === slotKind(slot)).map((it) => {
           const o = forgeEl(doc, 'option', '', it.displayName || it.name);
@@ -112,44 +112,29 @@ export function buildArsenalSection(doc: Document): ArsenalSection {
         sel.value = at === null ? '' : String(at);
         sel.disabled = v.locked;
         sel.addEventListener('change', () => tell(setKitSlot(current(), valves(), side, slot, sel.value === '' ? null : Number(sel.value))));
-        col.append(sel);
+        main.table.append(propRow(doc, SLOT_LABEL[slot]!, sel));
       }
-      kitsEl.append(col);
     }
-    body.append(kitsEl);
 
-    const refused = arsenalWith(v.kits, v.setting).refused;
-    if (refused.length) body.append(forgeEl(doc, 'p', 'fx-dim fx-setting-note fx-arsenal-refused', `Not played: ${refused.join('; ')}.`));
-
-    // The ARMORY's lists: a row a valve, a switch a side.
-    const grid = forgeEl(doc, 'details', 'fx-arsenal-grid');
-    grid.open = listsOpen;
-    grid.addEventListener('toggle', () => { listsOpen = grid.open; });
-    grid.append(forgeEl(doc, 'summary', '', 'ARMORY lists (who may pick each item)'));
-    const table = forgeEl(doc, 'table', '');
-    const head = forgeEl(doc, 'tr', '');
-    head.append(forgeEl(doc, 'th', '', 'Item'), ...SIDES.map((sd) => forgeEl(doc, 'th', '', SIDE_LABEL[sd])));
-    table.append(head);
+    // The ARMORY's lists (folded): a row an item, its two sides' switches side by side; a group's name a row of its own.
+    // Its Reset: the lists back to the map's own, the kits kept.
+    const listsReset = ownButton(doc, 'Back to the map’s own ARMORY lists', Object.keys(s.valves).length > 0, v.locked);
+    listsReset.dataset['arsenalListsReset'] = '';
+    listsReset.addEventListener('click', () => tell({ ...current(), valves: {} }));
+    const lists = subsection(doc, 'Armory lists', { closed: !listsOpen, reset: listsReset });
+    lists.fold.addEventListener('toggle', () => { listsOpen = lists.fold.open; });
     const seen = new Set<string>();
     for (const [cls, label] of GROUPS) {
       const group = items.filter((it) => itemClass(it.id) === cls);
       if (!group.length) continue;
-      const gr = forgeEl(doc, 'tr', 'fx-arsenal-group');
-      const th = forgeEl(doc, 'th', '', label);
-      th.colSpan = 3;
-      gr.append(th);
-      table.append(gr);
+      lists.table.append(forgeEl(doc, 'div', 'fx-prop-group', label));
       for (const it of group) {
         const name = VALVE_OF_ITEM.get(it.id)!;
         if (seen.has(name)) continue;
         seen.add(name);
-        const tr = forgeEl(doc, 'tr', '');
-        tr.dataset['valve'] = name;
         const value = valveOf(s, mapValves, name);
-        tr.classList.toggle('is-changed', s.valves[name] !== undefined);
-        tr.append(forgeEl(doc, 'td', '', it.displayName || it.name));
-        for (const side of SIDES) {
-          const td = forgeEl(doc, 'td', '');
+        const boxes = SIDES.map((side) => {
+          const l = forgeEl(doc, 'label', 'fx-toggle fx-prop-check');
           const box = forgeEl(doc, 'input');
           box.type = 'checkbox';
           box.dataset['side'] = side;
@@ -157,15 +142,16 @@ export function buildArsenalSection(doc: Document): ArsenalSection {
           box.disabled = v.locked;
           box.setAttribute('aria-label', `${it.displayName || it.name}: ${SIDE_LABEL[side]}`);
           box.addEventListener('change', () => tell(setSideBit(current(), valves(), name, side, box.checked)));
-          td.append(box);
-          tr.append(td);
-        }
-        table.append(tr);
+          l.append(box, forgeEl(doc, 'span', '', SIDE_LABEL[side]));
+          return l;
+        });
+        const row = propRow(doc, it.displayName || it.name, ...boxes);
+        row.dataset['valve'] = name;
+        row.classList.toggle('is-changed', s.valves[name] !== undefined);
+        lists.table.append(row);
       }
     }
-    grid.append(table);
-    body.append(grid, forgeEl(doc, 'p', 'fx-dim fx-setting-note',
-      'The map’s own valves where you change none. A kit slot opens its item to that side; a type the ARMORY would refuse keeps its own kit.'));
+    body.append(lists.fold);
   };
 
   return {

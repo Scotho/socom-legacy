@@ -40,6 +40,7 @@ import { cloneMappedModel, hasMappedModel } from './modelPackHook';
 import { craneRides } from './cranes';
 import {hdTextures} from './hdTexturePack';
 import { releaseWorldInstancing, WorldMeshMaterial } from './worldInstancing';
+import { SKY_DOME_TEXTURE_ADAPTATION } from './forge/skyDome';
 
 /**
  * `gs` decodes a texture's rows bottom-up, which is also what GL calls V = 0, so the data goes to the GPU
@@ -91,6 +92,22 @@ export interface WorldView {
    * topology alone. On by default; the game never turns it off.
    */
   setGeometry(on: boolean): void;
+  /**
+   * The world's own draws (`worldObjects`: the world chunks, their detail and environment passes, their wireframe
+   * overlays) drawn or not, the props kept as they are -- the forge geometry editor's (a browser adaptation, FG.R2): its
+   * own view stands in for the world once it is edited or quick-hidden. A state of the view, so a later refresh of its
+   * visibility (`setPlacementActive`, `setNodeCut`, a display switch) keeps it, where a bare `visible = false` on the
+   * objects was put back by the next one (the owner, 2026-11-24: quick hide on a native map "doesn't hide the geometry").
+   * On by default; the game never turns it off.
+   */
+  setWorldShown(on: boolean): void;
+  /**
+   * The sky's clouds at `k` times their own drift (the Forge's cloud speed, `LayoutSettings.cloudSpeed`): every scrolling
+   * band of a sky or cloud texture (`SKY_DOME_TEXTURE_ADAPTATION`); 1 the map's own.
+   */
+  setSkyScrollScale(k: number): void;
+  /** Whether any sky or cloud texture of the world scrolls (a cloud speed has something to move). */
+  skyScrolls(): boolean;
   /** Shows vertex and texture colour without applying the map's dynamic light rig. */
   setUnlit(on: boolean): void;
   /**
@@ -180,6 +197,12 @@ export interface WorldView {
    * drawn one pixel wide with the packet's texture running along it, which is what the hardware did.
    */
   setLineStrips(on: boolean): void;
+  /**
+   * Every line strip (a rope, a wire: merged by texture across the world and its props) cut from the view or drawn again
+   * -- the forge's quick hide's, beside the Display menu's own switch (`setLineStrips`), which it never changes (a browser
+   * adaptation: the editor's view alone).
+   */
+  setLineStripsCut(cut: boolean): void;
   /**
    * The detail pass (W1.6): a second draw over every surface whose texture's `mp<N>_lib.rdr` entry
    * carries a `detail` record -- the detail texture at `uv` times the surface's own, blended by the
@@ -381,6 +404,8 @@ interface Drawn {
   off: boolean;
   /** LATER 165: not drawn by its node's opacity at 0 (`setNodeCut`); absent, drawn. */
   cut?: boolean;
+  /** One of the world's own draws (`worldObjects`), not a prop's: `setWorldShown` reaches it. */
+  world?: true;
   shadow: boolean;
   /** The engine's alpha pass (`LoadedMesh.alphaPass`): drawn after the walk, far to near (`./engineOrder`). */
   alphaPass: boolean;
@@ -492,8 +517,10 @@ export function buildWorld(map: LoadedMap): WorldView {
   let engineOn = false;
   let highlight = false;
   let lineStripsOn = true;
+  let lineStripsCut = false;             // `setLineStripsCut`: the forge's quick hide, beside the Display switch
   let wireframeOn = false;
-  let geometryOn = true;                 // `setGeometry`: the solid draws; the wireframe overlay follows `shownOf`, not this
+  let geometryOn = true;
+  let worldShown = true;                 // `setWorldShown`: the world's own draws (`Drawn.world`), the props aside                 // `setGeometry`: the solid draws; the wireframe overlay follows `shownOf`, not this
   let texturedOn = true;
   let unlitOn = false;
   let shadowsOn = true;
@@ -562,8 +589,8 @@ export function buildWorld(map: LoadedMap): WorldView {
   /** Where `frame` last saw the camera, in the group's frame, so switching the order on can order at once. */
   const lastCamera = { x: 0, y: 0, z: 0, seen: false };
   /** Whether a draw draws under the switches, Geometry aside (`setGeometry` hides it, never its wireframe overlay). */
-  const shownOf = (d: Drawn): boolean => (!d.off || alternateOn) && !d.cut && (!d.shadow || shadowsOn)
-    && (!d.line || (lineStripsOn && !wireframeOn)) && (d.lod === null || d.lod.visible);
+  const shownOf = (d: Drawn): boolean => (!d.off || alternateOn) && !d.cut && (worldShown || !d.world) && (!d.shadow || shadowsOn)
+    && (!d.line || (lineStripsOn && !lineStripsCut && !wireframeOn)) && (d.lod === null || d.lod.visible);
   const syncWireframeOverlays = (): void => {
     for (const { source, overlay, instanced } of wireframeOverlays) {
       // Whether its source would draw, Geometry aside (`shownOf`): Geometry off hides the source, never its overlay.
@@ -591,7 +618,8 @@ export function buildWorld(map: LoadedMap): WorldView {
   /** Each instanced draw's members put again when its hidden set or `setAlternate` changed (a dirty flag a draw). */
   const instancePuts: (() => void)[] = [];
   /** The scrolling materials beside their offsets, advanced every frame. */
-  const scrolling: { offset: ReturnType<typeof vec2Uniform>; du: number; dv: number }[] = [];
+  const scrolling: { offset: ReturnType<typeof vec2Uniform>; du: number; dv: number; sky: boolean }[] = [];
+  let skyScrollScale = 1;                // `setSkyScrollScale`: the sky's bands' drift, times
   /** LATER 782 (`setNodeUvOffset`): each scrolled path's materials' offsets (`LoadedMesh.scrollPath`), by path. */
   const uvOffsets = new Map<string, ReturnType<typeof vec2Uniform>[]>();
   // Every drawn part beside the buffer its lit colours go into, so a rig change can rewrite them in place (a packed
@@ -816,7 +844,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       if (scroll) {
         const offset = vec2Uniform(0, 0);
         at = at.add(offset);
-        scrolling.push({ offset, du: scroll[0], dv: scroll[1] });
+        scrolling.push({ offset, du: scroll[0], dv: scroll[1], sky: name !== null && SKY_DOME_TEXTURE_ADAPTATION.test(name) });
       }
       // LATER 782: a scrolled node's own offset (`setNodeUvOffset`), beside the band's: both add to the coordinates.
       // Its cost on MP71 (the dev-disc test `fishHookMotion.devdisc.test.ts`, the loader's case): +0 draws, +5 materials
@@ -1154,7 +1182,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     const c = new Box3().setFromObject(object).getCenter(new Vector3());
     // LATER 593 (F3): the alpha pass keys by the visual's centroid where the caller has it (`Drawn.centre`).
     const centre: [number, number, number] = key ? [key[0]!, key[1]!, key[2]!] : [c.x, c.y, c.z];
-    const d: Drawn = { object, order, cells, alternate, off: alternate, shadow, alphaPass, centre, line, lod };
+    const d: Drawn = { object, order, cells, alternate, off: alternate, shadow, alphaPass, centre, line, lod, ...(queue === revealProps ? {} : { world: true as const }) };
     drawn.push(d);
     drawnByObject.set(object, d);
     object.renderOrder = restOrder(d);
@@ -1688,6 +1716,13 @@ export function buildWorld(map: LoadedMap): WorldView {
       refreshVisibility();
       refreshDetail();
     },
+    setSkyScrollScale: (k) => { skyScrollScale = Math.max(0, k); },
+    skyScrolls: () => scrolling.some((s) => s.sky && (s.du !== 0 || s.dv !== 0)),
+    setWorldShown: (on) => {
+      if (on === worldShown) return;
+      worldShown = on;
+      refreshVisibility();                                     // its detail and environment passes hang under it: off with it
+    },
     setTextured: (on) => {
       if (on === texturedOn) return;
       texturedOn = on;
@@ -1757,8 +1792,9 @@ export function buildWorld(map: LoadedMap): WorldView {
       for (const s of scrolling) {
         const v = s.offset.value;
         // Kept in 0..1: a uv offset of 3.04 samples the same texel as 0.04 and drifts in precision.
-        v.x = (v.x + s.du * dt * SKY_SCROLL_TICKS_READING) % 1;
-        v.y = (v.y + s.dv * dt * SKY_SCROLL_TICKS_READING) % 1;
+        const k = s.sky ? skyScrollScale : 1;
+        v.x = (v.x + s.du * k * dt * SKY_SCROLL_TICKS_READING) % 1;
+        v.y = (v.y + s.dv * k * dt * SKY_SCROLL_TICKS_READING) % 1;
       }
       syncWireframeOverlays();
     },
@@ -1828,6 +1864,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       }
     },
     setLineStrips: (on) => { lineStripsOn = on; refreshVisibility(); },
+    setLineStripsCut: (cut) => { if (cut === lineStripsCut) return; lineStripsCut = cut; refreshVisibility(); },
     setShadows: (on) => { if (on === shadowsOn) return; shadowsOn = on; refreshVisibility(); },
     setAlternate: (on) => { if (on === alternateOn) return; alternateOn = on; refreshVisibility(); },
     holdOnNode: (path, gone) => {

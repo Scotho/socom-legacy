@@ -26,10 +26,11 @@ describe('the keys in Geometry mode', () => {
     expect(forgeKeyAction(key('KeyZ', { ctrlKey: true }), on)).toBe('undo');
     expect(forgeKeyAction(key('KeyY', { ctrlKey: true }), on)).toBe('redo');
     expect(forgeKeyAction(key('KeyS', { ctrlKey: true }), on)).toBe('saves');
-    for (const [code, a] of [['KeyW', 'translate'], ['KeyE', 'rotate'], ['KeyR', 'scale'], ['KeyQ', 'space'], ['KeyH', 'docks']] as const) {
+    for (const [code, a] of [['KeyW', 'translate'], ['KeyE', 'rotate'], ['KeyR', 'scale'], ['KeyQ', 'space'], ['KeyH', 'hide'], ['KeyU', 'unhideAll']] as const) {
       expect(forgeKeyAction(key(code), on), code).toBe(a);
     }
     expect(forgeKeyAction(key('KeyA', { shiftKey: true }), on)).toBe('frame');
+    expect(forgeKeyAction(key('KeyH', { shiftKey: true }), on), 'the quick hide works in Geometry mode too').toBe('hideOthers');
   });
 
   it('V, P, M and F are Geometry mode\'s where it has them (Connect, Fill Hole, Merge, Quick Bevel / Flip)', () => {

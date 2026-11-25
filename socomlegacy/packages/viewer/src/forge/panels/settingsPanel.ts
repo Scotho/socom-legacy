@@ -2,6 +2,7 @@ import { FORGE_GAME_TYPE_NAME, FORGE_GAME_TYPES, NPC_BEHAVIOURS, SETTINGS_BOUNDS
 import type { MenuItem } from '../padMenu';
 import { EQ_LIMIT_LABEL, FOG_SLIDER_STEPS, lightingLabel, NPC_BEHAVIOUR_LABEL, type NumericSetting, type SteppedSetting } from '../settings';
 import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
+import { propRow, subsection } from './propGrid';
 import { buildArsenalSection, type ArsenalSection } from './arsenalSection';
 import { buildRosterSection, type RosterSection } from './rosterSection';
 import { buildWorldSection, type WorldSection } from './worldSection';
@@ -40,19 +41,9 @@ export const MAP_SETTING_ROWS: readonly SettingRowSpec[] = [
   // Saved Forge Night -> Day (a browser adaptation, no original): the row the legacy dimmer (`light`) held.
   { id: 'timeOfDay', menuId: 'setting-timeOfDay', label: 'Night / day', control: 'range', note: '← → Night to Day · ✕ Original', menuAct: 'original' },
   { id: 'fogFar', menuId: 'setting-fogFar', label: 'Fog distance', control: 'fog', note: '← → a quarter nearer or farther · ✕ the map’s own', menuAct: 'reset' },
-  { id: 'players', menuId: 'setting-players', label: 'Players', control: 'number', note: 'Above 16 a lobby seats them all, half a side; Play seats 8 a side',
-    dockNote: 'Above 16 a lobby made from the map seats them all, half a side; Play here seats 8 a side.' },
-  { id: 'rounds', menuId: 'setting-rounds', label: 'Rounds', control: 'number' },
-  { id: 'roundSeconds', menuId: 'setting-roundSeconds', label: 'Round time', dockLabel: 'Round time (s)', control: 'number' },
-  { id: 'friendlyFire', menuId: 'setting-friendlyFire', label: 'Friendly fire', control: 'toggle', menuAct: 'step' },
-  // CREATE GAME's RESPAWN and EQlimit rows (research 348, 362): the room's own `rules` and `eqLimit`.
-  { id: 'respawn', menuId: 'setting-respawn', label: 'Respawn', control: 'toggle', menuAct: 'step',
-    dockNote: 'Respawn plays 1 round of 20 minutes by default, classic 11 rounds of 6; rounds and round time you set are kept.' },
-  { id: 'eqLimit', menuId: 'setting-eqLimit', label: 'Equipment limit', control: 'choice', menuAct: 'step',
-    dockNote: 'CREATE GAME’s restriction, applied over the weapons below.' },
-  // NPB-6 (NPB.R6): how the layout's NPCs play in Play here -- sentries, or the lobby bots' brain where the map has its graph.
-  { id: 'npcBehaviour', menuId: 'setting-npcBehaviour', label: 'NPC behaviour', control: 'choice', menuAct: 'step',
-    dockNote: 'Patrol needs the map’s navigation file (tools/prepare-bot-navigation.ts); without it the NPCs stand as sentries.' },
+  // The match's own rows (players, rounds, round time, friendly fire, respawn, the equipment limit) and the NPCs'
+  // behaviour are no rows of the map's (the owner, 2026-11-25: "the user/lobby creator can define these, doesn't make
+  // sense we define it"): the layout keeps their values as it read them; nothing here sets them.
 ];
 
 /** The one value formatter: what the dock's value line and the menu's value show (the game type is its option's label). */
@@ -72,6 +63,8 @@ export function formatSetting(id: Exclude<MapSettingId, 'gameType'>, s: LayoutSe
 
 export interface SettingsDom {
   body: HTMLDivElement;
+  /** The Map sub-section's rows (the page puts its Program row first). */
+  mapTable: HTMLDivElement;
   /**
    * The layout's lighting rows -- Day / night and Fog distance (`LIGHTING_SETTINGS`) -- built from the same row list
    * and wired by the page as before, but mounted by the Environment panel (`./environmentPanel`), not in `body`.
@@ -100,18 +93,15 @@ export interface SettingsDom {
   world: WorldSection;
 }
 
-type Parts = Omit<SettingsDom, 'body' | 'lightingRows' | 'arsenal' | 'roster' | 'world'>;
+type Parts = Omit<SettingsDom, 'body' | 'mapTable' | 'lightingRows' | 'arsenal' | 'roster' | 'world'>;
 
 /** The settings whose dock rows live in the Environment panel (still the START menu's Map settings rows). */
 export const LIGHTING_SETTINGS: readonly MapSettingId[] = ['timeOfDay', 'fogFar'];
 
-function settingRow(doc: Document, label: string, control: HTMLElement, value: HTMLElement | null = null): HTMLLabelElement {
-  const w = forgeEl(doc, 'label', 'fx-setting');
-  const head = forgeEl(doc, 'span', 'fx-setting-head');
-  head.append(forgeEl(doc, 'span', '', label));
-  if (value) head.append(value);
-  w.append(head, control);
-  return w;
+/** A setting's row: its name, then its control and its value side by side (`./propGrid`, every panel's one row). */
+function settingRow(doc: Document, label: string, control: HTMLElement, value: HTMLElement | null = null): HTMLElement {
+  if (value) value.classList.add('fx-prop-readout');
+  return propRow(doc, label, control, value);
 }
 
 function range(doc: Document, min: number, max: number, step: number): HTMLInputElement {
@@ -158,9 +148,10 @@ function controls(doc: Document): Parts {
   lightReset.type = 'button';
   lightReset.title = 'Restore original lighting';
   // Its ends' words on the slider's own line, each at the end it names (the owner, 2026-11-12: "use the same sides as
-  // the slider values ... aligned to the slider"): Night at the left (0), Day at the right (1), then the reset.
+  // the slider values ... aligned to the slider"): Night at the left (0), Day at the right (1). No reset in the row (the
+  // owner, 2026-11-25: "remove the inline resets"): its group's Reset puts it back; `lightReset` is the START menu's.
   const lightWrap = forgeEl(doc, 'div', 'fx-setting-pair');
-  lightWrap.append(forgeEl(doc, 'span', 'fx-slider-end', 'Night'), lightIn, forgeEl(doc, 'span', 'fx-slider-end', 'Day'), lightReset);
+  lightWrap.append(forgeEl(doc, 'span', 'fx-slider-end', 'Night'), lightIn, forgeEl(doc, 'span', 'fx-slider-end', 'Day'));
   const lightControls = forgeEl(doc, 'div');
   lightControls.append(lightWrap);
   return {
@@ -208,9 +199,10 @@ function dockRow(doc: Document, spec: SettingRowSpec, p: Parts): HTMLElement {
   switch (spec.control) {
     case 'select': return settingRow(doc, label, p.gameTypeSel);
     case 'range': return settingRow(doc, label, p.lightControls, p.lightOut);
-    case 'fog': { const pair = forgeEl(doc, 'div', 'fx-setting-pair'); pair.append(p.fogIn, p.fogReset); return settingRow(doc, label, pair, p.fogOut); }
+    // No reset in the row (the owner, 2026-11-25): its group's Reset puts the map's own distance back.
+    case 'fog': { const pair = forgeEl(doc, 'div', 'fx-setting-pair'); pair.append(p.fogIn); return settingRow(doc, label, pair, p.fogOut); }
     case 'number': return settingRow(doc, label, p.numIn[spec.id as 'players' | 'rounds' | 'roundSeconds']);
-    case 'toggle': { const w = forgeEl(doc, 'label', 'fx-toggle'); w.append(spec.id === 'respawn' ? p.respawnIn : p.ffIn, forgeEl(doc, 'span', '', label)); return w; }
+    case 'toggle': return propRow(doc, label, spec.id === 'respawn' ? p.respawnIn : p.ffIn);
     case 'choice': return settingRow(doc, label, spec.id === 'eqLimit' ? p.eqSel : p.npcSel);
   }
 }
@@ -225,11 +217,11 @@ function mapRows(doc: Document, p: Parts, rows: readonly SettingRowSpec[]): HTML
   let notes: string[] = [];
   const close = (): void => {
     if (!group) return;
-    out.push(group, ...notes.map((n) => forgeEl(doc, 'p', 'fx-dim fx-setting-note', n)));
+    out.push(group);                                           // no line of explanation (the owner, 2026-11-25)
     group = null; notes = [];
   };
   for (const spec of rows) {
-    if (spec.control !== 'number') { close(); out.push(dockRow(doc, spec, p)); if (spec.dockNote) out.push(forgeEl(doc, 'p', 'fx-dim fx-setting-note', spec.dockNote)); continue; }
+    if (spec.control !== 'number') { close(); out.push(dockRow(doc, spec, p)); continue; }
     group ??= forgeEl(doc, 'div', 'fx-setting-nums');
     group.append(dockRow(doc, spec, p));
     if (spec.dockNote) notes.push(spec.dockNote);
@@ -239,12 +231,16 @@ function mapRows(doc: Document, p: Parts, rows: readonly SettingRowSpec[]): HTML
 }
 
 export function buildSettings(doc: Document): SettingsDom {
-  const body = forgeEl(doc, 'div', 'fx-settings fx-section fx-prop-table');       // FUI-22 (D2): the dock's one section style
+  // Sub-sections only (the owner, 2026-11-25: "only sub sections as header titles"): Map, then the characters', the
+  // weapons' and the world's own.
+  const body = forgeEl(doc, 'div', 'fx-settings fx-section fx-subfolds');       // FUI-22 (D2): the dock's one section style
   const p = controls(doc);
   const lighting = (spec: SettingRowSpec): boolean => LIGHTING_SETTINGS.includes(spec.id);
-  const arsenal = buildArsenalSection(doc), roster = buildRosterSection(doc), world = buildWorldSection(doc);
-  body.append(forgeEl(doc, 'h3', '', 'Map'), ...mapRows(doc, p, MAP_SETTING_ROWS.filter((s) => !lighting(s))), roster.body, arsenal.body, world.body);
-  return { body, lightingRows: mapRows(doc, p, MAP_SETTING_ROWS.filter(lighting)), arsenal, roster, world, ...p };
+  const map = subsection(doc, 'Map');
+  map.table.append(...mapRows(doc, p, MAP_SETTING_ROWS.filter((s) => !lighting(s))));
+  const arsenal = buildArsenalSection(doc), roster = buildRosterSection(doc), world = buildWorldSection(doc, map.table);
+  body.append(map.fold, roster.body, arsenal.body, world.body);
+  return { body, mapTable: map.table, lightingRows: mapRows(doc, p, MAP_SETTING_ROWS.filter(lighting)), arsenal, roster, world, ...p };
 }
 
 /** What the menu's rows read and do: the page's own settings, steps and refusals. */

@@ -5,6 +5,7 @@
  * `./tokens.css`, the one alias block; this sheet holds the layout and the shared states (the focus ring, disabled).
  */
 @import './tokens.css';
+@import './themes.css';            /* the Dark theme's aliases (`./theme`): after the SOCOM ones they re-point */
 body.forge-page {
   --fx-top: 86px;
   /* The toolbar's own row; the placing tools' row (`.fx-tools-row`) under it, and the docks under both (`--fx-top`). */
@@ -565,11 +566,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
   height: 100%;
   aspect-ratio: 4 / 3;
 }
-/* List view: every other item row striped, counted among the item rows alone (a group head or a separator between them
-   keeps the alternation). Zero specificity (`:where`), so a hovered or selected row's own background shows over it. */
-:where(.fx-assets[data-view="list"] > li[data-asset]:nth-child(even of [data-asset])) {
-  background: color-mix(in srgb, var(--fx-panel-2) 60%, transparent);
-}
+/* List view: no striping (the owner, 2026-11-25: "remove the alternative rows in the asset browser list mode"). */
 /* List view: the name and its count on one line -- the name truncates, the count keeps its width at the row's right end. */
 .fx-assets[data-view="list"] .fx-asset-card-copy { display: flex; flex: 1 1 auto; flex-direction: row; align-items: baseline; gap: 6px; min-width: 0; }
 .fx-assets[data-view="list"] .fx-asset-card-copy > .fx-asset-name { flex: 1 1 auto; }
@@ -773,12 +770,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-outliner-children[hidden] { display: none; }
 .fx-outliner-children > li:not(.fx-tree-branch) { padding-left: 8px; }
 .fx-outliner li { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; cursor: pointer; font: var(--fx-type-mono); }
-/* Every other row striped, as the asset browser's list view (the owner, 2026-11-11), counted among the rows drawn (a folded
-   child or the top's drop row left out, so the alternation holds). Zero specificity: a hovered, selected or highlighted
-   row's own background shows over it. */
-:where(.fx-outliner > li:nth-child(even of li:not([hidden]):not(.fx-outliner-top))) {
-  background: color-mix(in srgb, var(--fx-panel-2) 60%, transparent);
-}
+/* No striping (the owner, 2026-11-25: "remove the alternative shading in the outliner though, too noisy"): its rows are
+   one face, a hovered or selected row's own background marks it. The Inspector's property grid keeps its stripes. */
 /* A branch at any depth (Map Data's and User Data's own too): a block -- its toggle over its rows -- not a row. */
 .fx-outliner li.fx-tree-branch { display: block; height: auto; padding: 0; cursor: default; }
 .fx-outliner li.fx-tree-branch:hover { background: none; }
@@ -787,7 +780,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-outliner li.fx-tree-branch.has-selected > .fx-tree-toggle .fx-tree-caret { color: var(--fx-gold); }
 .fx-outliner-children > li:not(.fx-tree-branch) { padding-left: 8px; }
 .fx-outliner li > span:first-of-type { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fx-outliner li:hover { background: var(--fx-hover); }
+/* No hover fill on a row (the owner, 2026-11-25: "remove the hover highlight on the outliner"); its eye and lock still
+   show under the pointer, and a selected row keeps its own mark. */
 /* A selected row: its words in the selection's colour, the row's own face kept (the owner, 2026-11-11: "only make the text
    selected, not the row color"). */
 .fx-outliner li.is-on { color: var(--fx-gold); }
@@ -816,8 +810,22 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-outliner-filter .fx-viewport-modes-summary { min-width: 72px; }
 .fx-outliner-filter .fx-viewport-modes-summary.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
 /* The Outliner's eye: a hidden placement's row dimmed (hidden in the editor only). */
-.fx-outliner li > .fx-eye { flex: none; display: inline-grid; place-items: center; width: 24px; padding: 0; }
-.fx-outliner li > .fx-eye .fx-ico { width: 14px; height: 14px; }
+/* An Outliner row's eye and lock (the owner, 2026-11-24: "make the vis icon ... work the same way as the lock, only show
+   when I hover, and show when it is hidden"; the lock "the same style as the eye icon. no circle"): bare icons, shown
+   under the pointer or while set. The eye red under the pointer and while hidden; the lock gold. */
+.fx-outliner li > .fx-eye, .fx-outliner li > .fx-lock-icon {
+  flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; box-sizing: border-box;
+  color: var(--fx-ico-quiet); background: none; border: 0; border-radius: 4px; cursor: pointer; visibility: hidden;
+}
+/* The row's kind colours its own icon (a team's, a side's, the bomb's, a missing piece's: `.fx-outliner li.fx-team-b .fx-ico`),
+   never its lock or eye (the owner, 2026-11-24: "make it consistent across all the object types"): the button's own colour,
+   by a selector that outranks every row-kind rule wherever it stands in this file. */
+.fx-outliner li > button.fx-eye .fx-ico, .fx-outliner li > button.fx-lock-icon .fx-ico { width: 14px; height: 14px; color: inherit; stroke-width: 2.6; }
+.fx-outliner li:hover > .fx-eye, .fx-outliner li > .fx-eye.is-off, .fx-outliner li > .fx-eye:focus-visible { visibility: visible; }
+.fx-outliner li > .fx-eye:hover { color: var(--fx-danger); background: color-mix(in srgb, var(--fx-danger) 16%, transparent); }
+.fx-outliner li > .fx-eye.is-off { color: var(--fx-danger); }
+.fx-outliner li > .fx-lock-icon:hover:not(:disabled) { color: var(--fx-gold); background: color-mix(in srgb, var(--fx-gold) 16%, transparent); border: 0; }
+.fx-outliner li > .fx-lock-icon.is-on { color: var(--fx-gold); border: 0; }
 .fx-outliner li.is-hidden-here > span { opacity: var(--fx-disabled); }
 /* The top level's drop row: shown only while a row is dragged. */
 .fx-outliner .fx-outliner-top { display: none; justify-content: center; font-size: 11px; opacity: 0.8; border: 1px dashed var(--fx-line, rgba(255, 255, 255, 0.2)); }
@@ -907,10 +915,13 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-lock-icon .fx-ico { width: 12px; height: 12px; color: inherit; stroke-width: 2.6; }
 .fx-lock-icon:hover:not(:disabled) { color: var(--fx-on-accent); background: var(--fx-gold); border-color: var(--fx-gold); }
 .fx-lock-icon.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
-.fx-outliner li .fx-lock-icon .fx-ico { width: 12px; height: 12px; color: inherit; }   /* over the rows' dim icons */
 .fx-lock-icon:disabled { opacity: var(--fx-disabled); cursor: default; }
+/* The Inspector's eye beside its lock (the owner, 2026-11-24): the lock's ring; red under the pointer and while hidden. */
+.fx-inspect-head > .fx-vis-icon { flex: none; align-self: center; margin-right: var(--s2u-space-1); }
+.fx-inspect-head > .fx-vis-icon[hidden] { display: none; }
+.fx-vis-icon:hover:not(:disabled) { color: var(--fx-on-accent); background: var(--fx-danger); border-color: var(--fx-danger); }
+.fx-vis-icon.is-off { color: var(--fx-danger); border-color: var(--fx-danger); }
 /* An Outliner row's lock: shown under the pointer, or always while the row is locked. */
-.fx-outliner li > .fx-lock-icon { flex: none; visibility: hidden; }
 .fx-outliner li:hover > .fx-lock-icon, .fx-outliner li.is-locked > .fx-lock-icon, .fx-outliner li > .fx-lock-icon:focus-visible { visibility: visible; }
 .fx-outliner li.is-locked { color: var(--fx-dim); }
 .fx-outliner li.is-locked.is-on { color: var(--fx-gold); }   /* a locked one selected: its words the selection's colour */
@@ -2439,7 +2450,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 
 /* The Inspector's rows of the step chosen in the Script panel. */
 .fx-inspect-data > .is-script-focus { background: color-mix(in srgb, var(--fx-gold) 12%, transparent); }
-.fx-inspect-data > dt.is-script-focus { color: var(--fx-gold); box-shadow: inset 2px 0 0 var(--fx-gold); padding-left: 4px; }
+.fx-inspect-data dt.is-script-focus { color: var(--fx-gold); box-shadow: inset 2px 0 0 var(--fx-gold); padding-left: 4px; }
 
 /* A While (the owner, 2026-11-13: "make the return while line connect to the nodes and have the arrow go in the right
    direction"): its head and its End while each in a column (`.fx-sg-post`) as tall as the block, the node in its middle;
@@ -2731,7 +2742,43 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-prefs { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; overflow: hidden; }
 .fx-prefs header { display: flex; align-items: baseline; gap: var(--s2u-space-3); }
 .fx-prefs header h2 { margin: 0; }
-.fx-prefs-tab { font: var(--fx-type-body); color: var(--fx-gold); border-bottom: 2px solid var(--fx-gold); padding: 0 2px 2px; }
+.fx-prefs-tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--fx-radius); background: var(--fx-bg); }
+.fx-prefs-tab { padding: 4px 12px; font: var(--fx-type-body); color: var(--fx-dim); background: transparent; border: 0; border-radius: var(--fx-radius); cursor: pointer; }
+.fx-prefs-tab:hover { color: var(--fx-text); }
+.fx-prefs-tab.is-on { color: var(--fx-gold); background: var(--fx-panel-2); }
+.fx-prefs-count[hidden] { display: none; }
+.fx-prefs-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.fx-prefs-pane[hidden] { display: none; }
+.fx-prefs-appearance { padding: var(--s2u-space-2) 0 var(--s2u-space-3); overflow-y: auto; }
+/* Appearance's themes (`./theme`): a card each, the editor drawn small in its own colours (`./themes.css` sets them). */
+.fx-theme-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--s2u-space-3); margin-top: var(--s2u-space-2); }
+.fx-theme-card { display: flex; flex-direction: column; gap: var(--s2u-space-2); padding: 8px; text-align: left; color: var(--fx-text); background: var(--fx-panel-2);
+  border: 2px solid transparent; border-radius: calc(var(--fx-radius) + 4px); cursor: pointer; transition: border-color var(--s2u-dur-fast) var(--s2u-ease), transform var(--s2u-dur-fast) var(--s2u-ease); }
+.fx-theme-card:hover { border-color: var(--fx-edge-hi); transform: translateY(-1px); }
+.fx-theme-card.is-on { border-color: var(--fx-gold); }
+.fx-theme-words { display: flex; flex-direction: column; gap: 2px; padding: 0 2px 2px; }
+.fx-theme-name { font: var(--fx-type-body); font-weight: 600; color: var(--fx-text-strong); }
+.fx-theme-card.is-on .fx-theme-name::after { content: ' \2713'; color: var(--fx-gold); }
+.fx-theme-note { font: var(--fx-type-body); font-size: 12px; color: var(--fx-dim); }
+.fx-theme-help { margin: var(--s2u-space-4) 0 0; font: var(--fx-type-body); color: var(--fx-dim); }
+/* The miniature: its own theme's aliases (`./themes.css`), a toolbar, two docks and the viewport between them. */
+.fx-theme-swatch { display: flex; flex-direction: column; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--fx-radius); background: var(--fx-bg);
+  box-shadow: 0 0 0 1px var(--fx-divider) inset; }
+.fx-theme-swatch i { display: block; }
+.fx-theme-swatch .sw-top { display: flex; align-items: center; gap: 4px; height: 14%; padding: 0 6px; background: var(--fx-bar); border-bottom: 1px solid var(--fx-divider); }
+.fx-theme-swatch .sw-logo { width: 18%; height: 30%; border-radius: 2px; background: var(--fx-gold); opacity: 0.85; }
+.fx-theme-swatch .sw-pill { width: 10%; height: 36%; border-radius: var(--fx-radius); background: var(--fx-panel-2); }
+.fx-theme-swatch .sw-pill.sw-accent { margin-left: auto; background: var(--fx-gold); }
+.fx-theme-swatch .sw-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.fx-theme-swatch .sw-dock { display: flex; flex-direction: column; gap: 4px; width: 24%; padding: 6px 5px; background: var(--fx-panel); }
+.fx-theme-swatch .sw-dock:first-child { border-right: 1px solid var(--fx-divider); }
+.fx-theme-swatch .sw-dock:last-child { border-left: 1px solid var(--fx-divider); }
+.fx-theme-swatch .sw-row { height: 5px; border-radius: 2px; background: var(--fx-dim); opacity: 0.45; }
+.fx-theme-swatch .sw-row.is-on { height: 7px; background: var(--fx-gold); opacity: 1; }
+.fx-theme-swatch .sw-field { height: 8px; border-radius: 2px; background: var(--fx-panel-2); }
+.fx-theme-swatch .sw-view { position: relative; flex: 1 1 auto; background: var(--fx-deep); }
+.fx-theme-swatch .sw-box { position: absolute; left: 34%; top: 30%; width: 32%; height: 36%; border: 1.5px solid var(--fx-gold); border-radius: 2px;
+  background: color-mix(in srgb, var(--fx-gold) 14%, transparent); }
 .fx-prefs-count { margin-left: auto; font: var(--fx-type-body); color: var(--fx-dim); }
 .fx-prefs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-2); margin: var(--s2u-space-3) 0 var(--s2u-space-2); }
 .fx-prefs-bar .fx-search { flex: 1 1 200px; min-width: 160px; }
@@ -2786,3 +2833,391 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-geo-material { display: inline-flex; align-items: center; gap: 6px; }
 .fx-geo-material[hidden] { display: none; }
 .fx-geo-material > .fx-select { height: 26px; max-width: 180px; }
+
+/* The quick hide's line (`./page` `quickHideLine`; the owner, 2026-11-24: "on the bottom left of the viewport, make it
+   bigger and more visible"): last in the lower left's legend stack; gold and dashed with its own mark, never the visibility
+   toggle's red eye (the owner, 2026-11-24: "distinct concepts"); a click unhides all. */
+.fx-quickhide-notice {
+  order: 99;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2u-space-2);
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fx-text);
+  background: color-mix(in srgb, var(--fx-gold) 16%, var(--fx-panel));
+  border: 1.5px dashed var(--fx-gold);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+  cursor: pointer;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.fx-quickhide-notice .fx-ico { width: 16px; height: 16px; color: var(--fx-gold); stroke-width: 2.6; }
+.fx-quickhide-notice:hover { background: color-mix(in srgb, var(--fx-gold) 28%, var(--fx-panel)); }
+.fx-quickhide-notice[hidden] { display: none; }
+
+/* The Inspector as a property grid (the owner, 2026-11-25: "a 2 column layout like" a level editor's, "each other row an
+   alternative color, like the outliner, even the transform ... on the 2nd column"; every theme: it reads `--fx-*` only).
+   A name column and a value column, one hairline between them and under each row; Position, Rotation and Scale's
+   fields in the value column; every other row shaded as the Outliner's (zero specificity: a focused row shows over it). */
+.fx-inspector { --fx-prop-label-w: 38%; }
+.fx-inspect-section > :is(.fx-fields, .fx-inspect-data) { margin: 0; border-top: 1px solid var(--fx-divider); }
+.fx-inspect-section > :is(.fx-fields, .fx-inspect-data):last-child { margin-bottom: 0; }
+.fx-inspector .fx-fields { display: block; }
+.fx-inspector .fx-field-row {
+  display: grid;
+  grid-template-columns: var(--fx-prop-label-w) repeat(3, minmax(0, 1fr)) 22px;
+  align-items: center;
+  column-gap: 4px;
+  min-height: 30px;
+  padding-right: 4px;
+  border-bottom: 1px solid var(--fx-divider);
+}
+.fx-inspector .fx-field-row[hidden] { display: none; }
+.fx-inspect-data { display: block; margin: 0; padding: 0; }
+.fx-prop-row {
+  display: grid;
+  grid-template-columns: var(--fx-prop-label-w) minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 30px;
+  border-bottom: 1px solid var(--fx-divider);
+}
+/* The name column: the row's full height, its divider on its right, the words in the body face. */
+.fx-inspector .fx-field-row > .fx-field-caption, .fx-prop-row > dt {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 var(--s2u-space-2) 0 var(--s2u-space-3);
+  border-right: 1px solid var(--fx-divider);
+  font: var(--fx-type-body);
+  color: var(--fx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fx-prop-row > dd { display: flex; align-items: center; min-width: 0; margin: 0; padding: 2px 6px; }
+:where(.fx-inspector .fx-fields > .fx-field-row:nth-child(even of :not([hidden]))),
+:where(.fx-inspect-data > .fx-prop-row:nth-child(even)) {
+  background: var(--fx-stripe);
+}
+/* No hover fill on a striped row (the owner, 2026-11-25: "don't add any hover/highlight effect for anywhere we are using
+   alternative row coloring"): the Inspector's, Map Settings', the light rig's and the Surface's rows stay as drawn. */
+/* A gap or a group between rows: a quiet band, the grid kept full width. */
+.fx-inspect-data > .fx-prop-row.fx-inspect-gap { margin-top: 0; border-top: 6px solid var(--fx-panel); }
+.fx-inspect-data > .fx-prop-row.fx-inspect-group { margin-top: 0; padding-top: 0; border-top: 1px solid var(--fx-edge-hi); }
+
+/* The asset browser's grid (the owner, 2026-11-25: "make the asset browser grid view a bit nicer ... a little less padding
+   around each item"; every theme: `--fx-*` only). Tighter: 6 px between tiles, 4 px inside one. Each tile a quiet card
+   face (items, not loose pictures), its picture edge to edge, its name in the body face and its count dim under it; the
+   pointer lifts the face and brightens the picture; the chosen one an accent ring over a faint accent tint. */
+.fx-assets[data-view="grid"] { gap: 6px; padding: 6px; }
+.fx-assets[data-view="grid"] > li[data-asset] {
+  background: color-mix(in srgb, var(--fx-panel-2) 55%, transparent);
+  border: 1px solid transparent;
+  border-radius: calc(var(--fx-radius) + 2px);
+  transition: background var(--s2u-dur-fast) var(--s2u-ease), border-color var(--s2u-dur-fast) var(--s2u-ease);
+}
+.fx-assets[data-view="grid"] > li[data-asset]:hover { background: var(--fx-hover); border-color: var(--fx-edge-hi); }
+.fx-assets[data-view="grid"] > li[data-asset].is-on {
+  background: color-mix(in srgb, var(--fx-gold) 12%, var(--fx-panel-2));
+  border-color: var(--fx-gold);
+  box-shadow: 0 0 0 1px var(--fx-gold);
+}
+.fx-assets[data-view="grid"] .fx-asset-pick { gap: 4px; padding: 4px; }
+.fx-assets[data-view="grid"] .fx-asset-thumbnail { border-radius: var(--fx-radius); transition: filter var(--s2u-dur-fast) var(--s2u-ease); }
+.fx-assets[data-view="grid"] > li[data-asset]:hover .fx-asset-thumbnail { filter: brightness(1.08); }
+.fx-assets[data-view="grid"] .fx-asset-card-copy { gap: 0; padding: 0 2px 2px; }
+.fx-assets[data-view="grid"] .fx-asset-name { font: var(--fx-type-body); font-size: 12px; line-height: 16px; color: var(--fx-text); }
+.fx-assets[data-view="grid"] > li[data-asset].is-on .fx-asset-name { color: var(--fx-text-strong); }
+.fx-assets[data-view="grid"] .fx-asset-card-copy .fx-dim { font: var(--fx-type-body); font-size: 11px; line-height: 14px; }
+.fx-assets[data-view="grid"] .fx-star { top: 7px; right: 7px; transform: scale(0.85); transform-origin: top right; }
+
+/* The Inspector's Transform gone while nothing is selected (the owner, 2026-11-25; `./page` marks its fields empty). */
+.fx-inspect-section:has(> .fx-fields[data-empty]) { display: none; }
+
+/* Map Settings and the light rig as the Inspector's property grid (the owner, 2026-11-25: "do the same 2 column layout
+   for the light rig map settings and light rig"; every theme: `--fx-*` only). The tables keep their three columns -- a
+   name, the control, a value or reset at the end -- the name's now the grid's fixed column with its divider, each row
+   30 px with a hairline under it, every other row shaded; a note a full-width row of its own under its setting. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section.fx-prop-table,
+.fx-prop-table {
+  --fx-prop-label-w: 38%;
+  grid-template-columns: var(--fx-prop-label-w) minmax(0, 1fr) auto;
+  column-gap: 6px;
+  row-gap: 0;
+}
+.fx-prop-table > :is(.fx-prop-row, .fx-setting, .fx-toggle),
+.fx-prop-table > :is(.fx-setting-nums, .fx-light-rig__slot) > .fx-setting {
+  min-height: 30px;
+  padding: 2px 6px 2px 0;
+  border-bottom: 1px solid var(--fx-divider);
+  row-gap: 4px;
+}
+.fx-prop-table > :first-child { border-top: 1px solid var(--fx-divider); }
+.fx-prop-table .fx-prop-label,
+.fx-prop-table .fx-setting > .fx-setting-head > span:first-child,
+.fx-prop-table > .fx-toggle > span {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 var(--s2u-space-2) 0 var(--s2u-space-3);
+  border-right: 1px solid var(--fx-divider);
+  font: var(--fx-type-body);
+  color: var(--fx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A setting over two lines (its slider, then its numbers): the name spans them, the divider whole. */
+.fx-prop-table .fx-setting > .fx-setting-head > span:first-child { grid-row: 1 / span 2; }
+:where(.fx-prop-table > :is(.fx-prop-row, .fx-setting, .fx-toggle):nth-child(even of :is(.fx-prop-row, .fx-setting, .fx-toggle):not([hidden]))),
+:where(.fx-prop-table > :is(.fx-setting-nums, .fx-light-rig__slot) > .fx-setting:nth-child(even)) {
+  background: var(--fx-stripe);
+}
+.fx-prop-table > .fx-setting-note, .fx-prop-table .fx-setting > .fx-setting-note {
+  margin: 0;
+  padding: 4px var(--s2u-space-3);
+  border-bottom: 1px solid var(--fx-divider);
+}
+
+/* Foldable sub-sections inside a panel's section (the owner, 2026-11-25: "you can add foldable sub sections for
+   sections inside the inspector/light rig/map settings"): a quiet caret heading, its property table under it. */
+.fx-subfolds { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
+.fx-subfold > summary {
+  display: flex; align-items: center; gap: 6px; padding: 4px 0; list-style: none; cursor: pointer;
+  font: var(--fx-type-body); font-weight: 600; color: var(--fx-text);
+}
+.fx-subfold > summary::-webkit-details-marker { display: none; }
+.fx-subfold > summary::before {
+  content: ''; width: 0; height: 0; border-left: 4px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform var(--s2u-dur-fast) var(--s2u-ease); opacity: 0.7;
+}
+.fx-subfold[open] > summary::before { transform: rotate(90deg); }
+.fx-subfold > summary:hover { color: var(--fx-text-strong); }
+/* A row's controls side by side in its value column, sharing it (a character's map and its type). */
+.fx-subfold .fx-prop-value { flex-wrap: nowrap; }
+.fx-subfold .fx-prop-value > .fx-select { flex: 1 1 0; min-width: 0; }
+
+/* Geometry mode's Surface and Texture sections as the Inspector's property grid (the owner, 2026-11-25: "the surface
+   section doesn't have a 2 column layout grid"): a row each, its name in the fixed column with its divider, the control
+   (a list, the Area's two tabs, a switch) in the value column, every other row shaded. */
+.fx-surfprops-rows { display: block; margin: 0 calc(-1 * var(--s2u-space-3)); border-top: 1px solid var(--fx-divider); }
+.fx-surfprops-row,
+.fx-inspector .fx-texture-section .fx-field-row {
+  display: grid;
+  grid-template-columns: var(--fx-prop-label-w, 38%) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  min-height: 30px;
+  padding-right: 6px;
+  border-bottom: 1px solid var(--fx-divider);
+}
+.fx-inspector .fx-texture-section .fx-field-row { grid-template-columns: var(--fx-prop-label-w, 38%) repeat(2, minmax(0, 1fr)); }
+.fx-surfprops-row > .fx-field-caption, .fx-inspector .fx-texture-section .fx-field-row > .fx-field-caption {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 var(--s2u-space-2) 0 var(--s2u-space-3);
+  border-right: 1px solid var(--fx-divider);
+  font: var(--fx-type-body);
+  color: var(--fx-text);
+}
+:where(.fx-surfprops-rows > .fx-surfprops-row:nth-child(even of :not([hidden]))),
+:where(.fx-inspector .fx-texture-section .fx-fields > .fx-field-row:nth-child(even of :not([hidden]))) {
+  background: var(--fx-stripe);
+}
+.fx-surfprops-row > .fx-toggle { justify-self: start; }
+.fx-surfprops-row[hidden] { display: none; }
+
+/* Map Settings, the light rig and the environment as name and control only (the owner, 2026-11-25: "remove all the texts
+   inside the map settings and light rig: it should just be section title, row text (1st column) and widgets (2 column)"):
+   their explanatory lines not drawn -- an error still is. */
+:is(.fx-settings, .fx-environment, .fx-light-rig, .fx-world, .fx-roster, .fx-arsenal) .fx-setting-note:not(.fx-world-error) { display: none; }
+/* A sub-section's pickers on one line each, their words cut short (a map's name beside its character). */
+.fx-subfold .fx-prop-value > .fx-select { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The property grid made one (the owner, 2026-11-25: "make sure everything is two columns ... make it consistent"; every
+   theme: `--fx-*` only; `./panels/propGrid`). A sub-section: its title, its Map's own at the heading's end. Its table: a
+   row a setting, 30 px, every control 26 px on one line, a slider stretching with its readout a fixed width beside it. */
+.fx-subfolds { display: flex; flex-direction: column; gap: 2px; }
+.fx-subfolds[hidden], .fx-subfold[hidden] { display: none; }   /* a hidden group stays hidden (the light rig's read-only copy) */
+.fx-subfold > summary { justify-content: flex-start; min-height: 28px; padding: 2px 0; }
+.fx-subfold-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-subfold > summary > .fx-own { flex: none; height: 22px; }
+.fx-subfold > .fx-prop-table { margin-bottom: var(--s2u-space-2); }
+.fx-subfold .fx-prop-row { grid-template-columns: subgrid; }
+.fx-subfold .fx-prop-value { flex-wrap: nowrap; gap: 6px; min-width: 0; padding: 2px 0; }
+.fx-subfold .fx-prop-row.fx-prop-wrap .fx-prop-value { flex-wrap: wrap; }
+.fx-subfold .fx-prop-value > :is(.fx-select, .fx-search, .fx-num, .fx-chip, .fx-tool) { height: 26px; box-sizing: border-box; }
+.fx-subfold .fx-prop-value > :is(.fx-search) { flex: 1 1 auto; min-width: 0; }
+.fx-subfold .fx-prop-value > .fx-range { flex: 1 1 auto; min-width: 40px; }
+.fx-subfold .fx-prop-value > .fx-prop-num, .fx-subfold .fx-prop-value > .fx-light-rig__num { flex: none; width: 58px; }
+.fx-prop-readout { flex: none; min-width: 40px; text-align: right; font: var(--fx-type-mono); color: var(--fx-gold); white-space: nowrap; }
+.fx-subfold .fx-prop-value > .fx-own { flex: none; margin-left: auto; }
+.fx-prop-check { display: inline-flex; align-items: center; gap: 4px; font: var(--fx-type-body); color: var(--fx-text); }
+/* A group's name inside a table (the ARMORY lists' Rifles, Pistols...): a quiet row of its own, full width. */
+.fx-prop-table > .fx-prop-group {
+  grid-column: 1 / -1; display: flex; align-items: center; min-height: 24px; padding: 0 var(--s2u-space-3);
+  font: var(--fx-type-caption); color: var(--fx-dim); border-bottom: 1px solid var(--fx-divider);
+}
+/* A page row put into a slot (the layout's Day / night, its Fog distance): laid as the table's own rows. */
+.fx-prop-table > .fx-light-rig__slot { display: contents; }
+
+/* One row height everywhere in the grid (the owner, 2026-11-25: "some rows heights are bigger than others"): 33 px with
+   its hairline, the padding the row's alone, every control 26 px -- the light rig's numbers and colours too -- and a
+   control's wrapper (the Night / Day slider's, the fog's pair) laid on the row's line, its end words not drawn. */
+.fx-subfold > .fx-prop-table { border-top: 1px solid var(--fx-divider); }
+.fx-subfold > .fx-prop-table > :first-child { border-top: 0; }
+.fx-subfold .fx-prop-table > :is(.fx-prop-row, .fx-setting, .fx-toggle),
+.fx-subfold .fx-prop-table > .fx-light-rig__slot > .fx-prop-row {
+  box-sizing: border-box; min-height: 33px; padding: 0 6px 0 0; row-gap: 0; align-items: center;
+}
+.fx-subfold .fx-prop-value { padding: 0; }
+.fx-subfold .fx-prop-value > :is(.fx-light-rig__num, .fx-light-rig__colour, .fx-setting-num) { height: 26px; box-sizing: border-box; }
+.fx-subfold .fx-prop-value > .fx-light-rig__colour { width: 32px; padding: 0 2px; }
+.fx-subfold .fx-prop-value > div { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.fx-subfold .fx-prop-value > div > div { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.fx-subfold .fx-prop-value .fx-range { flex: 1 1 auto; min-width: 40px; }
+.fx-subfold .fx-slider-end { display: none; }
+.fx-subfold .fx-prop-value > .fx-prop-readout, .fx-subfold .fx-prop-value .fx-prop-readout { max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
+.fx-subfold .fx-map-script-open { width: auto; flex: none; }
+/* A page row in a slot (Night / day, Fog distance) spans the table's columns as a direct row does. */
+.fx-prop-table > .fx-light-rig__slot > * { grid-column: 1 / -1; }
+/* A button in a row keeps its words (the compact toolbar's `.fx-tool span { display: none }` is the toolbar's alone). */
+.fx-subfold .fx-prop-value .fx-tool span { display: inline; }
+
+/* The sub-sections as cards (the owner, 2026-11-25: "the spacing between the sub sections seems completely not
+   consistent ... add a rounded border around each sub section group"; every theme: `--fx-*` only). One spacing wherever
+   a card sits -- its containers lay no gap of their own, each card keeps 6 px under it -- a rounded hairline round each,
+   its heading a 30 px bar inside, a hairline under the heading while open, the rows inside the card's edge. */
+:is(.fx-dock, .fx-workbench) .fx-panel > .fx-section.fx-subfolds,
+.fx-subfolds { display: flex; flex-direction: column; gap: 0; row-gap: 0; }
+.fx-subfolds > .fx-subfolds { display: contents; }
+.fx-subfold {
+  margin: 0 0 6px;
+  border: 1px solid var(--fx-divider);
+  border-radius: calc(var(--fx-radius) + 2px);
+  background: color-mix(in srgb, var(--fx-panel-2) 35%, transparent);
+  overflow: hidden;
+}
+.fx-subfold > summary { min-height: 30px; padding: 0 8px 0 10px; box-sizing: border-box; }
+.fx-subfold[open] > summary { border-bottom: 1px solid var(--fx-divider); }
+.fx-subfold > .fx-prop-table { margin: 0; border-top: 0; }
+.fx-subfold > .fx-prop-table > :last-child { border-bottom: 0; }
+/* A hidden group stays hidden, nested or not (over `display: contents` above). */
+.fx-subfolds.fx-subfolds[hidden], .fx-subfold.fx-subfold[hidden] { display: none; }
+/* A heading's Map's own centred on its bar; the light rig's number fields narrow enough for four to a row. */
+.fx-subfold > summary > .fx-own { align-self: center; margin: 0; }
+.fx-subfold .fx-prop-value > .fx-light-rig__num { width: 50px; }
+/* A sub-section's heading set apart from its rows (the owner, 2026-11-25: "make the header sub section row stand out a
+   bit more ... they blend too much with the normal text rows"): a solid bar a step lighter than the rows, its title bold
+   in the strongest ink, its caret in the accent. */
+.fx-subfold > summary {
+  background: color-mix(in srgb, var(--fx-text) 7%, var(--fx-panel-2));
+  font: var(--fx-type-body);
+  font-weight: 700;
+  color: var(--fx-text-strong);
+  letter-spacing: 0.01em;
+}
+/* Its caret in the ink, as every caret of the app (the owner, 2026-11-25: "keep the caret white like the rest of the app"). */
+.fx-subfold > summary::before { color: var(--fx-text-strong); border-left-color: currentColor; opacity: 1; }
+.fx-subfold > summary:hover { background: color-mix(in srgb, var(--fx-text) 11%, var(--fx-panel-2)); color: var(--fx-text-strong); }
+/* The light rig's numbers whole at four to a row (their stepper's padding trimmed); a long readout cut short, never over
+   its neighbour (the Fog distance's "3800 u · map's"). */
+.fx-subfold .fx-prop-value > .fx-light-rig__num { width: 54px; padding: 0 4px; }
+.fx-subfold .fx-prop-value .fx-prop-readout { flex: 0 1 auto; min-width: 0; max-width: 72px; overflow: hidden; text-overflow: ellipsis; }
+/* A group's Preset and Reset at its heading's end (the owner, 2026-11-25: "for each group ... add a preset and reset
+   button"): side by side, one chip height, centred on the bar; a Reset with nothing to put back dims. */
+.fx-subfold > summary > .fx-subfold-actions { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
+.fx-subfold > summary > .fx-subfold-actions > .fx-own { flex: none; height: 22px; margin: 0; }
+/* A reverb zone's depth percent: its whole "100%" always shown (the owner, 2026-11-25: "fix these numbers so they are not
+   clipped"); the ease-in's words beside its field, in the label ink. */
+.fx-subfold .fx-prop-value .fx-prop-readout.fx-prop-readout--pct { flex: none; width: 4.5ch; min-width: 4.5ch; max-width: none; overflow: visible; text-overflow: clip; }
+.fx-subfold .fx-prop-value > .fx-prop-unit { flex: none; color: var(--fx-text-dim); white-space: nowrap; }
+.fx-subfold .fx-prop-value > .fx-range { flex: 1 1 40px; min-width: 40px; }
+/* Preferences > Appearance's custom theme (the owner, 2026-11-25): its base and buttons, then a group of rows a kind of
+   token -- the colour's picker, its value typed, its reset; a value of its own marked in the accent. */
+.fx-theme-custom { margin-top: var(--s2u-space-4); }
+.fx-theme-custom[hidden] { display: none; }
+.fx-theme-custom .fx-prefs-bar { margin: var(--s2u-space-2) 0; }
+.fx-theme-probe { position: absolute; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+.fx-theme-msg { margin: 0 0 var(--s2u-space-2); min-height: 18px; font: var(--fx-type-body); color: var(--fx-dim); }
+.fx-theme-msg[data-kind="error"] { color: var(--fx-danger); }
+.fx-theme-tokens .fx-prop-value { gap: 6px; }
+.fx-theme-colour { flex: none; width: 34px; height: 22px; padding: 0; border: 1px solid var(--fx-control-edge); border-radius: 4px; background: none; cursor: pointer; }
+.fx-theme-colour::-webkit-color-swatch-wrapper { padding: 2px; }
+.fx-theme-colour::-webkit-color-swatch { border: 0; border-radius: 2px; }
+.fx-theme-value { flex: 1 1 120px; min-width: 0; font: var(--fx-type-mono); }
+.fx-theme-value.is-bad { border-color: var(--fx-danger); }
+.fx-theme-tokens .fx-prop-row.is-own .fx-prop-label { color: var(--fx-gold); }
+/* Preferences on Appearance: the editor behind it clear (no veil, no blur), so a theme's change shows on it at once. */
+.fx-modal.fx-prefs-modal.is-appearance { background: transparent; backdrop-filter: none; }
+.fx-modal.fx-prefs-modal.is-appearance .fx-prefs { box-shadow: var(--fx-lift); }
+/* The layout's name in the toolbar: plain text, never a field (the owner, 2026-11-25), cut with an ellipsis; none, dimmed. */
+.fx-top .fx-name-text { display: inline-block; align-self: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 6px;
+  font: var(--fx-type-body); color: var(--fx-text); cursor: default; user-select: none; }
+.fx-top .fx-name-text.is-untitled { color: var(--fx-dim); }
+/* The headings set apart from the striped rows (the owner, 2026-11-25): every section -- each dock panel's title (Rules,
+   Starter experiences ...), each fold (the Inspector's Transform, Properties) and each settings group (below) -- on the
+   accent fill (`--fx-header`). */
+:is(.fx-panel, .fx-fold) > summary { background: var(--fx-header); color: var(--fx-text-strong); }
+:is(.fx-panel, .fx-fold) > summary:hover { background: var(--fx-header-hover); }
+/* No sub-sections (the owner, 2026-11-25: "don't have any sub header/section concepts. just make all the sub sections a top
+   level section similar to map settings ... remove the top level map settings section, and make each sub section a normal
+   section"): every group (Map, Characters, Lighting ... the light rig's, the Surface's) drawn as a section is -- the whole
+   width of its panel, a rule under it, the section's heading (caption type, the chevron, `--fx-header`) -- and the Map
+   Settings panel shows no heading of its own (kept open by the page). */
+.fx-subfolds, .fx-subfolds.fx-subfolds { gap: 0; row-gap: 0; }
+.fx-subfold, .fx-subfold.fx-subfold {
+  margin: 0 calc(-1 * var(--s2u-space-3));
+  border: 0;
+  border-bottom: 1px solid var(--fx-edge);
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+.fx-subfold.fx-subfold > summary {
+  display: flex; align-items: center; gap: 0;
+  min-height: 0;
+  padding: 9px 10px;
+  font: var(--fx-type-caption);
+  font-weight: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fx-text-strong);
+  background: var(--fx-header);
+}
+.fx-subfold.fx-subfold > summary:hover { background: var(--fx-header-hover); color: var(--fx-text-strong); }
+.fx-subfold.fx-subfold[open] > summary { border-bottom: 1px solid var(--fx-divider); }
+.fx-subfold.fx-subfold > summary::before {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin: 0 5px 2px 2px;
+  border: solid var(--fx-dim);
+  border-width: 0 1.5px 1.5px 0;
+  opacity: 1;
+  transform: rotate(-45deg);
+  transition: none;
+}
+.fx-subfold.fx-subfold[open] > summary::before { transform: rotate(45deg); }
+/* The Preset and Reset chips keep their own case and spacing on the caption heading. */
+.fx-subfold > summary > .fx-subfold-actions { text-transform: none; letter-spacing: normal; font: var(--fx-type-control); }
+/* The Map Settings panel: no heading (its groups are the sections), its body flush to them. */
+.fx-panel[data-forge-panel="settings"] > summary { display: none; }
+:is(.fx-dock, .fx-workbench) .fx-panel[data-forge-panel="settings"] > .fx-section { padding-top: 0; padding-bottom: 0; gap: 0; }
+.fx-panel[data-forge-panel="settings"] { border-bottom: 0; }
+/* The Agent tab as the other panels (the owner, 2026-11-25: "more consistent with the rest of the styling and theming"):
+   no card of its own inside its section -- no edge, no corner, the panel's own ground -- the section's inset kept; its
+   controller prompts (Move, Select) only while the controller is the device in use, as the legend bar's. */
+body.forge-page .agent-panel { border: 0; border-radius: 0; background: transparent; padding: var(--s2u-space-2) 0; }
+body.forge-page[data-forge-theme] .agent-panel[data-state="connected"] { border: 0; }
+body.forge-page:not(.fx-pad-in-use) .agent-panel .s2u-prompts { display: none; }
+/* Its commands and fields in the theme's ink on its raised fill (a light theme's too: not white on grey). */
+body.forge-page .agent-panel :is(.agent-panel__code, .agent-panel__field, .agent-panel__manual, .agent-panel__note-field) { background: var(--fx-panel-2); color: var(--fx-text); }

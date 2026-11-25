@@ -22,9 +22,10 @@ describe('OT.R68: the forge editor\'s keys (the shortcut list\'s defaults)', () 
       .toEqual(FORGE_TOOL_ORDER.slice(9).map((tool) => ({ tool })));
   });
 
-  it('group, delete, frame (F and Shift+A), docks, deselect; no Duplicate', () => {
-    expect(['KeyG', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
-      .toEqual(['group', 'delete', 'delete', 'frame', 'docks', 'deselect']);
+  it('group, delete, frame (F and Shift+A), the quick hide (H, Shift+H, U), deselect; no Duplicate', () => {
+    expect(['KeyG', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'KeyU', 'Escape'].map((c) => press(c)))
+      .toEqual(['group', 'delete', 'delete', 'frame', 'hide', 'unhideAll', 'deselect']);
+    expect(press('KeyH', { shift: true }), 'Shift+H isolates').toBe('hideOthers');
     expect(press('KeyG', { shift: true })).toBe('ungroup');
     expect(press('KeyA', { shift: true })).toBe('frame');
     expect(press('KeyD', { ctrl: true }), 'Duplicate is gone (the owner, 2026-11-20)').toBeNull();

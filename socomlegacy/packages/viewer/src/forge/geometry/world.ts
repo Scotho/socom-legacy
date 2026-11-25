@@ -25,6 +25,12 @@ export interface GeoObject {
    * Absent: every face of `mesh` is the object's.
    */
   group?: number;
+  /**
+   * The object's node off at the map's load (the owner, 2026-11-24: the Outliner's eye, saved with the map): its
+   * `m_active` clear (research 318 section 1.2) -- none of its faces drawn (`compileDraws`), its hull passed over
+   * (`buildHullMesh`: a node's owners' flag word bit 0 clear; a made object's hull not built). Absent: active, as every
+   * node of the disc is.
+   */
   hidden?: boolean;
   /**
    * A hull built from its faces, on these surface words (`./collision` `hullOfMesh`), rebuilt at each compile; absent,
@@ -192,8 +198,10 @@ export function mul4(a: readonly number[], b: readonly number[]): number[] {
  *   tilted owner's frame turned with it);
  * - a node reshaped: its owners' polygons taken out, and a hull from its faces (`hullOfMesh`) on its commonest surface
  *   (a browser adaptation: how the original's tools made a hull is not known);
- * - each visible solid object (a primitive, a copy, a piece separated): a hull from its faces.
- * A hidden object keeps its hull: hiding is the view's.
+ * - each visible solid object (a primitive, a copy, a piece separated): a hull from its faces;
+ * - a hidden object (`GeoObject.hidden`, its node off): a world node's owners kept with their flag word's bit 0
+ *   (`m_active`) clear, so every ray, probe and step passes them over as the engine's gate does (research 209 section 7,
+ *   `modelGate`); a made object's hull not built. (The editor's quick hide is the view's alone and never reaches here.)
  */
 export function buildHull(g: WorldGeometry): GroundData | null {
   const c = buildHullMesh(g);
@@ -221,9 +229,14 @@ export function buildHullMesh(g: WorldGeometry): CollisionMesh | null {
       if (frame) c.owners[i] = { ...c.owners[i]!, frame: Float32Array.from(transpose4(mul4(m, transpose4(Array.from(frame))))) };
     }
   }
+  // A hidden world node's owners off (`m_active`, bit 0 of the flag word), the word's other bits as the disc has them.
+  for (const o of g.objects) {
+    if (!o.hidden || o.group === undefined) continue;
+    for (const i of ownersOf(g, o)) c.owners[i] = { ...c.owners[i]!, flags: (c.owners[i]!.flags ?? 0) & ~1 };
+  }
   // Each Build starts from the read layer, so a solid object's hull is made anew, never found from the last one.
   // Its faces floors facing up, walls else (`floorOrWall`; the owner, 2026-11-17: "wall collision for walls and floor for floors").
-  for (const o of g.objects) if (o.solid) appendOwnedPolys(c, hullOfMesh(o.mesh, floorOrWall(o.solid), objectFaces(o)), { modelName: GEOMETRY_OWNER_MODEL, path: `forge/${o.id}`, first: 0, count: 0 });
+  for (const o of g.objects) if (o.solid && !o.hidden) appendOwnedPolys(c, hullOfMesh(o.mesh, floorOrWall(o.solid), objectFaces(o)), { modelName: GEOMETRY_OWNER_MODEL, path: `forge/${o.id}`, first: 0, count: 0 });
   return c;
 }
 

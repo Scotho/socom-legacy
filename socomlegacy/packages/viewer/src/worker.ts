@@ -61,7 +61,7 @@ export type ViewerRequest =
    */
   | { kind: 'loadingScreen'; id: number; source: SourceRequest; path: string }
   /** A map's sound (socomlegacy/docs/research/81, `./soundData`): its banks, the script, the materials, the weapons, the callbacks. */
-  | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string; cuesFrom?: { path: string; archive: string }; /** A forge switch's sounds, by the map each is from (`soundFromDisc` `lend`). */ lend?: { from: string; names: string[] }[]; /** A forge layout's surfaces beyond the map's own (`soundFromDisc` `surfacesIn`). */ surfaces?: { floors: string[]; all: string[] };
+  | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string; cuesFrom?: { path: string; archive: string }; /** A forge switch's sounds, by the map each is from (`soundFromDisc` `lend`). */ lend?: { from: string; names: string[] }[]; /** A forge layout's surfaces beyond the map's own (`soundFromDisc` `surfacesIn`). */ surfaces?: { floors: string[]; all: string[] }; /** Another map's ambience (`soundFromDisc` `ambienceFrom`). */ ambienceFrom?: { path: string; archive: string };
     /** A forge layout's ambient effects' loops (`./forge/forgeObjects` `forgeAmbientEmitters`), sounded as the map's emitters. */
     emitters?: SoundData['emitters'] }
   /** EFFECTS: a map's effect programs, models, textures and mark tables (socomlegacy/docs/research/89, `./effectData`). */
@@ -152,7 +152,7 @@ ctx.addEventListener('message', (event: MessageEvent<ViewerInbound>) => {
         ctx.postMessage({ kind: 'index', id: request.id, maps, problems, ...(campaign ? { campaign } : {}) });
       } else if (request.kind === 'sound') {
         // Never an error either: without the banks the walk is silent.
-        const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive, request.cuesFrom, request.lend, request.surfaces);
+        const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive, request.cuesFrom, request.lend, request.surfaces, request.ambienceFrom);
         if (request.emitters?.length) data.emitters.push(...request.emitters);   // a forge layout's ambient loops, rendered with the map's
         data.loopsFollow = true;
         // The loops are rendered from the bank bytes before those are handed over, and sent after the data.

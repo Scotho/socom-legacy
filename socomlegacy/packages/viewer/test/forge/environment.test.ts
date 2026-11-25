@@ -16,8 +16,6 @@ const source: EnvironmentSource = {
   camera: { fogColor: [128, 64, 32], fogNear: 100, fogFar: 4000, fogTop: 300, fogBottom: 0, fogEnabled: true, fogAltitude: true },
   night: { mission: true, lens: [0.2, 0.898, 0.2, 0.24] },   // the disc's LensFX_NVG, 0..1 (research 84 s14)
   shadowVector: [0, -1, 0],
-  envMaterials: [{ texture: 'sky01.tif' }, { texture: 'chrome.tif' }],
-  flares: 7,
   legacyLight: null,
 };
 
@@ -26,14 +24,15 @@ describe('environmentSections', () => {
   const section = (title: string) => sections.find((s) => s.title === title)!;
 
   it('names its sections and where each comes from', () => {
-    expect(sections.map((s) => s.title)).toEqual(['Light rig', 'Fog', 'Night', 'Shadows', 'Reflections', 'Flares']);
-    expect(section('Light rig').source).toMatch(/GlobalLighting/);
+    // Two groups (the owner, 2026-11-25): no Night or Shadows of their own, no Reflections, no Flares.
+    expect(sections.map((s) => s.title)).toEqual(['Lighting', 'Fog']);
+    expect(section('Lighting').source).toMatch(/GlobalLighting/);
     expect(section('Fog').source).toMatch(/cameras\/camera/);
   });
 
   it('a light: where it shines from (heading, elevation) and its colour; an unused third light said off', () => {
-    const rows = section('Light rig').rows;
-    expect(rows.map((r) => r.label)).toEqual(['Light 1', 'Light 2', 'Light 3', 'Ambient']);
+    const rows = section('Lighting').rows;
+    expect(rows.map((r) => r.label)).toEqual(['Light 1', 'Light 2', 'Light 3', 'Ambient', 'Shadows', 'Night mission', 'Night vision lens']);
     expect(rows[0]).toMatchObject({ value: 'from overhead', swatch: '#ff8000' });
     expect(rows[1]!.value).toBe('from 270°, 45° up');
     expect(rows[2]!.value).toMatch(/^off/);
@@ -47,22 +46,20 @@ describe('environmentSections', () => {
     expect(rows.find((r) => r.label === 'Height fog')!.value).toBe('0 – 300 u');
   });
 
-  it('night, shadows, reflections and flares in words', () => {
-    expect(section('Night').rows.map((r) => r.value)).toEqual(['Yes', '#33e533 · alpha 0.24']);
-    expect(section('Night').rows[1]!.swatch).toBe('#33e533');
-    expect(section('Shadows').rows[0]!.value).toBe('straight down');
-    expect(section('Reflections').rows[0]!.value).toBe('2 · sky01.tif, chrome.tif');
-    expect(section('Flares').rows[0]!.value).toMatch(/^7/);
+  it('the shadows and the night in words, in the Lighting group', () => {
+    const rows = section('Lighting').rows;
+    expect(rows.slice(4).map((r) => r.value)).toEqual(['straight down', 'Yes', '#33e533 · alpha 0.24']);
+    expect(rows[6]!.swatch).toBe('#33e533');
   });
 
   it('a legacy brightness only when a layout still carries one', () => {
     expect(sections.some((s) => s.rows.some((r) => r.label === 'Legacy brightness'))).toBe(false);
     const legacy = environmentSections({ ...source, legacyLight: 0.4 });
-    expect(legacy.find((s) => s.title === 'Layout')!.rows[0]).toMatchObject({ label: 'Legacy brightness', value: '40%' });
+    expect(legacy.find((s) => s.title === 'Lighting')!.rows.at(-1)).toMatchObject({ label: 'Legacy brightness', value: '40%' });
   });
 
   it('no map: nothing to show', () => {
-    expect(environmentSections({ rig: null, camera: null, flares: 0, legacyLight: null })).toEqual([]);
+    expect(environmentSections({ rig: null, camera: null, legacyLight: null })).toEqual([]);
   });
 });
 

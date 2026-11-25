@@ -85,3 +85,21 @@ describe('withPieceInstances', () => {
     expect(withPieceInstances(bare, ['forge/piece_0'])).toBe(bare);
   });
 });
+
+/** The Outliner's eye (2026-11-24): a piece whose node is off at the load opens inactive (`MapInitial.deactivate`). */
+describe('withInactivePieces', () => {
+  it("each hidden piece a placed node made inactive at initialisation, once; the others untouched; none hidden, the map as it is", async () => {
+    const { withInactivePieces } = await import('../../src/forge/placedAccess');
+    const meta = { stem: 'x', actions: [], instances: [], instanceByPath: new Map(), initial: [{ path: 'worldmodel/a', deactivate: true, saveActive: false, saveTransform: false, saveParent: false }], diagnostics: [] };
+    const map = { archive: 'MP2', meta } as unknown as Parameters<typeof withInactivePieces>[0];
+    const owner = (i: number): string => `forge/piece_${i}`;
+    const out = withInactivePieces(map, [{}, { active: false }, {}, { active: false }], owner);
+    expect(out.meta!.initial.map((e) => [e.path, e.deactivate])).toEqual([['worldmodel/a', true], ['forge/piece_1', true], ['forge/piece_3', true]]);
+    expect(out.meta!.instances.map((i) => i.path)).toEqual(['forge/piece_1', 'forge/piece_3']);
+    expect(meta.initial).toHaveLength(1);                              // the map's own untouched
+    expect(withInactivePieces(map, [{}, {}], owner)).toBe(map);
+    // A map with no metadata (a blank floor's) is given one.
+    const bare = { archive: 'floor' } as unknown as Parameters<typeof withInactivePieces>[0];
+    expect(withInactivePieces(bare, [{ active: false }], owner).meta!.initial.map((e) => e.path)).toEqual(['forge/piece_0']);
+  });
+});

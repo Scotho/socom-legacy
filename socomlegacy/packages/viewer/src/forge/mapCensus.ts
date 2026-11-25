@@ -9,6 +9,7 @@ import { doorTemplates } from './placedDoors';
 import { turretTemplates } from './turrets';
 import { flareTemplates } from './placedFlares';
 import { scriptEffectsOf, scriptSoundsOf } from './scriptAssets';
+import { skyPartsOf } from './skyDome';
 
 /**
  * Which disc maps hold doors, turrets and hostages (a browser adaptation, FG.R2, no original): the Inspector's Map choice
@@ -16,7 +17,7 @@ import { scriptEffectsOf, scriptSoundsOf } from './scriptAssets';
  * (`LoadedMap.doors`, `.turrets`, `.types.escortees`: `../doors` `readDoors`, `../simMap` `mapTurrets`, `chartype.rdr`'s
  * `escortees`), the forge worker reading each once and keeping only the counts (`./archives` `census`).
  */
-export type CopyKind = 'door' | 'turret' | 'hostage' | 'ladder' | 'gate' | 'barrier' | 'flare' | 'sound' | 'effect' | 'ambient';
+export type CopyKind = 'door' | 'turret' | 'hostage' | 'ladder' | 'gate' | 'barrier' | 'flare' | 'sound' | 'effect' | 'ambient' | 'sky';
 export type MapCensus = Record<CopyKind, number>;
 
 /** A map's doors, turrets and hostage characters (each character once). */
@@ -50,7 +51,8 @@ export function censusOf(map: Pick<LoadedMap, 'doors' | 'turrets' | 'types'>): M
     gate: access.filter((t) => t.kind === 'gate').length, barrier: access.filter((t) => t.kind === 'barrier').length,
     flare: 'props' in map ? flareTemplates(map as LoadedMap, (map as LoadedMap).archive).length : 0,
     sound: scriptSoundsOf(programsOf(map)).length, effect: scriptEffectsOf(programsOf(map)).length,
-    ambient: 'meta' in map ? ambientProgramsOf(map as LoadedMap).length : 0 };
+    ambient: 'meta' in map ? ambientProgramsOf(map as LoadedMap).length : 0,
+    sky: 'world' in map ? skyPartsOf(map as LoadedMap).length : 0 };
 }
 
 /** A map's mission programs (`MapMeta.scene.programs`), none on a map built by hand. */
@@ -83,19 +85,21 @@ export function copiesOf(map: LoadedMap): MapCopies {
     effect: scriptEffectsOf(programsOf(map)).map((n) => [n, n] as const),
     // Its ambient effects (`./forgeObjects`): each by name, its label what it does and where it sits on its own map.
     ambient: ambientProgramsOf(map).map((a) => [a.name, `${a.name} · ${[a.particles ? 'particles' : '', a.sound ? 'sound' : '', a.light ? 'light' : ''].filter(Boolean).join(' + ')} · ${a.root ?? 'whole map'}`] as const),
+    // Its sky dome's parts (`./skyDome` `skyPartsOf`): a part each, by its texture -- the Sky choice greys a map with none.
+    sky: (map.world ? skyPartsOf(map) : []).map((p, i) => [String(i), p.textureName ?? ''] as const),
   };
 }
 
 /** The census of a map's copies: how many of each. */
 export function censusOfCopies(c: MapCopies): MapCensus {
-  return { door: c.door.length, turret: c.turret.length, hostage: c.hostage.length, ladder: c.ladder.length, gate: c.gate.length, barrier: c.barrier.length, flare: c.flare.length, sound: c.sound.length, effect: c.effect.length, ambient: c.ambient.length };
+  return { door: c.door.length, turret: c.turret.length, hostage: c.hostage.length, ladder: c.ladder.length, gate: c.gate.length, barrier: c.barrier.length, flare: c.flare.length, sound: c.sound.length, effect: c.effect.length, ambient: c.ambient.length, sky: c.sky?.length ?? 0 };
 }
 
 /** Each kind's word, one and many, as a Map choice counts it. */
 const COPY_WORDS: Readonly<Record<CopyKind, readonly [string, string]>> = {
   door: ['door', 'doors'], turret: ['turret', 'turrets'], hostage: ['hostage character', 'hostage characters'], ladder: ['ladder', 'ladders'],
   gate: ['gate', 'gates'], barrier: ['damage trigger', 'damage triggers'], flare: ['flare', 'flares'],
-  sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'],
+  sound: ['sound', 'sounds'], effect: ['effect', 'effects'], ambient: ['emitter', 'emitters'], sky: ['sky part', 'sky parts'],
 };
 
 /**
