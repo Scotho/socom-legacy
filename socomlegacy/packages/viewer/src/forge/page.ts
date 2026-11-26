@@ -1640,11 +1640,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // A disc map's read-only Lighting and Fog groups: their Resets put back the layout's Night / day and Fog distance.
   environmentDom.resets.lighting.addEventListener('click', () => { if (!refuseEdit()) resetLighting(); });
   environmentDom.resets.fog.addEventListener('click', () => { if (!refuseEdit()) settingsEdit(() => { settings = { ...settings, fogFar: null }; applySettings(); edit(); }); });
-  const askPresetMap = async (heading: string, body: string, current: string): Promise<string | null> => {
+  /**
+   * A disc map picked for a Preset: the multiplayer maps, then the campaign's missions (the owner, 2026-11-25: "every
+   * where else in the app where you can use a map"); `campaign` false for the characters, which a mission has none of.
+   */
+  const askPresetMap = async (heading: string, body: string, current: string, campaign = true): Promise<string | null> => {
     if (refuseUnderCard() || refuseEdit()) return null;
-    const maps = entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const);
-    if (!maps.length) { notifier.refused('No disc map to copy from'); return null; }
-    return askChoice(heading, body, [['Multiplayer', maps]], maps.some(([v]) => v === current) ? current : maps[0]![0], 'Copy');
+    const row = (e: ArchiveEntry): readonly [string, string] => [e.stem, `${e.label} · ${e.stem}`] as const;
+    const mp = entries.filter((e) => !e.campaign && !absent.has(e.stem)).map(row);
+    const camp = campaign ? entries.filter((e) => e.campaign && !absent.has(e.stem)).map(row) : [];
+    const all = [...mp, ...camp];
+    if (!all.length) { notifier.refused('No disc map to copy from'); return null; }
+    return askChoice(heading, body, [['Multiplayer', mp], ['Campaign', camp]], all.some(([v]) => v === current) ? current : all[0]![0], 'Copy');
   };
   /**
    * Of an environment, the settings that differ from those playing now: an edit makes only what it changed the map's own,
@@ -1667,9 +1674,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     skyChoices: () => {
       if (base?.kind !== 'blank') return [];
       askCensus();
-      return entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => {
+      // The multiplayer maps, then the campaign's missions, each under its header.
+      return entries.filter((e) => !absent.has(e.stem)).map((e) => {
         const none = (censusKnown.get(e.stem)?.sky?.length ?? -1) === 0;
-        return [e.stem, `${e.label} · ${e.stem}${none ? ' · no sky' : ''}`, none && e.stem !== settings.skyFrom] as const;
+        return [e.stem, `${e.label} · ${e.stem}${none ? ' · no sky' : ''}`, none && e.stem !== settings.skyFrom, e.campaign ? 'Campaign' : 'Multiplayer'] as const;
       });
     },
     preview: (a) => { if (editsLocked()) return; settings = { ...settings, ...atmosphereChanged(a) }; applySettings(); },
@@ -2484,6 +2492,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const sFps = el(doc, 'span', 'fx-cell fx-cell--fps');
   const notifier = createNotifier({ doc, status, toast, onChange: () => statusChips.update() });
   notifier.onPulse(forgePulse(() => padActuator()));        // FUI-4, R4: the haptics listen on the one pulse path
+  // No mode word and no counts shown (the owner, 2026-11-25: "it is old and does not reflect the current active tool
+  // usage"): `sMode` and `sCounts` stay in the bar, hidden, kept up to date (the specs read the cells by their order).
+  sMode.hidden = true;
+  sCounts.hidden = true;
   statusBar.append(status, notifier.logButton, statusChips.element, sMode, sCounts, sCam, sSpeed, sFps, notifier.log, notifier.live);
   // The loading veil over the viewport, the in-page dialog, the controls card.
   const loading = el(doc, 'div', 'fx-loading');
@@ -5447,6 +5459,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     return rosterMapList;
   };
+  /** The disc's campaign missions, stem and words: the Ambience and the Loading screen lists' second group. */
+  let campaignMapsOf: readonly ArchiveEntry[] | null = null;
+  let campaignMapRows: (readonly [string, string])[] = [];
+  const campaignMapList = (): (readonly [string, string])[] => {
+    if (campaignMapsOf !== entries) { campaignMapsOf = entries; campaignMapRows = entries.filter((e) => e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const); }
+    return campaignMapRows;
+  };
   const rosterChoicesOf = (stem: string, side: 'seal' | 'terrorist'): { index: number; label: string }[] | null => {
     const home = baseMap ?? charMap;
     if (home && stem === home.archive) return rosterChoices(home, side);
@@ -5486,7 +5505,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The map's own surface, reverb, view and title (a blank floor's: its library's), and the layout's over them.
     const home = baseMap ?? charMap;
     settingsDom.world.draw({
-      settings, locked: editsLocked(), maps: rosterMaps(),
+      settings, locked: editsLocked(), maps: rosterMaps(), campaignMaps: campaignMapList(),
       own: { material: home?.grenade?.defaultMaterial ?? null, reverb: home?.reverb ?? null,
         fov: home?.camera ? { hfov: home.camera.hfov, vfov: home.camera.vfov } : null, title: home?.name ?? null },
     });
@@ -5660,7 +5679,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   })(); });
   settingsDom.roster.onPreset(() => { void (async () => {
     const home = baseMap ?? charMap;
-    const stem = await askPresetMap('Characters preset', 'Use this map’s ARMORY characters in your map. Your own picks are replaced.', home?.archive ?? '');
+    const stem = await askPresetMap('Characters preset', 'Use this map’s ARMORY characters in your map. Your own picks are replaced.', home?.archive ?? '', false);
     if (!stem) return;
     const from = stem === home?.archive ? home : await hostageLibOf(stem);
     if (!from) { notifier.refused(`${stem} would not load`); return; }
@@ -16151,7 +16170,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     playLoadingPanel ??= new LoadingPanel(doc);
     playLoadingPanel.cover();
     const screen = await forgeLoadingScreen(archives.sourceRequest(), path);
-    if (screen?.layout) playLoadingPanel.show(withLoadingTitle(screen, settings.loading));
+    // A campaign mission's words are its own locale's, which this screen does not read: an id it could not resolve
+    // (`_60883_SeedingChaos_MSG`) is shown as the mission's name, its description none -- the layout's own words first.
+    const raw = (t: unknown): boolean => typeof t === 'string' && /^_\d+_\w+$/.test(t);
+    const entry = stem ? entries.find((e) => e.stem === stem) : undefined;
+    const own = settings.loading ?? { from: null, title: null, description: null };
+    const words = screen?.binding && entry?.campaign
+      ? { ...own, title: own.title ?? (raw(screen.binding.title) ? entry.label : null), description: own.description ?? (raw(screen.binding.description) ? '' : null) }
+      : settings.loading;
+    if (screen?.layout) playLoadingPanel.show(withLoadingTitle(screen, words));
     else { playLoadingPanel.hide(); say(`no loading screen to show for ${stem ?? path}${screen?.missing.length ? `: ${screen.missing[0]}` : ''}`, true); }
   };
   const togglePlay = (): void => {
@@ -17592,7 +17619,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // game mode type"), each with its mode's name (`missionlist.rdr` TYPE, `kitGameType`), the preset's own first. No "none":
     // every empty map takes its props, characters, weapons and sounds from one (the owner, 2026-11-25, after trying it).
     if (!missionKitsRead) { try { missionKits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { missionKits = null; } missionKitsRead = true; }
+    // The campaign's missions too, under their own header (the owner, 2026-11-25): a mission lends its props and its
+    // environment; its characters and kits the match takes from a multiplayer map, as a campaign base's Play does.
     const mp = entries.filter((e) => !e.campaign && !absent.has(e.stem));
+    const camp = entries.filter((e) => e.campaign && !absent.has(e.stem));
     const typeOf = (e: ArchiveEntry): number | null => kitGameType(missionKits, e.stem) ?? null;
     const modeWords = (e: ArchiveEntry): string => { const t = typeOf(e); return t !== null ? ` · ${FORGE_GAME_TYPE_NAME[t as keyof typeof FORGE_GAME_TYPE_NAME] ?? ''}` : ''; };
     const row = (e: ArchiveEntry): readonly [string, string] => [e.stem, `${e.label} · ${e.stem}${modeWords(e)}`] as const;
@@ -17603,7 +17633,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const chosen = !mp.length ? library : await askChoice(
       `${preset.label}: built from which map?`,
       'The one chosen fills the palette with its props, and the match takes its characters, weapons and environment. Its world is not drawn: the empty map is a flat floor.',
-      [[`${modeName} maps`, same.map(row)], ['Other maps', others.map(row)]],
+      [[`${modeName} maps`, same.map(row)], ['Other maps', others.map(row)], ['Campaign', camp.map((e) => [e.stem, `${e.label} · ${e.stem}`] as const)]],
       first, 'Create',
     );
     if (chosen === null) return null;

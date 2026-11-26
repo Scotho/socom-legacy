@@ -3221,3 +3221,4 @@ body.forge-page[data-forge-theme] .agent-panel[data-state="connected"] { border:
 body.forge-page:not(.fx-pad-in-use) .agent-panel .s2u-prompts { display: none; }
 /* Its commands and fields in the theme's ink on its raised fill (a light theme's too: not white on grey). */
 body.forge-page .agent-panel :is(.agent-panel__code, .agent-panel__field, .agent-panel__manual, .agent-panel__note-field) { background: var(--fx-panel-2); color: var(--fx-text); }
+.fx-status .fx-cell[hidden] { display: none; }   /* the mode word and the counts, kept off the bar (2026-11-25) */

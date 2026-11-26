@@ -700,7 +700,7 @@ export function parseSettings(raw: unknown): Partial<LayoutSettings> {
   }
   if (raw["ambience"] !== undefined) {
     const v = raw["ambience"];
-    if (v !== null && (typeof v !== "string" || !/^MP\d{1,3}$/.test(v))) throw new Error("settings.ambience is not a disc MP map");
+    if (v !== null && (typeof v !== "string" || !/^MP?\d{1,3}$/.test(v))) throw new Error("settings.ambience is not a disc map");
     out.ambience = v as string | null;
   }
   if (raw["eqLimit"] !== undefined) out.eqLimit = bounded("eqLimit", raw["eqLimit"], true);

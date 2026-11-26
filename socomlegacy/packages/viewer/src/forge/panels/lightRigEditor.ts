@@ -38,8 +38,8 @@ export interface LightRigHooks {
   own(part: AtmospherePart): boolean;
   /** The map it is built from (its words). */
   from(): string;
-  /** The disc maps a sky may be copied from: stem, words, and whether it is greyed (no dome to copy). */
-  skyChoices(): readonly (readonly [string, string, boolean?])[];
+  /** The disc maps a sky may be copied from: stem, words, whether it is greyed (no dome to copy), and its list's header. */
+  skyChoices(): readonly (readonly [string, string, boolean?, string?])[];
   /** Whether the sky shown scrolls (its Cloud speed has something to move). */
   skyScrolls(): boolean;
   preview(a: Atmosphere): void;
@@ -267,15 +267,20 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
       const amb = colourOf(a.rig.ambient);
       put(ambient.colour, amb.hex); put(ambient.intensity, String(round2(amb.intensity)));
       {
-        const want: (readonly [string, string, boolean?])[] = [['', 'None (the fog colour)'], ...hooks.skyChoices()];
+        const want: (readonly [string, string, boolean?, string?])[] = [['', 'None (the fog colour)'], ...hooks.skyChoices()];
         const opts = [...skySel.options];
         if (opts.length !== want.length || want.some(([v, w, off], i) => opts[i]?.value !== v || (i > 0 && (opts[i]?.textContent !== w || opts[i]?.disabled !== !!off)))) {
           // None first, then the maps under their header, as every map list of the Forge (the asset browser's).
-          const opt = ([v, w, off]: readonly [string, string, boolean?]): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', w); o.value = v; o.disabled = !!off; return o; };
-          const group = forgeEl(doc, 'optgroup', '');
-          group.label = 'Multiplayer';
-          group.append(...want.slice(1).map(opt));
-          skySel.replaceChildren(opt(want[0]!), ...(want.length > 1 ? [group] : []));
+          const opt = ([v, w, off]: readonly [string, string, boolean?, string?]): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', w); o.value = v; o.disabled = !!off; return o; };
+          // Under their headers (Multiplayer, then Campaign), in the hooks' order.
+          const groups = new Map<string, HTMLOptGroupElement>();
+          for (const row of want.slice(1)) {
+            const label = row[3] ?? 'Multiplayer';
+            let g = groups.get(label);
+            if (!g) { g = forgeEl(doc, 'optgroup', ''); g.label = label; groups.set(label, g); }
+            g.append(opt(row));
+          }
+          skySel.replaceChildren(opt(want[0]!), ...groups.values());
         }
         skySel.value = a.sky;
         // No disc map's sky offered (an official map keeps its own dome, its world's): the field says so, unchangeable.

@@ -19,6 +19,8 @@ export interface WorldView {
     title: string | null;
   };
   maps: readonly (readonly [string, string])[];
+  /** The disc's campaign missions (the owner, 2026-11-25: every map list offers them), under their own header. */
+  campaignMaps?: readonly (readonly [string, string])[];
   locked: boolean;
 }
 
@@ -55,12 +57,16 @@ export function buildWorldSection(doc: Document, mapTable?: HTMLElement): WorldS
     b.addEventListener('click', () => tell({ [reset]: null }));
     return b;
   };
+  /** The disc's maps as a list's groups: Multiplayer, then Campaign (where the disc holds any). */
+  const mapGroups = (v: WorldView): HTMLOptGroupElement[] => ([['Multiplayer', v.maps], ['Campaign', v.campaignMaps ?? []]] as const)
+    .filter(([, rows]) => rows.length > 0)
+    .map(([label, rows]) => { const g = forgeEl(doc, 'optgroup', ''); g.label = label; g.append(...rows.map(([stem, words]) => option(stem, words))); return g; });
   /** A value read beside its control (a slider's degrees or percent): the readout's face, a fixed width. */
   const readout = (text: string): HTMLSpanElement => forgeEl(doc, 'span', 'fx-setting-value fx-prop-readout', text);
 
   const draw = (v: WorldView): void => {
     const s = v.settings;
-    const next = JSON.stringify([s.defaultMaterial, s.reverb, s.ambience, s.fov, s.loading, v.own, v.locked, v.maps.length]);
+    const next = JSON.stringify([s.defaultMaterial, s.reverb, s.ambience, s.fov, s.loading, v.own, v.locked, v.maps.length, v.campaignMaps?.length ?? 0]);
     if (next === stamp) return;                                    // unchanged: focus and typing kept
     stamp = next;
     // One sub-section of its own (the owner, 2026-11-25): Reverb; the Default surface and the loading screen rows of the
@@ -77,12 +83,7 @@ export function buildWorldSection(doc: Document, mapTable?: HTMLElement): WorldS
     ambience.dataset['world'] = 'ambience';
     ambience.setAttribute('aria-label', 'Ambience');
     ambience.title = 'The background sound outdoors and indoors: a disc map’s, played in Play';
-    {
-      const g = forgeEl(doc, 'optgroup', '');
-      g.label = 'Multiplayer';
-      g.append(...v.maps.map(([stem, label]) => option(stem, label)));
-      ambience.append(option('', 'Map’s own'), g);
-    }
+    ambience.append(option('', 'Map’s own'), ...mapGroups(v));
     ambience.value = s.ambience ?? '';
     ambience.disabled = v.locked;
     ambience.addEventListener('change', () => tell({ ambience: ambience.value === '' ? null : ambience.value }));
@@ -155,11 +156,8 @@ export function buildWorldSection(doc: Document, mapTable?: HTMLElement): WorldS
     const from = forgeEl(doc, 'select', 'fx-select');
     from.dataset['world'] = 'loading-from';
     from.setAttribute('aria-label', 'Loading screen map');
-    // Under its header, as every map list of the Forge (the asset browser's): the multiplayer maps.
-    const group = forgeEl(doc, 'optgroup', '');
-    group.label = 'Multiplayer';
-    group.append(...v.maps.map(([stem, label]) => option(stem, label)));
-    from.append(option('', 'Map’s own'), group);
+    // The multiplayer maps alone (the owner, 2026-11-25: "remove the campaign from the loading screen list").
+    from.append(option('', 'Map’s own'), ...mapGroups({ ...v, campaignMaps: [] }));
     from.value = l.from ?? '';
     from.disabled = v.locked;
     from.addEventListener('change', () => write({ from: from.value === '' ? null : from.value }));

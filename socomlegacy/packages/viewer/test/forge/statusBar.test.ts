@@ -174,9 +174,11 @@ describe('the mounted Forge\'s status bar (FUI-4)', () => {
     let api!: ForgeAgentApi;
     const shell = await mountForge(document, { onAgentReady: (target) => { api = target; } });
     expect(api.read().ready).toBe(true);
-    // The five named cells keep their order (the specs read `.fx-status .fx-cell` by index); the chips are not cells.
+    // The five named cells keep their order (the specs read `.fx-status .fx-cell` by index); the chips are not cells. The
+    // mode word and the counts are hidden (the owner, 2026-11-25).
     const cells = [...document.querySelectorAll<HTMLElement>('.fx-status .fx-cell')];
     expect(cells.map((c) => [...c.classList].find((k) => k.startsWith('fx-cell--')))).toEqual(['fx-cell--mode', 'fx-cell--counts', 'fx-cell--cam', 'fx-cell--speed', 'fx-cell--fps']);
+    expect(cells.slice(0, 2).map((c) => c.hidden)).toEqual([true, true]);
     expect(chipWord('mode')).toBe('Build');
     expect(chipWord('issues')).toBe('Not checked');
     expect(chipWord('lobby'), 'no lobby, no lobby chip').toBeNull();
